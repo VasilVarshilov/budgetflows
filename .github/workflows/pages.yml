@@ -13,6 +13,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,12 +25,12 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build project
         run: npm run build
 
-      # ⚠️ ВАЖНО: публикуваме само dist/public!
+      # Публикуваме само dist/public
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -39,7 +41,7 @@ jobs:
     needs: build
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ needs.build.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
