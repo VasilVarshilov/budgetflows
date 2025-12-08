@@ -1,4 +1,4 @@
-name: Deploy Vite site to Pages
+name: Deploy Vite Client to GitHub Pages
 
 on:
   push:
@@ -32,10 +32,11 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Upload artifact
+      # IMPORTANT — upload ONLY the Vite client build
+      - name: Upload built client to Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ./dist/public
 
   deploy:
     runs-on: ubuntu-latest
