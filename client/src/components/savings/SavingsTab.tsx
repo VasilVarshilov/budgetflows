@@ -520,7 +520,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     </span>
                     <button
                       onClick={() => handleDeleteTransaction(item.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
