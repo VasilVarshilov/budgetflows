@@ -1,0 +1,5 @@
+{
+  "name": "Home Budget Calculator",
+  "description": "A simplified home budget tool featuring a specialized electricity bill calculator for EVN Bulgaria customers.",
+  "requestFramePermissions": []
+}
