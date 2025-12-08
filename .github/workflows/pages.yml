@@ -1,8 +1,8 @@
-name: Deploy Vite Client to GitHub Pages
+name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -10,30 +10,26 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build project
         run: npm run build
 
-      # IMPORTANT — upload ONLY the Vite client build
-      - name: Upload built client to Pages
+      # ⚠️ ВАЖНО: публикуваме само dist/public!
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist/public
@@ -44,7 +40,6 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
