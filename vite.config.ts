@@ -8,8 +8,11 @@ import { metaImagesPlugin } from "./vite-plugin-meta-images";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const isGitHubActions = process.env.GITHUB_ACTIONS === "true" || process.env.CI === "true";
+const base = isGitHubActions ? "/budgetflows/" : "/";
+
 export default defineConfig({
-  base: "/",
+  base,
   plugins: [
     react(),
     runtimeErrorOverlay(),
