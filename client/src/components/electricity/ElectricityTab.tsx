@@ -15,8 +15,8 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
     newT1: '',
     oldT2: '',
     newT2: '',
-    priceT1: '0.14986', // Updated default
-    priceT2: '0.08870', // Updated default
+    priceT1: '0.15458', // Updated default
+    priceT2: '0.09226', // Updated default
     invoiceTotal: ''
   });
 
