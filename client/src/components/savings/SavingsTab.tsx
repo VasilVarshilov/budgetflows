@@ -282,16 +282,21 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   };
 
   // Handlers
-  const handleAddNewCategory = (name: string) => {
-    const newCat: ExpenseCategory = {
-      id: `custom_inc_${Date.now()}`,
-      name,
-      iconName: "Wallet",
-      colorClass: "bg-slate-100 text-slate-600",
-      isCustom: true,
-    };
-    setCategories((prev) => [...prev, newCat]);
-    handleSelectCategory(newCat);
+  const handleAddNewCategory = (catOrName: ExpenseCategory | string) => {
+    if (typeof catOrName === "string") {
+      const newCat: ExpenseCategory = {
+        id: `custom_inc_${Date.now()}`,
+        name: catOrName,
+        iconName: "Wallet",
+        colorClass: "bg-slate-100 text-slate-600",
+        isCustom: true,
+      };
+      setCategories((prev) => [...prev, newCat]);
+      handleSelectCategory(newCat);
+    } else {
+      setCategories((prev) => [...prev, catOrName]);
+      handleSelectCategory(catOrName);
+    }
   };
 
   const handleSelectCategory = (cat: ExpenseCategory) => {

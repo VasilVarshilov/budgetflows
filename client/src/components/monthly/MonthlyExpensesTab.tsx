@@ -28,46 +28,25 @@ import {
   ShoppingBag,
   CircleHelp,
   RefreshCw,
+  Repeat,
   Shield,
   Pencil,
   Check,
   X,
+  ChevronDown,
+  CheckCircle2,
 } from "lucide-react";
-import { ExpenseCategory, ExpenseItem } from "@/types";
+import { ExpenseCategory, ExpenseItem, MonthlyRecord } from "@/types";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
+import { ImportRecurringModal } from "@/components/monthly/ImportRecurringModal";
+import {
+  AVAILABLE_ICONS_MAP,
+  loadStoredCategories,
+} from "@/utils/categoryStorage";
 
-// Map за lucide-react иконките (използва се по iconName)
-const ICON_MAP: Record<string, any> = {
-  Droplets,
-  Zap,
-  Fuel,
-  Car,
-  Utensils,
-  UtensilsCrossed,
-  Scissors,
-  Film,
-  Pill,
-  PawPrint,
-  Sparkles,
-  Shirt,
-  Heart,
-  Gift,
-  GraduationCap,
-  Bus,
-  CarTaxiFront,
-  ShoppingBag,
-  CircleHelp,
-  CreditCard,
-  Phone,
-  Wifi,
-  Home,
-  RefreshCw,
-  Shield,
-  Pencil,
-  Check,
-  X,
-};
+// Map за иконките, поддържащ всички налични иконки и AI предложения
+const ICON_MAP: Record<string, any> = AVAILABLE_ICONS_MAP;
 
 // Fixed Default Values in EUR
 const DEFAULT_CREDIT_EUR = 321.32;
@@ -233,15 +212,39 @@ const FIXED_CATEGORIES: ExpenseCategory[] = [
 
 interface MonthlyExpensesTabProps {
   currentMonth: string;
-  onSaveExpenses: (data: any) => void;
+  onSaveExpenses: (data: any, targetMonth?: string) => void;
   initialData?: any;
+  allMonthlyData?: Record<string, MonthlyRecord>;
+  onMonthChange?: (newMonth: string) => void;
 }
 
 export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   currentMonth,
   onSaveExpenses,
   initialData,
+  allMonthlyData = {},
+  onMonthChange,
 }) => {
+  // Helper to create fixed item
+  function createFixedItem(
+    name: string,
+    amount: number,
+    icon: string,
+    color: string,
+    isRecurring: boolean = true,
+  ): ExpenseItem {
+    return {
+      id: `fix_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      categoryId: name.toLowerCase(),
+      categoryName: name,
+      categoryIcon: icon,
+      categoryColor: color,
+      amount: amount,
+      date: new Date().toISOString(),
+      isRecurring: isRecurring,
+    };
+  }
+
   // Initialize Fixed Expenses
   const [fixedExpenses, setFixedExpenses] = useState<ExpenseItem[]>(() => {
     const savedFixed = initialData?.expenses?.fixed_expenses;
@@ -249,10 +252,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     // 1. If it's an array (new format), use it
     if (Array.isArray(savedFixed) && savedFixed.length > 0) {
       return savedFixed.map((item) => {
+        let amount = item.amount;
         if (item.categoryName === "Кредит" && item.amount === 353.69) {
-          return { ...item, amount: DEFAULT_CREDIT_EUR };
+          amount = DEFAULT_CREDIT_EUR;
         }
-        return item;
+        return {
+          ...item,
+          amount,
+          isRecurring: item.isRecurring !== undefined ? item.isRecurring : true,
+        };
       });
     }
 
@@ -269,6 +277,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           creditAmount,
           "CreditCard",
           "bg-blue-100 text-blue-600",
+          true,
         ),
       );
       if (savedFixed.phone_eur)
@@ -278,6 +287,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             savedFixed.phone_eur,
             "Phone",
             "bg-indigo-100 text-indigo-600",
+            true,
           ),
         );
       if (savedFixed.internet_eur)
@@ -287,6 +297,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             savedFixed.internet_eur,
             "Wifi",
             "bg-cyan-100 text-cyan-600",
+            true,
           ),
         );
       return legacy;
@@ -299,18 +310,21 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         DEFAULT_CREDIT_EUR,
         "CreditCard",
         "bg-blue-100 text-blue-600",
+        true,
       ),
       createFixedItem(
         "Телефон",
         DEFAULT_PHONE_EUR,
         "Phone",
         "bg-indigo-100 text-indigo-600",
+        true,
       ),
       createFixedItem(
         "Интернет",
         DEFAULT_INTERNET_EUR,
         "Wifi",
         "bg-cyan-100 text-cyan-600",
+        true,
       ),
     ];
   });
@@ -320,18 +334,47 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     () => initialData?.expenses?.additional_expenses || [],
   );
 
-  // UI State
-  const [categories, setCategories] = useState<ExpenseCategory[]>(
-    PREDEFINED_CATEGORIES,
+  // Sync state if initialData or month changes
+  useEffect(() => {
+    if (initialData?.expenses) {
+      if (Array.isArray(initialData.expenses.fixed_expenses)) {
+        setFixedExpenses(
+          initialData.expenses.fixed_expenses.map((item: ExpenseItem) => ({
+            ...item,
+            isRecurring: item.isRecurring !== undefined ? item.isRecurring : true,
+          })),
+        );
+      }
+      if (Array.isArray(initialData.expenses.additional_expenses)) {
+        setExpenses(initialData.expenses.additional_expenses);
+      }
+    }
+  }, [currentMonth]);
+
+  // UI State - initialized from persistent storage
+  const [categories, setCategories] = useState<ExpenseCategory[]>(() =>
+    loadStoredCategories(),
   );
 
-  // Add Expense Form State
+  // Sync categories if storage updates
+  const handleCategoriesChanged = (updated: ExpenseCategory[]) => {
+    setCategories(updated);
+  };
+
+  // Add Variable Expense Form State
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [selectedCategory, setSelectedCategory] =
     useState<ExpenseCategory | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [isRecurringExpense, setIsRecurringExpense] = useState(false);
+
+  // Edit Variable Expense State
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [editExpenseAmount, setEditExpenseAmount] = useState("");
+  const [editExpenseNote, setEditExpenseNote] = useState("");
+  const [editExpenseRecurring, setEditExpenseRecurring] = useState(false);
 
   // Add Fixed Expense Form State
   const [isAddingFixed, setIsAddingFixed] = useState(false);
@@ -339,32 +382,23 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [selectedFixedCategory, setSelectedFixedCategory] =
     useState<ExpenseCategory | null>(null);
   const [fixedAmount, setFixedAmount] = useState("");
+  const [isRecurringFixed, setIsRecurringFixed] = useState(true);
 
   // Edit Fixed Expense State
   const [editingFixedId, setEditingFixedId] = useState<string | null>(null);
   const [editFixedName, setEditFixedName] = useState("");
   const [editFixedAmount, setEditFixedAmount] = useState("");
+  const [editFixedRecurring, setEditFixedRecurring] = useState(true);
+
+  // Import Recurring Modal & Notification State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importNotification, setImportNotification] = useState<{
+    message: string;
+    type: "success" | "info";
+  } | null>(null);
 
   // Refs to track previous values to avoid infinite save loops
   const prevDataRef = useRef<string>("");
-
-  // Helper to create fixed item
-  function createFixedItem(
-    name: string,
-    amount: number,
-    icon: string,
-    color: string,
-  ): ExpenseItem {
-    return {
-      id: `fix_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      categoryId: name.toLowerCase(),
-      categoryName: name,
-      categoryIcon: icon,
-      categoryColor: color,
-      amount: amount,
-      date: new Date().toISOString(),
-    };
-  }
 
   // Persist data when local state changes
   useEffect(() => {
@@ -379,21 +413,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     // Only trigger save if data actually changed
     if (prevDataRef.current !== dataString) {
       prevDataRef.current = dataString;
-      onSaveExpenses(dataToSave);
+      onSaveExpenses(dataToSave, currentMonth);
     }
-  }, [fixedExpenses, expenses, onSaveExpenses, initialData]);
+  }, [fixedExpenses, expenses, onSaveExpenses, initialData, currentMonth]);
 
   // --- Handlers for Variable Expenses ---
 
-  const handleAddNewCategory = (name: string) => {
-    const newCat: ExpenseCategory = {
-      id: `custom_${Date.now()}`,
-      name,
-      iconName: "CircleHelp",
-      colorClass: "bg-slate-100 text-slate-500",
-      isCustom: true,
-    };
-    setCategories((prev) => [...prev, newCat]);
+  const handleAddNewCategory = (newCat: ExpenseCategory) => {
+    setCategories(loadStoredCategories());
     handleSelectCategory(newCat);
   };
 
@@ -405,15 +432,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleAddExpense = () => {
     if (!selectedCategory || !amount) return;
 
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
+
     const newExpense: ExpenseItem = {
       id: Date.now().toString(),
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
       categoryIcon: selectedCategory.iconName,
       categoryColor: selectedCategory.colorClass,
-      amount: parseFloat(amount),
-      note: note,
+      amount: parsedAmount,
+      note: note.trim() || undefined,
       date: new Date().toISOString(),
+      isRecurring: isRecurringExpense,
     };
 
     setExpenses((prev) => [...prev, newExpense]);
@@ -423,27 +454,57 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setSelectedCategory(null);
     setAmount("");
     setNote("");
+    setIsRecurringExpense(false);
   };
 
   const handleDeleteExpense = (id: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
+    if (editingExpenseId === id) {
+      setEditingExpenseId(null);
+    }
+  };
+
+  const handleStartEditExpense = (expense: ExpenseItem) => {
+    setEditingExpenseId(expense.id);
+    setEditExpenseAmount(expense.amount.toString());
+    setEditExpenseNote(expense.note || "");
+    setEditExpenseRecurring(!!expense.isRecurring);
+  };
+
+  const handleSaveEditExpense = (id: string) => {
+    const val = parseFloat(editExpenseAmount);
+    if (isNaN(val) || val < 0) return;
+
+    setExpenses((prev) =>
+      prev.map((item) => {
+        if (item.id === id) {
+          return {
+            ...item,
+            amount: val,
+            note: editExpenseNote.trim() || undefined,
+            isRecurring: editExpenseRecurring,
+          };
+        }
+        return item;
+      }),
+    );
+    setEditingExpenseId(null);
+  };
+
+  const handleCancelEditExpense = () => {
+    setEditingExpenseId(null);
   };
 
   // --- Handlers for Fixed Expenses ---
 
   const handleAddNewFixedCategory = (name: string) => {
-    // Since FIXED_CATEGORIES is a constant, we can't update it directly.
-    // Instead, we can create a temporary category object just for selection.
-    // In a real app, you might want to persist custom categories too.
     const newCat: ExpenseCategory = {
       id: `custom_fixed_${Date.now()}`,
       name,
-      iconName: "CreditCard", // Default icon for custom fixed expenses
+      iconName: "CreditCard",
       colorClass: "bg-slate-100 text-slate-500",
       isCustom: true,
     };
-
-    // Select it immediately
     handleSelectFixedCategory(newCat);
   };
 
@@ -455,14 +516,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleAddFixedExpense = () => {
     if (!selectedFixedCategory || !fixedAmount) return;
 
+    const parsed = parseFloat(fixedAmount);
+    if (isNaN(parsed) || parsed <= 0) return;
+
     const newFixed: ExpenseItem = {
       id: `fix_${Date.now()}`,
       categoryId: selectedFixedCategory.id,
       categoryName: selectedFixedCategory.name,
       categoryIcon: selectedFixedCategory.iconName,
       categoryColor: selectedFixedCategory.colorClass,
-      amount: parseFloat(fixedAmount),
+      amount: parsed,
       date: new Date().toISOString(),
+      isRecurring: isRecurringFixed,
     };
 
     setFixedExpenses((prev) => [...prev, newFixed]);
@@ -471,6 +536,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setIsAddingFixed(false);
     setSelectedFixedCategory(null);
     setFixedAmount("");
+    setIsRecurringFixed(true);
   };
 
   const handleDeleteFixedExpense = (id: string) => {
@@ -484,6 +550,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditingFixedId(item.id);
     setEditFixedName(item.categoryName);
     setEditFixedAmount(item.amount.toString());
+    setEditFixedRecurring(item.isRecurring !== false);
   };
 
   const handleSaveEditFixed = (id: string) => {
@@ -497,6 +564,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             ...item,
             categoryName: editFixedName.trim() || item.categoryName,
             amount: val,
+            isRecurring: editFixedRecurring,
           };
         }
         return item;
@@ -509,47 +577,276 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditingFixedId(null);
   };
 
+  // --- Import Recurring Handler ---
+  const handleConfirmImport = (imported: {
+    fixed: ExpenseItem[];
+    variable: ExpenseItem[];
+  }) => {
+    let totalImported = 0;
+    let totalSum = 0;
+
+    if (imported.fixed.length > 0) {
+      setFixedExpenses((prev) => [...prev, ...imported.fixed]);
+      totalImported += imported.fixed.length;
+      totalSum += imported.fixed.reduce((sum, item) => sum + item.amount, 0);
+    }
+
+    if (imported.variable.length > 0) {
+      setExpenses((prev) => [...prev, ...imported.variable]);
+      totalImported += imported.variable.length;
+      totalSum += imported.variable.reduce((sum, item) => sum + item.amount, 0);
+    }
+
+    setImportNotification({
+      message: `Успешно импортирани ${totalImported} периодични разхода на обща стойност €${totalSum.toFixed(2)} за месец ${currentMonth}!`,
+      type: "success",
+    });
+
+    setTimeout(() => {
+      setImportNotification(null);
+    }, 5000);
+  };
+
   const totalFixed = fixedExpenses.reduce((sum, item) => sum + item.amount, 0);
   const totalVariable = expenses.reduce((sum, item) => sum + item.amount, 0);
   const totalExpenses = totalFixed + totalVariable;
 
+  // Available months list for switcher if provided
+  const recordedMonthKeys = Object.keys(allMonthlyData || {});
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          <Calendar className="w-5 h-5 text-blue-600" />
-          Месечни разходи
-          <span className="text-sm font-normal text-slate-500 ml-2 bg-slate-100 px-2 py-0.5 rounded-full">
-            {currentMonth}
-          </span>
-        </h2>
-        <div className="text-right">
-          <span className="text-xs text-slate-400 block uppercase tracking-wider">
-            Общо
-          </span>
-          <span className="text-2xl font-bold text-slate-800">
-            €{totalExpenses.toFixed(2)}
-          </span>
+      {/* Top Header & Actions Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
+        <div>
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-xl font-bold text-slate-800">
+              Месечни разходи
+            </h2>
+
+            {/* Month Badge or Switcher */}
+            {onMonthChange && recordedMonthKeys.length > 1 ? (
+              <div className="relative inline-block ml-1">
+                <select
+                  value={currentMonth}
+                  onChange={(e) => onMonthChange(e.target.value)}
+                  className="appearance-none bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-semibold text-xs rounded-full pl-3 pr-7 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
+                >
+                  {recordedMonthKeys.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                  {!recordedMonthKeys.includes(currentMonth) && (
+                    <option value={currentMonth}>{currentMonth}</option>
+                  )}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            ) : (
+              <span className="text-xs font-semibold text-indigo-700 ml-1 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+                {currentMonth}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            Управлявайте фиксираните и текущи разходи за домакинството
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 self-end sm:self-center">
+          {/* Add Expense Button (Moved above fixed expenses) */}
+          <button
+            onClick={() => setIsAddingExpense((prev) => !prev)}
+            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95"
+            title="Добави нов разход"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Добави разход</span>
+          </button>
+
+          {/* Import Recurring Expenses Button */}
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-semibold transition-all shadow-sm active:scale-95"
+            title="Копирай периодични разходи от предходен месец (Наем, Интернет, Телефон, Застраховка и др.)"
+          >
+            <Repeat className="w-4 h-4 text-indigo-600" />
+            <span className="hidden sm:inline">Импорт на периодични разходи</span>
+            <span className="sm:hidden">Импорт периодични</span>
+          </button>
+
+          <div className="text-right pl-2 border-l border-slate-100">
+            <span className="text-[11px] text-slate-400 block uppercase font-medium tracking-wider">
+              Общо разходи
+            </span>
+            <span className="text-xl sm:text-2xl font-black text-slate-900">
+              €{totalExpenses.toFixed(2)}
+            </span>
+          </div>
         </div>
       </div>
+
+      {/* Import Notification Banner */}
+      {importNotification && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-emerald-800 text-sm animate-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <span className="font-semibold">{importNotification.message}</span>
+          </div>
+          <button
+            onClick={() => setImportNotification(null)}
+            className="text-emerald-600 hover:text-emerald-800 p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Add Variable Expense Form Panel - Positioned above Fixed Expenses */}
+      {isAddingExpense && (
+        <div className="bg-white p-5 rounded-2xl shadow-md border-2 border-indigo-200 animate-in slide-in-from-top-3 relative space-y-4">
+          <button
+            onClick={() => setIsAddingExpense(false)}
+            className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+              <Plus className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-base">
+                Нов допълнителен разход
+              </h4>
+              <p className="text-xs text-slate-400">
+                Въведете текущ или периодичен разход за месеца
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Category Selector Trigger */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Категория
+              </label>
+              <button
+                onClick={() => setShowCategoryPicker(true)}
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-white border border-slate-300 rounded-lg hover:border-indigo-300 focus:ring-2 focus:ring-indigo-100 transition-all text-left"
+              >
+                {selectedCategory ? (
+                  <span className="flex items-center gap-2 text-slate-800 font-medium">
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedCategory.colorClass}`}
+                    >
+                      {selectedCategory.iconName &&
+                      ICON_MAP[selectedCategory.iconName] ? (
+                        React.createElement(
+                          ICON_MAP[selectedCategory.iconName],
+                          { className: "w-3 h-3 text-current" },
+                        )
+                      ) : (
+                        <div className="w-2 h-2 rounded-full bg-current" />
+                      )}
+                    </span>
+                    {selectedCategory.name}
+                  </span>
+                ) : (
+                  <span className="text-slate-400 text-sm">
+                    Избери категория...
+                  </span>
+                )}
+                <Plus className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+
+            <InputGroup
+              label="Сума (EUR)"
+              value={amount}
+              onChange={setAmount}
+              placeholder="0.00"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              Бележка (опционално)
+            </label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900"
+              placeholder="напр. пазаруване, вечеря, гориво, абонамент..."
+            />
+          </div>
+
+          {/* Recurring Expense Checkbox */}
+          <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isRecurringExpense}
+                onChange={(e) => setIsRecurringExpense(e.target.checked)}
+                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5"
+              />
+              <div className="flex-1">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Repeat className="w-3.5 h-3.5 text-indigo-600" />
+                  Периодичен разход (Recurring Expense)
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5 leading-relaxed">
+                  Маркирайте разхода като повтарящ се, за да може да го копирате бързо и без повторно въвеждане в следващите месеци (напр. Наем, Интернет, Мобилен план, Застраховка).
+                </span>
+              </div>
+            </label>
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={handleAddExpense}
+              disabled={!selectedCategory || !amount}
+              className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            >
+              Добави разход
+            </button>
+            <button
+              onClick={() => setIsAddingExpense(false)}
+              className="px-4 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-sm font-semibold transition-colors"
+            >
+              Отказ
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left Column: Fixed Monthly Expenses */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-blue-500" />
-              Фиксирани разходи
-            </h3>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-slate-600">
+              <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-blue-500" />
+                Фиксирани разходи
+              </h3>
+              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+                {fixedExpenses.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-slate-700">
                 €{totalFixed.toFixed(2)}
               </span>
               {!isAddingFixed && (
                 <button
                   onClick={() => setIsAddingFixed(true)}
-                  className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                  className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors shadow-sm"
                   title="Добави фиксиран разход"
                 >
                   <Plus className="w-4 h-4" />
@@ -560,66 +857,81 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
           {/* Add Fixed Expense Form */}
           {isAddingFixed && (
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 animate-in slide-in-from-top-2 relative">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-200 animate-in slide-in-from-top-2 relative space-y-3">
               <button
                 onClick={() => setIsAddingFixed(false)}
-                className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+                className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
 
-              <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wide mb-3">
+              <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wide">
                 Нов фиксиран разход
               </h4>
 
-              <div className="space-y-3">
-                <div>
-                  <button
-                    onClick={() => setShowFixedCategoryPicker(true)}
-                    className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm hover:border-blue-300 transition-all text-left"
-                  >
-                    {selectedFixedCategory ? (
-                      <span className="flex items-center gap-2 text-slate-800 font-medium">
-                        <span
-                          className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedFixedCategory.colorClass}`}
-                        >
-                          {ICON_MAP[selectedFixedCategory.iconName] ? (
-                            React.createElement(
-                              ICON_MAP[selectedFixedCategory.iconName],
-                              {
-                                className: "w-3.5 h-3.5 text-current",
-                              },
-                            )
-                          ) : (
-                            <div className="w-2 h-2 rounded-full bg-current" />
-                          )}
-                        </span>
-                        {selectedFixedCategory.name}
+              <div>
+                <button
+                  onClick={() => setShowFixedCategoryPicker(true)}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm hover:border-blue-300 transition-all text-left"
+                >
+                  {selectedFixedCategory ? (
+                    <span className="flex items-center gap-2 text-slate-800 font-medium">
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedFixedCategory.colorClass}`}
+                      >
+                        {ICON_MAP[selectedFixedCategory.iconName] ? (
+                          React.createElement(
+                            ICON_MAP[selectedFixedCategory.iconName],
+                            { className: "w-3.5 h-3.5 text-current" },
+                          )
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-current" />
+                        )}
                       </span>
-                    ) : (
-                      <span className="text-slate-400">Избери вид...</span>
-                    )}
-                    <Plus className="w-3 h-3 text-slate-400" />
-                  </button>
-                </div>
+                      {selectedFixedCategory.name}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Избери категория (напр. Наем, Застраховка)...</span>
+                  )}
+                  <Plus className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+              </div>
 
-                <div className="flex gap-2">
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="any"
+                  value={fixedAmount}
+                  onChange={(e) => setFixedAmount(e.target.value)}
+                  placeholder="Сума €"
+                  className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <button
+                  onClick={handleAddFixedExpense}
+                  disabled={!selectedFixedCategory || !fixedAmount}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
+                >
+                  Добави
+                </button>
+              </div>
+
+              {/* Recurring Checkbox for Fixed Expense */}
+              <div className="pt-1 border-t border-slate-100">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
-                    type="number"
-                    step="any"
-                    value={fixedAmount}
-                    onChange={(e) => setFixedAmount(e.target.value)}
-                    placeholder="Сума €"
-                    className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    type="checkbox"
+                    checked={isRecurringFixed}
+                    onChange={(e) => setIsRecurringFixed(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
-                  <button
-                    onClick={handleAddFixedExpense}
-                    disabled={!selectedFixedCategory || !fixedAmount}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    OK
-                  </button>
-                </div>
+                  <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Repeat className="w-3.5 h-3.5 text-blue-600" />
+                    Периодичен разход (Recurring Expense)
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-400 ml-6">
+                  Позволява автоматично копиране в следващите месеци
+                </p>
               </div>
             </div>
           )}
@@ -676,6 +988,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
                     </div>
 
+                    {/* Checkbox Recurring inside edit fixed */}
+                    <div className="pt-1">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={editFixedRecurring}
+                          onChange={(e) =>
+                            setEditFixedRecurring(e.target.checked)
+                          }
+                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                          <Repeat className="w-3.5 h-3.5 text-blue-600" />
+                          Периодичен разход (Recurring Expense)
+                        </span>
+                      </label>
+                    </div>
+
                     <div className="flex items-center justify-end gap-2 pt-1">
                       <button
                         onClick={handleCancelEditFixed}
@@ -699,31 +1029,47 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="p-4 flex items-center justify-between hover:bg-slate-50 group transition-colors"
+                  className="p-3.5 sm:p-4 flex items-center justify-between hover:bg-slate-50 group transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${item.categoryColor}`}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center ${item.categoryColor}`}
                     >
                       {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
                         React.createElement(ICON_MAP[item.categoryIcon], {
                           className: "w-4 h-4 text-current",
                         })
                       ) : (
-                        <div className="w-1.5 h-1.5 rounded-full bg-current" />
+                        <div className="w-2 h-2 rounded-full bg-current" />
                       )}
                     </div>
-                    <span className="font-medium text-slate-700">
-                      {item.categoryName}
-                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-800 text-sm">
+                          {item.categoryName}
+                        </span>
+                        {item.isRecurring !== false && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200/80"
+                            title="Периодичен разход (копира се при импорт)"
+                          >
+                            <Repeat className="w-2.5 h-2.5 text-indigo-600" />
+                            Периодичен
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-400">
+                        Фиксиран месечен
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-800 mr-1">
+                    <span className="font-bold text-slate-800 mr-1 text-sm sm:text-base">
                       €{item.amount.toFixed(2)}
                     </span>
                     <button
                       onClick={() => handleStartEditFixed(item)}
-                      className="text-slate-400 hover:text-blue-600 p-1.5 rounded hover:bg-blue-50 transition-colors"
+                      className="text-slate-400 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
                       title="Редактирай"
                       aria-label="Edit"
                     >
@@ -731,7 +1077,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     </button>
                     <button
                       onClick={() => handleDeleteFixedExpense(item.id)}
-                      className="text-slate-400 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors"
+                      className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
                       title="Изтрий"
                       aria-label="Delete"
                     >
@@ -752,100 +1098,28 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         {/* Right Column: Variable Expenses List */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-700">Допълнителни разходи</h3>
-            {!isAddingExpense && (
-              <button
-                onClick={() => setIsAddingExpense(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Добави разход
-              </button>
-            )}
-          </div>
-
-          {/* Add Expense Form Panel */}
-          {isAddingExpense && (
-            <div className="bg-white p-5 rounded-xl shadow-lg border border-indigo-100 animate-in slide-in-from-top-4 mb-4 relative">
-              <button
-                onClick={() => setIsAddingExpense(false)}
-                className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-
-              <h4 className="font-medium text-indigo-900 mb-4">Нов разход</h4>
-
-              <div className="space-y-4">
-                {/* Category Selector Trigger */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Категория
-                  </label>
-                  <button
-                    onClick={() => setShowCategoryPicker(true)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 bg-white border border-slate-300 rounded-md hover:border-indigo-300 focus:ring-2 focus:ring-indigo-100 transition-all text-left"
-                  >
-                    {selectedCategory ? (
-                      <span className="flex items-center gap-2 text-slate-800">
-                        <span
-                          className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedCategory.colorClass}`}
-                        >
-                          {selectedCategory.iconName &&
-                          ICON_MAP[selectedCategory.iconName] ? (
-                            React.createElement(
-                              ICON_MAP[selectedCategory.iconName],
-                              {
-                                className: "w-2.5 h-2.5 text-current",
-                              },
-                            )
-                          ) : (
-                            <div className="w-2 h-2 rounded-full bg-current" />
-                          )}
-                        </span>
-                        {selectedCategory.name}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">
-                        Избери категория...
-                      </span>
-                    )}
-                    <Plus className="w-4 h-4 text-slate-400" />
-                  </button>
-                </div>
-
-                <InputGroup
-                  label="Сума (EUR)"
-                  value={amount}
-                  onChange={setAmount}
-                  placeholder="0.00"
-                />
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Бележка (опционално)
-                  </label>
-                  <input
-                    type="text"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900"
-                    placeholder="..."
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={handleAddExpense}
-                    disabled={!selectedCategory || !amount}
-                    className="flex-1 bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Добави
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-700">Допълнителни разходи</h3>
+              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+                {expenses.length}
+              </span>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-slate-700">
+                €{totalVariable.toFixed(2)}
+              </span>
+              {!isAddingExpense && (
+                <button
+                  onClick={() => setIsAddingExpense(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors"
+                  title="Добави допълнителен разход"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Добави</span>
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* Expenses List */}
           <div className="space-y-3">
@@ -854,55 +1128,186 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <p>Няма добавени разходи</p>
               </div>
             ) : (
-              expenses.map((expense) => (
-                <div
-                  key={expense.id}
-                  className="group flex items-center justify-between p-4 bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-all"
-                >
-                  <div className="flex items-center gap-4">
+              expenses.map((expense) => {
+                const isEditing = editingExpenseId === expense.id;
+
+                if (isEditing) {
+                  return (
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center ${expense.categoryColor}`}
+                      key={expense.id}
+                      className="p-4 bg-indigo-50/60 rounded-xl border-l-4 border-indigo-500 border border-indigo-100 space-y-3 animate-in fade-in duration-200"
                     >
-                      {expense.categoryIcon &&
-                      ICON_MAP[expense.categoryIcon] ? (
-                        React.createElement(ICON_MAP[expense.categoryIcon], {
-                          className: "w-5 h-5 text-current",
-                        })
-                      ) : (
-                        <div className="w-2 h-2 rounded-full bg-current"></div>
-                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-800 uppercase tracking-wide">
+                          Редактиране на разход: {expense.categoryName}
+                        </span>
+                        <button
+                          onClick={handleCancelEditExpense}
+                          className="text-slate-400 hover:text-slate-600 p-1"
+                          title="Отказ"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-slate-600 block mb-1">
+                            Сума (€)
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={editExpenseAmount}
+                            onChange={(e) =>
+                              setEditExpenseAmount(e.target.value)
+                            }
+                            className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                            placeholder="Сума €"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-slate-600 block mb-1">
+                            Бележка
+                          </label>
+                          <input
+                            type="text"
+                            value={editExpenseNote}
+                            onChange={(e) => setEditExpenseNote(e.target.value)}
+                            className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            placeholder="Бележка..."
+                          />
+                        </div>
+                      </div>
+
+                      {/* Recurring Checkbox in Edit Variable */}
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={editExpenseRecurring}
+                            onChange={(e) =>
+                              setEditExpenseRecurring(e.target.checked)
+                            }
+                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                            <Repeat className="w-3.5 h-3.5 text-indigo-600" />
+                            Периодичен разход (Recurring Expense)
+                          </span>
+                        </label>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          onClick={handleCancelEditExpense}
+                          className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"
+                        >
+                          Отказ
+                        </button>
+                        <button
+                          onClick={() => handleSaveEditExpense(expense.id)}
+                          disabled={!editExpenseAmount}
+                          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Запази
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-slate-800">
-                        {expense.categoryName}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {new Date(expense.date).toLocaleDateString("bg-BG")}
-                      </p>
-                      {expense.note && (
-                        <p className="text-xs text-slate-500 mt-0.5 italic">
-                          {expense.note}
-                        </p>
-                      )}
+                  );
+                }
+
+                return (
+                  <div
+                    key={expense.id}
+                    className="group flex items-center justify-between p-3.5 sm:p-4 bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-all"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${expense.categoryColor}`}
+                      >
+                        {expense.categoryIcon &&
+                        ICON_MAP[expense.categoryIcon] ? (
+                          React.createElement(ICON_MAP[expense.categoryIcon], {
+                            className: "w-5 h-5 text-current",
+                          })
+                        ) : (
+                          <div className="w-2.5 h-2.5 rounded-full bg-current" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-slate-800 text-sm">
+                            {expense.categoryName}
+                          </p>
+                          {expense.isRecurring && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200/80"
+                              title="Периодичен разход"
+                            >
+                              <Repeat className="w-2.5 h-2.5 text-indigo-600" />
+                              Периодичен
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                          <span>
+                            {new Date(expense.date).toLocaleDateString("bg-BG")}
+                          </span>
+                          {expense.note && (
+                            <>
+                              <span>•</span>
+                              <span className="text-slate-600 italic">
+                                {expense.note}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-800 mr-1 text-sm sm:text-base">
+                        €{expense.amount.toFixed(2)}
+                      </span>
+                      <button
+                        onClick={() => handleStartEditExpense(expense)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        title="Редактирай"
+                        aria-label="Редактирай"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteExpense(expense.id)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Изтрий"
+                        aria-label="Изтрий"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-slate-700">
-                      €{expense.amount.toFixed(2)}
-                    </span>
-                    <button
-                      onClick={() => handleDeleteExpense(expense.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
       </div>
+
+      {/* Import Recurring Expenses Confirmation Modal */}
+      {isImportModalOpen && (
+        <ImportRecurringModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          currentMonth={currentMonth}
+          existingFixedExpenses={fixedExpenses}
+          existingVariableExpenses={expenses}
+          allMonthlyData={allMonthlyData}
+          onConfirmImport={handleConfirmImport}
+        />
+      )}
 
       {/* Category Pickers Modals */}
       {showCategoryPicker && (
@@ -911,15 +1316,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           onSelect={handleSelectCategory}
           onClose={() => setShowCategoryPicker(false)}
           onAddNewCategory={handleAddNewCategory}
+          onCategoriesChanged={handleCategoriesChanged}
         />
       )}
 
       {showFixedCategoryPicker && (
         <CategoryPicker
-          categories={FIXED_CATEGORIES}
+          categories={categories}
           onSelect={handleSelectFixedCategory}
           onClose={() => setShowFixedCategoryPicker(false)}
-          onAddNewCategory={handleAddNewFixedCategory}
+          onAddNewCategory={(newCat) => {
+            handleCategoriesChanged(loadStoredCategories());
+            handleSelectFixedCategory(newCat);
+          }}
+          onCategoriesChanged={handleCategoriesChanged}
         />
       )}
     </div>

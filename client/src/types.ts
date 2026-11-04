@@ -19,6 +19,41 @@ export interface ElectricityResults {
   warnings: string[];
 }
 
+export interface ElectricityRecord {
+  id: string;
+  createdAt: string; // ISO date string
+  month: string; // e.g. "Ноември"
+  year: string; // e.g. "2026"
+  periodLabel: string; // e.g. "Ноември 2026"
+  
+  // Previous Reading
+  previousReading: number; // total: prevT1 + prevT2
+  prevT1: number;
+  prevT2: number;
+  
+  // Current Reading
+  currentReading: number; // total: currT1 + currT2
+  currT1: number;
+  currT2: number;
+  
+  // Consumption
+  consumption: number; // totalCons = consT1 + consT2 (kWh)
+  consT1: number;
+  consT2: number;
+  
+  // Unit Price
+  unitPrice: number; // Average price per kWh (€)
+  priceT1: number;
+  priceT2: number;
+  
+  // Total Cost
+  totalCost: number; // Invoice total (€)
+  costEm1: number;
+  em2Remainder: number;
+  
+  note?: string;
+}
+
 export interface ExpenseCategory {
   id: string;
   name: string;
@@ -36,6 +71,7 @@ export interface ExpenseItem {
   amount: number;
   note?: string;
   date: string;
+  isRecurring?: boolean; // When enabled, marked as a recurring expense (e.g., Rent, Internet, Mobile Plan, Insurance)
 }
 
 export interface IncomeItem extends ExpenseItem {
@@ -70,5 +106,57 @@ export interface MonthlyRecord {
   incomes?: IncomeItem[];
   meta: {
     generated_at: string;
+  };
+}
+
+export interface AppSettings {
+  currency: string; // 'EUR' | 'BGN'
+  language: string; // 'bg' | 'en'
+  theme: 'light' | 'dark' | 'system';
+  autoSaveElectricity: boolean;
+  defaultPriceT1: string;
+  defaultPriceT2: string;
+  lastBackupDate?: string;
+  notificationReminder?: boolean;
+}
+
+export interface BudgetConfig {
+  id: string;
+  categoryName: string;
+  categoryId?: string;
+  monthlyLimit: number; // in EUR
+  period?: string; // 'all' or month label
+}
+
+export interface CategoriesStore {
+  expenseCategories: ExpenseCategory[];
+  incomeCategories: ExpenseCategory[];
+}
+
+export interface BackupData {
+  version: string;
+  appName: string;
+  exportDate: string;
+  summary: {
+    incomeCount: number;
+    expensesCount: number;
+    savingsCount: number;
+    electricityCount: number;
+    categoriesCount: number;
+    budgetsCount: number;
+    monthsCovered: string[];
+  };
+  data: {
+    income: IncomeItem[];
+    expenses: {
+      monthlyRecords: Record<string, MonthlyRecord>;
+      totalExpensesCount: number;
+    };
+    savings: IncomeItem[];
+    electricityHistory: ElectricityRecord[];
+    electricityLastReadings?: ElectricityInputs;
+    categories: CategoriesStore;
+    budgets: BudgetConfig[];
+    settings: AppSettings;
   };
 }

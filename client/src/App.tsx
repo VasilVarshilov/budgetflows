@@ -5,27 +5,30 @@ import {
   LayoutDashboard,
   PieChart,
   PiggyBank,
+  FolderArchive,
   Loader2
 } from "lucide-react";
 
 // Components
+import { DashboardTab } from "@/components/dashboard/DashboardTab";
 import { ElectricityTab } from "@/components/electricity/ElectricityTab";
 import { MonthlyExpensesTab } from "@/components/monthly/MonthlyExpensesTab";
 import { MonthlyReportsTab } from "@/components/reports/MonthlyReportsTab";
 import { SavingsTab } from "@/components/savings/SavingsTab";
+import { BackupRestoreSection } from "@/components/backup/BackupRestoreSection";
 
 // Utils & Types
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 
-type Tab = "monthly" | "electricity" | "reports" | "savings";
+type Tab = "dashboard" | "monthly" | "electricity" | "reports" | "savings" | "backup";
 
 // Storage Keys
 const STORAGE_KEY_MONTHLY = "HomeBudget_Data";
 const STORAGE_KEY_SAVINGS = "HomeBudget_GlobalSavings";
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<Tab>("monthly");
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [currentMonth, setCurrentMonth] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
@@ -147,9 +150,9 @@ const App: React.FC = () => {
   );
 
   // Monthly Expenses Save
-  const handleSaveExpenses = useCallback((expensesData: any) => {
+  const handleSaveExpenses = useCallback((expensesData: any, targetMonth?: string) => {
     setMonthlyData((prev) => {
-      const monthKey = getCurrentMonthBulgarian();
+      const monthKey = targetMonth || currentMonth || getCurrentMonthBulgarian();
 
       const existing = prev[monthKey] || {
         month: monthKey,
@@ -183,7 +186,7 @@ const App: React.FC = () => {
       saveMonthlyToStorage(newData);
       return newData;
     });
-  }, []);
+  }, [currentMonth]);
 
   // Global Savings Save
   const handleUpdateGlobalSavings = useCallback(
@@ -193,6 +196,31 @@ const App: React.FC = () => {
     },
     []
   );
+
+  // Restore / reload all state after backup import
+  const handleDataRestored = useCallback(() => {
+    try {
+      const storedMonthly = localStorage.getItem(STORAGE_KEY_MONTHLY);
+      if (storedMonthly) {
+        setMonthlyData(JSON.parse(storedMonthly));
+      } else {
+        setMonthlyData({});
+      }
+    } catch (e) {
+      console.error("Failed reloading monthly data after restore", e);
+    }
+
+    try {
+      const storedSavings = localStorage.getItem(STORAGE_KEY_SAVINGS);
+      if (storedSavings) {
+        setGlobalSavings(JSON.parse(storedSavings));
+      } else {
+        setGlobalSavings([]);
+      }
+    } catch (e) {
+      console.error("Failed reloading savings data after restore", e);
+    }
+  }, []);
 
   const currentMonthRecord = monthlyData[currentMonth];
 
@@ -222,6 +250,18 @@ const App: React.FC = () => {
             </div>
 
             <nav className="flex space-x-1 sm:space-x-2 overflow-x-auto no-scrollbar py-2">
+              <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeTab === "dashboard"
+                    ? "bg-indigo-50 text-indigo-700 shadow-sm font-semibold"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Табло</span>
+              </button>
+
               <button
                 onClick={() => setActiveTab("monthly")}
                 className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
@@ -270,17 +310,39 @@ const App: React.FC = () => {
                 <PiggyBank className="w-4 h-4" />
                 <span>Спестявания</span>
               </button>
+
+              <button
+                onClick={() => setActiveTab("backup")}
+                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeTab === "backup"
+                    ? "bg-slate-800 text-white shadow-sm font-semibold"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <FolderArchive className="w-4 h-4" />
+                <span>Архив</span>
+              </button>
             </nav>
           </div>
         </div>
       </header>
 
       <main className="flex-1 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+        {activeTab === "dashboard" && (
+          <DashboardTab
+            monthlyData={monthlyData}
+            globalSavings={globalSavings}
+            onNavigateTab={setActiveTab}
+          />
+        )}
+
         {activeTab === "monthly" && (
           <MonthlyExpensesTab
             currentMonth={currentMonth}
             initialData={currentMonthRecord}
             onSaveExpenses={handleSaveExpenses}
+            allMonthlyData={monthlyData}
+            onMonthChange={setCurrentMonth}
           />
         )}
 
@@ -296,7 +358,14 @@ const App: React.FC = () => {
         )}
 
         {activeTab === "reports" && (
-          <MonthlyReportsTab monthlyData={monthlyData} />
+          <MonthlyReportsTab
+            monthlyData={monthlyData}
+            globalSavings={globalSavings}
+          />
+        )}
+
+        {activeTab === "backup" && (
+          <BackupRestoreSection onDataRestored={handleDataRestored} />
         )}
       </main>
 
