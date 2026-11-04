@@ -13,6 +13,10 @@ import {
   Smartphone,
   ShoppingBag,
   Wallet,
+  Download,
+  FileText,
+  X,
+  Calendar,
 } from "lucide-react";
 import { ExpenseCategory, IncomeItem } from "@/types";
 import { InputGroup } from "@/components/ui/InputGroup";
@@ -124,6 +128,158 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   const [note, setNote] = useState("");
 
   const currentYear = new Date().getFullYear();
+
+  // Export Modal State
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<
+    "all" | "current_month" | "current_year" | "custom_year" | "custom_range"
+  >("all");
+  const [exportYear, setExportYear] = useState(currentYear.toString());
+  const [exportStartDate, setExportStartDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString().split("T")[0];
+  });
+  const [exportEndDate, setExportEndDate] = useState(
+    () => new Date().toISOString().split("T")[0],
+  );
+
+  const getFilteredSavingsTransactions = () => {
+    const now = new Date();
+    return savingsData
+      .filter((item) => {
+        const itemDate = new Date(item.date);
+        if (exportScope === "all") return true;
+
+        if (exportScope === "current_month") {
+          return (
+            itemDate.getFullYear() === now.getFullYear() &&
+            itemDate.getMonth() === now.getMonth()
+          );
+        }
+
+        if (exportScope === "current_year") {
+          return itemDate.getFullYear() === now.getFullYear();
+        }
+
+        if (exportScope === "custom_year") {
+          return itemDate.getFullYear().toString() === exportYear;
+        }
+
+        if (exportScope === "custom_range") {
+          if (!exportStartDate && !exportEndDate) return true;
+          const start = exportStartDate
+            ? new Date(exportStartDate + "T00:00:00")
+            : new Date(0);
+          const end = exportEndDate
+            ? new Date(exportEndDate + "T23:59:59")
+            : new Date(8640000000000000);
+          return itemDate >= start && itemDate <= end;
+        }
+
+        return true;
+      })
+      .sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+      );
+  };
+
+  const handleExportTxt = () => {
+    const filtered = getFilteredSavingsTransactions();
+    if (filtered.length === 0) return;
+
+    let periodLabel = "";
+    const now = new Date();
+    if (exportScope === "all") {
+      periodLabel = "Пълна история (Lifetime)";
+    } else if (exportScope === "current_month") {
+      const monthName = now.toLocaleDateString("bg-BG", { month: "long" });
+      periodLabel = `${monthName} ${now.getFullYear()}`;
+    } else if (exportScope === "current_year") {
+      periodLabel = `${now.getFullYear()} година`;
+    } else if (exportScope === "custom_year") {
+      periodLabel = `${exportYear} година`;
+    } else {
+      periodLabel = `${exportStartDate || "начало"} до ${exportEndDate || "край"}`;
+    }
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    filtered.forEach((tx) => {
+      if (tx.type === "expense") {
+        totalExpense += tx.amount;
+      } else {
+        totalIncome += tx.amount;
+      }
+    });
+
+    const netChange = totalIncome - totalExpense;
+
+    const lines: string[] = [];
+    lines.push("================================================================================");
+    lines.push("               ОТЧЕТ ЗА СПЕСТЯВАНИЯ И ТРАНЗАКЦИИ (BudgetFlows)                 ");
+    lines.push("================================================================================");
+    lines.push(`Период: ${periodLabel}`);
+    lines.push(`Генериран на: ${new Date().toLocaleString("bg-BG")}`);
+    lines.push(`Брой транзакции в периода: ${filtered.length}`);
+    lines.push("--------------------------------------------------------------------------------");
+    lines.push("ОБЩА РАВНОСМЕТКА ЗА ИЗБРАНИЯ ПЕРИОД:");
+    lines.push(`• Общо постъпления (Приходи) : +€${totalIncome.toFixed(2)}`);
+    lines.push(`• Общо изтеглени (Разходи)   : -€${totalExpense.toFixed(2)}`);
+    lines.push(`• Нетно салдо за периода     : ${netChange >= 0 ? "+" : ""}€${netChange.toFixed(2)}`);
+    lines.push(`• Текущ общ наличен баланс   : €${totalBalance.toFixed(2)}`);
+    lines.push("================================================================================\n");
+
+    lines.push("ПОДРОБЕН СПИСЪК С ТРАНЗАКЦИИ В ПЕРИОДА:");
+    lines.push("--------------------------------------------------------------------------------");
+    lines.push(
+      "Дата".padEnd(12) +
+      " | " +
+      "Тип".padEnd(8) +
+      " | " +
+      "Категория".padEnd(20) +
+      " | " +
+      "Сума".padEnd(12) +
+      " | Бележка"
+    );
+    lines.push("--------------------------------------------------------------------------------");
+
+    filtered.forEach((tx) => {
+      const dateStr = new Date(tx.date).toLocaleDateString("bg-BG");
+      const typeStr = tx.type === "expense" ? "РАЗХОД" : "ПРИХОД";
+      const sign = tx.type === "expense" ? "-€" : "+€";
+      const amountStr = `${sign}${tx.amount.toFixed(2)}`;
+      const noteStr = tx.note || "-";
+
+      lines.push(
+        dateStr.padEnd(12) +
+        " | " +
+        typeStr.padEnd(8) +
+        " | " +
+        tx.categoryName.padEnd(20) +
+        " | " +
+        amountStr.padEnd(12) +
+        " | " +
+        noteStr
+      );
+    });
+
+    lines.push("--------------------------------------------------------------------------------");
+    lines.push("================================================================================\n");
+
+    const content = lines.join("\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Spestyavaniya_Otchet_${periodLabel.replace(/[\s\(\)]+/g, "_")}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setIsExportModalOpen(false);
+  };
 
   // Handlers
   const handleAddNewCategory = (name: string) => {
@@ -335,15 +491,25 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
             Общ баланс и история (Lifetime)
           </p>
         </div>
-        <div className="text-right bg-white px-4 py-2 rounded-xl border border-emerald-100 shadow-sm">
-          <span className="text-xs text-slate-400 block uppercase tracking-wider font-semibold">
-            Налични средства
-          </span>
-          <span
-            className={`text-3xl font-black ${totalBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsExportModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-sm font-semibold transition-colors shadow-xs cursor-pointer"
+            title="Експорт на спестявания в текстов файл"
           >
-            €{totalBalance.toFixed(2)}
-          </span>
+            <Download className="w-4 h-4" />
+            <span>Експорт</span>
+          </button>
+          <div className="text-right bg-white px-4 py-2 rounded-xl border border-emerald-100 shadow-sm">
+            <span className="text-xs text-slate-400 block uppercase tracking-wider font-semibold">
+              Налични средства
+            </span>
+            <span
+              className={`text-3xl font-black ${totalBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}
+            >
+              €{totalBalance.toFixed(2)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -563,6 +729,147 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
           onClose={() => setShowCategoryPicker(false)}
           onAddNewCategory={handleAddNewCategory}
         />
+      )}
+
+      {/* Export Modal */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Експорт на спестявания</h3>
+                  <p className="text-xs text-slate-400">Сваляне на транзакции в текстов (.txt) файл</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                  Изберете период за експорт:
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input
+                      type="radio"
+                      name="exportScope"
+                      checked={exportScope === "all"}
+                      onChange={() => setExportScope("all")}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div className="text-sm">
+                      <span className="font-medium text-slate-700 block">Всички транзакции</span>
+                      <span className="text-xs text-slate-400">Пълна история на спестяванията</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input
+                      type="radio"
+                      name="exportScope"
+                      checked={exportScope === "current_month"}
+                      onChange={() => setExportScope("current_month")}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div className="text-sm">
+                      <span className="font-medium text-slate-700 block">Текущ месец</span>
+                      <span className="text-xs text-slate-400">
+                        {new Date().toLocaleDateString("bg-BG", { month: "long" })} {new Date().getFullYear()}
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input
+                      type="radio"
+                      name="exportScope"
+                      checked={exportScope === "current_year"}
+                      onChange={() => setExportScope("current_year")}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div className="text-sm">
+                      <span className="font-medium text-slate-700 block">Текуща година</span>
+                      <span className="text-xs text-slate-400">{currentYear} година</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input
+                      type="radio"
+                      name="exportScope"
+                      checked={exportScope === "custom_range"}
+                      onChange={() => setExportScope("custom_range")}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div className="text-sm">
+                      <span className="font-medium text-slate-700 block">Конкретен диапазон от дати</span>
+                      <span className="text-xs text-slate-400">Избор на начална и крайна дата</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {exportScope === "custom_range" && (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3 animate-in fade-in duration-150">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-600 block mb-1">От дата:</label>
+                      <input
+                        type="date"
+                        value={exportStartDate}
+                        onChange={(e) => setExportStartDate(e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 rounded p-1.5 outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-600 block mb-1">До дата:</label>
+                      <input
+                        type="date"
+                        value={exportEndDate}
+                        onChange={(e) => setExportEndDate(e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 rounded p-1.5 outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="p-3 bg-emerald-50/70 rounded-xl text-xs text-emerald-800 flex justify-between items-center">
+                <span>Включени транзакции:</span>
+                <span className="font-bold">
+                  {getFilteredSavingsTransactions().length} бр.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Отказ
+              </button>
+              <button
+                onClick={handleExportTxt}
+                disabled={getFilteredSavingsTransactions().length === 0}
+                className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                Свали .txt файл
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

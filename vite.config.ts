@@ -8,26 +8,14 @@ import { metaImagesPlugin } from "./vite-plugin-meta-images";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig(async () => {
-  const plugins = [
+export default defineConfig({
+  base: "/",
+  plugins: [
     react(),
     runtimeErrorOverlay(),
     tailwindcss(),
     metaImagesPlugin(),
-  ];
-
-  // Динамични импорти само при dev в Replit — избегваме top-level await
-  if (process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined) {
-    const m1 = await import("@replit/vite-plugin-cartographer");
-    const m2 = await import("@replit/vite-plugin-dev-banner");
-    if (m1 && m1.cartographer) plugins.push(m1.cartographer());
-    if (m2 && m2.devBanner) plugins.push(m2.devBanner());
-  }
-
-  return {
-    // Важно: base трябва да е името на репото, когато хостваш в GitHub Pages на USER.github.io/REPO
-    base: "/budgetflows/",
-    plugins,
+  ],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "client", "src"),
@@ -55,5 +43,4 @@ export default defineConfig(async () => {
         deny: ["**/.*"],
       },
     },
-  };
 });

@@ -9,24 +9,80 @@ interface ElectricityTabProps {
   onAddToExpenses: (em1: number, em2: number) => void;
 }
 
+const STORAGE_KEY_LAST_READINGS = "HomeBudget_ElectricityLastReadings";
+
 export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses }) => {
-  const [inputs, setInputs] = useState<ElectricityInputs>({
-    oldT1: '',
-    newT1: '',
-    oldT2: '',
-    newT2: '',
-    priceT1: '0.15458', // Updated default
-    priceT2: '0.09226', // Updated default
-    invoiceTotal: ''
+  const [inputs, setInputs] = useState<ElectricityInputs>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_LAST_READINGS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          oldT1: parsed.oldT1 ?? '',
+          newT1: '',
+          oldT2: parsed.oldT2 ?? '',
+          newT2: '',
+          priceT1: parsed.priceT1 ?? '0.15458',
+          priceT2: parsed.priceT2 ?? '0.09226',
+          invoiceTotal: parsed.invoiceTotal ?? '',
+        };
+      }
+    } catch (e) {
+      console.error("Failed to load last readings", e);
+    }
+    return {
+      oldT1: '',
+      newT1: '',
+      oldT2: '',
+      newT2: '',
+      priceT1: '0.15458',
+      priceT2: '0.09226',
+      invoiceTotal: ''
+    };
   });
 
+  const [lastCalculatedInputs, setLastCalculatedInputs] = useState<ElectricityInputs | null>(null);
+  const [showAutoShiftNotice, setShowAutoShiftNotice] = useState(false);
   const [results, setResults] = useState<ElectricityResults | null>(null);
   const [isAdded, setIsAdded] = useState(false);
 
   const handleCalculate = () => {
     const res = calculateElectricity(inputs);
     setResults(res);
+    setLastCalculatedInputs({ ...inputs });
     setIsAdded(false);
+
+    // Save newT1 and newT2 and auto-shift into oldT1 and oldT2 for the next report
+    if (inputs.newT1 || inputs.newT2) {
+      const nextOldT1 = inputs.newT1 || inputs.oldT1;
+      const nextOldT2 = inputs.newT2 || inputs.oldT2;
+
+      try {
+        localStorage.setItem(
+          STORAGE_KEY_LAST_READINGS,
+          JSON.stringify({
+            oldT1: nextOldT1,
+            oldT2: nextOldT2,
+            priceT1: inputs.priceT1,
+            priceT2: inputs.priceT2,
+            invoiceTotal: inputs.invoiceTotal,
+          })
+        );
+      } catch (e) {
+        console.error("Failed to save last readings", e);
+      }
+
+      setInputs((prev) => ({
+        ...prev,
+        oldT1: nextOldT1,
+        newT1: '',
+        oldT2: nextOldT2,
+        newT2: '',
+      }));
+
+      setShowAutoShiftNotice(true);
+      setTimeout(() => setShowAutoShiftNotice(false), 5000);
+    }
   };
 
   const handleAddToExpenses = () => {
@@ -39,6 +95,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
 
   const handleDownloadCalculations = () => {
     if (!results) return;
+    const calcInputs = lastCalculatedInputs || inputs;
 
     const content = `
 КАЛКУЛАЦИИ ЗА ЕЛЕКТРОЕНЕРГИЯ
@@ -47,30 +104,30 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
 Месец: ${getCurrentMonthBulgarian()}
 
 ВХОДНИ ДАННИ:
-Старо Т1: ${inputs.oldT1}
-Ново Т1:  ${inputs.newT1}
-Старо Т2: ${inputs.oldT2}
-Ново Т2:  ${inputs.newT2}
+Старо Т1: ${calcInputs.oldT1}
+Ново Т1:  ${calcInputs.newT1}
+Старо Т2: ${calcInputs.oldT2}
+Ново Т2:  ${calcInputs.newT2}
 
 ЦЕНИ (с ДДС):
-Дневна тарифа (Т1): €${inputs.priceT1} / kWh
-Нощна тарифа (Т2):  €${inputs.priceT2} / kWh
-Обща сума по фактура: €${inputs.invoiceTotal}
+Дневна тарифа (Т1): €${calcInputs.priceT1} / kWh
+Нощна тарифа (Т2):  €${calcInputs.priceT2} / kWh
+Обща сума по фактура: €${calcInputs.invoiceTotal}
 
 ИЗЧИСЛЕНИЯ:
 1. Консумация
-   Т1 (Дневна) = ${inputs.newT1} - ${inputs.oldT1} = ${results.consT1.toFixed(3)} kWh
-   Т2 (Нощна)  = ${inputs.newT2} - ${inputs.oldT2} = ${results.consT2.toFixed(3)} kWh
+   Т1 (Дневна) = ${calcInputs.newT1} - ${calcInputs.oldT1} = ${results.consT1.toFixed(3)} kWh
+   Т2 (Нощна)  = ${calcInputs.newT2} - ${calcInputs.oldT2} = ${results.consT2.toFixed(3)} kWh
    Общо Електромер 1 = ${results.totalCons.toFixed(3)} kWh
 
 2. Стойност Електромер 1
    (Т1 * Цена) + (Т2 * Цена)
-   (${results.consT1.toFixed(3)} * ${inputs.priceT1}) + (${results.consT2.toFixed(3)} * ${inputs.priceT2})
+   (${results.consT1.toFixed(3)} * ${calcInputs.priceT1}) + (${results.consT2.toFixed(3)} * ${calcInputs.priceT2})
    = €${results.costEm1.toFixed(2)}
 
 3. Стойност Електромер 2 (Остатък)
    Фактура - Електромер 1
-   ${inputs.invoiceTotal} - ${results.costEm1.toFixed(2)}
+   ${calcInputs.invoiceTotal} - ${results.costEm1.toFixed(2)}
    = €${results.em2Remainder.toFixed(2)}
 
 ---------------------------
@@ -149,6 +206,13 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
                <Calculator className="w-5 h-5" />
                Изчисли
              </button>
+
+             {showAutoShiftNotice && (
+               <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-medium flex items-center gap-2 animate-in fade-in duration-200">
+                 <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                 <span>Показанията от Ново Т1 и Ново Т2 бяха прехвърлени в Старо Т1 и Старо Т2 за следващия отчет.</span>
+               </div>
+             )}
           </div>
 
           {/* Results Column */}

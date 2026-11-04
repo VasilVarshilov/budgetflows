@@ -29,6 +29,9 @@ import {
   CircleHelp,
   RefreshCw,
   Shield,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem } from "@/types";
 import { InputGroup } from "@/components/ui/InputGroup";
@@ -61,10 +64,13 @@ const ICON_MAP: Record<string, any> = {
   Home,
   RefreshCw,
   Shield,
+  Pencil,
+  Check,
+  X,
 };
 
 // Fixed Default Values in EUR
-const DEFAULT_CREDIT_EUR = 353.69;
+const DEFAULT_CREDIT_EUR = 321.32;
 const DEFAULT_PHONE_EUR = 24.54;
 const DEFAULT_INTERNET_EUR = 23.01;
 
@@ -242,21 +248,29 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     // 1. If it's an array (new format), use it
     if (Array.isArray(savedFixed) && savedFixed.length > 0) {
-      return savedFixed;
+      return savedFixed.map((item) => {
+        if (item.categoryName === "Кредит" && item.amount === 353.69) {
+          return { ...item, amount: DEFAULT_CREDIT_EUR };
+        }
+        return item;
+      });
     }
 
     // 2. If it's legacy object format, convert it
     if (savedFixed && !Array.isArray(savedFixed)) {
       const legacy: ExpenseItem[] = [];
-      if (savedFixed.credit_eur)
-        legacy.push(
-          createFixedItem(
-            "Кредит",
-            savedFixed.credit_eur,
-            "CreditCard",
-            "bg-blue-100 text-blue-600",
-          ),
-        );
+      const creditAmount =
+        savedFixed.credit_eur === 353.69
+          ? DEFAULT_CREDIT_EUR
+          : savedFixed.credit_eur || DEFAULT_CREDIT_EUR;
+      legacy.push(
+        createFixedItem(
+          "Кредит",
+          creditAmount,
+          "CreditCard",
+          "bg-blue-100 text-blue-600",
+        ),
+      );
       if (savedFixed.phone_eur)
         legacy.push(
           createFixedItem(
@@ -325,6 +339,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [selectedFixedCategory, setSelectedFixedCategory] =
     useState<ExpenseCategory | null>(null);
   const [fixedAmount, setFixedAmount] = useState("");
+
+  // Edit Fixed Expense State
+  const [editingFixedId, setEditingFixedId] = useState<string | null>(null);
+  const [editFixedName, setEditFixedName] = useState("");
+  const [editFixedAmount, setEditFixedAmount] = useState("");
 
   // Refs to track previous values to avoid infinite save loops
   const prevDataRef = useRef<string>("");
@@ -456,6 +475,38 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   const handleDeleteFixedExpense = (id: string) => {
     setFixedExpenses((prev) => prev.filter((e) => e.id !== id));
+    if (editingFixedId === id) {
+      setEditingFixedId(null);
+    }
+  };
+
+  const handleStartEditFixed = (item: ExpenseItem) => {
+    setEditingFixedId(item.id);
+    setEditFixedName(item.categoryName);
+    setEditFixedAmount(item.amount.toString());
+  };
+
+  const handleSaveEditFixed = (id: string) => {
+    const val = parseFloat(editFixedAmount);
+    if (isNaN(val) || val < 0) return;
+
+    setFixedExpenses((prev) =>
+      prev.map((item) => {
+        if (item.id === id) {
+          return {
+            ...item,
+            categoryName: editFixedName.trim() || item.categoryName,
+            amount: val,
+          };
+        }
+        return item;
+      }),
+    );
+    setEditingFixedId(null);
+  };
+
+  const handleCancelEditFixed = () => {
+    setEditingFixedId(null);
   };
 
   const totalFixed = fixedExpenses.reduce((sum, item) => sum + item.amount, 0);
@@ -499,6 +550,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <button
                   onClick={() => setIsAddingFixed(true)}
                   className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                  title="Добави фиксиран разход"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -574,41 +626,121 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
           {/* Fixed Expenses List */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-            {fixedExpenses.map((item) => (
-              <div
-                key={item.id}
-                className="p-4 flex items-center justify-between hover:bg-slate-50 group transition-colors"
-              >
-                <div className="flex items-center gap-3">
+            {fixedExpenses.map((item) => {
+              const isEditing = editingFixedId === item.id;
+
+              if (isEditing) {
+                return (
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center ${item.categoryColor}`}
+                    key={item.id}
+                    className="p-4 bg-blue-50/60 border-l-4 border-blue-500 space-y-3 animate-in fade-in duration-200"
                   >
-                    {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
-                      React.createElement(ICON_MAP[item.categoryIcon], {
-                        className: "w-4 h-4 text-current",
-                      })
-                    ) : (
-                      <div className="w-1.5 h-1.5 rounded-full bg-current" />
-                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">
+                        Редактиране на фиксиран разход
+                      </span>
+                      <button
+                        onClick={handleCancelEditFixed}
+                        className="text-slate-400 hover:text-slate-600 p-1"
+                        title="Отказ"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 block mb-1">
+                          Име
+                        </label>
+                        <input
+                          type="text"
+                          value={editFixedName}
+                          onChange={(e) => setEditFixedName(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Име на разход"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 block mb-1">
+                          Сума (€)
+                        </label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={editFixedAmount}
+                          onChange={(e) => setEditFixedAmount(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800"
+                          placeholder="Сума €"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        onClick={handleCancelEditFixed}
+                        className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"
+                      >
+                        Отказ
+                      </button>
+                      <button
+                        onClick={() => handleSaveEditFixed(item.id)}
+                        disabled={!editFixedAmount}
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Запази
+                      </button>
+                    </div>
                   </div>
-                  <span className="font-medium text-slate-700">
-                    {item.categoryName}
-                  </span>
+                );
+              }
+
+              return (
+                <div
+                  key={item.id}
+                  className="p-4 flex items-center justify-between hover:bg-slate-50 group transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${item.categoryColor}`}
+                    >
+                      {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
+                        React.createElement(ICON_MAP[item.categoryIcon], {
+                          className: "w-4 h-4 text-current",
+                        })
+                      ) : (
+                        <div className="w-1.5 h-1.5 rounded-full bg-current" />
+                      )}
+                    </div>
+                    <span className="font-medium text-slate-700">
+                      {item.categoryName}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-800 mr-1">
+                      €{item.amount.toFixed(2)}
+                    </span>
+                    <button
+                      onClick={() => handleStartEditFixed(item)}
+                      className="text-slate-400 hover:text-blue-600 p-1.5 rounded hover:bg-blue-50 transition-colors"
+                      title="Редактирай"
+                      aria-label="Edit"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteFixedExpense(item.id)}
+                      className="text-slate-400 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors"
+                      title="Изтрий"
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="font-bold text-slate-800">
-                    €{item.amount.toFixed(2)}
-                  </span>
-                  <button
-                    onClick={() => handleDeleteFixedExpense(item.id)}
-                    className="text-slate-400 hover:text-red-500 p-2 transition-all"
-                    aria-label="Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {fixedExpenses.length === 0 && (
               <div className="p-8 text-center text-slate-400 text-sm italic">
                 Няма добавени фиксирани разходи
