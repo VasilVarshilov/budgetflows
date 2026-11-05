@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Plus,
   Trash2,
@@ -35,6 +35,10 @@ import {
   X,
   ChevronDown,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
+  Search,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem, MonthlyRecord } from "@/types";
 import { InputGroup } from "@/components/ui/InputGroup";
@@ -44,6 +48,11 @@ import {
   AVAILABLE_ICONS_MAP,
   loadStoredCategories,
 } from "@/utils/categoryStorage";
+import {
+  ExpenseFilterToolbar,
+  ExpenseFiltersState,
+  DEFAULT_FILTERS,
+} from "@/components/monthly/ExpenseFilterToolbar";
 
 // Map за иконките, поддържащ всички налични иконки и AI предложения
 const ICON_MAP: Record<string, any> = AVAILABLE_ICONS_MAP;
@@ -375,6 +384,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editExpenseAmount, setEditExpenseAmount] = useState("");
   const [editExpenseNote, setEditExpenseNote] = useState("");
   const [editExpenseRecurring, setEditExpenseRecurring] = useState(false);
+  const [editingExpenseSourceMonth, setEditingExpenseSourceMonth] = useState<string | null>(null);
+  const [editingExpenseIsFixed, setEditingExpenseIsFixed] = useState(false);
+
+  // --- Smart Search, Filter & Sort State ---
+  const [expenseFilters, setExpenseFilters] = useState<ExpenseFiltersState>(DEFAULT_FILTERS);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [isFullWidthMode, setIsFullWidthMode] = useState<boolean>(false);
+  const PAGE_SIZE = 25; // Optimize for large datasets: 25 items per page
 
   // Add Fixed Expense Form State
   const [isAddingFixed, setIsAddingFixed] = useState(false);
@@ -416,6 +433,162 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       onSaveExpenses(dataToSave, currentMonth);
     }
   }, [fixedExpenses, expenses, onSaveExpenses, initialData, currentMonth]);
+
+  // --- Candidate Expenses Collection across Months & Types ---
+  const candidateExpenses = useMemo(() => {
+    // 1. Current Month filter
+    if (expenseFilters.monthFilter === "current") {
+      let items: (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean })[] = expenses.map(
+        (e) => ({ ...e, sourceMonth: currentMonth })
+      );
+      if (expenseFilters.includeFixed) {
+        items = [
+          ...items,
+          ...fixedExpenses.map((f) => ({ ...f, sourceMonth: currentMonth, isFixedItem: true })),
+        ];
+      }
+      return items;
+    }
+
+    // 2. Specific Month filter
+    if (
+      expenseFilters.monthFilter !== "all" &&
+      expenseFilters.monthFilter !== "custom" &&
+      allMonthlyData[expenseFilters.monthFilter]
+    ) {
+      const targetMonth = expenseFilters.monthFilter;
+      const isCur = targetMonth === currentMonth;
+      const rec = allMonthlyData[targetMonth];
+      const vars = isCur
+        ? expenses
+        : rec?.expenses?.additional_expenses || [];
+      let items: (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean })[] = vars.map(
+        (e) => ({ ...e, sourceMonth: targetMonth })
+      );
+
+      if (expenseFilters.includeFixed) {
+        const fixes = isCur
+          ? fixedExpenses
+          : rec?.expenses?.fixed_expenses || [];
+        items = [
+          ...items,
+          ...fixes.map((f) => ({ ...f, sourceMonth: targetMonth, isFixedItem: true })),
+        ];
+      }
+      return items;
+    }
+
+    // 3. All Months or Custom Date Range filter
+    const allItems: (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean })[] = [];
+    const allMonthKeys = Object.keys(allMonthlyData);
+    if (!allMonthKeys.includes(currentMonth)) {
+      allMonthKeys.push(currentMonth);
+    }
+
+    for (const m of allMonthKeys) {
+      const isCur = m === currentMonth;
+      const rec = allMonthlyData[m];
+      const monthVars = isCur ? expenses : rec?.expenses?.additional_expenses || [];
+
+      for (const item of monthVars) {
+        allItems.push({ ...item, sourceMonth: m });
+      }
+
+      if (expenseFilters.includeFixed) {
+        const monthFixed = isCur ? fixedExpenses : rec?.expenses?.fixed_expenses || [];
+        for (const item of monthFixed) {
+          allItems.push({ ...item, sourceMonth: m, isFixedItem: true });
+        }
+      }
+    }
+
+    return allItems;
+  }, [
+    expenses,
+    fixedExpenses,
+    allMonthlyData,
+    currentMonth,
+    expenseFilters.monthFilter,
+    expenseFilters.includeFixed,
+  ]);
+
+  // --- Smart Search, Filter & Sort Pipeline ---
+  const filteredExpenses = useMemo(() => {
+    const term = expenseFilters.searchTerm.trim().toLowerCase();
+    const hasCategoryFilter = expenseFilters.categoryId !== "all";
+    const minVal = expenseFilters.minAmount !== "" ? parseFloat(expenseFilters.minAmount) : null;
+    const maxVal = expenseFilters.maxAmount !== "" ? parseFloat(expenseFilters.maxAmount) : null;
+    const isCustomDate = expenseFilters.monthFilter === "custom";
+    const startIso = expenseFilters.startDate ? expenseFilters.startDate + "T00:00:00" : null;
+    const endIso = expenseFilters.endDate ? expenseFilters.endDate + "T23:59:59" : null;
+
+    return candidateExpenses
+      .filter((item) => {
+        // Smart Search by Note, Category, Amount
+        if (term) {
+          const noteMatch = item.note && item.note.toLowerCase().includes(term);
+          const catMatch = item.categoryName && item.categoryName.toLowerCase().includes(term);
+          const amtStr = item.amount.toString();
+          const amtFixed = item.amount.toFixed(2);
+          const amtMatch = amtStr.includes(term) || amtFixed.includes(term);
+
+          if (!noteMatch && !catMatch && !amtMatch) {
+            return false;
+          }
+        }
+
+        // Filter by Category
+        if (hasCategoryFilter) {
+          const catSelected = expenseFilters.categoryId.toLowerCase();
+          const matchesCategory =
+            item.categoryName.toLowerCase() === catSelected ||
+            item.categoryId.toLowerCase() === catSelected;
+          if (!matchesCategory) return false;
+        }
+
+        // Filter by Amount Range
+        if (minVal !== null && !isNaN(minVal) && item.amount < minVal) {
+          return false;
+        }
+        if (maxVal !== null && !isNaN(maxVal) && item.amount > maxVal) {
+          return false;
+        }
+
+        // Filter by Custom Date Range
+        if (isCustomDate) {
+          if (startIso && item.date < startIso) return false;
+          if (endIso && item.date > endIso) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        switch (expenseFilters.sortBy) {
+          case "oldest":
+            return new Date(a.date).getTime() - new Date(b.date).getTime();
+          case "highest":
+            return b.amount - a.amount;
+          case "lowest":
+            return a.amount - b.amount;
+          case "newest":
+          default:
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+        }
+      });
+  }, [candidateExpenses, expenseFilters]);
+
+  // Pagination for large dataset optimization
+  const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const paginatedExpenses = useMemo(() => {
+    const startIdx = (safePage - 1) * PAGE_SIZE;
+    return filteredExpenses.slice(startIdx, startIdx + PAGE_SIZE);
+  }, [filteredExpenses, safePage, PAGE_SIZE]);
+
+  const totalFilteredSum = useMemo(() => {
+    return filteredExpenses.reduce((sum, item) => sum + item.amount, 0);
+  }, [filteredExpenses]);
 
   // --- Handlers for Variable Expenses ---
 
@@ -464,30 +637,97 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     }
   };
 
-  const handleStartEditExpense = (expense: ExpenseItem) => {
+  const handleDeleteExpenseItem = (
+    expense: ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean }
+  ) => {
+    const targetMonth = expense.sourceMonth || currentMonth;
+
+    if (expense.isFixedItem || expense.id.startsWith("fix_")) {
+      handleDeleteFixedExpense(expense.id);
+    } else if (targetMonth === currentMonth) {
+      handleDeleteExpense(expense.id);
+    } else {
+      const record = allMonthlyData[targetMonth];
+      if (record && record.expenses) {
+        const updatedAdd = (record.expenses.additional_expenses || []).filter(
+          (e) => e.id !== expense.id
+        );
+        onSaveExpenses(
+          {
+            ...record.expenses,
+            additional_expenses: updatedAdd,
+          },
+          targetMonth
+        );
+      }
+    }
+  };
+
+  const handleStartEditExpense = (
+    expense: ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean }
+  ) => {
     setEditingExpenseId(expense.id);
     setEditExpenseAmount(expense.amount.toString());
     setEditExpenseNote(expense.note || "");
     setEditExpenseRecurring(!!expense.isRecurring);
+    setEditingExpenseSourceMonth(expense.sourceMonth || currentMonth);
+    setEditingExpenseIsFixed(!!expense.isFixedItem || expense.id.startsWith("fix_"));
   };
 
   const handleSaveEditExpense = (id: string) => {
     const val = parseFloat(editExpenseAmount);
     if (isNaN(val) || val < 0) return;
 
-    setExpenses((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          return {
-            ...item,
-            amount: val,
-            note: editExpenseNote.trim() || undefined,
-            isRecurring: editExpenseRecurring,
-          };
-        }
-        return item;
-      }),
-    );
+    const targetMonth = editingExpenseSourceMonth || currentMonth;
+
+    if (editingExpenseIsFixed) {
+      setFixedExpenses((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                amount: val,
+                isRecurring: editExpenseRecurring,
+              }
+            : item
+        )
+      );
+    } else if (targetMonth === currentMonth) {
+      setExpenses((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            return {
+              ...item,
+              amount: val,
+              note: editExpenseNote.trim() || undefined,
+              isRecurring: editExpenseRecurring,
+            };
+          }
+          return item;
+        })
+      );
+    } else {
+      const record = allMonthlyData[targetMonth];
+      if (record && record.expenses) {
+        const updatedAdd = (record.expenses.additional_expenses || []).map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                amount: val,
+                note: editExpenseNote.trim() || undefined,
+                isRecurring: editExpenseRecurring,
+              }
+            : item
+        );
+        onSaveExpenses(
+          {
+            ...record.expenses,
+            additional_expenses: updatedAdd,
+          },
+          targetMonth
+        );
+      }
+    }
     setEditingExpenseId(null);
   };
 
@@ -826,9 +1066,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={isFullWidthMode ? "space-y-6" : "grid grid-cols-1 lg:grid-cols-2 gap-6"}>
         {/* Left Column: Fixed Monthly Expenses */}
-        <div className="space-y-4">
+        {!isFullWidthMode && (
+          <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -1094,9 +1335,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             )}
           </div>
         </div>
+      )}
 
-        {/* Right Column: Variable Expenses List */}
-        <div className="space-y-4">
+        {/* Right Column: Variable Expenses List (or Full-Width Explorer) */}
+        <div className={isFullWidthMode ? "space-y-4 col-span-full" : "space-y-4"}>
+          {isFullWidthMode && (
+            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between text-indigo-900 text-xs">
+              <span className="font-semibold">
+                Разширен режим на цял екран за търсене и преглед на разходите
+              </span>
+              <button
+                onClick={() => setIsFullWidthMode(false)}
+                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 transition-colors shadow-xs"
+              >
+                Обратно към стандартен изглед
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-700">Допълнителни разходи</h3>
@@ -1121,14 +1377,51 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             </div>
           </div>
 
+          {/* Smart Search, Filters & Sorting Toolbar */}
+          <ExpenseFilterToolbar
+            filters={expenseFilters}
+            onChangeFilters={(newFilters) => {
+              setExpenseFilters(newFilters);
+              setCurrentPage(1);
+            }}
+            availableMonths={recordedMonthKeys}
+            currentMonth={currentMonth}
+            categories={categories}
+            totalResultsCount={filteredExpenses.length}
+            totalFilteredSum={totalFilteredSum}
+            isFullWidthMode={isFullWidthMode}
+            onToggleFullWidthMode={() => setIsFullWidthMode((prev) => !prev)}
+          />
+
           {/* Expenses List */}
           <div className="space-y-3">
-            {expenses.length === 0 ? (
-              <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-200 text-slate-400">
-                <p>Няма добавени разходи</p>
+            {filteredExpenses.length === 0 ? (
+              <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-200 text-slate-400 space-y-2">
+                <Search className="w-8 h-8 mx-auto text-slate-300" />
+                <p className="text-sm font-semibold text-slate-600">
+                  {expenses.length === 0
+                    ? "Няма добавени разходи"
+                    : "Няма намерени разходи, отговарящи на филтрите"}
+                </p>
+                {(expenseFilters.searchTerm ||
+                  expenseFilters.monthFilter !== "current" ||
+                  expenseFilters.categoryId !== "all" ||
+                  expenseFilters.minAmount !== "" ||
+                  expenseFilters.maxAmount !== "" ||
+                  expenseFilters.includeFixed) && (
+                  <button
+                    onClick={() => {
+                      setExpenseFilters(DEFAULT_FILTERS);
+                      setCurrentPage(1);
+                    }}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold underline"
+                  >
+                    Изчисти филтрите и търсенето
+                  </button>
+                )}
               </div>
             ) : (
-              expenses.map((expense) => {
+              paginatedExpenses.map((expense) => {
                 const isEditing = editingExpenseId === expense.id;
 
                 if (isEditing) {
@@ -1241,6 +1534,23 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <p className="font-semibold text-slate-800 text-sm">
                             {expense.categoryName}
                           </p>
+
+                          {/* Source Month Badge if from another month */}
+                          {expense.sourceMonth &&
+                            expense.sourceMonth !== currentMonth && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                                <Calendar className="w-2.5 h-2.5 text-blue-600" />
+                                {expense.sourceMonth}
+                              </span>
+                            )}
+
+                          {/* Fixed Badge if included from fixed expenses */}
+                          {(expense.isFixedItem || expense.id.startsWith("fix_")) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
+                              Фиксиран
+                            </span>
+                          )}
+
                           {expense.isRecurring && (
                             <span
                               className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200/80"
@@ -1280,7 +1590,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDeleteExpense(expense.id)}
+                        onClick={() => handleDeleteExpenseItem(expense)}
                         className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                         title="Изтрий"
                         aria-label="Изтрий"
@@ -1291,6 +1601,38 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   </div>
                 );
               })
+            )}
+
+            {/* Pagination Controls for Large Datasets */}
+            {totalPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200">
+                <span className="text-xs text-slate-500 font-medium">
+                  Показване на {(safePage - 1) * PAGE_SIZE + 1}–
+                  {Math.min(safePage * PAGE_SIZE, filteredExpenses.length)} от{" "}
+                  {filteredExpenses.length} разхода
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage <= 1}
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Предишна страница"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-semibold px-2 text-slate-700">
+                    {safePage} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage >= totalPages}
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Следваща страница"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>

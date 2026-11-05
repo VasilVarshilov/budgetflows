@@ -18,6 +18,9 @@ import {
   SYSTEM_CATEGORY_COLORS,
 } from "@/utils/colors";
 import { ExportCenterModal } from "@/components/export/ExportCenterModal";
+import { MonthToMonthComparison } from "@/components/common/MonthToMonthComparison";
+import { computeMonthToMonthComparison } from "@/utils/comparisonStorage";
+import { useTheme } from "@/utils/themeContext";
 
 interface MonthlyReportsTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -72,6 +75,17 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
 
   const recordKey = `${selectedMonth} ${selectedYear}`;
   const record = monthlyData[recordKey];
+
+  // Month-to-Month comparison (Current Month vs Previous Month)
+  const comparisonData = useMemo(() => {
+    const y = parseInt(selectedYear, 10) || now.getFullYear();
+    return computeMonthToMonthComparison(
+      selectedMonth,
+      y,
+      monthlyData,
+      globalSavings
+    );
+  }, [selectedMonth, selectedYear, monthlyData, globalSavings]);
 
   // Aggregation Logic
   const chartData = useMemo(() => {
@@ -296,6 +310,9 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Month-to-Month Comparison Section */}
+      <MonthToMonthComparison comparisonData={comparisonData} />
 
       {/* Main Content */}
       {!record ? (
