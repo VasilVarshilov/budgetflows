@@ -244,10 +244,10 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         </svg>
         {/* Center Text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">
+          <span className="text-xs text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider mb-1">
             Общо
           </span>
-          <span className="text-2xl font-black text-slate-800 tracking-tight">
+          <span className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">
             €{totalExpense.toFixed(2)}
           </span>
         </div>
@@ -258,12 +258,12 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Controls */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-wrap gap-4 items-center justify-between transition-colors">
         <div className="flex items-center gap-2">
-          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+          <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-lg">
             <PieChart className="w-5 h-5" />
           </div>
-          <h2 className="text-lg font-bold text-slate-800">Месечен отчет</h2>
+          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Месечен отчет</h2>
         </div>
 
         <div className="flex gap-2">
@@ -272,7 +272,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="appearance-none bg-slate-50 border border-slate-300 text-slate-700 py-2 pl-4 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+              className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-2 pl-4 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
             >
               {MONTHS_BG.map((m) => (
                 <option key={m} value={m}>
@@ -288,7 +288,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="appearance-none bg-slate-50 border border-slate-300 text-slate-700 py-2 pl-4 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+              className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-2 pl-4 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
             >
               {YEARS.map((y) => (
                 <option key={y} value={y}>
@@ -302,7 +302,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           {/* Export Button */}
           <button
             onClick={() => setIsExportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-sm font-semibold transition-colors shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg text-sm font-semibold transition-colors shadow-xs cursor-pointer"
             title="Експорт на отчет в текстов файл"
           >
             <Download className="w-4 h-4" />
@@ -316,23 +316,23 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
 
       {/* Main Content */}
       {!record ? (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
-          <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Calendar className="w-8 h-8 text-slate-300" />
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-12 text-center transition-colors">
+          <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Calendar className="w-8 h-8 text-slate-300 dark:text-slate-600" />
           </div>
-          <h3 className="text-lg font-medium text-slate-900 mb-2">
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
             Няма данни за този период
           </h3>
-          <p className="text-slate-500">
+          <p className="text-slate-500 dark:text-slate-400">
             Няма намерени записи за {selectedMonth} {selectedYear}.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Chart Section */}
-          <div className="bg-white p-6 rounded-xl shadow-md border border-slate-200 flex flex-col items-center justify-center min-h-[350px]">
-            <h3 className="w-full text-left font-semibold text-slate-700 mb-6 flex items-center gap-2">
-              <Filter className="w-4 h-4 text-slate-400" />
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center min-h-[350px] transition-colors">
+            <h3 className="w-full text-left font-semibold text-slate-700 dark:text-slate-200 mb-6 flex items-center gap-2">
+              <Filter className="w-4 h-4 text-slate-400 dark:text-slate-500" />
               Разпределение
             </h3>
 
@@ -340,7 +340,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
               renderDonutChart()
             ) : (
               <div className="h-64 flex items-center justify-center w-full">
-                <p className="text-slate-400">Няма разходи за показване</p>
+                <p className="text-slate-400 dark:text-slate-500">Няма разходи за показване</p>
               </div>
             )}
 
@@ -349,16 +349,16 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
               {chartData.slice(0, 5).map((item, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-1.5 text-xs bg-slate-50 px-2 py-1 rounded-md border border-slate-100"
+                  className="flex items-center gap-1.5 text-xs bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-700"
                 >
                   <span
                     className="w-2 h-2 rounded-full"
                     style={{ backgroundColor: item.color }}
                   />
-                  <span className="text-slate-600 font-bold">
+                  <span className="text-slate-600 dark:text-slate-300 font-bold">
                     {Math.round(item.percentage)}%
                   </span>
-                  <span className="text-slate-400 truncate max-w-[80px]">
+                  <span className="text-slate-400 dark:text-slate-400 truncate max-w-[80px]">
                     {item.name}
                   </span>
                 </div>
@@ -367,9 +367,9 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           </div>
 
           {/* List Section */}
-          <div className="bg-white p-6 rounded-xl shadow-md border border-slate-200 flex flex-col">
-            <h3 className="font-semibold text-slate-700 mb-6 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-slate-400" />
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col transition-colors">
+            <h3 className="font-semibold text-slate-700 dark:text-slate-200 mb-6 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-slate-400 dark:text-slate-500" />
               Детайли по категория
             </h3>
 
@@ -377,7 +377,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
               {chartData.map((item, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100 group"
+                  className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700 group"
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -400,9 +400,9 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                       )}
                     </div>
                     <div>
-                      <p className="font-medium text-slate-800">{item.name}</p>
+                      <p className="font-medium text-slate-800 dark:text-slate-200">{item.name}</p>
                       <div className="flex items-center gap-2">
-                        <div className="w-16 h-1 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="w-16 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full"
                             style={{
@@ -411,30 +411,30 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                             }}
                           />
                         </div>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-slate-400 dark:text-slate-500">
                           {item.percentage.toFixed(1)}%
                         </p>
                       </div>
                     </div>
                   </div>
-                  <span className="font-bold text-slate-700">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
                     €{item.value.toFixed(2)}
                   </span>
                 </div>
               ))}
 
               {chartData.length === 0 && (
-                <div className="text-center py-8 text-slate-400 italic">
+                <div className="text-center py-8 text-slate-400 dark:text-slate-500 italic">
                   Няма записани разходи
                 </div>
               )}
             </div>
 
-            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center">
-              <span className="text-sm font-medium text-slate-500">
+            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 Общо разходи
               </span>
-              <span className="text-xl font-bold text-slate-800">
+              <span className="text-xl font-bold text-slate-800 dark:text-white">
                 €{totalExpense.toFixed(2)}
               </span>
             </div>

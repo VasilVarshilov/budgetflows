@@ -242,17 +242,17 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Top Header & Month Filter */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl">
               <Target className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white">
                 Управление на бюджети
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Задайте месечни лимити и следете изразходването по категории в реално време
               </p>
             </div>
@@ -261,16 +261,16 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
         <div className="flex items-center gap-3">
           {/* Month Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
+          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 shadow-2xs">
             <Calendar className="w-4 h-4 text-slate-400" />
             <div className="relative">
               <select
                 value={selectedMonthKey}
                 onChange={(e) => setSelectedMonthKey(e.target.value)}
-                className="appearance-none bg-transparent font-semibold text-xs text-slate-700 pr-5 outline-none cursor-pointer"
+                className="appearance-none bg-transparent font-semibold text-xs text-slate-700 dark:text-slate-200 pr-5 outline-none cursor-pointer"
               >
                 {availableMonths.map((m) => (
-                  <option key={m} value={m}>
+                  <option key={m} value={m} className="dark:bg-slate-800 dark:text-white">
                     {m}
                   </option>
                 ))}
@@ -291,23 +291,23 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
       {/* Exceeded Warnings Alert Banner (if any) */}
       {budgetCalc.activeWarnings.length > 0 && (
-        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-rose-900 shadow-xs animate-in slide-in-from-top-2 duration-300">
+        <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-2xl p-4 text-rose-900 dark:text-rose-200 shadow-xs animate-in slide-in-from-top-2 duration-300">
           <div className="flex items-start gap-3">
-            <div className="p-1.5 bg-rose-100 rounded-lg text-rose-600 mt-0.5 shrink-0">
+            <div className="p-1.5 bg-rose-100 dark:bg-rose-900/60 rounded-lg text-rose-600 dark:text-rose-400 mt-0.5 shrink-0">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div className="flex-1">
-              <h4 className="font-bold text-sm text-rose-800">
+              <h4 className="font-bold text-sm text-rose-800 dark:text-rose-300">
                 Внимание: Надвишен бюджет за {selectedMonthKey}
               </h4>
-              <p className="text-xs text-rose-700 mt-0.5">
+              <p className="text-xs text-rose-700 dark:text-rose-300/80 mt-0.5">
                 Имате категории или общ разход, които надхвърлят зададения лимит:
               </p>
               <div className="mt-2.5 space-y-1.5">
                 {budgetCalc.activeWarnings.map((warn, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center gap-2 bg-white/80 border border-rose-200/60 px-3 py-1.5 rounded-lg text-xs font-medium text-rose-950 shadow-2xs"
+                    className="flex items-center gap-2 bg-white/80 dark:bg-slate-800/80 border border-rose-200/60 dark:border-rose-900/60 px-3 py-1.5 rounded-lg text-xs font-medium text-rose-950 dark:text-rose-200 shadow-2xs"
                   >
                     <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
                     <span>{warn}</span>
@@ -320,8 +320,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       )}
 
       {/* Main Overall Monthly Budget Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs relative overflow-hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-5 sm:p-6 shadow-xs relative overflow-hidden transition-colors">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
               <Wallet className="w-6 h-6" />
@@ -334,10 +334,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                 <span
                   className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
                     budgetCalc.totalStatus === "green"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
                       : budgetCalc.totalStatus === "yellow"
-                      ? "bg-amber-50 text-amber-700 border-amber-200"
-                      : "bg-rose-50 text-rose-700 border-rose-200"
+                      ? "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                      : "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
                   }`}
                 >
                   {budgetCalc.totalPercentage}% изразходван
@@ -346,7 +346,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
               {!isEditingTotal ? (
                 <div className="flex items-baseline gap-2 mt-1">
-                  <span className="text-3xl font-black text-slate-900 tracking-tight">
+                  <span className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
                     €{totalMonthlyBudget.toFixed(2)}
                   </span>
                   <button
@@ -354,7 +354,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       setTotalBudgetInput(totalMonthlyBudget.toString());
                       setIsEditingTotal(true);
                     }}
-                    className="p-1 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                    className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                     title="Промени месечния бюджет"
                   >
                     <Pencil className="w-4 h-4" />
@@ -372,7 +372,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       min="0"
                       value={totalBudgetInput}
                       onChange={(e) => setTotalBudgetInput(e.target.value)}
-                      className="w-36 pl-7 pr-2.5 py-1 text-lg font-bold text-slate-900 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-36 pl-7 pr-2.5 py-1 text-lg font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                       autoFocus
                     />
                   </div>
@@ -385,7 +385,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   </button>
                   <button
                     onClick={() => setIsEditingTotal(false)}
-                    className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors cursor-pointer"
+                    className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition-colors cursor-pointer"
                     title="Отказ"
                   >
                     <X className="w-4 h-4" />
@@ -397,11 +397,11 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
           {/* Quick Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span className="text-xs text-slate-500 block">
+            <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <span className="text-xs text-slate-500 dark:text-slate-400 block">
                 Изразходвано ({selectedMonthKey})
               </span>
-              <span className="text-base font-bold text-slate-900">
+              <span className="text-base font-bold text-slate-900 dark:text-white">
                 €{budgetCalc.totalSpent.toFixed(2)}
               </span>
             </div>
@@ -409,15 +409,15 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             <div
               className={`p-3 rounded-xl border ${
                 budgetCalc.isTotalExceeded
-                  ? "bg-rose-50/70 border-rose-200"
-                  : "bg-emerald-50/70 border-emerald-200"
+                  ? "bg-rose-50/70 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60"
+                  : "bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60"
               }`}
             >
               <span
                 className={`text-xs block ${
                   budgetCalc.isTotalExceeded
-                    ? "text-rose-700 font-semibold"
-                    : "text-emerald-700 font-semibold"
+                    ? "text-rose-700 dark:text-rose-300 font-semibold"
+                    : "text-emerald-700 dark:text-emerald-300 font-semibold"
                 }`}
               >
                 {budgetCalc.isTotalExceeded ? "Превишен с" : "Оставащ бюджет"}
@@ -425,8 +425,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               <span
                 className={`text-base font-bold ${
                   budgetCalc.isTotalExceeded
-                    ? "text-rose-700"
-                    : "text-emerald-700"
+                    ? "text-rose-700 dark:text-rose-300"
+                    : "text-emerald-700 dark:text-emerald-300"
                 }`}
               >
                 {budgetCalc.isTotalExceeded ? "-" : ""}€
@@ -434,22 +434,18 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               </span>
             </div>
 
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 col-span-2 sm:col-span-1">
-              <span className="text-xs text-slate-500 block">Разпределено</span>
-              <span className="text-base font-bold text-slate-900">
+            <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-100 dark:border-slate-800 col-span-2 sm:col-span-1">
+              <span className="text-xs text-slate-500 dark:text-slate-400 block">Разпределено</span>
+              <span className="text-base font-bold text-slate-900 dark:text-white">
                 €{totalAllocated.toFixed(2)}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Progress Bar with Color Coding:
-            0-80% = Green
-            80-100% = Yellow
-            100%+ = Red
-        */}
+        {/* Progress Bar with Color Coding */}
         <div className="mt-5 space-y-2">
-          <div className="flex justify-between text-xs font-semibold text-slate-600">
+          <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-slate-300">
             <span>
               Прогрес на общия бюджет (
               {budgetCalc.totalStatus === "green"
@@ -462,10 +458,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             <span
               className={
                 budgetCalc.totalStatus === "green"
-                  ? "text-emerald-700 font-bold"
+                  ? "text-emerald-700 dark:text-emerald-400 font-bold"
                   : budgetCalc.totalStatus === "yellow"
-                  ? "text-amber-700 font-bold"
-                  : "text-rose-700 font-bold"
+                  ? "text-amber-700 dark:text-amber-400 font-bold"
+                  : "text-rose-700 dark:text-rose-400 font-bold"
               }
             >
               €{budgetCalc.totalSpent.toFixed(2)} / €
@@ -473,7 +469,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             </span>
           </div>
 
-          <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
+          <div className="w-full h-3.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-slate-700">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 budgetCalc.totalStatus === "green"
@@ -488,10 +484,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             />
           </div>
 
-          <div className="flex justify-between items-center text-xs text-slate-400 pt-0.5">
+          <div className="flex justify-between items-center text-xs text-slate-400 dark:text-slate-500 pt-0.5">
             <span>0%</span>
-            <span className="text-slate-400">80% праг</span>
-            <span className="text-slate-400">100% лимит</span>
+            <span className="text-slate-400 dark:text-slate-500">80% праг</span>
+            <span className="text-slate-400 dark:text-slate-500">100% лимит</span>
           </div>
         </div>
       </div>
@@ -500,27 +496,27 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
               <span>Бюджети по категории</span>
-              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-semibold">
+              <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-semibold">
                 {categoryBudgets.length}
               </span>
             </h3>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Цветови индикатори: Зелен (0-80%), Жълт (80-100%), Червен (100%+)
             </p>
           </div>
 
           <div className="flex items-center gap-2 text-xs">
-            <span className="inline-flex items-center gap-1 font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+            <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               {healthyCount} в норма
             </span>
-            <span className="inline-flex items-center gap-1 font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+            <span className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
               <span className="w-2 h-2 rounded-full bg-amber-500" />
               {warningCount} внимание
             </span>
-            <span className="inline-flex items-center gap-1 font-medium text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+            <span className="inline-flex items-center gap-1 font-medium text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-md border border-rose-200 dark:border-rose-800">
               <span className="w-2 h-2 rounded-full bg-rose-500" />
               {exceededCount} надвишени
             </span>
@@ -528,12 +524,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
         </div>
 
         {budgetCalc.categoryStatuses.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
-            <HelpCircle className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-            <p className="text-sm font-semibold text-slate-700">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-400">
+            <HelpCircle className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               Няма добавени бюджети за категории
             </p>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
               Създайте нов бюджет за Храна, Транспорт, Забавления или други разходи.
             </p>
             <button
@@ -549,8 +545,6 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               const IconComponent =
                 AVAILABLE_ICONS_MAP[item.iconName] || Target;
 
-              // Color classes based on prompt requirements
-              // 0-80% = Green, 80-100% = Yellow, 100%+ = Red
               const barColor =
                 item.status === "green"
                   ? "bg-emerald-500"
@@ -560,18 +554,18 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
               const badgeColor =
                 item.status === "green"
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
                   : item.status === "yellow"
-                  ? "bg-amber-50 text-amber-700 border-amber-200"
-                  : "bg-rose-50 text-rose-700 border-rose-200";
+                  ? "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                  : "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800";
 
               return (
                 <div
                   key={item.budget.id}
-                  className={`bg-white rounded-2xl border p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between ${
+                  className={`bg-white dark:bg-slate-900 rounded-2xl border p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between ${
                     item.isExceeded
-                      ? "border-rose-300 ring-1 ring-rose-200/50"
-                      : "border-slate-200/80"
+                      ? "border-rose-300 dark:border-rose-800 ring-1 ring-rose-200/50 dark:ring-rose-900/40"
+                      : "border-slate-200/80 dark:border-slate-800"
                   }`}
                 >
                   <div>
@@ -584,7 +578,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           <IconComponent className="w-5 h-5" />
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-bold text-slate-900 text-sm truncate">
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">
                             {item.budget.categoryName}
                           </h4>
                           <span className="text-xs text-slate-400">
@@ -596,14 +590,14 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => handleOpenEditModal(item.budget)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           title="Редактирай бюджет"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => setDeleteConfirmId(item.budget.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
                           title="Изтрий бюджет"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -613,11 +607,11 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
                     {/* Spent & Remaining Row */}
                     <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                        <span className="text-slate-400 block text-[11px]">
+                      <div className="bg-slate-50 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-400 dark:text-slate-400 block text-[11px]">
                           Изразходвано
                         </span>
-                        <span className="font-bold text-slate-800 text-sm">
+                        <span className="font-bold text-slate-800 dark:text-white text-sm">
                           €{item.spent.toFixed(2)}
                         </span>
                       </div>
@@ -625,14 +619,14 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <div
                         className={`p-2.5 rounded-xl border ${
                           item.isExceeded
-                            ? "bg-rose-50 border-rose-200"
-                            : "bg-slate-50 border-slate-100"
+                            ? "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60"
+                            : "bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-800"
                         }`}
                       >
                         <span
                           className={`block text-[11px] ${
                             item.isExceeded
-                              ? "text-rose-600 font-semibold"
+                              ? "text-rose-600 dark:text-rose-400 font-semibold"
                               : "text-slate-400"
                           }`}
                         >
@@ -641,8 +635,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                         <span
                           className={`font-bold text-sm ${
                             item.isExceeded
-                              ? "text-rose-700"
-                              : "text-emerald-700"
+                              ? "text-rose-700 dark:text-rose-300"
+                              : "text-emerald-700 dark:text-emerald-300"
                           }`}
                         >
                           {item.isExceeded ? "-" : ""}€
@@ -651,10 +645,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       </div>
                     </div>
 
-                    {/* Progress Bar (0-80% Green, 80-100% Yellow, 100%+ Red) */}
+                    {/* Progress Bar */}
                     <div className="mt-4 space-y-1.5">
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-500 font-medium text-[11px]">
+                        <span className="text-slate-500 dark:text-slate-400 font-medium text-[11px]">
                           Усвояване
                         </span>
                         <span
@@ -664,7 +658,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                         </span>
                       </div>
 
-                      <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60 p-0.5">
+                      <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200/60 dark:border-slate-700 p-0.5">
                         <div
                           className={`h-full rounded-full transition-all duration-300 ${barColor}`}
                           style={{
@@ -677,8 +671,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
                   {/* Warning message if exceeded */}
                   {item.isExceeded && (
-                    <div className="mt-3.5 pt-2.5 border-t border-rose-100 flex items-start gap-1.5 text-xs text-rose-700 font-semibold">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                    <div className="mt-3.5 pt-2.5 border-t border-rose-100 dark:border-rose-900/60 flex items-start gap-1.5 text-xs text-rose-700 dark:text-rose-300 font-semibold">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400 mt-0.5" />
                       <span>
                         {item.budget.categoryName} budget exceeded by €
                         {item.overspentAmount.toFixed(2)} (Бюджетът е надвишен)
@@ -688,8 +682,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
                   {/* Healthy state hint */}
                   {!item.isExceeded && item.status === "green" && (
-                    <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-                      <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                    <div className="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400 dark:text-slate-400">
+                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         Бюджетът е в норма
                       </span>
@@ -698,7 +692,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   )}
 
                   {!item.isExceeded && item.status === "yellow" && (
-                    <div className="mt-3.5 pt-2.5 border-t border-amber-100 flex items-center justify-between text-xs text-amber-700 font-medium">
+                    <div className="mt-3.5 pt-2.5 border-t border-amber-100 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 font-medium">
                       <span className="flex items-center gap-1">
                         <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
                         Близо до лимита
@@ -715,23 +709,23 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl border border-slate-200 text-center space-y-4">
-            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-xl border border-slate-200 dark:border-slate-800 text-center space-y-4 transition-colors">
+            <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="font-bold text-slate-900 text-base">
+              <h4 className="font-bold text-slate-900 dark:text-white text-base">
                 Изтриване на бюджет
               </h4>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Сигурни ли сте, че искате да премахнете този лимит? Записаните разходи няма да бъдат изтрити.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-2">
               <button
                 onClick={() => setDeleteConfirmId(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
               >
                 Отказ
               </button>
@@ -748,14 +742,14 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
       {/* Add / Edit Category Budget Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-colors">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl">
                   <Target className="w-5 h-5" />
                 </div>
-                <h3 className="font-bold text-slate-800 text-base">
+                <h3 className="font-bold text-slate-800 dark:text-white text-base">
                   {editingBudgetId
                     ? "Редактиране на бюджет"
                     : "Нов бюджет за категория"}
@@ -763,7 +757,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -771,7 +765,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
             <form onSubmit={handleSubmitForm} className="p-5 space-y-4">
               {formError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs rounded-xl flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{formError}</span>
                 </div>
@@ -779,27 +773,27 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
               {/* Category Dropdown */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Изберете категория
                 </label>
                 <select
                   value={formData.categoryId || "custom"}
                   onChange={(e) => handleCategorySelect(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-700 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                 >
                   {availableCategories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
+                    <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
                       {cat.name}
                     </option>
                   ))}
-                  <option value="custom">+ Друга персонализирана категория</option>
+                  <option value="custom" className="dark:bg-slate-800 dark:text-white">+ Друга персонализирана категория</option>
                 </select>
               </div>
 
               {/* If custom or editing name */}
               {(!formData.categoryId || formData.categoryId === "custom") && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Име на категорията
                   </label>
                   <input
@@ -812,7 +806,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       }))
                     }
                     placeholder="напр. Ресторанти, Спорт, Развлечения"
-                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                     required
                   />
                 </div>
@@ -820,7 +814,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
               {/* Monthly Limit Input */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Месечен лимит (€)
                 </label>
                 <div className="relative">
@@ -839,21 +833,21 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       }))
                     }
                     placeholder="напр. 400"
-                    className="w-full bg-slate-50 border border-slate-300 text-slate-900 pl-8 pr-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white pl-8 pr-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
                     required
                   />
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1">
                   Примери: Храна €400, Транспорт €250, Забавления €150
                 </p>
               </div>
 
               {/* Actions */}
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
                 >
                   Отказ
                 </button>

@@ -857,11 +857,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Top Header & Actions Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors">
         <div>
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-xl font-bold text-slate-800">
+            <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white">
               Месечни разходи
             </h2>
 
@@ -871,7 +871,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <select
                   value={currentMonth}
                   onChange={(e) => onMonthChange(e.target.value)}
-                  className="appearance-none bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-semibold text-xs rounded-full pl-3 pr-7 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
+                  className="appearance-none bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 font-semibold text-xs rounded-full pl-3 pr-7 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
                 >
                   {recordedMonthKeys.map((m) => (
                     <option key={m} value={m}>
@@ -882,15 +882,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     <option value={currentMonth}>{currentMonth}</option>
                   )}
                 </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             ) : (
-              <span className="text-xs font-semibold text-indigo-700 ml-1 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+              <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 ml-1 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 px-2.5 py-0.5 rounded-full">
                 {currentMonth}
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-400 dark:text-slate-400 mt-1">
             Управлявайте фиксираните и текущи разходи за домакинството
           </p>
         </div>
@@ -909,19 +909,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           {/* Import Recurring Expenses Button */}
           <button
             onClick={() => setIsImportModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-semibold transition-all shadow-sm active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 dark:border-indigo-800 rounded-xl text-xs font-semibold transition-all shadow-sm active:scale-95"
             title="Копирай периодични разходи от предходен месец (Наем, Интернет, Телефон, Застраховка и др.)"
           >
-            <Repeat className="w-4 h-4 text-indigo-600" />
+            <Repeat className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             <span className="hidden sm:inline">Импорт на периодични разходи</span>
             <span className="sm:hidden">Импорт периодични</span>
           </button>
 
-          <div className="text-right pl-2 border-l border-slate-100">
+          <div className="text-right pl-2 border-l border-slate-100 dark:border-slate-800">
             <span className="text-[11px] text-slate-400 block uppercase font-medium tracking-wider">
               Общо разходи
             </span>
-            <span className="text-xl sm:text-2xl font-black text-slate-900">
+            <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
               €{totalExpenses.toFixed(2)}
             </span>
           </div>
@@ -930,16 +930,16 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
       {/* Import Notification Banner */}
       {importNotification && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-emerald-800 text-sm animate-in slide-in-from-top-2 duration-300">
+        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center justify-between text-emerald-800 dark:text-emerald-200 text-sm animate-in slide-in-from-top-2 duration-300">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <CheckCircle2 className="w-5 h-5" />
             </div>
             <span className="font-semibold">{importNotification.message}</span>
           </div>
           <button
             onClick={() => setImportNotification(null)}
-            className="text-emerald-600 hover:text-emerald-800 p-1"
+            className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 p-1"
           >
             <X className="w-4 h-4" />
           </button>
@@ -948,20 +948,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
       {/* Add Variable Expense Form Panel - Positioned above Fixed Expenses */}
       {isAddingExpense && (
-        <div className="bg-white p-5 rounded-2xl shadow-md border-2 border-indigo-200 animate-in slide-in-from-top-3 relative space-y-4">
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-md border-2 border-indigo-200 dark:border-indigo-800 animate-in slide-in-from-top-3 relative space-y-4">
           <button
             onClick={() => setIsAddingExpense(false)}
-            className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+            className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <X className="w-5 h-5" />
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
               <Plus className="w-4 h-4" />
             </div>
             <div>
-              <h4 className="font-bold text-slate-800 text-base">
+              <h4 className="font-bold text-slate-800 dark:text-white text-base">
                 Нов допълнителен разход
               </h4>
               <p className="text-xs text-slate-400">
@@ -973,15 +973,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Category Selector Trigger */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
                 Категория
               </label>
               <button
                 onClick={() => setShowCategoryPicker(true)}
-                className="w-full flex items-center justify-between px-3 py-2.5 bg-white border border-slate-300 rounded-lg hover:border-indigo-300 focus:ring-2 focus:ring-indigo-100 transition-all text-left"
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:border-indigo-300 dark:hover:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/40 transition-all text-left"
               >
                 {selectedCategory ? (
-                  <span className="flex items-center gap-2 text-slate-800 font-medium">
+                  <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-medium">
                     <span
                       className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedCategory.colorClass}`}
                     >
@@ -998,7 +998,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     {selectedCategory.name}
                   </span>
                 ) : (
-                  <span className="text-slate-400 text-sm">
+                  <span className="text-slate-400 dark:text-slate-500 text-sm">
                     Избери категория...
                   </span>
                 )}
@@ -1015,20 +1015,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
               Бележка (опционално)
             </label>
             <input
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900"
+              className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
               placeholder="напр. пазаруване, вечеря, гориво, абонамент..."
             />
           </div>
 
           {/* Recurring Expense Checkbox */}
-          <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+          <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/60">
             <label className="flex items-start gap-2.5 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -1037,11 +1037,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-0.5"
               />
               <div className="flex-1">
-                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <Repeat className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Repeat className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                   Периодичен разход (Recurring Expense)
                 </span>
-                <span className="text-[11px] text-slate-500 block mt-0.5 leading-relaxed">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5 leading-relaxed">
                   Маркирайте разхода като повтарящ се, за да може да го копирате бързо и без повторно въвеждане в следващите месеци (напр. Наем, Интернет, Мобилен план, Застраховка).
                 </span>
               </div>
@@ -1058,7 +1058,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             </button>
             <button
               onClick={() => setIsAddingExpense(false)}
-              className="px-4 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-sm font-semibold transition-colors"
+              className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-semibold transition-colors"
             >
               Отказ
             </button>
@@ -1072,22 +1072,22 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-700 flex items-center gap-2">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-blue-500" />
                 Фиксирани разходи
               </h3>
-              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+              <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium">
                 {fixedExpenses.length}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-slate-700">
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 €{totalFixed.toFixed(2)}
               </span>
               {!isAddingFixed && (
                 <button
                   onClick={() => setIsAddingFixed(true)}
-                  className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors shadow-sm"
+                  className="p-1.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors shadow-sm"
                   title="Добави фиксиран разход"
                 >
                   <Plus className="w-4 h-4" />
@@ -1098,25 +1098,25 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
           {/* Add Fixed Expense Form */}
           {isAddingFixed && (
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-200 animate-in slide-in-from-top-2 relative space-y-3">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-blue-200 dark:border-blue-900/60 animate-in slide-in-from-top-2 relative space-y-3">
               <button
                 onClick={() => setIsAddingFixed(false)}
-                className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"
+                className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X className="w-4 h-4" />
               </button>
 
-              <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wide">
+              <h4 className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
                 Нов фиксиран разход
               </h4>
 
               <div>
                 <button
                   onClick={() => setShowFixedCategoryPicker(true)}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm hover:border-blue-300 transition-all text-left"
+                  className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm hover:border-blue-300 dark:hover:border-blue-500 transition-all text-left"
                 >
                   {selectedFixedCategory ? (
-                    <span className="flex items-center gap-2 text-slate-800 font-medium">
+                    <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-medium">
                       <span
                         className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedFixedCategory.colorClass}`}
                       >
@@ -1132,7 +1132,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       {selectedFixedCategory.name}
                     </span>
                   ) : (
-                    <span className="text-slate-400">Избери категория (напр. Наем, Застраховка)...</span>
+                    <span className="text-slate-400 dark:text-slate-500">Избери категория (напр. Наем, Застраховка)...</span>
                   )}
                   <Plus className="w-3.5 h-3.5 text-slate-400" />
                 </button>
@@ -1145,7 +1145,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   value={fixedAmount}
                   onChange={(e) => setFixedAmount(e.target.value)}
                   placeholder="Сума €"
-                  className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 />
                 <button
                   onClick={handleAddFixedExpense}
@@ -1157,7 +1157,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               </div>
 
               {/* Recurring Checkbox for Fixed Expense */}
-              <div className="pt-1 border-t border-slate-100">
+              <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -1165,8 +1165,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     onChange={(e) => setIsRecurringFixed(e.target.checked)}
                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
-                  <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                    <Repeat className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <Repeat className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                     Периодичен разход (Recurring Expense)
                   </span>
                 </label>
@@ -1178,7 +1178,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           )}
 
           {/* Fixed Expenses List */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
             {fixedExpenses.map((item) => {
               const isEditing = editingFixedId === item.id;
 
@@ -1186,15 +1186,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className="p-4 bg-blue-50/60 border-l-4 border-blue-500 space-y-3 animate-in fade-in duration-200"
+                    className="p-4 bg-blue-50/60 dark:bg-blue-950/30 border-l-4 border-blue-500 space-y-3 animate-in fade-in duration-200"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">
+                      <span className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
                         Редактиране на фиксиран разход
                       </span>
                       <button
                         onClick={handleCancelEditFixed}
-                        className="text-slate-400 hover:text-slate-600 p-1"
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
                         title="Отказ"
                       >
                         <X className="w-4 h-4" />
@@ -1203,19 +1203,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
-                        <label className="text-xs font-medium text-slate-600 block mb-1">
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
                           Име
                         </label>
                         <input
                           type="text"
                           value={editFixedName}
                           onChange={(e) => setEditFixedName(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="Име на разход"
                         />
                       </div>
                       <div>
-                        <label className="text-xs font-medium text-slate-600 block mb-1">
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
                           Сума (€)
                         </label>
                         <input
@@ -1223,7 +1223,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           step="any"
                           value={editFixedAmount}
                           onChange={(e) => setEditFixedAmount(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800"
+                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 dark:text-white"
                           placeholder="Сума €"
                         />
                       </div>
@@ -1240,8 +1240,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           }
                           className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                         />
-                        <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                          <Repeat className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                          <Repeat className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                           Периодичен разход (Recurring Expense)
                         </span>
                       </label>
@@ -1250,7 +1250,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     <div className="flex items-center justify-end gap-2 pt-1">
                       <button
                         onClick={handleCancelEditFixed}
-                        className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"
+                        className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                       >
                         Отказ
                       </button>
@@ -1270,7 +1270,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="p-3.5 sm:p-4 flex items-center justify-between hover:bg-slate-50 group transition-colors"
+                  className="p-3.5 sm:p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 group transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -1286,15 +1286,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-800 text-sm">
+                        <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
                           {item.categoryName}
                         </span>
                         {item.isRecurring !== false && (
                           <span
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200/80"
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800"
                             title="Периодичен разход (копира се при импорт)"
                           >
-                            <Repeat className="w-2.5 h-2.5 text-indigo-600" />
+                            <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
                             Периодичен
                           </span>
                         )}
@@ -1305,12 +1305,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-800 mr-1 text-sm sm:text-base">
+                    <span className="font-bold text-slate-800 dark:text-white mr-1 text-sm sm:text-base">
                       €{item.amount.toFixed(2)}
                     </span>
                     <button
                       onClick={() => handleStartEditFixed(item)}
-                      className="text-slate-400 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+                      className="text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors"
                       title="Редактирай"
                       aria-label="Edit"
                     >
@@ -1318,7 +1318,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     </button>
                     <button
                       onClick={() => handleDeleteFixedExpense(item.id)}
-                      className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                      className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors"
                       title="Изтрий"
                       aria-label="Delete"
                     >
@@ -1340,13 +1340,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         {/* Right Column: Variable Expenses List (or Full-Width Explorer) */}
         <div className={isFullWidthMode ? "space-y-4 col-span-full" : "space-y-4"}>
           {isFullWidthMode && (
-            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between text-indigo-900 text-xs">
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center justify-between text-indigo-900 dark:text-indigo-200 text-xs">
               <span className="font-semibold">
                 Разширен режим на цял екран за търсене и преглед на разходите
               </span>
               <button
                 onClick={() => setIsFullWidthMode(false)}
-                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 transition-colors shadow-xs"
+                className="px-2.5 py-1 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 font-bold rounded-lg border border-indigo-200 dark:border-indigo-700 transition-colors shadow-xs"
               >
                 Обратно към стандартен изглед
               </button>
@@ -1355,19 +1355,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-700">Допълнителни разходи</h3>
-              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">Допълнителни разходи</h3>
+              <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium">
                 {expenses.length}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-slate-700">
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 €{totalVariable.toFixed(2)}
               </span>
               {!isAddingExpense && (
                 <button
                   onClick={() => setIsAddingExpense(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-semibold transition-colors"
                   title="Добави допълнителен разход"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -1396,9 +1396,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           {/* Expenses List */}
           <div className="space-y-3">
             {filteredExpenses.length === 0 ? (
-              <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-200 text-slate-400 space-y-2">
-                <Search className="w-8 h-8 mx-auto text-slate-300" />
-                <p className="text-sm font-semibold text-slate-600">
+              <div className="text-center py-10 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 space-y-2">
+                <Search className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+                <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                   {expenses.length === 0
                     ? "Няма добавени разходи"
                     : "Няма намерени разходи, отговарящи на филтрите"}
@@ -1414,7 +1414,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       setExpenseFilters(DEFAULT_FILTERS);
                       setCurrentPage(1);
                     }}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold underline"
+                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold underline"
                   >
                     Изчисти филтрите и търсенето
                   </button>
@@ -1428,15 +1428,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   return (
                     <div
                       key={expense.id}
-                      className="p-4 bg-indigo-50/60 rounded-xl border-l-4 border-indigo-500 border border-indigo-100 space-y-3 animate-in fade-in duration-200"
+                      className="p-4 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border-l-4 border-indigo-500 border border-indigo-100 dark:border-indigo-900/60 space-y-3 animate-in fade-in duration-200"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-indigo-800 uppercase tracking-wide">
+                        <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase tracking-wide">
                           Редактиране на разход: {expense.categoryName}
                         </span>
                         <button
                           onClick={handleCancelEditExpense}
-                          className="text-slate-400 hover:text-slate-600 p-1"
+                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
                           title="Отказ"
                         >
                           <X className="w-4 h-4" />
@@ -1445,7 +1445,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="text-xs font-medium text-slate-600 block mb-1">
+                          <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
                             Сума (€)
                           </label>
                           <input
@@ -1455,19 +1455,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             onChange={(e) =>
                               setEditExpenseAmount(e.target.value)
                             }
-                            className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                            className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
                             placeholder="Сума €"
                           />
                         </div>
                         <div>
-                          <label className="text-xs font-medium text-slate-600 block mb-1">
+                          <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
                             Бележка
                           </label>
                           <input
                             type="text"
                             value={editExpenseNote}
                             onChange={(e) => setEditExpenseNote(e.target.value)}
-                            className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                             placeholder="Бележка..."
                           />
                         </div>
@@ -1484,8 +1484,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             }
                             className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                           />
-                          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                            <Repeat className="w-3.5 h-3.5 text-indigo-600" />
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                            <Repeat className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                             Периодичен разход (Recurring Expense)
                           </span>
                         </label>
@@ -1494,7 +1494,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <div className="flex items-center justify-end gap-2 pt-1">
                         <button
                           onClick={handleCancelEditExpense}
-                          className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"
+                          className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                         >
                           Отказ
                         </button>
@@ -1514,7 +1514,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 return (
                   <div
                     key={expense.id}
-                    className="group flex items-center justify-between p-3.5 sm:p-4 bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-all"
+                    className="group flex items-center justify-between p-3.5 sm:p-4 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-md dark:hover:bg-slate-800/40 transition-all"
                   >
                     <div className="flex items-center gap-3.5">
                       <div
@@ -1531,44 +1531,44 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-slate-800 text-sm">
+                          <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
                             {expense.categoryName}
                           </p>
 
                           {/* Source Month Badge if from another month */}
                           {expense.sourceMonth &&
                             expense.sourceMonth !== currentMonth && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
-                                <Calendar className="w-2.5 h-2.5 text-blue-600" />
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                                <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
                                 {expense.sourceMonth}
                               </span>
                             )}
 
                           {/* Fixed Badge if included from fixed expenses */}
                           {(expense.isFixedItem || expense.id.startsWith("fix_")) && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
                               Фиксиран
                             </span>
                           )}
 
                           {expense.isRecurring && (
                             <span
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200/80"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800"
                               title="Периодичен разход"
                             >
-                              <Repeat className="w-2.5 h-2.5 text-indigo-600" />
+                              <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
                               Периодичен
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                        <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-400 mt-0.5">
                           <span>
                             {new Date(expense.date).toLocaleDateString("bg-BG")}
                           </span>
                           {expense.note && (
                             <>
                               <span>•</span>
-                              <span className="text-slate-600 italic">
+                              <span className="text-slate-600 dark:text-slate-300 italic">
                                 {expense.note}
                               </span>
                             </>
@@ -1578,12 +1578,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-800 mr-1 text-sm sm:text-base">
+                      <span className="font-bold text-slate-800 dark:text-white mr-1 text-sm sm:text-base">
                         €{expense.amount.toFixed(2)}
                       </span>
                       <button
                         onClick={() => handleStartEditExpense(expense)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
                         title="Редактирай"
                         aria-label="Редактирай"
                       >
@@ -1591,7 +1591,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </button>
                       <button
                         onClick={() => handleDeleteExpenseItem(expense)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
                         title="Изтрий"
                         aria-label="Изтрий"
                       >
@@ -1605,8 +1605,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
             {/* Pagination Controls for Large Datasets */}
             {totalPages > 1 && (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200">
-                <span className="text-xs text-slate-500 font-medium">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                   Показване на {(safePage - 1) * PAGE_SIZE + 1}–
                   {Math.min(safePage * PAGE_SIZE, filteredExpenses.length)} от{" "}
                   {filteredExpenses.length} разхода
@@ -1615,18 +1615,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={safePage <= 1}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     title="Предишна страница"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-xs font-semibold px-2 text-slate-700">
+                  <span className="text-xs font-semibold px-2 text-slate-700 dark:text-slate-200">
                     {safePage} / {totalPages}
                   </span>
                   <button
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={safePage >= totalPages}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     title="Следваща страница"
                   >
                     <ChevronRight className="w-4 h-4" />

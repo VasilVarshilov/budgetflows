@@ -164,23 +164,23 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-sm p-2 sm:p-4 animate-in fade-in duration-200">
       <div
-        className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200/80 animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-2 duration-300"
+        className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200/80 dark:border-slate-800 animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-2 duration-300 transition-colors"
         role="dialog"
         aria-modal="true"
       >
         {/* Top Header */}
-        <div className="p-4 sm:p-5 bg-white border-b border-slate-100 flex items-center justify-between gap-3 shadow-sm z-10">
+        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shadow-sm z-10">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-              <Sparkles className="w-4 h-4 text-indigo-600" />
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-800">
+              <h3 className="text-base font-bold text-slate-800 dark:text-white">
                 Избор на категория
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-slate-400">
                 {categories.length} активни категории
               </p>
             </div>
@@ -192,8 +192,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               onClick={() => setIsManageMode((prev) => !prev)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                 isManageMode
-                  ? "bg-amber-100 text-amber-800 border border-amber-300"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
+                  ? "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200/80 dark:hover:bg-slate-700"
               }`}
               title={isManageMode ? "Изход от режим редакция" : "Редактиране или изтриване на категории"}
             >
@@ -203,7 +203,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -211,7 +211,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         </div>
 
         {/* Search & Actions Bar */}
-        <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center gap-2">
+        <div className="px-4 py-3 bg-slate-50/80 dark:bg-slate-850/80 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -219,12 +219,12 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               placeholder="Търсене на категория..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+              className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-800 dark:text-white"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -248,17 +248,17 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         </div>
 
         {/* Scrollable Body */}
-        <div className="overflow-y-auto p-4 bg-slate-50/40 space-y-4 flex-1">
+        <div className="overflow-y-auto p-4 bg-slate-50/40 dark:bg-slate-950/40 space-y-4 flex-1">
           {/* Add New Category Panel */}
           {isAddingNew && (
-            <div className="p-4 sm:p-5 bg-white rounded-2xl shadow-sm border-2 border-indigo-200 animate-in fade-in slide-in-from-top-3 relative space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border-2 border-indigo-200 dark:border-indigo-800 animate-in fade-in slide-in-from-top-3 relative space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                     <Plus className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800">
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-white">
                       Нова категория
                     </h4>
                     <p className="text-[11px] text-slate-400">
@@ -268,7 +268,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 </div>
                 <button
                   onClick={() => setIsAddingNew(false)}
-                  className="text-slate-400 hover:text-slate-600 p-1"
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -276,7 +276,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
               {/* Name Input */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
                   Име на категорията
                 </label>
                 <input
@@ -284,14 +284,14 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   placeholder="Напр. Фитнес, Кафе, Ресторант, Наем, Книги..."
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
                   autoFocus
                   onKeyDown={(e) => e.key === "Enter" && handleCreateNew()}
                 />
               </div>
 
               {/* Live AI Icon & Color Preview Box */}
-              <div className="p-3 bg-gradient-to-r from-indigo-50/70 via-purple-50/60 to-pink-50/50 rounded-xl border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="p-3 bg-gradient-to-r from-indigo-50/70 via-purple-50/60 to-pink-50/50 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-pink-950/20 rounded-xl border border-indigo-100 dark:border-indigo-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div
                     className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm transition-transform ${activeNewColor}`}
@@ -306,23 +306,23 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-800">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
                         {newCategoryName.trim() || "Примерна категория"}
                       </span>
                       {!customIcon && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-100/80 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
-                          <Sparkles className="w-2.5 h-2.5 text-indigo-600" />
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-100/80 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+                          <Sparkles className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
                           AI икона ({activeNewIcon})
                         </span>
                       )}
                       {customIcon && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">
                           <Check className="w-2.5 h-2.5" />
                           Избрана ръчно
                         </span>
                       )}
                     </div>
-                    <span className="text-[11px] text-slate-500 block mt-0.5">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
                       Иконата ще се визуализира в отчетите и графиките
                     </span>
                   </div>
@@ -332,7 +332,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowIconSelector((prev) => !prev)}
-                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold shadow-sm transition-colors"
+                    className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded-lg text-xs font-semibold shadow-sm transition-colors"
                   >
                     {showIconSelector ? "Скрий икони" : "Смени иконка"}
                   </button>
@@ -343,7 +343,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         setCustomIcon(null);
                         setCustomColor(null);
                       }}
-                      className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-white rounded-lg transition-colors"
+                      className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-colors"
                       title="Върни AI предложението"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
@@ -354,10 +354,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
               {/* Icon & Color Selector Palette */}
               {showIconSelector && (
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3 animate-in fade-in duration-200">
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 animate-in fade-in duration-200">
                   {/* Color Selector */}
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
                       Избор на цвят:
                     </label>
                     <div className="flex flex-wrap gap-1.5">
@@ -385,7 +385,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   {/* Icon Selector Grid */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                         Избор на икона ({availableIconKeys.length}):
                       </label>
                       <input
@@ -393,10 +393,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         placeholder="Търси икона..."
                         value={iconSearchTerm}
                         onChange={(e) => setIconSearchTerm(e.target.value)}
-                        className="px-2 py-0.5 text-xs bg-white border border-slate-200 rounded-md w-28 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="px-2 py-0.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-md w-28 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
-                    <div className="grid grid-cols-7 sm:grid-cols-9 gap-1.5 max-h-36 overflow-y-auto p-1 bg-white rounded-lg border border-slate-200">
+                    <div className="grid grid-cols-7 sm:grid-cols-9 gap-1.5 max-h-36 overflow-y-auto p-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
                       {availableIconKeys.map((iconKey) => {
                         const IconComp = AVAILABLE_ICONS_MAP[iconKey];
                         const isSelected = activeNewIcon === iconKey;
@@ -408,7 +408,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                             className={`p-2 rounded-lg flex items-center justify-center transition-all ${
                               isSelected
                                 ? "bg-indigo-600 text-white shadow-sm scale-105"
-                                : "text-slate-600 hover:bg-slate-100"
+                                : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                             }`}
                             title={iconKey}
                           >
@@ -422,11 +422,11 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               )}
 
               {/* Actions */}
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsAddingNew(false)}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                 >
                   Отказ
                 </button>
@@ -444,8 +444,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
           {/* Manage Mode Info Banner */}
           {isManageMode && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2.5 text-amber-800 text-xs animate-in fade-in duration-200">
-              <Info className="w-4 h-4 text-amber-600 shrink-0" />
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl flex items-center gap-2.5 text-amber-800 dark:text-amber-200 text-xs animate-in fade-in duration-200">
+              <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>
                 <strong>Режим на управление:</strong> Можете да редактирате имената и иконките на категориите или да ги изтривате чрез бутона за кошче.
               </span>
@@ -461,9 +461,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 <div
                   key={category.id}
                   className={`
-                    group relative bg-white rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center gap-2
-                    border border-slate-200/90 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer select-none
-                    ${isManageMode ? "ring-1 ring-amber-200" : "active:scale-95"}
+                    group relative bg-white dark:bg-slate-850 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center gap-2
+                    border border-slate-200/90 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-500 transition-all cursor-pointer select-none
+                    ${isManageMode ? "ring-1 ring-amber-200 dark:ring-amber-800" : "active:scale-95"}
                   `}
                   onClick={() => {
                     if (!isManageMode) {
@@ -485,7 +485,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                     <button
                       type="button"
                       onClick={(e) => handleStartEdit(e, category)}
-                      className="p-1 rounded-md bg-white/95 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 shadow-sm border border-slate-200 transition-colors"
+                      className="p-1 rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
                       title="Редактирай категория и иконка"
                     >
                       <Pencil className="w-3 h-3" />
@@ -496,7 +496,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         e.stopPropagation();
                         setCategoryToDelete(category);
                       }}
-                      className="p-1 rounded-md bg-white/95 text-slate-500 hover:text-red-600 hover:bg-red-50 shadow-sm border border-slate-200 transition-colors"
+                      className="p-1 rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
                       title="Изтрий категория"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -515,13 +515,13 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   </div>
 
                   {/* Category Name */}
-                  <span className="text-xs font-semibold text-slate-700 text-center leading-tight line-clamp-2 px-1">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 text-center leading-tight line-clamp-2 px-1">
                     {category.name}
                   </span>
 
                   {/* Custom category pill if created by user */}
                   {category.isCustom && (
-                    <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-1.5 py-0.2 rounded">
+                    <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-100 dark:border-indigo-900/50">
                       Потребителска
                     </span>
                   )}
@@ -531,9 +531,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           </div>
 
           {filteredCategories.length === 0 && !isAddingNew && (
-            <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400">
+            <div className="text-center py-12 bg-white dark:bg-slate-850 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400">
               <Search className="w-10 h-10 mx-auto mb-2 opacity-30 text-slate-400" />
-              <p className="text-sm font-semibold text-slate-600">
+              <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                 Няма намерени категории за &quot;{searchTerm}&quot;
               </p>
               <p className="text-xs text-slate-400 mt-1">
@@ -556,7 +556,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-3 bg-white border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 px-4">
+        <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400 dark:text-slate-500 px-4">
           <span>Кликнете върху категория за избор</span>
           <span className="hidden sm:inline">Всички създадени категории се запазват автоматично</span>
         </div>
@@ -564,20 +564,20 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
       {/* --- Edit Category Modal --- */}
       {editingCategory && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden space-y-4 p-5 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden space-y-4 p-5 animate-in zoom-in-95 duration-200 transition-colors">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                   <Pencil className="w-4 h-4" />
                 </div>
-                <h4 className="font-bold text-slate-800 text-sm">
+                <h4 className="font-bold text-slate-800 dark:text-white text-sm">
                   Редактиране на категория
                 </h4>
               </div>
               <button
                 onClick={() => setEditingCategory(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -585,19 +585,19 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
             {/* Name */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
                 Име на категорията
               </label>
               <input
                 type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900"
+                className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
               />
             </div>
 
             {/* Preview & Icon Toggle */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div
                   className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs ${editColor}`}
@@ -611,7 +611,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   )}
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-slate-800 block">
+                  <span className="text-xs font-bold text-slate-800 dark:text-white block">
                     {editName || "Име"}
                   </span>
                   <span className="text-[11px] text-slate-400">
@@ -622,7 +622,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               <button
                 type="button"
                 onClick={() => setShowEditIconSelector((prev) => !prev)}
-                className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-semibold shadow-xs"
+                className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-colors"
               >
                 {showEditIconSelector ? "Скрий икони" : "Смени иконка/цвят"}
               </button>
@@ -630,10 +630,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
             {/* Edit Icon & Color Selector Palette */}
             {showEditIconSelector && (
-              <div className="p-3 bg-slate-100/70 rounded-xl border border-slate-200 space-y-3 max-h-52 overflow-y-auto">
+              <div className="p-3 bg-slate-100/70 dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 max-h-52 overflow-y-auto">
                 {/* Colors */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                     Цвят:
                   </label>
                   <div className="flex flex-wrap gap-1.5">
@@ -657,10 +657,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
                 {/* Icons */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                     Икона:
                   </label>
-                  <div className="grid grid-cols-7 gap-1.5 max-h-28 overflow-y-auto p-1 bg-white rounded-lg border border-slate-200">
+                  <div className="grid grid-cols-7 gap-1.5 max-h-28 overflow-y-auto p-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
                     {Object.keys(AVAILABLE_ICONS_MAP).map((iconKey) => {
                       const IconComp = AVAILABLE_ICONS_MAP[iconKey];
                       const isSelected = editIcon === iconKey;
@@ -672,7 +672,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                           className={`p-1.5 rounded-md flex items-center justify-center transition-all ${
                             isSelected
                               ? "bg-indigo-600 text-white shadow-xs"
-                              : "text-slate-600 hover:bg-slate-100"
+                              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                           }`}
                           title={iconKey}
                         >
@@ -686,11 +686,11 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setEditingCategory(null)}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
               >
                 Отказ
               </button>
@@ -709,17 +709,17 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
       {/* --- Delete Confirmation Modal --- */}
       {categoryToDelete && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 space-y-4 animate-in zoom-in-95 duration-200 transition-colors">
+            <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>
 
             <div className="text-center space-y-1">
-              <h4 className="font-bold text-slate-800 text-base">
+              <h4 className="font-bold text-slate-800 dark:text-white text-base">
                 Изтриване на категория?
               </h4>
-              <p className="text-xs text-slate-500 leading-relaxed">
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                 Сигурни ли сте, че искате да изтриете категорията &quot;<strong>{categoryToDelete.name}</strong>&quot;?
                 Тя няма да бъде налична за избор при бъдещи разходи.
               </p>
@@ -729,7 +729,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               <button
                 type="button"
                 onClick={() => setCategoryToDelete(null)}
-                className="flex-1 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                className="flex-1 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors"
               >
                 Отказ
               </button>

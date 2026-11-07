@@ -214,14 +214,14 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
       </div>
 
       {/* Filter Tabs Bar */}
-      <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
+      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar transition-colors">
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setSelectedFilter("all")}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "all"
-                ? "bg-slate-900 text-white shadow-xs"
-                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                ? "bg-slate-900 dark:bg-indigo-600 text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
             Всички инсайти ({analysis.insights.length})
@@ -232,7 +232,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "top"
                 ? "bg-indigo-600 text-white shadow-xs"
-                : "text-indigo-600 hover:bg-indigo-50"
+                : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800"
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -244,7 +244,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "spending"
                 ? "bg-rose-600 text-white shadow-xs"
-                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
             Разходи
@@ -255,7 +255,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "savings"
                 ? "bg-emerald-600 text-white shadow-xs"
-                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
             Спестявания
@@ -266,7 +266,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "electricity"
                 ? "bg-amber-600 text-white shadow-xs"
-                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
             Електроенергия
@@ -277,24 +277,24 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "trend"
                 ? "bg-indigo-600 text-white shadow-xs"
-                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
             Тенденции & Бюджет
           </button>
         </div>
 
-        <span className="text-xs text-slate-400 hidden md:block shrink-0 pr-2">
+        <span className="text-xs text-slate-400 dark:text-slate-500 hidden md:block shrink-0 pr-2">
           Анализирани {analysis.monthsAnalyzedCount} месеца
         </span>
       </div>
 
       {/* Insight Cards Grid */}
       {filteredInsights.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
-          <HelpCircle className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-          <h4 className="font-bold text-slate-700 text-sm">Няма инсайти в тази категория</h4>
-          <p className="text-xs text-slate-400 mt-1">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-400">
+          <HelpCircle className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+          <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">Няма инсайти в тази категория</h4>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
             Всички параметри в тази група функционират оптимално.
           </p>
         </div>
@@ -306,19 +306,19 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             return (
               <div
                 key={insight.id}
-                className={`bg-white rounded-2xl border p-5 sm:p-6 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between ${
+                className={`bg-white dark:bg-slate-900 rounded-2xl border p-5 sm:p-6 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between ${
                   insight.priority === "high"
-                    ? "border-rose-200/90"
+                    ? "border-rose-200/90 dark:border-rose-900/60"
                     : insight.priority === "opportunity"
-                    ? "border-indigo-200/90"
-                    : "border-slate-200/80"
+                    ? "border-indigo-200/90 dark:border-indigo-900/60"
+                    : "border-slate-200/80 dark:border-slate-800"
                 }`}
               >
                 <div>
                   {/* Card Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
+                      <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center shrink-0">
                         {getCategoryIcon(insight.category)}
                       </div>
                       <div>
@@ -333,7 +333,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                           </span>
 
                           {insight.isTopRecommendation && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                               ⭐ Топ съвет
                             </span>
                           )}
@@ -344,10 +344,10 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                     {/* Metric Chip */}
                     {insight.metricValue && (
                       <div className="text-right shrink-0">
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
                           {insight.metricLabel || "Стойност"}
                         </span>
-                        <span className="text-sm font-black text-slate-900">
+                        <span className="text-sm font-black text-slate-900 dark:text-white">
                           {insight.metricValue}
                         </span>
                       </div>
@@ -356,30 +356,30 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
                   {/* Title & Description */}
                   <div className="mt-3.5 space-y-1.5">
-                    <h3 className="font-bold text-slate-900 text-base leading-snug">
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base leading-snug">
                       {insight.title}
                     </h3>
-                    <p className="text-xs text-slate-600 leading-relaxed">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                       {insight.description}
                     </p>
                   </div>
 
                   {/* Impact Tag (if any) */}
                   {insight.impact && (
-                    <div className="mt-3.5 inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-2.5 py-1 rounded-lg text-xs font-bold">
-                      <Lightbulb className="w-3.5 h-3.5 text-emerald-600" />
+                    <div className="mt-3.5 inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800 px-2.5 py-1 rounded-lg text-xs font-bold">
+                      <Lightbulb className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                       <span>{insight.impact}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Actionable Advice Footer */}
-                <div className="mt-4 pt-3.5 border-t border-slate-100 bg-slate-50/70 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 p-4 rounded-b-2xl">
-                  <div className="flex items-start gap-2 text-xs text-slate-700">
-                    <span className="font-bold text-indigo-600 shrink-0 mt-0.5">
+                <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 p-4 rounded-b-2xl">
+                  <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-200">
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">
                       💡 Препоръка:
                     </span>
-                    <p className="font-medium text-slate-700 leading-relaxed">
+                    <p className="font-medium text-slate-700 dark:text-slate-200 leading-relaxed">
                       {insight.actionableTip}
                     </p>
                   </div>
@@ -391,56 +391,56 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
       )}
 
       {/* Financial Health Best Practices Section */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-xs space-y-4 transition-colors">
         <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+          <div className="p-2 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl">
             <Award className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-bold text-slate-900 text-base">
+            <h3 className="font-bold text-slate-900 dark:text-white text-base">
               Основни финансови правила за оптимизация
             </h3>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Препоръки, вградени в алгоритмите за анализ на личния бюджет
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 font-black text-xs flex items-center justify-center">
+              <span className="w-6 h-6 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-black text-xs flex items-center justify-center">
                 1
               </span>
-              <h4 className="font-bold text-slate-800 text-sm">Правило 50/30/20</h4>
+              <h4 className="font-bold text-slate-800 dark:text-white text-sm">Правило 50/30/20</h4>
             </div>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
               До 50% за фиксирани нужди (наем, ток, сметки), до 30% за лични желания
               и минимум 20% за спестявания и инвестиции.
             </p>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 font-black text-xs flex items-center justify-center">
+              <span className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-black text-xs flex items-center justify-center">
                 2
               </span>
-              <h4 className="font-bold text-slate-800 text-sm">3-6 месечен буфер</h4>
+              <h4 className="font-bold text-slate-800 dark:text-white text-sm">3-6 месечен буфер</h4>
             </div>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
               Поддържайте ликвиден спестовен фонд, покриващ поне три пълни месеца от
               всичките ви регулярни битови разходи.
             </p>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="w-6 h-6 rounded-lg bg-amber-100 text-amber-700 font-black text-xs flex items-center justify-center">
+              <span className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-black text-xs flex items-center justify-center">
                 3
               </span>
-              <h4 className="font-bold text-slate-800 text-sm">Нощна електроенергия</h4>
+              <h4 className="font-bold text-slate-800 dark:text-white text-sm">Нощна електроенергия</h4>
             </div>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
               Планирайте работата на пералня, сушилня и бойлер след 22:00 ч. за намаляване
               на месечната фактура за ток с 10-15%.
             </p>

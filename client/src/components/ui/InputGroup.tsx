@@ -21,7 +21,7 @@ export const InputGroup: React.FC<InputGroupProps> = ({
 }) => {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+      <label className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
         {icon}
         {label}
       </label>
@@ -31,7 +31,7 @@ export const InputGroup: React.FC<InputGroupProps> = ({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900"
+        className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-transparent transition-all shadow-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
       />
     </div>
   );

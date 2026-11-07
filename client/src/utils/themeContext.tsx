@@ -73,11 +73,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const resolved = prev === "system" ? getSystemTheme() : prev;
-      return resolved === "dark" ? "light" : "dark";
+    setThemeState((prev: Theme) => {
+      const currentResolved = prev === "system" ? getSystemTheme() : prev;
+      const nextTheme: Theme = currentResolved === "dark" ? "light" : "dark";
+      applyTheme(nextTheme);
+      return nextTheme;
     });
-  }, [setTheme]);
+  }, [applyTheme]);
 
   // Handle system preference changes when on "system" mode
   useEffect(() => {

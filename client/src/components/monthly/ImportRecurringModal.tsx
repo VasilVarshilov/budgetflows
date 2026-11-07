@@ -301,26 +301,26 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden transition-colors">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50/60 to-white">
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-50/60 to-white dark:from-indigo-950/40 dark:to-slate-900">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
               <Repeat className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-800">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">
                 Импортиране на периодични разходи
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Копиране на повтарящи се разходи от предходен месец
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -329,17 +329,17 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
           {/* Source and Target Month Selector */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
+          <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Източник:
                 </span>
                 <div className="relative">
                   <select
                     value={selectedSourceMonth}
                     onChange={(e) => setSelectedSourceMonth(e.target.value)}
-                    className="appearance-none bg-white border border-slate-300 rounded-lg pl-3 pr-8 py-1.5 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                    className="appearance-none bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg pl-3 pr-8 py-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
                   >
                     {availableMonths.map((m) => (
                       <option key={m} value={m}>
@@ -356,17 +356,17 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
 
               <div className="flex items-center gap-2">
                 <ArrowRight className="w-4 h-4 text-indigo-500 hidden sm:block" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Целеви месец:
                 </span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-100 text-indigo-800 font-bold rounded-lg text-xs">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 font-bold rounded-lg text-xs">
                   <Calendar className="w-3.5 h-3.5" />
                   {currentMonth}
                 </span>
               </div>
             </div>
 
-            <div className="text-xs text-slate-500 flex items-center gap-1.5">
+            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <Info className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
               <span>
                 Примери за периодични разходи: Наем, Интернет, Мобилен план, Застраховка, Абонаменти.
@@ -376,9 +376,9 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
 
           {/* Duplicates Warning Banner if any duplicates detected */}
           {duplicatesCount > 0 && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
-              <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-800 space-y-0.5">
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-800 dark:text-amber-200 space-y-0.5">
                 <p className="font-semibold">
                   Предотвратяване на дублиране
                 </p>
@@ -393,7 +393,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
 
           {/* Recurring Items List */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500 px-1">
+            <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400 px-1">
               <span>
                 Намерени периодични разходи ({candidateItems.length})
               </span>
@@ -401,14 +401,14 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={selectAllValid}
-                    className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                    className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline"
                   >
                     Избери всички нови
                   </button>
                   <span>•</span>
                   <button
                     onClick={deselectAll}
-                    className="text-slate-500 hover:text-slate-700 hover:underline"
+                    className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:underline"
                   >
                     Изчисти
                   </button>
@@ -417,12 +417,12 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
             </div>
 
             {candidateItems.length === 0 ? (
-              <div className="py-10 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-sm">
-                <Repeat className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                <p className="font-medium text-slate-600">
+              <div className="py-10 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 text-sm">
+                <Repeat className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                <p className="font-medium text-slate-600 dark:text-slate-300">
                   Няма намерени периодични разходи в {selectedSourceMonth || "избрания месец"}
                 </p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                   Маркирайте разходи с чекбокса „Периодичен разход“ при въвеждане, за да се копират лесно всеки месец.
                 </p>
               </div>
@@ -437,10 +437,10 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                       onClick={() => toggleItemSelection(c.item.id, c.isDuplicate)}
                       className={`p-3.5 rounded-xl border transition-all flex items-center justify-between ${
                         c.isDuplicate
-                          ? "bg-slate-50/70 border-slate-200 opacity-60 cursor-not-allowed"
+                          ? "bg-slate-50/70 dark:bg-slate-800/30 border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed"
                           : isChecked
-                            ? "bg-indigo-50/40 border-indigo-200 hover:border-indigo-300 cursor-pointer shadow-sm"
-                            : "bg-white border-slate-200 hover:border-slate-300 cursor-pointer"
+                            ? "bg-indigo-50/40 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800 hover:border-indigo-300 cursor-pointer shadow-sm"
+                            : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 cursor-pointer"
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -458,26 +458,26 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-slate-800 text-sm">
+                            <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
                               {c.item.categoryName}
                             </span>
-                            <span className="text-[10px] font-medium uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                            <span className="text-[10px] font-medium uppercase px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
                               {c.sourceType === "fixed"
                                 ? "Фиксиран"
                                 : "Допълнителен"}
                             </span>
                           </div>
                           {c.isDuplicate ? (
-                            <span className="text-xs font-medium text-amber-600 flex items-center gap-1 mt-0.5">
+                            <span className="text-xs font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5">
                               <AlertCircle className="w-3 h-3" />
                               {c.duplicateReason}
                             </span>
                           ) : c.item.note ? (
-                            <span className="text-xs text-slate-400 block mt-0.5 italic">
+                            <span className="text-xs text-slate-400 dark:text-slate-400 block mt-0.5 italic">
                               {c.item.note}
                             </span>
                           ) : (
-                            <span className="text-[11px] text-slate-400 block mt-0.5">
+                            <span className="text-[11px] text-slate-400 dark:text-slate-500 block mt-0.5">
                               Готов за импортиране
                             </span>
                           )}
@@ -485,7 +485,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                       </div>
 
                       <div className="text-right">
-                        <span className="font-bold text-slate-800 text-sm">
+                        <span className="font-bold text-slate-800 dark:text-white text-sm">
                           €{c.item.amount.toFixed(2)}
                         </span>
                         {c.isDuplicate ? (
@@ -493,7 +493,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                             Пропуснат
                           </span>
                         ) : (
-                          <span className="block text-[10px] text-indigo-600 font-medium">
+                          <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
                             Периодичен
                           </span>
                         )}
@@ -507,26 +507,26 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
 
           {/* Import Summary Confirmation Box */}
           {selectedItems.length > 0 && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between animate-in fade-in">
+            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center justify-between animate-in fade-in">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
                   <CheckCircle2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-emerald-900">
+                  <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
                     Готови за импортиране: {selectedItems.length}{" "}
                     {selectedItems.length === 1 ? "разход" : "разхода"}
                   </p>
-                  <p className="text-xs text-emerald-700">
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400">
                     Разходите ще бъдат добавени към месец {currentMonth}
                   </p>
                 </div>
               </div>
               <div className="text-right">
-                <span className="text-xs text-emerald-700 uppercase font-semibold block">
+                <span className="text-xs text-emerald-700 dark:text-emerald-400 uppercase font-semibold block">
                   Общо
                 </span>
-                <span className="text-lg font-bold text-emerald-900">
+                <span className="text-lg font-bold text-emerald-900 dark:text-emerald-100">
                   €{totalAmountToImport.toFixed(2)}
                 </span>
               </div>
@@ -535,10 +535,10 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+        <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-xl transition-colors"
+            className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-700 rounded-xl transition-colors"
           >
             Отказ
           </button>
