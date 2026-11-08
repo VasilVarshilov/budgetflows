@@ -499,10 +499,10 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
             Общ баланс и история (Lifetime)
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={() => setIsExportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-semibold transition-colors shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-semibold transition-colors shadow-xs cursor-pointer"
             title="Експорт на спестявания в текстов файл"
           >
             <Download className="w-4 h-4" />
@@ -513,7 +513,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               Налични средства
             </span>
             <span
-              className={`text-3xl font-black ${totalBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
+              className={`text-2xl sm:text-3xl font-black ${totalBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
             >
               €{totalBalance.toFixed(2)}
             </span>
@@ -532,16 +532,18 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               <div className="flex gap-2">
                 <button
                   onClick={() => handleOpenAdd("expense")}
-                  className="flex items-center gap-1 px-3 py-2 bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/60 rounded-lg text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/60 transition-colors"
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center px-3 py-2 bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/60 rounded-xl text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/60 transition-colors"
+                  title="Извади сума"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleOpenAdd("income")}
-                  className="flex items-center gap-1 px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                  className="min-h-[44px] flex items-center gap-1 px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                  title="Добави приход"
                 >
                   <Plus className="w-4 h-4" />
-                  Добави
+                  <span>Добави</span>
                 </button>
               </div>
             )}
@@ -694,7 +696,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     </span>
                     <button
                       onClick={() => handleDeleteTransaction(item.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 text-slate-300 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                      title="Изтрий транзакция"
+                      aria-label="Изтрий транзакция"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

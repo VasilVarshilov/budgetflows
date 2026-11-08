@@ -9,6 +9,9 @@ import {
   Loader2,
   Target,
   Sparkles,
+  ChevronRight,
+  X,
+  SlidersHorizontal,
 } from "lucide-react";
 
 // Components
@@ -101,6 +104,7 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [currentMonth, setCurrentMonth] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
 
   const [monthlyData, setMonthlyData] = useState<
     Record<string, MonthlyRecord>
@@ -414,11 +418,11 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          {/* Row 2: Navigation - 8 Tabs arranged in a responsive grid. ZERO horizontal scroll! */}
-          <div className="py-2">
+          {/* Row 2: Desktop Navigation (Hidden on mobile < md, visible on desktop >= md) */}
+          <div className="py-2 hidden md:block">
             <nav
               aria-label="Основна навигация"
-              className="grid grid-cols-4 md:grid-cols-8 gap-1 sm:gap-1.5 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
+              className="grid grid-cols-8 gap-1.5 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
             >
               {NAV_TABS.map((tab) => {
                 const Icon = tab.icon;
@@ -428,14 +432,14 @@ const AppContent: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center justify-center gap-1 sm:gap-1.5 py-1.5 sm:py-2 px-1 sm:px-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                       isActive
                         ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold shadow-xs border border-slate-200/80 dark:border-slate-700/80"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/50 dark:hover:bg-slate-700/50"
                     }`}
                   >
                     <Icon
-                      className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
+                      className={`w-4 h-4 shrink-0 ${
                         isActive ? tab.accentColor : "text-slate-400 dark:text-slate-500"
                       }`}
                     />
@@ -451,7 +455,8 @@ const AppContent: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      {/* Main Content (with bottom padding for mobile navigation bar) */}
+      <main className="flex-1 max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 w-full pb-28 md:pb-8">
         {activeTab === "dashboard" && (
           <DashboardTab
             monthlyData={monthlyData}
@@ -508,13 +513,242 @@ const AppContent: React.FC = () => {
         )}
       </main>
 
-      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto transition-colors">
+      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto transition-colors mb-16 md:mb-0">
         <div className="max-w-6xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
           <p className="text-center text-xs text-slate-400 dark:text-slate-500">
             Home Budget Application © {new Date().getFullYear()}
           </p>
         </div>
       </footer>
+
+      {/* Mobile "More" Drawer / Sheet (md:hidden) */}
+      {isMobileMoreOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            onClick={() => setIsMobileMoreOpen(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+            aria-hidden="true"
+          />
+
+          {/* Drawer Content */}
+          <div className="relative bg-white dark:bg-slate-900 rounded-t-3xl border-t border-slate-200 dark:border-slate-800 p-5 shadow-2xl z-10 animate-in slide-in-from-bottom-5 duration-250 pb-safe">
+            <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-4" />
+
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                  Още функции
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Допълнителни инструменти и настройки
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileMoreOpen(false)}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                aria-label="Затвори менюто"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {/* Budgets */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("budgets");
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
+                  activeTab === "budgets"
+                    ? "bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 font-bold border border-rose-200 dark:border-rose-900"
+                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-300 flex items-center justify-center shrink-0">
+                    <Target className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-sm font-bold block">Бюджети & Лимити</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      Месечен бюджет и контрол на разходите
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              {/* AI Analysis */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("ai-analysis");
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
+                  activeTab === "ai-analysis"
+                    ? "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold border border-amber-200 dark:border-amber-900"
+                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-300 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-sm font-bold block">AI Финансов Анализ</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      Автоматични финансови препоръки
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              {/* Cloud Backup & Drive */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("backup");
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
+                  activeTab === "backup"
+                    ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900"
+                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0">
+                    <FolderArchive className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-sm font-bold block">Облачен архив & Google Drive</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      Синхронизация, бекъп и възстановяване
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom Navigation Bar (md:hidden) */}
+      <nav
+        aria-label="Мобилна навигация"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg"
+      >
+        <div className="grid grid-cols-6 items-center h-16 px-1">
+          {/* 1. Dashboard */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("dashboard");
+              setIsMobileMoreOpen(false);
+            }}
+            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === "dashboard"
+                ? "text-indigo-600 dark:text-indigo-400 font-bold scale-105"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+          >
+            <LayoutDashboard className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Табло</span>
+          </button>
+
+          {/* 2. Expenses */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("monthly");
+              setIsMobileMoreOpen(false);
+            }}
+            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === "monthly"
+                ? "text-blue-600 dark:text-blue-400 font-bold scale-105"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+          >
+            <Calendar className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Разходи</span>
+          </button>
+
+          {/* 3. Savings */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("savings");
+              setIsMobileMoreOpen(false);
+            }}
+            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === "savings"
+                ? "text-emerald-600 dark:text-emerald-400 font-bold scale-105"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+          >
+            <PiggyBank className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Спести</span>
+          </button>
+
+          {/* 4. Electricity */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("electricity");
+              setIsMobileMoreOpen(false);
+            }}
+            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === "electricity"
+                ? "text-amber-500 dark:text-amber-400 font-bold scale-105"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+          >
+            <Zap className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">ТОК</span>
+          </button>
+
+          {/* 5. Reports */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("reports");
+              setIsMobileMoreOpen(false);
+            }}
+            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === "reports"
+                ? "text-purple-600 dark:text-purple-400 font-bold scale-105"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+          >
+            <PieChart className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Отчети</span>
+          </button>
+
+          {/* 6. More */}
+          <button
+            type="button"
+            onClick={() => setIsMobileMoreOpen((prev) => !prev)}
+            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === "budgets" ||
+              activeTab === "ai-analysis" ||
+              activeTab === "backup" ||
+              isMobileMoreOpen
+                ? "text-indigo-600 dark:text-indigo-400 font-bold scale-105"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+          >
+            <SlidersHorizontal className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Още</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 };

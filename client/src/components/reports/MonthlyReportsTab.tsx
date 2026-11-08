@@ -209,7 +209,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
     const circumference = 2 * Math.PI * radius;
 
     return (
-      <div className="relative w-64 h-64 mx-auto my-6">
+      <div className="relative w-52 h-52 sm:w-64 sm:h-64 mx-auto my-4 sm:my-6">
         <svg
           viewBox="0 0 100 100"
           className="w-full h-full transform -rotate-90"
@@ -266,13 +266,13 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Месечен отчет</h2>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           {/* Month Selector */}
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-none">
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-2 pl-4 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+              className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[44px] py-2 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer text-xs sm:text-sm"
             >
               {MONTHS_BG.map((m) => (
                 <option key={m} value={m}>
@@ -284,15 +284,15 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           </div>
 
           {/* Year Selector */}
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-none">
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-2 pl-4 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+              className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[44px] py-2 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer text-xs sm:text-sm"
             >
               {YEARS.map((y) => (
                 <option key={y} value={y}>
-                  {y}
+                  {y} г.
                 </option>
               ))}
             </select>
@@ -302,7 +302,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           {/* Export Button */}
           <button
             onClick={() => setIsExportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg text-sm font-semibold transition-colors shadow-xs cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[44px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-xs cursor-pointer"
             title="Експорт на отчет в текстов файл"
           >
             <Download className="w-4 h-4" />

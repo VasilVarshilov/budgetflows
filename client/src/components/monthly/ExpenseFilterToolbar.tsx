@@ -132,12 +132,12 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             value={filters.searchTerm}
             onChange={(e) => updateFilter("searchTerm", e.target.value)}
             placeholder="Търси по бележка, категория или сума (€)..."
-            className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+            className="w-full pl-9 pr-8 py-2 min-h-[44px] sm:min-h-[38px] bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
           />
           {filters.searchTerm && (
             <button
               onClick={() => updateFilter("searchTerm", "")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
               title="Изчисти търсенето"
             >
               <X className="w-3.5 h-3.5" />
@@ -146,15 +146,15 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
         </div>
 
         {/* Action Controls: Sort, Filter Button, and Fullscreen Toggle */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           {/* Sort Selector */}
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-none">
             <select
               value={filters.sortBy}
               onChange={(e) =>
                 updateFilter("sortBy", e.target.value as ExpenseSortOption)
               }
-              className="appearance-none bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 pl-3 pr-7 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
+              className="w-full appearance-none bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 pl-3 pr-7 py-2 min-h-[44px] sm:min-h-[38px] focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
               title="Сортиране на резултатите"
             >
               <option value="newest">Най-нови първо</option>
@@ -169,7 +169,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
           <button
             type="button"
             onClick={() => setIsFilterPanelOpen((prev) => !prev)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all border cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] sm:min-h-[38px] rounded-xl text-xs font-semibold transition-all border cursor-pointer shrink-0 ${
               isFilterPanelOpen || activeFiltersCount > 0
                 ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 shadow-xs"
                 : "bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
@@ -195,7 +195,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             <button
               type="button"
               onClick={onToggleFullWidthMode}
-              className={`hidden sm:flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
+              className={`hidden sm:flex items-center gap-1 px-2.5 py-2 min-h-[38px] rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
                 isFullWidthMode
                   ? "bg-slate-800 text-white border-slate-800"
                   : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
@@ -271,10 +271,11 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="number"
                 step="any"
                 min="0"
+                inputMode="decimal"
                 value={filters.minAmount}
                 onChange={(e) => updateFilter("minAmount", e.target.value)}
                 placeholder="0.00"
-                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
               />
             </div>
 
@@ -288,10 +289,11 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="number"
                 step="any"
                 min="0"
+                inputMode="decimal"
                 value={filters.maxAmount}
                 onChange={(e) => updateFilter("maxAmount", e.target.value)}
                 placeholder="Без лимит"
-                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
               />
             </div>
           </div>

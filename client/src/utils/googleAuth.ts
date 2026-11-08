@@ -1,17 +1,58 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps, getApp as getSdkApp, type FirebaseApp } from "firebase/app";
 import {
   getAuth,
   signInWithPopup,
   GoogleAuthProvider,
   onAuthStateChanged,
   signOut,
-  User,
+  type User,
+  type Auth,
 } from "firebase/auth";
-import firebaseConfig from "@/firebase-config.json";
+import {
+  getFirebaseConfig,
+  isFirebaseConfigured,
+  loadFirebaseConfigAsync,
+} from "./firebaseConfig";
 
-// Initialize Firebase safely
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
+// Safe singleton Firebase initialization
+let appInstance: FirebaseApp | null = null;
+let authInstance: Auth | null = null;
+
+export function getApp(): FirebaseApp | null {
+  if (appInstance) return appInstance;
+  const existingApps = getApps();
+  if (existingApps.length > 0) {
+    appInstance = getSdkApp();
+    return appInstance;
+  }
+  const config = getFirebaseConfig();
+  if (config.apiKey && config.projectId) {
+    try {
+      appInstance = initializeApp(config);
+      return appInstance;
+    } catch (e) {
+      console.warn("Failed to initialize Firebase app:", e);
+    }
+  }
+  return null;
+}
+
+export function getAuthClient(): Auth | null {
+  if (authInstance) return authInstance;
+  const app = getApp();
+  if (app) {
+    try {
+      authInstance = getAuth(app);
+      return authInstance;
+    } catch (e) {
+      console.warn("Failed to get Firebase Auth client:", e);
+    }
+  }
+  return null;
+}
+
+// Export auth getter/instance for backwards compatibility
+export const auth: Auth | null = getAuthClient();
 
 // Google Auth Provider with appDataFolder scope
 const provider = new GoogleAuthProvider();
@@ -78,9 +119,26 @@ export async function signInWithGoogle(): Promise<{
   user: User;
   accessToken: string;
 }> {
+  if (isSigningIn) {
+    throw new Error("В момента тече вход в Google. Моля изчакайте.");
+  }
+
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+
+    // Ensure config is loaded if not yet set in environment
+    if (!isFirebaseConfigured()) {
+      await loadFirebaseConfigAsync();
+    }
+
+    const client = getAuthClient() || auth;
+    if (!client) {
+      throw new Error(
+        "Google Authentication не е конфигуриран. Моля настройте VITE_FIREBASE_API_KEY в .env или GitHub Secrets."
+      );
+    }
+
+    const result = await signInWithPopup(client, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
 
     if (!credential?.accessToken) {
@@ -103,8 +161,13 @@ export async function signInWithGoogle(): Promise<{
  * Signs out from Google and clears in-memory token & cached profile
  */
 export async function signOutGoogle(): Promise<void> {
+  const client = getAuthClient() || auth;
   try {
-    await signOut(auth);
+    if (client) {
+      await signOut(client);
+    }
+  } catch (e) {
+    console.warn("Sign out warning:", e);
   } finally {
     cachedAccessToken = null;
     saveStoredUserProfile(null);
@@ -131,7 +194,27 @@ export function setGoogleAccessToken(token: string | null): void {
 export function initGoogleAuth(
   onUserChanged: (user: User | null, token: string | null) => void
 ): () => void {
-  return onAuthStateChanged(auth, async (user) => {
+  const client = getAuthClient() || auth;
+  if (!client) {
+    // Attempt async resolution in the background
+    loadFirebaseConfigAsync().then(() => {
+      const resolvedClient = getAuthClient();
+      if (resolvedClient) {
+        return onAuthStateChanged(resolvedClient, async (user) => {
+          if (user) {
+            saveStoredUserProfile(user);
+            onUserChanged(user, cachedAccessToken);
+          } else {
+            cachedAccessToken = null;
+            onUserChanged(null, null);
+          }
+        });
+      }
+    });
+    return () => {};
+  }
+
+  return onAuthStateChanged(client, async (user) => {
     if (user) {
       saveStoredUserProfile(user);
       onUserChanged(user, cachedAccessToken);

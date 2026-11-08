@@ -194,7 +194,7 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
         </div>
 
         {/* Legend Indicator */}
-        <div className="flex items-center gap-2.5 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             Зелено = Подобрение

@@ -616,12 +616,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
 
         {/* Period Selector Controls */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full md:w-auto">
           {/* Quick Period Buttons */}
-          <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200/60 dark:border-slate-700/60">
+          <div className="grid grid-cols-2 sm:flex sm:flex-row items-center rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200/60 dark:border-slate-700/60 w-full sm:w-auto gap-1">
             <button
               onClick={() => setPeriodType("current")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
                 periodType === "current"
                   ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -631,7 +631,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </button>
             <button
               onClick={() => setPeriodType("month")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
                 periodType === "month"
                   ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -641,7 +641,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </button>
             <button
               onClick={() => setPeriodType("year")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
                 periodType === "year"
                   ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -651,7 +651,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </button>
             <button
               onClick={() => setPeriodType("custom")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
                 periodType === "custom"
                   ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -663,12 +663,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
           {/* Conditional Dropdowns for Period */}
           {periodType === "month" && (
-            <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
-              <div className="relative">
+            <div className="flex items-center gap-1.5 w-full sm:w-auto animate-in fade-in duration-150">
+              <div className="relative flex-1 sm:flex-none">
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                 >
                   {MONTHS_BG.map((m) => (
                     <option key={m} value={m}>
@@ -679,11 +679,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
 
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-none">
                 <select
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(e.target.value)}
-                  className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                 >
                   {YEARS.map((y) => (
                     <option key={y} value={y}>
@@ -697,11 +697,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           )}
 
           {periodType === "year" && (
-            <div className="relative animate-in fade-in duration-150">
+            <div className="relative w-full sm:w-auto animate-in fade-in duration-150">
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
-                className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 {YEARS.map((y) => (
                   <option key={y} value={y}>
@@ -714,19 +714,19 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           )}
 
           {periodType === "custom" && (
-            <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 w-full sm:w-auto animate-in fade-in duration-150">
               <input
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-1 px-2 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 px-3 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
               />
-              <span className="text-slate-400 text-xs">—</span>
+              <span className="text-slate-400 text-xs text-center hidden sm:inline">—</span>
               <input
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-1 px-2 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 px-3 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
               />
             </div>
           )}
@@ -734,10 +734,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           {/* Export Button in Top Bar */}
           <button
             onClick={() => setIsExportCenterOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs transition-colors shadow-2xs cursor-pointer"
+            className="flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 py-2 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs transition-colors shadow-2xs cursor-pointer w-full sm:w-auto"
             title="Отвори център за отчети и експорт (TXT / PNG)"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-4 h-4" />
             <span>Експорт на отчет</span>
           </button>
         </div>

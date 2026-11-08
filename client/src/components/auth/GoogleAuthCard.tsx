@@ -345,7 +345,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               type="button"
               onClick={handleManualBackup}
               disabled={isBackingUp || !isOnline}
-              className="w-full sm:w-auto flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl font-semibold text-sm shadow-xs transition-all cursor-pointer"
+              className="w-full sm:w-auto flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl font-semibold text-sm shadow-xs transition-all cursor-pointer"
             >
               {isBackingUp ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -359,7 +359,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               type="button"
               onClick={onOpenRestoreModal}
               disabled={!isOnline}
-              className="w-full sm:w-auto flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-100 rounded-xl font-semibold text-sm border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
+              className="w-full sm:w-auto flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-100 rounded-xl font-semibold text-sm border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
             >
               <DownloadCloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>Възстанови от Drive (Restore From Drive)</span>

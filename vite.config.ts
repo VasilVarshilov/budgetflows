@@ -33,6 +33,7 @@ export default defineConfig({
     },
     // Работната root папка е client
     root: path.resolve(__dirname, "client"),
+    envDir: path.resolve(__dirname),
     build: {
       // Build-ът ще отиде в dist/public (както твоят скрипт очаква)
       outDir: path.resolve(__dirname, "dist/public"),

@@ -453,7 +453,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           )}
 
           {/* Categories Grid */}
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 gap-2.5">
             {filteredCategories.map((category) => {
               const IconComp = AVAILABLE_ICONS_MAP[category.iconName] || AVAILABLE_ICONS_MAP.Tag;
 
@@ -485,10 +485,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                     <button
                       type="button"
                       onClick={(e) => handleStartEdit(e, category)}
-                      className="p-1 rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
+                      className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
                       title="Редактирай категория и иконка"
                     >
-                      <Pencil className="w-3 h-3" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
@@ -496,10 +496,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         e.stopPropagation();
                         setCategoryToDelete(category);
                       }}
-                      className="p-1 rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
+                      className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
                       title="Изтрий категория"
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
 

@@ -1221,9 +1221,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <input
                           type="number"
                           step="any"
+                          inputMode="decimal"
                           value={editFixedAmount}
                           onChange={(e) => setEditFixedAmount(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 dark:text-white"
+                          className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 dark:text-white"
                           placeholder="Сума €"
                         />
                       </div>
@@ -1304,13 +1305,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 sm:gap-2">
                     <span className="font-bold text-slate-800 dark:text-white mr-1 text-sm sm:text-base">
                       €{item.amount.toFixed(2)}
                     </span>
                     <button
                       onClick={() => handleStartEditFixed(item)}
-                      className="text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors"
+                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 sm:p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors"
                       title="Редактирай"
                       aria-label="Edit"
                     >
@@ -1318,7 +1319,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     </button>
                     <button
                       onClick={() => handleDeleteFixedExpense(item.id)}
-                      className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors"
+                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-2 sm:p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors"
                       title="Изтрий"
                       aria-label="Delete"
                     >
@@ -1451,11 +1452,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <input
                             type="number"
                             step="any"
+                            inputMode="decimal"
                             value={editExpenseAmount}
                             onChange={(e) =>
                               setEditExpenseAmount(e.target.value)
                             }
-                            className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                            className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
                             placeholder="Сума €"
                           />
                         </div>
@@ -1577,13 +1579,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 sm:gap-2">
                       <span className="font-bold text-slate-800 dark:text-white mr-1 text-sm sm:text-base">
                         €{expense.amount.toFixed(2)}
                       </span>
                       <button
                         onClick={() => handleStartEditExpense(expense)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                         title="Редактирай"
                         aria-label="Редактирай"
                       >
@@ -1591,7 +1593,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </button>
                       <button
                         onClick={() => handleDeleteExpenseItem(expense)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                         title="Изтрий"
                         aria-label="Изтрий"
                       >

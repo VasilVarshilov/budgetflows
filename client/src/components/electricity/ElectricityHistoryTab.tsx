@@ -563,142 +563,259 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-100/70 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 text-xs uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-700">
-                  <th className="py-3 px-4">Период</th>
-                  <th className="py-3 px-4">Старо показание</th>
-                  <th className="py-3 px-4">Ново показание</th>
-                  <th className="py-3 px-4">Потребление (kWh)</th>
-                  <th className="py-3 px-4">Единична цена</th>
-                  <th className="py-3 px-4">Сметка ЕМ 1 / ЕМ 2</th>
-                  <th className="py-3 px-4">Общо фактура</th>
-                  <th className="py-3 px-4 text-center">Действие</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                {filteredRecords.map((r) => {
-                  const isConfirming = confirmDeleteId === r.id;
-                  return (
-                    <tr
-                      key={r.id}
-                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group"
-                    >
-                      {/* Period */}
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-800 dark:text-slate-200">
+          <div>
+            {/* Mobile Stacked Cards View (< md) */}
+            <div className="block md:hidden space-y-3">
+              {filteredRecords.map((r) => {
+                const isConfirming = confirmDeleteId === r.id;
+                return (
+                  <div
+                    key={r.id}
+                    className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3"
+                  >
+                    {/* Header: Period & Invoice Total */}
+                    <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-2.5">
+                      <div>
+                        <div className="font-bold text-slate-900 dark:text-white text-base">
                           {r.periodLabel}
                         </div>
                         <div className="text-xs text-slate-400 dark:text-slate-500">
                           {new Date(r.createdAt).toLocaleDateString("bg-BG")}
                         </div>
-                        {r.note && (
-                          <div className="text-xs text-amber-600 dark:text-amber-400 font-medium italic mt-0.5">
-                            "{r.note}"
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Previous Reading */}
-                      <td className="py-3.5 px-4 font-mono text-xs">
-                        <div className="text-slate-800 dark:text-slate-200 font-semibold">
-                          {r.previousReading.toFixed(1)}
-                        </div>
-                        <div className="text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
-                          <Sun className="w-3 h-3 text-amber-500" /> {r.prevT1}
-                          <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.prevT2}
-                        </div>
-                      </td>
-
-                      {/* Current Reading */}
-                      <td className="py-3.5 px-4 font-mono text-xs">
-                        <div className="text-slate-800 dark:text-slate-200 font-semibold">
-                          {r.currentReading.toFixed(1)}
-                        </div>
-                        <div className="text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
-                          <Sun className="w-3 h-3 text-amber-500" /> {r.currT1}
-                          <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.currT2}
-                        </div>
-                      </td>
-
-                      {/* Consumption */}
-                      <td className="py-3.5 px-4 font-mono">
-                        <div className="font-bold text-amber-600 dark:text-amber-400 text-sm">
-                          {r.consumption.toFixed(2)} kWh
-                        </div>
-                        <div className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-2 mt-0.5">
-                          <span>Дн: {r.consT1.toFixed(1)}</span>
-                          <span>Нощ: {r.consT2.toFixed(1)}</span>
-                        </div>
-                      </td>
-
-                      {/* Unit Price */}
-                      <td className="py-3.5 px-4 text-xs font-mono text-slate-600 dark:text-slate-400">
-                        <div className="font-semibold text-slate-800 dark:text-slate-200">
-                          €{r.unitPrice.toFixed(4)}/kWh
-                        </div>
-                        <div className="text-slate-400 dark:text-slate-500 mt-0.5">
-                          Т1: €{r.priceT1.toFixed(4)} | Т2: €{r.priceT2.toFixed(4)}
-                        </div>
-                      </td>
-
-                      {/* Meter 1 vs Meter 2 */}
-                      <td className="py-3.5 px-4 text-xs">
-                        <div className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-medium">
-                          <Lightbulb className="w-3 h-3 text-yellow-500" />
-                          <span>ЕМ 1:</span>
-                          <strong className="font-mono">€{r.costEm1.toFixed(2)}</strong>
-                        </div>
-                        <div className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium mt-1">
-                          <Plug className="w-3 h-3 text-emerald-500" />
-                          <span>ЕМ 2:</span>
-                          <strong className="font-mono">€{r.em2Remainder.toFixed(2)}</strong>
-                        </div>
-                      </td>
-
-                      {/* Total Cost */}
-                      <td className="py-3.5 px-4">
-                        <div className="text-base font-bold text-slate-900 dark:text-white font-mono">
+                      </div>
+                      <div className="text-right">
+                        <div className="text-base font-extrabold text-slate-900 dark:text-white font-mono">
                           €{r.totalCost.toFixed(2)}
                         </div>
-                        <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                        <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                           {(r.totalCost * BGN_EUR_RATE).toFixed(2)} лв.
                         </div>
-                      </td>
+                      </div>
+                    </div>
 
-                      {/* Delete Action */}
-                      <td className="py-3.5 px-4 text-center">
-                        {isConfirming ? (
-                          <div className="flex items-center justify-center gap-1.5 animate-in fade-in">
-                            <button
-                              onClick={() => handleDelete(r.id)}
-                              className="px-2 py-1 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700 transition-colors shadow-sm cursor-pointer"
-                            >
-                              Изтрий!
-                            </button>
-                            <button
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-xs font-semibold hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors cursor-pointer"
-                            >
-                              Отказ
-                            </button>
-                          </div>
-                        ) : (
+                    {r.note && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 font-medium italic bg-amber-50/60 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-100 dark:border-amber-900/50">
+                        "{r.note}"
+                      </p>
+                    )}
+
+                    {/* 2-Column Metrics */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500 block mb-0.5">
+                          Потребление
+                        </span>
+                        <span className="font-bold text-amber-600 dark:text-amber-400 text-sm font-mono block">
+                          {r.consumption.toFixed(2)} kWh
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          Дн: {r.consT1.toFixed(1)} | Нощ: {r.consT2.toFixed(1)}
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500 block mb-0.5">
+                          Единична цена
+                        </span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm font-mono block">
+                          €{r.unitPrice.toFixed(4)}
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          Т1: {r.priceT1.toFixed(4)} | Т2: {r.priceT2.toFixed(4)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Meter Split */}
+                    <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
+                        <span className="text-slate-600 dark:text-slate-300">ЕМ 1:</span>
+                        <strong className="font-mono text-slate-900 dark:text-white">€{r.costEm1.toFixed(2)}</strong>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Plug className="w-3.5 h-3.5 text-emerald-500" />
+                        <span className="text-slate-600 dark:text-slate-300">ЕМ 2:</span>
+                        <strong className="font-mono text-emerald-700 dark:text-emerald-400">€{r.em2Remainder.toFixed(2)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Readings Summary & Delete Action */}
+                    <div className="flex items-center justify-between pt-1 text-xs">
+                      <span className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">
+                        Показания: {r.previousReading.toFixed(0)} → {r.currentReading.toFixed(0)}
+                      </span>
+
+                      {isConfirming ? (
+                        <div className="flex items-center gap-2">
                           <button
-                            onClick={() => setConfirmDeleteId(r.id)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                            title="Изтрий този отчет от историята"
+                            onClick={() => handleDelete(r.id)}
+                            className="min-h-[40px] px-3 py-1.5 bg-rose-600 text-white rounded-lg text-xs font-bold hover:bg-rose-700 shadow-xs cursor-pointer"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            Изтрий
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="min-h-[40px] px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
+                          >
+                            Отказ
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(r.id)}
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
+                          title="Изтрий този отчет"
+                          aria-label="Изтрий отчет"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View (>= md) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-100/70 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 text-xs uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-700">
+                    <th className="py-3 px-4">Период</th>
+                    <th className="py-3 px-4">Старо показание</th>
+                    <th className="py-3 px-4">Ново показание</th>
+                    <th className="py-3 px-4">Потребление (kWh)</th>
+                    <th className="py-3 px-4">Единична цена</th>
+                    <th className="py-3 px-4">Сметка ЕМ 1 / ЕМ 2</th>
+                    <th className="py-3 px-4">Общо фактура</th>
+                    <th className="py-3 px-4 text-center">Действие</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+                  {filteredRecords.map((r) => {
+                    const isConfirming = confirmDeleteId === r.id;
+                    return (
+                      <tr
+                        key={r.id}
+                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group"
+                      >
+                        {/* Period */}
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-800 dark:text-slate-200">
+                            {r.periodLabel}
+                          </div>
+                          <div className="text-xs text-slate-400 dark:text-slate-500">
+                            {new Date(r.createdAt).toLocaleDateString("bg-BG")}
+                          </div>
+                          {r.note && (
+                            <div className="text-xs text-amber-600 dark:text-amber-400 font-medium italic mt-0.5">
+                              "{r.note}"
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Previous Reading */}
+                        <td className="py-3.5 px-4 font-mono text-xs">
+                          <div className="text-slate-800 dark:text-slate-200 font-semibold">
+                            {r.previousReading.toFixed(1)}
+                          </div>
+                          <div className="text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
+                            <Sun className="w-3 h-3 text-amber-500" /> {r.prevT1}
+                            <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.prevT2}
+                          </div>
+                        </td>
+
+                        {/* Current Reading */}
+                        <td className="py-3.5 px-4 font-mono text-xs">
+                          <div className="text-slate-800 dark:text-slate-200 font-semibold">
+                            {r.currentReading.toFixed(1)}
+                          </div>
+                          <div className="text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
+                            <Sun className="w-3 h-3 text-amber-500" /> {r.currT1}
+                            <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.currT2}
+                          </div>
+                        </td>
+
+                        {/* Consumption */}
+                        <td className="py-3.5 px-4 font-mono">
+                          <div className="font-bold text-amber-600 dark:text-amber-400 text-sm">
+                            {r.consumption.toFixed(2)} kWh
+                          </div>
+                          <div className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-2 mt-0.5">
+                            <span>Дн: {r.consT1.toFixed(1)}</span>
+                            <span>Нощ: {r.consT2.toFixed(1)}</span>
+                          </div>
+                        </td>
+
+                        {/* Unit Price */}
+                        <td className="py-3.5 px-4 text-xs font-mono text-slate-600 dark:text-slate-400">
+                          <div className="font-semibold text-slate-800 dark:text-slate-200">
+                            €{r.unitPrice.toFixed(4)}/kWh
+                          </div>
+                          <div className="text-slate-400 dark:text-slate-500 mt-0.5">
+                            Т1: €{r.priceT1.toFixed(4)} | Т2: €{r.priceT2.toFixed(4)}
+                          </div>
+                        </td>
+
+                        {/* Meter 1 vs Meter 2 */}
+                        <td className="py-3.5 px-4 text-xs">
+                          <div className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-medium">
+                            <Lightbulb className="w-3 h-3 text-yellow-500" />
+                            <span>ЕМ 1:</span>
+                            <strong className="font-mono">€{r.costEm1.toFixed(2)}</strong>
+                          </div>
+                          <div className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium mt-1">
+                            <Plug className="w-3 h-3 text-emerald-500" />
+                            <span>ЕМ 2:</span>
+                            <strong className="font-mono">€{r.em2Remainder.toFixed(2)}</strong>
+                          </div>
+                        </td>
+
+                        {/* Total Cost */}
+                        <td className="py-3.5 px-4">
+                          <div className="text-base font-bold text-slate-900 dark:text-white font-mono">
+                            €{r.totalCost.toFixed(2)}
+                          </div>
+                          <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            {(r.totalCost * BGN_EUR_RATE).toFixed(2)} лв.
+                          </div>
+                        </td>
+
+                        {/* Delete Action */}
+                        <td className="py-3.5 px-4 text-center">
+                          {isConfirming ? (
+                            <div className="flex items-center justify-center gap-1.5 animate-in fade-in">
+                              <button
+                                onClick={() => handleDelete(r.id)}
+                                className="px-2 py-1 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700 transition-colors shadow-sm cursor-pointer"
+                              >
+                                Изтрий!
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-xs font-semibold hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors cursor-pointer"
+                              >
+                                Отказ
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(r.id)}
+                              className="p-2 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="Изтрий този отчет от историята"
+                              aria-label="Изтрий отчет"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

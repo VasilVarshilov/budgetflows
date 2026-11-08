@@ -1,6 +1,24 @@
 node_modules
 dist
 .env
-.env.local
+.env.*
+!.env.example
 *.log
 .DS_Store
+
+# Sensitive Firebase and Cloud configuration files
+firebase-applet-config.json
+firebase_applet_config.xml
+client/src/firebase-config.json
+client/src/firebaseConfig.json
+google-services.json
+service-account*.json
+*secret*
+*credential*
+*.pem
+*.key
+
+# Ensure example files are tracked
+!*.example.json
+!firebase-applet-config.example.json
+!client/src/firebase-config.example.json

@@ -214,11 +214,11 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
       </div>
 
       {/* Filter Tabs Bar */}
-      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar transition-colors">
-        <div className="flex items-center gap-1.5 shrink-0">
+      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-2 sm:gap-3 transition-colors">
+        <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
           <button
             onClick={() => setSelectedFilter("all")}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "all"
                 ? "bg-slate-900 dark:bg-indigo-600 text-white shadow-xs"
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -229,7 +229,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
           <button
             onClick={() => setSelectedFilter("top")}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`min-h-[38px] flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "top"
                 ? "bg-indigo-600 text-white shadow-xs"
                 : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800"
@@ -241,7 +241,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
           <button
             onClick={() => setSelectedFilter("spending")}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "spending"
                 ? "bg-rose-600 text-white shadow-xs"
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -252,7 +252,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
           <button
             onClick={() => setSelectedFilter("savings")}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "savings"
                 ? "bg-emerald-600 text-white shadow-xs"
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -263,7 +263,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
           <button
             onClick={() => setSelectedFilter("electricity")}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "electricity"
                 ? "bg-amber-600 text-white shadow-xs"
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -274,7 +274,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
           <button
             onClick={() => setSelectedFilter("trend")}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               selectedFilter === "trend"
                 ? "bg-indigo-600 text-white shadow-xs"
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"

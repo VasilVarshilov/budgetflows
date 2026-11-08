@@ -259,15 +259,15 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
           {/* Month Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 shadow-2xs">
+          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[44px] shadow-2xs">
             <Calendar className="w-4 h-4 text-slate-400" />
-            <div className="relative">
+            <div className="relative flex-1">
               <select
                 value={selectedMonthKey}
                 onChange={(e) => setSelectedMonthKey(e.target.value)}
-                className="appearance-none bg-transparent font-semibold text-xs text-slate-700 dark:text-slate-200 pr-5 outline-none cursor-pointer"
+                className="w-full appearance-none bg-transparent font-semibold text-xs sm:text-sm text-slate-700 dark:text-slate-200 pr-5 outline-none cursor-pointer"
               >
                 {availableMonths.map((m) => (
                   <option key={m} value={m} className="dark:bg-slate-800 dark:text-white">
@@ -281,7 +281,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
           <button
             onClick={handleOpenAddModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Нов бюджет за категория</span>
@@ -590,15 +590,17 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => handleOpenEditModal(item.budget)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           title="Редактирай бюджет"
+                          aria-label="Редактирай бюджет"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => setDeleteConfirmId(item.budget.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
                           title="Изтрий бюджет"
+                          aria-label="Изтрий бюджет"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
