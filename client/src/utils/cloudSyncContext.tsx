@@ -25,6 +25,7 @@ import {
   findDriveBackup,
   uploadDriveBackup,
   downloadDriveBackup,
+  deleteDriveBackup,
   DriveFileInfo,
 } from "./googleDriveBackup";
 import {
@@ -51,6 +52,8 @@ interface CloudSyncContextType {
   loginWithGoogle: () => Promise<void>;
   logoutGoogle: () => Promise<void>;
   backupNow: () => Promise<{ success: boolean; message: string }>;
+  deleteCloudBackup: () => Promise<{ success: boolean; message: string }>;
+  disconnectGoogleDrive: () => Promise<void>;
   fetchCloudBackupDetails: () => Promise<DriveFileInfo | null>;
   downloadAndParseCloudBackup: () => Promise<{
     backup: BackupData | null;
@@ -462,6 +465,86 @@ export const CloudSyncProvider: React.FC<{
     setLastSyncError(null);
   }, []);
 
+  const deleteCloudBackup = useCallback(async (): Promise<{
+    success: boolean;
+    message: string;
+  }> => {
+    let token = await getGoogleAccessToken();
+    if (!token) {
+      try {
+        token = await ensureGoogleAccessToken(true);
+        if (token) {
+          setStoredProfile(getStoredUserProfile());
+        }
+      } catch (authErr: any) {
+        return {
+          success: false,
+          message: "Няма активна Google сесия. Влезте с Google профила си.",
+        };
+      }
+    }
+
+    if (!token) {
+      return {
+        success: false,
+        message: "Няма активна сесия. Влезте с Google профила си.",
+      };
+    }
+
+    try {
+      setSyncStatus("syncing");
+      const existing = await findDriveBackup(token);
+      if (!existing || !existing.id) {
+        setCloudBackupInfo(null);
+        setSyncStatus("idle");
+        return {
+          success: false,
+          message: "В Google Drive не бе намерен съхранен архив (budgetflows-backup.json).",
+        };
+      }
+
+      await deleteDriveBackup(token, existing.id);
+      setCloudBackupInfo(null);
+      setSyncStatus("idle");
+      setLastSyncError(null);
+
+      // Refresh cloud metadata to ensure drive state is updated
+      await fetchCloudBackupDetails();
+
+      return {
+        success: true,
+        message: "Cloud backup successfully deleted.",
+      };
+    } catch (err: any) {
+      console.error("Delete cloud backup failed:", err);
+      const errMsg = err?.message || "Грешка при изтриване на архива от Google Drive.";
+      if (errMsg.includes("Сесията с Google изтече") || errMsg.includes("401")) {
+        clearStoredOAuthToken();
+      }
+      setSyncStatus("failed");
+      setLastSyncError(errMsg);
+      return {
+        success: false,
+        message: errMsg,
+      };
+    }
+  }, [fetchCloudBackupDetails]);
+
+  const disconnectGoogleDrive = useCallback(async () => {
+    try {
+      await signOutGoogle();
+      clearStoredOAuthToken();
+      setAutoBackupEnabled(false);
+      setUser(null);
+      setStoredProfile(null);
+      setCloudBackupInfo(null);
+      setSyncStatus("idle");
+      setLastSyncError(null);
+    } catch (e) {
+      console.warn("Error disconnecting Google Drive:", e);
+    }
+  }, [setAutoBackupEnabled]);
+
   const isAuthenticated = Boolean(user || storedProfile);
 
   return (
@@ -481,6 +564,8 @@ export const CloudSyncProvider: React.FC<{
         loginWithGoogle,
         logoutGoogle,
         backupNow,
+        deleteCloudBackup,
+        disconnectGoogleDrive,
         fetchCloudBackupDetails,
         downloadAndParseCloudBackup,
         restoreCloudBackup,

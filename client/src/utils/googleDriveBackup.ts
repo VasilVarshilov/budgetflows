@@ -183,6 +183,37 @@ export async function downloadDriveBackup(
 }
 
 /**
+ * Permanently deletes the backup file from Google Drive (appDataFolder)
+ */
+export async function deleteDriveBackup(
+  accessToken: string,
+  fileId: string
+): Promise<boolean> {
+  const deleteUrl = `https://www.googleapis.com/drive/v3/files/${fileId}`;
+
+  const response = await fetch(deleteUrl, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+    }
+    if (response.status === 404) {
+      // File was already deleted or not found
+      return true;
+    }
+    const errText = await response.text();
+    throw new Error(`Грешка при изтриване на архива от Google Drive: ${errText}`);
+  }
+
+  return true;
+}
+
+/**
  * Formats byte size to human readable KB/MB
  */
 export function formatDriveFileSize(bytes?: number): string {
