@@ -265,7 +265,12 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
 
   let parsed: any;
   try {
-    parsed = JSON.parse(rawText);
+    parsed = JSON.parse(rawText, (key, value) => {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        return undefined;
+      }
+      return value;
+    });
   } catch (e) {
     return {
       isValid: false,

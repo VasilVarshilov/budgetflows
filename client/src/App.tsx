@@ -342,7 +342,7 @@ const AppContent: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-slate-800 dark:text-white text-lg tracking-tight">
-                  Home Budget
+                  Budget Flow
                 </span>
                 <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50">
                   {currentMonth}
@@ -516,7 +516,7 @@ const AppContent: React.FC = () => {
       <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto transition-colors mb-16 md:mb-0">
         <div className="max-w-6xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
           <p className="text-center text-xs text-slate-400 dark:text-slate-500">
-            Home Budget Application © {new Date().getFullYear()}
+            Budget Flow Application © {new Date().getFullYear()}
           </p>
         </div>
       </footer>

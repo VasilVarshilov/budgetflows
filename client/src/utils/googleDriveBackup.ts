@@ -115,7 +115,7 @@ export async function uploadDriveBackup(
     name: DRIVE_BACKUP_FILENAME,
     parents: ["appDataFolder"],
     mimeType: "application/json",
-    description: "Home Budget App Cloud Backup (appDataFolder)",
+    description: "Budget Flow App Cloud Backup (appDataFolder)",
   };
 
   const multipartRequestBody =
