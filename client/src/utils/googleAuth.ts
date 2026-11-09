@@ -65,6 +65,7 @@ provider.setCustomParameters({
 });
 
 export const STORAGE_KEY_GOOGLE_USER = "HomeBudget_GoogleUser";
+export const STORAGE_KEY_GOOGLE_TOKEN = "HomeBudget_GoogleOAuthToken";
 export const STORAGE_KEY_AUTO_BACKUP = "HomeBudget_AutoBackup";
 export const STORAGE_KEY_LAST_SYNC = "HomeBudget_LastCloudSync";
 
@@ -76,9 +77,96 @@ export interface StoredUserProfile {
   lastLogin: string;
 }
 
-// In-memory cache for the OAuth access token (per security guidelines)
+export interface StoredOAuthToken {
+  token: string;
+  expiresAt: number;
+  savedAt: number;
+}
+
+// In-memory cache for the OAuth access token
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
+
+/**
+ * Saves or clears the Google OAuth token in memory and secure web storage with expiration
+ */
+export function saveStoredOAuthToken(token: string | null, expiresInSeconds = 3600): void {
+  if (!token) {
+    cachedAccessToken = null;
+    try {
+      sessionStorage.removeItem(STORAGE_KEY_GOOGLE_TOKEN);
+      localStorage.removeItem(STORAGE_KEY_GOOGLE_TOKEN);
+    } catch {
+      // ignore storage access issues
+    }
+    return;
+  }
+
+  cachedAccessToken = token;
+  // Subtract 120s buffer so we refresh before hard expiry
+  const validSeconds = Math.max(300, expiresInSeconds - 120);
+  const payload: StoredOAuthToken = {
+    token,
+    expiresAt: Date.now() + validSeconds * 1000,
+    savedAt: Date.now(),
+  };
+
+  try {
+    sessionStorage.setItem(STORAGE_KEY_GOOGLE_TOKEN, JSON.stringify(payload));
+  } catch (e) {
+    console.warn("Could not persist token in sessionStorage:", e);
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY_GOOGLE_TOKEN, JSON.stringify(payload));
+  } catch (e) {
+    console.warn("Could not persist token in localStorage:", e);
+  }
+}
+
+/**
+ * Retrieves valid Google OAuth token from memory or storage if not expired
+ */
+export function getStoredOAuthToken(): string | null {
+  if (cachedAccessToken) {
+    return cachedAccessToken;
+  }
+
+  let raw: string | null = null;
+  try {
+    raw = sessionStorage.getItem(STORAGE_KEY_GOOGLE_TOKEN);
+    if (!raw) {
+      raw = localStorage.getItem(STORAGE_KEY_GOOGLE_TOKEN);
+    }
+  } catch {
+    raw = null;
+  }
+
+  if (!raw) return null;
+
+  try {
+    const parsed: StoredOAuthToken = JSON.parse(raw);
+    if (parsed && parsed.token && typeof parsed.expiresAt === "number") {
+      if (Date.now() < parsed.expiresAt) {
+        cachedAccessToken = parsed.token;
+        return parsed.token;
+      }
+    }
+  } catch {
+    // Malformed JSON
+  }
+
+  // Token is expired or corrupt, clear it
+  saveStoredOAuthToken(null);
+  return null;
+}
+
+export function clearStoredOAuthToken(): void {
+  saveStoredOAuthToken(null);
+}
+
+export function isGoogleTokenValid(): boolean {
+  return Boolean(getStoredOAuthToken());
+}
 
 /**
  * Returns stored user profile from localStorage if available
@@ -162,10 +250,10 @@ export async function signInWithGoogle(): Promise<{
       throw new Error("Не бе получен OAuth токен за достъп от Google.");
     }
 
-    cachedAccessToken = credential.accessToken;
+    saveStoredOAuthToken(credential.accessToken);
     saveStoredUserProfile(result.user);
 
-    return { user: result.user, accessToken: cachedAccessToken };
+    return { user: result.user, accessToken: credential.accessToken };
   } catch (error: any) {
     console.error("Google sign-in error:", error);
     throw error;
@@ -214,7 +302,7 @@ export function isUnauthorizedDomainError(error: any): boolean {
 }
 
 /**
- * Signs out from Google and clears in-memory token & cached profile
+ * Signs out from Google and clears token & cached profile
  */
 export async function signOutGoogle(): Promise<void> {
   const client = getAuthClient() || auth;
@@ -225,23 +313,46 @@ export async function signOutGoogle(): Promise<void> {
   } catch (e) {
     console.warn("Sign out warning:", e);
   } finally {
-    cachedAccessToken = null;
+    clearStoredOAuthToken();
     saveStoredUserProfile(null);
   }
 }
 
 /**
- * Gets cached access token
+ * Gets valid Google access token from memory or storage
  */
 export async function getGoogleAccessToken(): Promise<string | null> {
-  return cachedAccessToken;
+  return getStoredOAuthToken();
 }
 
 /**
- * Sets access token manually if refreshed
+ * Sets access token manually if refreshed externally
  */
 export function setGoogleAccessToken(token: string | null): void {
-  cachedAccessToken = token;
+  saveStoredOAuthToken(token);
+}
+
+/**
+ * Ensures a valid Google OAuth Access Token is available.
+ * If missing or expired:
+ * - When interactive is true, triggers signInWithGoogle to renew consent/token seamlessly.
+ * - When interactive is false, returns null without disturbing the user.
+ */
+export async function ensureGoogleAccessToken(
+  interactive = false
+): Promise<string | null> {
+  const currentToken = getStoredOAuthToken();
+  if (currentToken) {
+    return currentToken;
+  }
+
+  if (!interactive) {
+    return null;
+  }
+
+  // Trigger Google sign-in to renew token with Google Drive appDataFolder scope
+  const result = await signInWithGoogle();
+  return result.accessToken || null;
 }
 
 /**
@@ -257,9 +368,9 @@ export function initGoogleAuth(
         if (redirectResult) {
           const cred = GoogleAuthProvider.credentialFromResult(redirectResult);
           if (cred?.accessToken) {
-            cachedAccessToken = cred.accessToken;
+            saveStoredOAuthToken(cred.accessToken);
             saveStoredUserProfile(redirectResult.user);
-            onUserChanged(redirectResult.user, cachedAccessToken);
+            onUserChanged(redirectResult.user, cred.accessToken);
           }
         }
       })
@@ -270,9 +381,11 @@ export function initGoogleAuth(
     return onAuthStateChanged(activeClient, async (user) => {
       if (user) {
         saveStoredUserProfile(user);
-        onUserChanged(user, cachedAccessToken);
+        const activeToken = getStoredOAuthToken();
+        onUserChanged(user, activeToken);
       } else {
-        cachedAccessToken = null;
+        clearStoredOAuthToken();
+        saveStoredUserProfile(null);
         onUserChanged(null, null);
       }
     });

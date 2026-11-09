@@ -172,6 +172,9 @@ export async function downloadDriveBackup(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+    }
     const errText = await response.text();
     throw new Error(`Грешка при изтегляне на архив от Google Drive: ${errText}`);
   }

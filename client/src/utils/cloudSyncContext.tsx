@@ -12,6 +12,9 @@ import {
   signInWithGoogle,
   signOutGoogle,
   getGoogleAccessToken,
+  ensureGoogleAccessToken,
+  clearStoredOAuthToken,
+  formatFirebaseAuthError,
   getStoredUserProfile,
   saveStoredUserProfile,
   StoredUserProfile,
@@ -154,7 +157,10 @@ export const CloudSyncProvider: React.FC<{
   // Fetch info about existing backup in Drive
   const fetchCloudBackupDetails = useCallback(async (): Promise<DriveFileInfo | null> => {
     const token = await getGoogleAccessToken();
-    if (!token) return null;
+    if (!token) {
+      setCloudBackupInfo(null);
+      return null;
+    }
 
     try {
       setIsLoadingCloudInfo(true);
@@ -162,6 +168,10 @@ export const CloudSyncProvider: React.FC<{
       setCloudBackupInfo(info);
       return info;
     } catch (e: any) {
+      const errMsg = e?.message || "";
+      if (errMsg.includes("Сесията с Google изтече") || errMsg.includes("401")) {
+        clearStoredOAuthToken();
+      }
       console.warn("Could not fetch cloud backup info:", e);
       return null;
     } finally {
@@ -169,17 +179,37 @@ export const CloudSyncProvider: React.FC<{
     }
   }, []);
 
-  // Check cloud backup on login
+  // Check cloud backup on login or stored profile
   useEffect(() => {
-    if (user && isOnline) {
+    if ((user || storedProfile) && isOnline) {
       fetchCloudBackupDetails();
     }
-  }, [user, isOnline, fetchCloudBackupDetails]);
+  }, [user, storedProfile, isOnline, fetchCloudBackupDetails]);
 
   // Core backup execution
   const executeBackup = useCallback(
     async (isAutomatic = false): Promise<{ success: boolean; message: string }> => {
-      const token = await getGoogleAccessToken();
+      let token = await getGoogleAccessToken();
+
+      // If token is missing and this is a manual backup, attempt interactive acquisition
+      if (!token && !isAutomatic) {
+        try {
+          token = await ensureGoogleAccessToken(true);
+          if (token) {
+            setStoredProfile(getStoredUserProfile());
+          }
+        } catch (authErr: any) {
+          console.warn("Could not obtain Google token interactively:", authErr);
+          const formatted = formatFirebaseAuthError(authErr);
+          setSyncStatus("failed");
+          setLastSyncError(formatted);
+          return {
+            success: false,
+            message: formatted,
+          };
+        }
+      }
+
       if (!token) {
         if (!isAutomatic) {
           setSyncStatus("failed");
@@ -225,8 +255,44 @@ export const CloudSyncProvider: React.FC<{
         };
       } catch (err: any) {
         console.error("Backup to Google Drive failed:", err);
-        setSyncStatus("failed");
         const errMsg = err?.message || "Неуспешен запис в Google Drive.";
+        const isAuthError =
+          errMsg.includes("Сесията с Google изтече") ||
+          errMsg.includes("401") ||
+          errMsg.includes("invalid_grant");
+
+        // If access token was expired/revoked on Google's side during manual backup,
+        // automatically refresh the token and retry once!
+        if (isAuthError) {
+          clearStoredOAuthToken();
+          if (!isAutomatic) {
+            try {
+              const freshToken = await ensureGoogleAccessToken(true);
+              if (freshToken) {
+                setStoredProfile(getStoredUserProfile());
+                const currentData = gatherApplicationData();
+                const retryResult = await uploadDriveBackup(freshToken, currentData);
+                const nowIso = new Date().toISOString();
+                setSyncStatus("synced");
+                setLastSyncTime(nowIso);
+                try {
+                  localStorage.setItem(STORAGE_KEY_LAST_SYNC, nowIso);
+                } catch {
+                  // ignore
+                }
+                await fetchCloudBackupDetails();
+                return {
+                  success: true,
+                  message: retryResult.message || "Архивът бе записан успешно в Google Drive.",
+                };
+              }
+            } catch (retryErr: any) {
+              console.warn("Retry after token refresh failed:", retryErr);
+            }
+          }
+        }
+
+        setSyncStatus("failed");
         setLastSyncError(errMsg);
         return {
           success: false,
@@ -266,7 +332,23 @@ export const CloudSyncProvider: React.FC<{
 
   // Download and parse cloud backup for preview modal
   const downloadAndParseCloudBackup = useCallback(async () => {
-    const token = await getGoogleAccessToken();
+    let token = await getGoogleAccessToken();
+    if (!token) {
+      try {
+        token = await ensureGoogleAccessToken(true);
+        if (token) {
+          setStoredProfile(getStoredUserProfile());
+        }
+      } catch (authErr: any) {
+        return {
+          backup: null,
+          rawText: null,
+          fileInfo: null,
+          error: "Няма активна Google сесия. Влезте с Google профила си.",
+        };
+      }
+    }
+
     if (!token) {
       return {
         backup: null,
@@ -305,11 +387,15 @@ export const CloudSyncProvider: React.FC<{
         fileInfo,
       };
     } catch (e: any) {
+      const errMsg = e?.message || "";
+      if (errMsg.includes("Сесията с Google изтече") || errMsg.includes("401")) {
+        clearStoredOAuthToken();
+      }
       return {
         backup: null,
         rawText: null,
         fileInfo: null,
-        error: e?.message || "Грешка при сваляне на архива от Google Drive.",
+        error: errMsg || "Грешка при сваляне на архива от Google Drive.",
       };
     }
   }, []);
@@ -356,6 +442,7 @@ export const CloudSyncProvider: React.FC<{
   const loginWithGoogle = useCallback(async () => {
     try {
       setSyncStatus("idle");
+      setLastSyncError(null);
       const res = await signInWithGoogle();
       setUser(res.user);
       setStoredProfile(getStoredUserProfile());
@@ -372,6 +459,7 @@ export const CloudSyncProvider: React.FC<{
     setStoredProfile(null);
     setCloudBackupInfo(null);
     setSyncStatus("idle");
+    setLastSyncError(null);
   }, []);
 
   const isAuthenticated = Boolean(user || storedProfile);
