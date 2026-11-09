@@ -2,6 +2,9 @@ import { initializeApp, getApps, getApp as getSdkApp, type FirebaseApp } from "f
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  browserPopupRedirectResolver,
   GoogleAuthProvider,
   onAuthStateChanged,
   signOut,
@@ -138,7 +141,21 @@ export async function signInWithGoogle(): Promise<{
       );
     }
 
-    const result = await signInWithPopup(client, provider);
+    let result;
+    try {
+      result = await signInWithPopup(client, provider, browserPopupRedirectResolver);
+    } catch (popupErr: any) {
+      if (
+        popupErr?.code === "auth/popup-blocked" ||
+        popupErr?.code === "auth/cancelled-popup-request"
+      ) {
+        console.warn("Popup blocked or interrupted, falling back to signInWithRedirect...");
+        await signInWithRedirect(client, provider, browserPopupRedirectResolver);
+        return new Promise(() => {});
+      }
+      throw popupErr;
+    }
+
     const credential = GoogleAuthProvider.credentialFromResult(result);
 
     if (!credential?.accessToken) {
@@ -166,6 +183,13 @@ export function formatFirebaseAuthError(error: any): string {
 
   if (code === "auth/unauthorized-domain" || error?.message?.includes("auth/unauthorized-domain")) {
     return `Неоторизиран домейн (${currentDomain}): Този домейн все още не е добавен в списъка "Authorized domains" във Firebase Authentication.`;
+  }
+  if (
+    code === "auth/bad-request" ||
+    error?.message?.includes("The requested action is invalid") ||
+    error?.message?.includes("bad-request")
+  ) {
+    return `Грешка при OAuth заявката (The requested action is invalid): В Google Cloud Console е необходимо да добавите "https://${currentDomain}/*" и "https://${getFirebaseConfig().projectId || "gen-lang-client-0141580200"}.firebaseapp.com/*" в списъка на разрешенията за API ключа.`;
   }
   if (code === "auth/popup-closed-by-user") {
     return "Прозорецът за вход с Google беше затворен преди да завърши автентикацията.";
@@ -226,33 +250,44 @@ export function setGoogleAccessToken(token: string | null): void {
 export function initGoogleAuth(
   onUserChanged: (user: User | null, token: string | null) => void
 ): () => void {
+  const handleAuthObserver = (activeClient: Auth) => {
+    // Check if user just returned from a redirect flow on mobile
+    getRedirectResult(activeClient, browserPopupRedirectResolver)
+      .then((redirectResult) => {
+        if (redirectResult) {
+          const cred = GoogleAuthProvider.credentialFromResult(redirectResult);
+          if (cred?.accessToken) {
+            cachedAccessToken = cred.accessToken;
+            saveStoredUserProfile(redirectResult.user);
+            onUserChanged(redirectResult.user, cachedAccessToken);
+          }
+        }
+      })
+      .catch((e) => {
+        console.warn("Redirect result check:", e);
+      });
+
+    return onAuthStateChanged(activeClient, async (user) => {
+      if (user) {
+        saveStoredUserProfile(user);
+        onUserChanged(user, cachedAccessToken);
+      } else {
+        cachedAccessToken = null;
+        onUserChanged(null, null);
+      }
+    });
+  };
+
   const client = getAuthClient() || auth;
   if (!client) {
-    // Attempt async resolution in the background
     loadFirebaseConfigAsync().then(() => {
       const resolvedClient = getAuthClient();
       if (resolvedClient) {
-        return onAuthStateChanged(resolvedClient, async (user) => {
-          if (user) {
-            saveStoredUserProfile(user);
-            onUserChanged(user, cachedAccessToken);
-          } else {
-            cachedAccessToken = null;
-            onUserChanged(null, null);
-          }
-        });
+        handleAuthObserver(resolvedClient);
       }
     });
     return () => {};
   }
 
-  return onAuthStateChanged(client, async (user) => {
-    if (user) {
-      saveStoredUserProfile(user);
-      onUserChanged(user, cachedAccessToken);
-    } else {
-      cachedAccessToken = null;
-      onUserChanged(null, null);
-    }
-  });
+  return handleAuthObserver(client);
 }

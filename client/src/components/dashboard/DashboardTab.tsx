@@ -50,6 +50,7 @@ import {
 } from "@/utils/budgetStorage";
 import { AVAILABLE_ICONS_MAP } from "@/utils/categoryStorage";
 import { MonthToMonthComparison } from "@/components/common/MonthToMonthComparison";
+import { BudgetControlSection } from "./BudgetControlSection";
 import { computeMonthToMonthComparison } from "@/utils/comparisonStorage";
 import { generateLocalFinancialAnalysis } from "@/utils/aiAnalysisEngine";
 import { useTheme } from "@/utils/themeContext";
@@ -864,6 +865,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
       </div>
 
+      {/* Budget and Expense Control Section */}
+      <BudgetControlSection
+        budgetData={budgetData}
+        currentPeriodLabel={currentPeriodLabel}
+        onNavigateTab={onNavigateTab}
+      />
+
       {/* Month-to-Month Comparison Section */}
       <MonthToMonthComparison comparisonData={monthComparisonData} />
 
@@ -948,258 +956,6 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               </div>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* Exceeded Budget Warnings Banner */}
-      {budgetData.activeWarnings.length > 0 && (
-        <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-2xl p-4 text-rose-900 dark:text-rose-200 shadow-xs animate-in slide-in-from-top-2 duration-300">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="p-1.5 bg-rose-100 dark:bg-rose-900/80 rounded-lg text-rose-600 dark:text-rose-300 mt-0.5 shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="font-bold text-sm text-rose-800 dark:text-rose-200">
-                  ⚠️ Предупреждение: Превишен бюджет ({currentPeriodLabel})
-                </h4>
-                <div className="mt-2 space-y-1.5">
-                  {budgetData.activeWarnings.map((warn, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-2 bg-white/90 dark:bg-slate-800/90 border border-rose-200/80 dark:border-rose-800 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-950 dark:text-rose-200 shadow-2xs"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                      <span>{warn}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => onNavigateTab?.("budgets")}
-              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shrink-0 cursor-pointer shadow-xs transition-colors self-start sm:self-auto"
-            >
-              Управление на бюджети
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Budget Overview & Category Limits Section */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-5 shadow-xs transition-colors">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
-              <Target className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base">
-                Бюджет и контрол на разходите
-              </h3>
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                Сравнение на разходите спрямо предварително зададените лимити ({currentPeriodLabel})
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => onNavigateTab?.("budgets")}
-            className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 px-3 py-1.5 rounded-xl transition-colors cursor-pointer self-start sm:self-auto"
-          >
-            <span>Настройка на бюджети</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4">
-          {/* Left Column: Overall Monthly Budget Progress */}
-          <div className="lg:col-span-5 bg-slate-50/70 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200/70 dark:border-slate-700/70 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Месечен бюджет
-                </span>
-                <span
-                  className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
-                    budgetData.totalStatus === "green"
-                      ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
-                      : budgetData.totalStatus === "yellow"
-                      ? "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
-                      : "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
-                  }`}
-                >
-                  {budgetData.totalPercentage}%
-                </span>
-              </div>
-
-              <div className="mt-2 flex items-baseline justify-between">
-                <div>
-                  <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                    €{budgetData.totalSpent.toFixed(2)}
-                  </span>
-                  <span className="text-xs text-slate-400 dark:text-slate-500 ml-1.5">
-                    от €{budgetData.totalMonthlyLimit.toFixed(2)}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span
-                    className={`text-xs font-bold block ${
-                      budgetData.isTotalExceeded ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"
-                    }`}
-                  >
-                    {budgetData.isTotalExceeded ? "Превишен с" : "Оставащ бюджет"}
-                  </span>
-                  <span
-                    className={`text-sm font-black ${
-                      budgetData.isTotalExceeded ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-300"
-                    }`}
-                  >
-                    {budgetData.isTotalExceeded ? "-" : ""}€
-                    {Math.abs(budgetData.totalRemaining).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Progress Bar: 0-80% Green, 80-100% Yellow, 100%+ Red */}
-              <div className="mt-3 space-y-1">
-                <div className="w-full h-3 bg-white dark:bg-slate-900 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-slate-700">
-                  <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      budgetData.totalStatus === "green"
-                        ? "bg-emerald-500"
-                        : budgetData.totalStatus === "yellow"
-                        ? "bg-amber-500"
-                        : "bg-rose-500"
-                    }`}
-                    style={{
-                      width: `${Math.min(budgetData.totalPercentage, 100)}%`,
-                    }}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                  <span>0%</span>
-                  <span>80% норма</span>
-                  <span>100% лимит</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-              <span>Статус на бюджета:</span>
-              <span
-                className={`font-semibold ${
-                  budgetData.totalStatus === "green"
-                    ? "text-emerald-700 dark:text-emerald-400"
-                    : budgetData.totalStatus === "yellow"
-                    ? "text-amber-700 dark:text-amber-400"
-                    : "text-rose-700 dark:text-rose-400"
-                }`}
-              >
-                {budgetData.totalStatus === "green"
-                  ? "✓ В норма (под 80%)"
-                  : budgetData.totalStatus === "yellow"
-                  ? "⚠ Внимание (80-100%)"
-                  : "✗ Превишен (>100%)"}
-              </span>
-            </div>
-          </div>
-
-          {/* Right Column: Category Budgets Live Progress Bars */}
-          <div className="lg:col-span-7 space-y-3">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-              <span>Лимити по категории</span>
-              <span>Изразходвано / Оставащ бюджет</span>
-            </div>
-
-            {budgetData.categoryStatuses.length === 0 ? (
-              <p className="text-xs text-slate-400 dark:text-slate-500 py-3 text-center">
-                Няма въведени лимити по категории.
-              </p>
-            ) : (
-              <div className="space-y-2.5 max-h-[175px] overflow-y-auto pr-1 custom-scrollbar">
-                {budgetData.categoryStatuses.map((cat) => {
-                  const IconComp =
-                    AVAILABLE_ICONS_MAP[cat.iconName] || Target;
-                  const barColor =
-                    cat.status === "green"
-                      ? "bg-emerald-500"
-                      : cat.status === "yellow"
-                      ? "bg-amber-500"
-                      : "bg-rose-500";
-                  const badgeColor =
-                    cat.status === "green"
-                      ? "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800"
-                      : cat.status === "yellow"
-                      ? "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800"
-                      : "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800";
-
-                  return (
-                    <div
-                      key={cat.budget.id}
-                      className={`p-2.5 rounded-xl border transition-colors ${
-                        cat.isExceeded
-                          ? "bg-rose-50/50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900"
-                          : "bg-white dark:bg-slate-800/80 border-slate-100 dark:border-slate-700/60 hover:border-slate-200 dark:hover:border-slate-600"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs mb-1.5">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div
-                            className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${cat.colorClass}`}
-                          >
-                            <IconComp className="w-3.5 h-3.5" />
-                          </div>
-                          <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                            {cat.budget.categoryName}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-slate-500 dark:text-slate-400">
-                            €{cat.spent.toFixed(2)} / €{cat.limit.toFixed(2)}
-                          </span>
-                          <span
-                            className={`px-1.5 py-0.5 rounded-md text-[11px] font-bold border ${badgeColor}`}
-                          >
-                            {cat.percentage}%
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Mini Progress Bar */}
-                      <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${barColor}`}
-                          style={{
-                            width: `${Math.min(cat.percentage, 100)}%`,
-                          }}
-                        />
-                      </div>
-
-                      {/* Remaining amount or warning */}
-                      <div className="flex justify-between items-center text-[10px] mt-1 text-slate-400 dark:text-slate-500">
-                        <span>
-                          {cat.isExceeded ? (
-                            <span className="text-rose-600 dark:text-rose-400 font-semibold">
-                              Превишен с €{cat.overspentAmount.toFixed(2)}
-                            </span>
-                          ) : (
-                            <span>Остават €{cat.remaining.toFixed(2)}</span>
-                          )}
-                        </span>
-                        <span>
-                          {cat.status === "green"
-                            ? "Зелена зона"
-                            : cat.status === "yellow"
-                            ? "Жълта зона"
-                            : "Червена зона"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
