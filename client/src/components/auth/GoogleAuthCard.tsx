@@ -13,8 +13,14 @@ import {
   ShieldCheck,
   Loader2,
   User as UserIcon,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
 import { useCloudSync } from "@/utils/cloudSyncContext";
+import {
+  formatFirebaseAuthError,
+  isUnauthorizedDomainError,
+} from "@/utils/googleAuth";
 
 interface GoogleAuthCardProps {
   onOpenRestoreModal: () => void;
@@ -45,12 +51,15 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(
     null
   );
+  const [unauthorizedDomainError, setUnauthorizedDomainError] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   const displayUser = user || storedProfile;
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
     setFeedback(null);
+    setUnauthorizedDomainError(false);
     try {
       await loginWithGoogle();
       setFeedback({
@@ -59,9 +68,11 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
+      const isUnauth = isUnauthorizedDomainError(e);
+      setUnauthorizedDomainError(isUnauth);
       setFeedback({
         type: "error",
-        text: e?.message || "Неуспешен вход с Google. Опитайте отново.",
+        text: formatFirebaseAuthError(e),
       });
     } finally {
       setIsLoggingIn(false);
@@ -178,6 +189,76 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
           )}
           <div className="flex-1">{feedback.text}</div>
+        </div>
+      )}
+
+      {/* Unauthorized Domain Resolution Guide */}
+      {unauthorizedDomainError && (
+        <div className="p-4 sm:p-5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-amber-950 dark:text-amber-200 text-xs space-y-3.5 animate-in fade-in">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-slate-900 dark:text-white text-sm">
+                Как да оправите грешката с неоторизирания домейн във Firebase:
+              </p>
+              <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
+                За защита от фишинг Firebase изисква всеки домейн, на който се ползва вход с Google, да бъде предварително вписан в списъка с позволени домейни.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-amber-200 dark:border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="truncate">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">Домейн за добавяне:</span>
+              <code className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm select-all">
+                {typeof window !== "undefined" ? window.location.hostname : "vasilvarshilov.github.io"}
+              </code>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const domain = typeof window !== "undefined" ? window.location.hostname : "vasilvarshilov.github.io";
+                navigator.clipboard?.writeText(domain);
+                setCopiedDomain(true);
+                setTimeout(() => setCopiedDomain(false), 2500);
+              }}
+              className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>{copiedDomain ? "Копирано!" : "Копирай домейна"}</span>
+            </button>
+          </div>
+
+          <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
+            <li>
+              Отворете{" "}
+              <a
+                href="https://console.firebase.google.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="underline font-semibold text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-0.5"
+              >
+                <span>Firebase Console</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>{" "}
+              и изберете проекта си (напр. <code>budgetflows</code>).
+            </li>
+            <li>
+              В лявото меню отворете <strong>Build &gt; Authentication</strong>.
+            </li>
+            <li>
+              Изберете таб <strong>Settings (Настройки)</strong> най-горе.
+            </li>
+            <li>
+              Превъртете надолу до раздела <strong>Authorized domains (Оторизирани домейни)</strong>.
+            </li>
+            <li>
+              Натиснете <strong>Add domain</strong>, поставете <code>{typeof window !== "undefined" ? window.location.hostname : "vasilvarshilov.github.io"}</code> и натиснете <strong>Add</strong>.
+            </li>
+          </ol>
+          <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
+            💡 След като запазите домейна във Firebase, <strong>не се налага да правите нов билд</strong> — презаредете страницата в телефона/браузъра си и входът с Google ще сработи веднага!
+          </div>
         </div>
       )}
 

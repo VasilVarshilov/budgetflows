@@ -158,6 +158,38 @@ export async function signInWithGoogle(): Promise<{
 }
 
 /**
+ * Formats Firebase auth errors into human-readable Bulgarian explanations
+ */
+export function formatFirebaseAuthError(error: any): string {
+  const code = error?.code || "";
+  const currentDomain = typeof window !== "undefined" ? window.location.hostname : "домейна";
+
+  if (code === "auth/unauthorized-domain" || error?.message?.includes("auth/unauthorized-domain")) {
+    return `Неоторизиран домейн (${currentDomain}): Този домейн все още не е добавен в списъка "Authorized domains" във Firebase Authentication.`;
+  }
+  if (code === "auth/popup-closed-by-user") {
+    return "Прозорецът за вход с Google беше затворен преди да завърши автентикацията.";
+  }
+  if (code === "auth/popup-blocked") {
+    return "Браузърът блокира изскачащия прозорец за вход. Моля, разрешете popups за този сайт.";
+  }
+  if (code === "auth/cancelled-popup-request") {
+    return "Заявката за вход беше прекъсната от друга операция.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Мрежова грешка при свързване със сървърите на Google. Проверете интернет връзката си.";
+  }
+  return error?.message || "Възникна неочаквана грешка при вход с Google.";
+}
+
+export function isUnauthorizedDomainError(error: any): boolean {
+  return (
+    error?.code === "auth/unauthorized-domain" ||
+    Boolean(error?.message?.includes("auth/unauthorized-domain"))
+  );
+}
+
+/**
  * Signs out from Google and clears in-memory token & cached profile
  */
 export async function signOutGoogle(): Promise<void> {
