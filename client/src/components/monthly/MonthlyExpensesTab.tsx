@@ -34,16 +34,22 @@ import {
   Check,
   X,
   ChevronDown,
+  ChevronUp,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   SlidersHorizontal,
   Search,
+  Camera,
+  Store,
+  Receipt,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem, MonthlyRecord } from "@/types";
+import { parseExpenseNote } from "@/utils/expenseFormatter";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { ImportRecurringModal } from "@/components/monthly/ImportRecurringModal";
+import { ScanReceiptModal } from "@/components/monthly/ScanReceiptModal";
 import {
   AVAILABLE_ICONS_MAP,
   loadStoredCategories,
@@ -391,7 +397,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [expenseFilters, setExpenseFilters] = useState<ExpenseFiltersState>(DEFAULT_FILTERS);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isFullWidthMode, setIsFullWidthMode] = useState<boolean>(false);
+  const [expandedExpenseIds, setExpandedExpenseIds] = useState<Set<string>>(new Set());
   const PAGE_SIZE = 25; // Optimize for large datasets: 25 items per page
+
+  const toggleExpandExpense = (id: string) => {
+    setExpandedExpenseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   // Add Fixed Expense Form State
   const [isAddingFixed, setIsAddingFixed] = useState(false);
@@ -409,10 +428,22 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   // Import Recurring Modal & Notification State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [importNotification, setImportNotification] = useState<{
     message: string;
     type: "success" | "info";
   } | null>(null);
+
+  const handleExpenseFromReceipt = (newExpense: ExpenseItem) => {
+    setExpenses((prev) => [...prev, newExpense]);
+    setImportNotification({
+      message: `Добавен е разход "${newExpense.categoryName}" (${newExpense.amount.toFixed(2)} €) от касова бележка.`,
+      type: "success",
+    });
+    setTimeout(() => {
+      setImportNotification(null);
+    }, 5000);
+  };
 
   // Refs to track previous values to avoid infinite save loops
   const prevDataRef = useRef<string>("");
@@ -680,6 +711,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const targetMonth = editingExpenseSourceMonth || currentMonth;
 
+    const parsedNote = parseExpenseNote(editExpenseNote);
+
     if (editingExpenseIsFixed) {
       setFixedExpenses((prev) =>
         prev.map((item) =>
@@ -700,6 +733,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               ...item,
               amount: val,
               note: editExpenseNote.trim() || undefined,
+              merchantName: parsedNote.merchantName || item.merchantName,
+              receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
               isRecurring: editExpenseRecurring,
             };
           }
@@ -715,6 +750,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 ...item,
                 amount: val,
                 note: editExpenseNote.trim() || undefined,
+                merchantName: parsedNote.merchantName || item.merchantName,
+                receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
                 isRecurring: editExpenseRecurring,
               }
             : item
@@ -900,10 +937,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <button
             onClick={() => setIsAddingExpense((prev) => !prev)}
             className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95"
-            title="Добави нов разход"
+            title="Добави нов разход ръчно"
           >
             <Plus className="w-4 h-4" />
             <span>Добави разход</span>
+          </button>
+
+          {/* Scan Receipt Button (AI OCR) */}
+          <button
+            onClick={() => setIsScanModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95"
+            title="Сканирай касова бележка с камера или файл (AI OCR)"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Сканирай бележка</span>
           </button>
 
           {/* Import Recurring Expenses Button */}
@@ -956,18 +1003,33 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-              <Plus className="w-4 h-4" />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <Plus className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-800 dark:text-white text-base">
+                  Нов допълнителен разход
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Въведете текущ или периодичен разход за месеца
+                </p>
+              </div>
             </div>
-            <div>
-              <h4 className="font-bold text-slate-800 dark:text-white text-base">
-                Нов допълнителен разход
-              </h4>
-              <p className="text-xs text-slate-400">
-                Въведете текущ или периодичен разход за месеца
-              </p>
-            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddingExpense(false);
+                setIsScanModalOpen(true);
+              }}
+              className="mr-7 flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-950/40 dark:to-indigo-950/40 hover:from-violet-100 hover:to-indigo-100 dark:hover:from-violet-900/60 dark:hover:to-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold transition-all active:scale-95 shadow-2xs"
+              title="Сканирай касова бележка с камера"
+            >
+              <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Сканирай бележка с камера</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1463,14 +1525,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         </div>
                         <div>
                           <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                            Бележка
+                            Бележка / Артикули
                           </label>
-                          <input
-                            type="text"
+                          <textarea
+                            rows={2}
                             value={editExpenseNote}
                             onChange={(e) => setEditExpenseNote(e.target.value)}
-                            className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                            placeholder="Бележка..."
+                            className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-xs sm:text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                            placeholder="Бележка или артикули..."
                           />
                         </div>
                       </div>
@@ -1513,93 +1575,189 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   );
                 }
 
+                // Parse receipt details (merchant name, structured items, legacy notes)
+                const parsedReceipt = parseExpenseNote(
+                  expense.note,
+                  expense.merchantName,
+                  expense.receiptItems
+                );
+                const hasReceiptItems = parsedReceipt.items && parsedReceipt.items.length > 0;
+                const isExpanded =
+                  expandedExpenseIds.has(expense.id) || parsedReceipt.items.length <= 2;
+
                 return (
                   <div
                     key={expense.id}
-                    className="group flex items-center justify-between p-3.5 sm:p-4 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-md dark:hover:bg-slate-800/40 transition-all"
+                    className="group bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-100 dark:border-slate-800 hover:shadow-md dark:hover:bg-slate-850/50 transition-all p-3.5 sm:p-4 space-y-2.5"
                   >
-                    <div className="flex items-center gap-3.5">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${expense.categoryColor}`}
-                      >
-                        {expense.categoryIcon &&
-                        ICON_MAP[expense.categoryIcon] ? (
-                          React.createElement(ICON_MAP[expense.categoryIcon], {
-                            className: "w-5 h-5 text-current",
-                          })
-                        ) : (
-                          <div className="w-2.5 h-2.5 rounded-full bg-current" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
-                            {expense.categoryName}
-                          </p>
+                    {/* Top Row: Category Icon & Badges (Left) + Amount & Actions (Right) */}
+                    <div className="flex items-start justify-between gap-3">
+                      {/* Left: Category Icon + Category Name + Badges + Date */}
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${expense.categoryColor}`}
+                        >
+                          {expense.categoryIcon &&
+                          ICON_MAP[expense.categoryIcon] ? (
+                            React.createElement(ICON_MAP[expense.categoryIcon], {
+                              className: "w-5 h-5 text-current",
+                            })
+                          ) : (
+                            <div className="w-2.5 h-2.5 rounded-full bg-current" />
+                          )}
+                        </div>
 
-                          {/* Source Month Badge if from another month */}
-                          {expense.sourceMonth &&
-                            expense.sourceMonth !== currentMonth && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
-                                <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
-                                {expense.sourceMonth}
+                        <div className="min-w-0 flex-1 space-y-1">
+                          {/* Category Name & Badges */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">
+                              {expense.categoryName}
+                            </p>
+
+                            {/* Source Month Badge if from another month */}
+                            {expense.sourceMonth &&
+                              expense.sourceMonth !== currentMonth && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                                  <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
+                                  {expense.sourceMonth}
+                                </span>
+                              )}
+
+                            {/* Fixed Badge if included from fixed expenses */}
+                            {(expense.isFixedItem || expense.id.startsWith("fix_")) && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                                Фиксиран
                               </span>
                             )}
 
-                          {/* Fixed Badge if included from fixed expenses */}
-                          {(expense.isFixedItem || expense.id.startsWith("fix_")) && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
-                              Фиксиран
-                            </span>
-                          )}
-
-                          {expense.isRecurring && (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800"
-                              title="Периодичен разход"
-                            >
-                              <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
-                              Периодичен
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-400 mt-0.5">
-                          <span>
-                            {new Date(expense.date).toLocaleDateString("bg-BG")}
-                          </span>
-                          {expense.note && (
-                            <>
-                              <span>•</span>
-                              <span className="text-slate-600 dark:text-slate-300 italic">
-                                {expense.note}
+                            {expense.isRecurring && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800"
+                                title="Периодичен разход"
+                              >
+                                <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
+                                Периодичен
                               </span>
-                            </>
-                          )}
+                            )}
+                          </div>
+
+                          {/* Date */}
+                          <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-400">
+                            <Calendar className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              {new Date(expense.date).toLocaleDateString("bg-BG")}
+                            </span>
+                          </div>
                         </div>
+                      </div>
+
+                      {/* Right: Amount & Actions */}
+                      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                        <span className="font-extrabold text-slate-900 dark:text-white mr-1 text-base sm:text-lg">
+                          €{expense.amount.toFixed(2)}
+                        </span>
+                        <button
+                          onClick={() => handleStartEditExpense(expense)}
+                          className="min-h-[36px] min-w-[36px] flex items-center justify-center p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                          title="Редактирай"
+                          aria-label="Редактирай"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteExpenseItem(expense)}
+                          className="min-h-[36px] min-w-[36px] flex items-center justify-center p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                          title="Изтрий"
+                          aria-label="Изтрий"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 sm:gap-2">
-                      <span className="font-bold text-slate-800 dark:text-white mr-1 text-sm sm:text-base">
-                        €{expense.amount.toFixed(2)}
-                      </span>
-                      <button
-                        onClick={() => handleStartEditExpense(expense)}
-                        className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                        title="Редактирай"
-                        aria-label="Редактирай"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteExpenseItem(expense)}
-                        className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                        title="Изтрий"
-                        aria-label="Изтрий"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {/* Merchant Name Section (Prominently displayed) */}
+                    {parsedReceipt.merchantName && (
+                      <div className="pl-0 sm:pl-13">
+                        <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-100 dark:border-slate-800/80 max-w-full">
+                          <Store className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span className="truncate uppercase tracking-wide">
+                            {parsedReceipt.merchantName}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Receipt Items (Structured, Collapsible Details, Vertical list) */}
+                    {hasReceiptItems && (
+                      <div className="pl-0 sm:pl-13">
+                        <div className="p-3 bg-slate-50/80 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                              <Receipt className="w-3.5 h-3.5 text-indigo-500" />
+                              Артикули ({parsedReceipt.items.length})
+                            </span>
+                            {parsedReceipt.items.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpandExpense(expense.id)}
+                                className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold inline-flex items-center gap-1 text-xs py-0.5 px-1.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors"
+                              >
+                                {isExpanded ? (
+                                  <>
+                                    <span>Скрий детайли</span>
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>Виж детайли</span>
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          {isExpanded ? (
+                            <ul className="space-y-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-xs">
+                              {parsedReceipt.items.map((item, idx) => (
+                                <li
+                                  key={idx}
+                                  className="flex items-center justify-between gap-3 text-slate-700 dark:text-slate-300 py-0.5"
+                                >
+                                  <span className="break-words leading-tight flex-1">
+                                    • {item.name}
+                                  </span>
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100 shrink-0 font-mono">
+                                    {parsedReceipt.currencySymbol === "$" ||
+                                    parsedReceipt.currencySymbol === "€" ||
+                                    parsedReceipt.currencySymbol === "£"
+                                      ? `${parsedReceipt.currencySymbol}${item.price.toFixed(2)}`
+                                      : `${item.price.toFixed(2)} ${parsedReceipt.currencySymbol || "€"}`}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="text-xs text-slate-500 dark:text-slate-400 italic">
+                              • {parsedReceipt.items[0].name} (
+                              {parsedReceipt.currencySymbol === "$" ||
+                              parsedReceipt.currencySymbol === "€" ||
+                              parsedReceipt.currencySymbol === "£"
+                                ? `${parsedReceipt.currencySymbol}${parsedReceipt.items[0].price.toFixed(2)}`
+                                : `${parsedReceipt.items[0].price.toFixed(2)} ${parsedReceipt.currencySymbol || "€"}`}
+                              ) … и още {parsedReceipt.items.length - 1} артикула
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Standard Note (when no receipt items exist) */}
+                    {!hasReceiptItems && parsedReceipt.plainNote && (
+                      <div className="pl-0 sm:pl-13 text-xs text-slate-600 dark:text-slate-400 italic break-words leading-relaxed">
+                        {parsedReceipt.plainNote}
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1652,6 +1810,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           onConfirmImport={handleConfirmImport}
         />
       )}
+
+      {/* Scan Receipt Modal (AI OCR) */}
+      <ScanReceiptModal
+        isOpen={isScanModalOpen}
+        onClose={() => setIsScanModalOpen(false)}
+        categories={categories}
+        currentMonth={currentMonth}
+        onExpenseCreated={handleExpenseFromReceipt}
+      />
 
       {/* Category Pickers Modals */}
       {showCategoryPicker && (

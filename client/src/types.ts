@@ -62,6 +62,12 @@ export interface ExpenseCategory {
   isCustom?: boolean;
 }
 
+export interface ReceiptItemDetail {
+  name: string;
+  price: number;
+  quantity?: number;
+}
+
 export interface ExpenseItem {
   id: string;
   categoryId: string;
@@ -71,7 +77,11 @@ export interface ExpenseItem {
   amount: number;
   note?: string;
   date: string;
+  merchantName?: string;
+  receiptItems?: ReceiptItemDetail[];
   isRecurring?: boolean; // When enabled, marked as a recurring expense (e.g., Rent, Internet, Mobile Plan, Insurance)
+  isFixedItem?: boolean;
+  sourceMonth?: string;
 }
 
 export interface IncomeItem extends ExpenseItem {

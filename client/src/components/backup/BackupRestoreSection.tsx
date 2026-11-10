@@ -205,6 +205,37 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Success Notification */}
+      {successMessage && (
+        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm font-medium">{successMessage}</div>
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="text-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Error Notification */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-900 dark:text-red-200 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+          <AlertOctagon className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm font-medium">{errorMessage}</div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-red-500 hover:text-red-700 dark:hover:text-red-300"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Cloud Backup (Google Drive appDataFolder) - Highest Priority at the Top */}
+      <GoogleAuthCard onOpenRestoreModal={() => setIsDriveRestoreOpen(true)} />
+
       {/* Top Banner / Hero */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -242,34 +273,6 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Success Notification */}
-      {successMessage && (
-        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          <div className="flex-1 text-sm font-medium">{successMessage}</div>
-          <button
-            onClick={() => setSuccessMessage(null)}
-            className="text-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Error Notification */}
-      {errorMessage && (
-        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-900 dark:text-red-200 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
-          <AlertOctagon className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-          <div className="flex-1 text-sm font-medium">{errorMessage}</div>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-red-500 hover:text-red-700 dark:hover:text-red-300"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
 
       {/* System Status Metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
@@ -341,9 +344,6 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Cloud Backup (Google Drive appDataFolder) */}
-      <GoogleAuthCard onOpenRestoreModal={() => setIsDriveRestoreOpen(true)} />
 
       {/* Two Column Action Cards: Export & Import */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

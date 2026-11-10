@@ -1,5 +1,6 @@
 {
   "name": "BudgetFlows",
   "description": "Визуален и лесен инструмент за следене на бюджет, разходи и парични потоци.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
