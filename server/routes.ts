@@ -3,7 +3,6 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import fs from "fs";
 import path from "path";
-import { GoogleGenAI, Type } from "@google/genai";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -41,20 +40,13 @@ export async function registerRoutes(
   });
 
   // OCR Receipt analysis endpoint using Gemini 3.8 Flash with fallback & strict timeout
-  app.post("/api/ocr/receipt", async (req, res) => {
-    const startTime = Date.now();
-    console.log(`[OCR Server] 📥 [${new Date().toISOString()}] Incoming OCR receipt request`);
-
-    try {
-      const { imageBase64, mimeType = "image/jpeg" } = req.body;
-
-      if (!imageBase64) {
-        console.warn("[OCR Server] ⚠️ Missing imageBase64 in request body");
-        return res.status(400).json({
-          success: false,
-          error: "MISSING_IMAGE",
-          message: "Липсва изображение на касова бележка (imageBase64).",
-        });
+app.post("/api/ocr/receipt", async (_req, res) => {
+  return res.status(200).json({
+    success: false,
+    error: "OCR_DISABLED",
+    message: "Receipt scanning is temporarily disabled.",
+  });
+});
       }
 
       const apiKey = process.env.GEMINI_API_KEY;
