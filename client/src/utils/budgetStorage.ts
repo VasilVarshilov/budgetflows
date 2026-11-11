@@ -51,6 +51,7 @@ export interface BudgetStatus {
   warningMessage: string | null;
   iconName: string;
   colorClass: string;
+  expenses: ExpenseItem[];
 }
 
 export interface OverallBudgetCalculation {
@@ -302,6 +303,77 @@ export function calculateCategorySpent(
 }
 
 /**
+ * Returns all individual ExpenseItems matching a category budget
+ */
+export function getCategoryExpenses(
+  record: MonthlyRecord | undefined,
+  budget: BudgetConfig
+): ExpenseItem[] {
+  if (!record || !record.expenses) return [];
+
+  const matched: ExpenseItem[] = [];
+  const budgetCatNameNorm = budget.categoryName.trim().toLowerCase();
+  const budgetCatIdNorm = (budget.categoryId || "").trim().toLowerCase();
+
+  const isMatch = (item: ExpenseItem) => {
+    const itemCatNameNorm = (item.categoryName || "").trim().toLowerCase();
+    const itemCatIdNorm = (item.categoryId || "").trim().toLowerCase();
+
+    if (budgetCatIdNorm && itemCatIdNorm && budgetCatIdNorm === itemCatIdNorm) {
+      return true;
+    }
+    if (itemCatNameNorm === budgetCatNameNorm) {
+      return true;
+    }
+    if (
+      (budgetCatIdNorm === "electricity" || budgetCatNameNorm.includes("ток")) &&
+      (itemCatNameNorm.includes("ток") || itemCatIdNorm === "electricity")
+    ) {
+      return true;
+    }
+    if (
+      (budgetCatIdNorm === "food" || budgetCatNameNorm.includes("храна")) &&
+      (itemCatNameNorm.includes("храна") || itemCatIdNorm === "food")
+    ) {
+      return true;
+    }
+    if (
+      (budgetCatIdNorm === "restaurant" || budgetCatNameNorm.includes("ресторант")) &&
+      (itemCatNameNorm.includes("ресторант") || itemCatIdNorm === "restaurant")
+    ) {
+      return true;
+    }
+    if (
+      (budgetCatIdNorm === "entertainment" || budgetCatNameNorm.includes("забавления") || budgetCatNameNorm.includes("кино")) &&
+      (itemCatNameNorm.includes("кино") || itemCatNameNorm.includes("забавления") || itemCatIdNorm === "cinema" || itemCatIdNorm === "entertainment")
+    ) {
+      return true;
+    }
+    if (
+      (budgetCatIdNorm === "transport" || budgetCatNameNorm.includes("транспорт") || budgetCatNameNorm.includes("гориво")) &&
+      (itemCatNameNorm.includes("транспорт") || itemCatNameNorm.includes("гориво") || itemCatIdNorm === "fuel" || itemCatIdNorm === "transport")
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  if (Array.isArray(record.expenses.fixed_expenses)) {
+    record.expenses.fixed_expenses.forEach((item) => {
+      if (isMatch(item)) matched.push(item);
+    });
+  }
+
+  if (Array.isArray(record.expenses.additional_expenses)) {
+    record.expenses.additional_expenses.forEach((item) => {
+      if (isMatch(item)) matched.push(item);
+    });
+  }
+
+  return matched;
+}
+
+/**
  * Computes status (green/yellow/red) from percentage:
  * 0-80% = Green
  * 80-100% = Yellow
@@ -371,6 +443,7 @@ export function calculateAllBudgetsStatus(
 
   // Calculate each category budget
   const categoryStatuses: BudgetStatus[] = categoryBudgets.map((b) => {
+    const expenses = getCategoryExpenses(monthlyRecord, b);
     const spent = calculateCategorySpent(monthlyRecord, b);
     const limit = b.monthlyLimit;
     const remaining = parseFloat((limit - spent).toFixed(2));
@@ -384,7 +457,6 @@ export function calculateAllBudgetsStatus(
 
     let warningMessage: string | null = null;
     if (isExceeded) {
-      // User requested warning format: "Food budget exceeded by €45" / Bulgarian version
       warningMessage = `Бюджетът за ${b.categoryName} е надвишен с €${overspentAmount.toFixed(2)} (${b.categoryName} budget exceeded by €${overspentAmount.toFixed(2)})`;
       activeWarnings.push(warningMessage);
     }
@@ -415,6 +487,7 @@ export function calculateAllBudgetsStatus(
       warningMessage,
       iconName,
       colorClass,
+      expenses,
     };
   });
 

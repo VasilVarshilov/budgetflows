@@ -41,6 +41,7 @@ import {
   SlidersHorizontal,
   Search,
   Camera,
+  Upload,
   Store,
   Receipt,
 } from "lucide-react";
@@ -943,14 +944,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <span>Добави разход</span>
           </button>
 
-          {/* Scan Receipt Button (AI OCR) */}
+          {/* Scan Receipt Button - Single entry point */}
           <button
             onClick={() => setIsScanModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95"
-            title="Сканирай касова бележка с камера или файл (AI OCR)"
+            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 cursor-pointer"
+            title="Сканирай касова бележка с камера или файл от устройството"
           >
             <Camera className="w-4 h-4" />
-            <span>Сканирай бележка</span>
+            <span className="hidden sm:inline">Сканирай касова бележка</span>
+            <span className="sm:hidden">Сканирай бележка</span>
           </button>
 
           {/* Import Recurring Expenses Button */}
@@ -1811,7 +1813,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         />
       )}
 
-      {/* Scan Receipt Modal (AI OCR) */}
+      {/* Scan Receipt Modal */}
       <ScanReceiptModal
         isOpen={isScanModalOpen}
         onClose={() => setIsScanModalOpen(false)}

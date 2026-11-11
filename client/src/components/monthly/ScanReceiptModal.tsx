@@ -19,6 +19,8 @@ import {
   Info,
   Layers,
   Store,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem, ReceiptItemDetail } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
@@ -53,6 +55,7 @@ interface ScanReceiptModalProps {
   categories: ExpenseCategory[];
   currentMonth: string;
   onExpenseCreated: (expense: ExpenseItem) => void;
+  initialMode?: "camera" | "upload";
 }
 
 // Timeout-safe image preprocessor for mobile and desktop
@@ -252,8 +255,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   categories,
   onExpenseCreated,
 }) => {
-  const [step, setStep] = useState<"upload" | "scanning" | "review">("upload");
+  const [step, setStep] = useState<"upload" | "preview" | "scanning" | "review">("upload");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageMeta, setImageMeta] = useState<{
+    name: string;
+    sizeFormatted: string;
+    dimensions: string;
+    prepared?: { base64: string; mimeType: string; previewUrl: string };
+  } | null>(null);
+  const [isZoomed, setIsZoomed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState("Инициализиране на OCR скенера...");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -285,8 +295,18 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-expand notes textarea based on content without internal scrollbars
+  const adjustNotesHeight = useCallback(() => {
+    const el = notesTextareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = `${Math.max(el.scrollHeight, 96)}px`;
+    }
+  }, []);
 
   // Add event to debug log
   const addDebugLog = useCallback(
@@ -314,6 +334,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
     setStep("upload");
     setImagePreview(null);
+    setImageMeta(null);
+    setIsZoomed(false);
     setErrorMessage(null);
     setAmount("");
     setNotes("");
@@ -347,6 +369,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     };
   }, [step]);
 
+  // Adjust notes textarea height whenever review step is entered or notes update
+  useEffect(() => {
+    if (step === "review") {
+      requestAnimationFrame(() => {
+        adjustNotesHeight();
+      });
+    }
+  }, [step, notes, adjustNotesHeight]);
+
   // Skip directly to manual review
   const handleSkipToManual = useCallback(
     (reason = "Ръчно попълване от потребителя") => {
@@ -368,7 +399,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   if (!isOpen) return null;
 
-  // OCR-First Processing Workflow
+  // 1. Process image file and transition to Receipt Preview modal
   const processImageFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
       const err = "Моля, изберете валиден графичен файл (JPG, PNG, WEBP).";
@@ -378,25 +409,50 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
 
     setErrorMessage(null);
-    setStep("scanning");
-    setScanStatusMessage("1/3 Оптимизиране на изображението...");
     addDebugLog("ocr_text", `Файл: "${file.name}" (${Math.round(file.size / 1024)} KB)`);
 
-    // 1. Image Preprocessing
-    let prepared;
     try {
-      prepared = await prepareReceiptImageWithTimeout(file, 1600, 7000);
+      const prepared = await prepareReceiptImageWithTimeout(file, 1600, 7000);
       setImagePreview(prepared.previewUrl);
+      setImageMeta({
+        name: file.name,
+        sizeFormatted: `${Math.round(prepared.compressedSize / 1024)} KB`,
+        dimensions: prepared.dimensions,
+        prepared: {
+          base64: prepared.base64,
+          mimeType: prepared.mimeType,
+          previewUrl: prepared.previewUrl,
+        },
+      });
+
+      const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim();
+      if (cleanName && cleanName.length > 2 && !cleanName.startsWith("IMG_")) {
+        setMerchantName(cleanName);
+      } else {
+        setMerchantName("Касова бележка");
+      }
+
+      setStep("preview");
     } catch (prepErr: any) {
       addDebugLog("error", `Грешка при предварителна обработка: ${prepErr.message}`);
       setWarnings(["Неуспешна обработка на файла. Въведете данните ръчно."]);
       setMerchantName("Касова бележка");
       setStep("review");
+    }
+  };
+
+  const handleProceedFromPreview = () => {
+    if (!imageMeta?.prepared) {
+      setStep("review");
       return;
     }
+    runScanWorkflow(imageMeta.prepared);
+  };
 
-    // 2. OCR-First: Extract raw text locally using Tesseract.js (Offline-capable)
-    setScanStatusMessage("2/3 Локално OCR разпознаване на символи (Tesseract.js)...");
+  // OCR Workflow
+  const runScanWorkflow = async (prepared: { base64: string; mimeType: string; previewUrl: string }) => {
+    setStep("scanning");
+    setScanStatusMessage("1/3 Оптимизиране на изображението...");
     let ocrRawText = "";
     try {
       const ocrResult = await runClientOcr(
@@ -745,14 +801,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 <button
                   type="button"
                   onClick={() => cameraInputRef.current?.click()}
-                  className="flex items-center justify-center gap-3 p-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-2xl shadow-md hover:shadow-lg transition-all active:scale-[0.98] group text-left"
+                  className="flex items-center justify-center gap-3 p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-md hover:shadow-lg transition-all active:scale-[0.98] group text-left cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
                     <Camera className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <span className="block font-bold text-sm sm:text-base">Снимай с камера</span>
-                    <span className="block text-xs text-indigo-100 opacity-90">
+                    <span className="block font-bold text-sm sm:text-base text-white">Снимай с камера</span>
+                    <span className="block text-xs text-indigo-100 font-medium">
                       Директна снимка от телефон
                     </span>
                   </div>
@@ -761,14 +817,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center justify-center gap-3 p-4 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-white rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs hover:shadow-md transition-all active:scale-[0.98] group text-left"
+                  className="flex items-center justify-center gap-3 p-4 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-900 dark:text-white rounded-2xl border-2 border-slate-300 dark:border-slate-700 shadow-2xs hover:shadow-md transition-all active:scale-[0.98] group text-left cursor-pointer"
                 >
-                  <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                  <div className="w-12 h-12 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
                     <Upload className="w-6 h-6" />
                   </div>
                   <div>
-                    <span className="block font-bold text-sm sm:text-base">Избери файл / Галерия</span>
-                    <span className="block text-xs text-slate-400 dark:text-slate-400">
+                    <span className="block font-bold text-sm sm:text-base text-slate-900 dark:text-white">Избери файл / Галерия</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300 font-medium">
                       JPG, PNG, WEBP снимка
                     </span>
                   </div>
@@ -783,23 +839,85 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 onClick={() => fileInputRef.current?.click()}
                 className={`border-2 border-dashed rounded-3xl p-8 sm:p-12 text-center cursor-pointer transition-all ${
                   isDragging
-                    ? "border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 scale-[1.01]"
-                    : "border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 bg-white/60 dark:bg-slate-850/60"
+                    ? "border-indigo-600 bg-indigo-100/70 dark:bg-indigo-950/70 scale-[1.01]"
+                    : "border-slate-400 dark:border-slate-600 hover:border-indigo-500 dark:hover:border-indigo-400 bg-white dark:bg-slate-900 shadow-xs"
                 }`}
               >
-                <div className="w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-4 shadow-2xs">
+                <div className="w-16 h-16 rounded-3xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-4 shadow-xs">
                   <Receipt className="w-8 h-8" />
                 </div>
-                <h4 className="text-base font-bold text-slate-800 dark:text-white mb-1">
+                <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-1.5">
                   Плъзнете касовата бележка тук
                 </h4>
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-4">
-                  или кликнете за избор на файл от устройството. OCR системата локално ще извлече крайната сума и артикулите.
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 max-w-sm mx-auto mb-4">
+                  или натиснете за избор на снимка
                 </p>
-                <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1.5 rounded-full border border-emerald-100 dark:border-emerald-900">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
+                <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-950/80 px-3.5 py-1.5 rounded-full border border-emerald-300 dark:border-emerald-800">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   Работи самостоятелно дори при отказ или натоварване на Gemini
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 1 & 2: RECEIPT PREVIEW MODAL */}
+          {step === "preview" && imagePreview && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
+                    <Receipt className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    Преглед на касовата бележка
+                  </h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+                    Уверете се, че сумата и текстът се четат ясно
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsZoomed((prev) => !prev)}
+                    className="p-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                    title={isZoomed ? "Стандартен изглед" : "Увеличи снимката"}
+                  >
+                    {isZoomed ? <ZoomOut className="w-3.5 h-3.5" /> : <ZoomIn className="w-3.5 h-3.5" />}
+                    <span className="hidden sm:inline">{isZoomed ? "Смали" : "Увеличи"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                    title="Избери друга снимка"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Смени</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Main Receipt Preview Container */}
+              <div className="relative rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-800 bg-slate-950 flex items-center justify-center min-h-[280px] max-h-[460px]">
+                <div className="overflow-auto w-full h-full max-h-[460px] flex items-center justify-center p-2">
+                  <img
+                    src={imagePreview}
+                    alt="Receipt preview"
+                    className={`transition-transform duration-200 object-contain max-h-[440px] rounded-lg ${
+                      isZoomed ? "scale-150 cursor-zoom-out" : "scale-100 cursor-zoom-in"
+                    }`}
+                    onClick={() => setIsZoomed((prev) => !prev)}
+                  />
+                </div>
+
+                {/* Metadata overlay */}
+                {imageMeta && (
+                  <div className="absolute bottom-3 left-3 right-3 bg-slate-900/90 backdrop-blur-md text-white text-[11px] px-3.5 py-2 rounded-xl flex items-center justify-between border border-white/20 shadow-lg">
+                    <span className="truncate max-w-[200px] font-medium">{imageMeta.name}</span>
+                    <div className="flex items-center gap-3 shrink-0 text-slate-200 font-mono text-[10px]">
+                      <span>{imageMeta.dimensions}</span>
+                      <span>{imageMeta.sizeFormatted}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -889,38 +1007,38 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               )}
 
               {/* CONFIDENCE CHECK CARD (Detected summary) */}
-              <div className="p-3.5 bg-white dark:bg-slate-850 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+              <div className="p-3.5 bg-white dark:bg-slate-850 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     Проверка на разпознатите стойности (Confidence Check)
                   </span>
-                  <span className="text-[10px] text-slate-400">
+                  <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300">
                     Източник: {aiSourceBadge}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                  <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
-                    <span className="text-[10px] text-slate-400 block uppercase font-semibold">Търговец</span>
-                    <span className="font-bold text-slate-800 dark:text-white truncate block">
+                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Търговец</span>
+                    <span className="font-bold text-slate-900 dark:text-white truncate block">
                       {detectedMerchant || merchantName || "—"}
                     </span>
                   </div>
-                  <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
-                    <span className="text-[10px] text-slate-400 block uppercase font-semibold">Дата</span>
-                    <span className="font-bold text-slate-800 dark:text-white block">
+                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Дата</span>
+                    <span className="font-bold text-slate-900 dark:text-white block">
                       {detectedDate || date || "—"}
                     </span>
                   </div>
-                  <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
-                    <span className="text-[10px] text-slate-400 block uppercase font-semibold">Обща сума</span>
-                    <span className="font-black text-indigo-600 dark:text-indigo-400 block">
+                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Обща сума</span>
+                    <span className="font-black text-indigo-700 dark:text-indigo-300 block">
                       €{amount || (detectedTotal > 0 ? detectedTotal.toFixed(2) : "0.00")}
                     </span>
                   </div>
-                  <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
-                    <span className="text-[10px] text-slate-400 block uppercase font-semibold">Артикули</span>
-                    <span className="font-bold text-slate-800 dark:text-white block">
+                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Артикули</span>
+                    <span className="font-bold text-slate-900 dark:text-white block">
                       {detectedItemsCount || (notes ? notes.split("\n").filter(Boolean).length : 0)} бр.
                     </span>
                   </div>
@@ -981,12 +1099,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 {/* Right: Editable Form Fields */}
                 <div className="md:col-span-8 space-y-3.5">
                   {/* Amount Field (Hero) */}
-                  <div className="bg-white dark:bg-slate-850 p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  <div className="bg-white dark:bg-slate-850 p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                       Крайна сума (€ / EUR) *
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-400">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-600 dark:text-slate-300">
                         €
                       </span>
                       <input
@@ -995,23 +1113,23 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         placeholder="0.00"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 text-2xl sm:text-3xl font-black text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                        className="w-full pl-9 pr-4 py-2 text-2xl sm:text-3xl font-black text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
                         required
                         autoFocus
                       />
                     </div>
-                    <span className="text-[11px] text-slate-400 block">
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium block">
                       Точно разпозната крайна сума (TOTAL / GRAND TOTAL)
                     </span>
                   </div>
 
                   {/* Category Selector */}
-                  <div className="bg-white dark:bg-slate-850 p-3.5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-1.5">
+                  <div className="bg-white dark:bg-slate-850 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                         Категория *
                       </label>
-                      <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
+                      <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
                         <Sparkles className="w-2.5 h-2.5" />
                         Предложена категория
                       </span>
@@ -1020,7 +1138,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowCategoryPicker(true)}
-                      className="w-full flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 border border-slate-200 dark:border-slate-700 rounded-xl transition-all group text-left"
+                      className="w-full flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 border border-slate-300 dark:border-slate-700 rounded-xl transition-all group text-left cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5">
                         <div
@@ -1029,37 +1147,37 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           <SelectedIconComp className="w-4 h-4" />
                         </div>
                         <div>
-                          <span className="block font-bold text-sm text-slate-800 dark:text-white">
+                          <span className="block font-bold text-sm text-slate-900 dark:text-white">
                             {selectedCategory?.name || "Изберете категория"}
                           </span>
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-[11px] text-slate-600 dark:text-slate-300">
                             Кликнете за ръчна смяна
                           </span>
                         </div>
                       </div>
-                      <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform" />
+                      <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-200 transition-transform" />
                     </button>
                   </div>
 
                   {/* Date & Merchant Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1">
                         Дата на покупката
                       </label>
                       <div className="relative">
-                        <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <Calendar className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                           type="date"
                           value={date}
                           onChange={(e) => setDate(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1">
                         Търговец / Обект
                       </label>
                       <input
@@ -1067,27 +1185,30 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         value={merchantName}
                         onChange={(e) => setMerchantName(e.target.value)}
                         placeholder="Напр. Lidl, Shell, Ресторант"
-                        className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-slate-400"
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-slate-500 dark:placeholder:text-slate-400"
                       />
                     </div>
                   </div>
 
-                  {/* Notes & Items List */}
+                  {/* Notes & Items List (Auto-expanding without internal scrollbar) */}
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                         Бележка / Артикули от бележката
                       </label>
-                      <span className="text-[11px] text-slate-400">
-                        Всеки артикул на нов ред
+                      <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                        Всеки артикул на нов ред (автоматично разширяване)
                       </span>
                     </div>
                     <textarea
-                      rows={4}
+                      ref={notesTextareaRef}
                       value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder={"Beer €5.00\nSoup €7.00\nSalad €8.50\nDessert €9.00"}
-                      className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono leading-relaxed placeholder:text-slate-400"
+                      onChange={(e) => {
+                        setNotes(e.target.value);
+                        adjustNotesHeight();
+                      }}
+                      placeholder={"Beer €5.00\nSoup €7.00\nSalad €8.50"}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono leading-relaxed placeholder:text-slate-500 dark:placeholder:text-slate-400 resize-none overflow-hidden transition-[height] shadow-2xs"
                     />
                   </div>
                 </div>
@@ -1143,6 +1264,37 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               >
                 Отказ
               </button>
+            </div>
+          )}
+
+          {step === "preview" && (
+            <div className="w-full flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setStep("upload")}
+                className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors border border-slate-300 dark:border-slate-700 cursor-pointer shadow-2xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
+                <span>Смени снимка</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSkipToManual("Прескачане от преглед")}
+                  className="px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors border border-slate-300 dark:border-slate-700 cursor-pointer"
+                >
+                  Въведи ръчно
+                </button>
+                <button
+                  type="button"
+                  onClick={handleProceedFromPreview}
+                  className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <span>Продължи</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
 

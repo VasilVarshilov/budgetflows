@@ -12,11 +12,13 @@ import {
   TrendingDown,
   TrendingUp,
   ChevronDown,
+  ChevronUp,
   Calendar,
   Sparkles,
   X,
   Save,
   Check,
+  Receipt,
 } from "lucide-react";
 import { MonthlyRecord, BudgetConfig, ExpenseCategory } from "@/types";
 import {
@@ -92,6 +94,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     monthlyLimit: "",
   });
   const [formError, setFormError] = useState("");
+
+  // Category details expansion state
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
+  const toggleCategoryExpand = (id: string) => {
+    setExpandedCategoryIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Delete confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -581,7 +589,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">
                             {item.budget.categoryName}
                           </h4>
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
                             Лимит: €{item.limit.toFixed(2)}
                           </span>
                         </div>
@@ -590,7 +598,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => handleOpenEditModal(item.budget)}
-                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           title="Редактирай бюджет"
                           aria-label="Редактирай бюджет"
                         >
@@ -598,7 +606,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                         </button>
                         <button
                           onClick={() => setDeleteConfirmId(item.budget.id)}
-                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
                           title="Изтрий бюджет"
                           aria-label="Изтрий бюджет"
                         >
@@ -609,11 +617,11 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
                     {/* Spent & Remaining Row */}
                     <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-slate-50 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                        <span className="text-slate-400 dark:text-slate-400 block text-[11px]">
+                      <div className="bg-slate-50 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <span className="text-slate-600 dark:text-slate-300 block text-[11px] font-medium">
                           Изразходвано
                         </span>
-                        <span className="font-bold text-slate-800 dark:text-white text-sm">
+                        <span className="font-bold text-slate-900 dark:text-white text-sm">
                           €{item.spent.toFixed(2)}
                         </span>
                       </div>
@@ -621,15 +629,15 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <div
                         className={`p-2.5 rounded-xl border ${
                           item.isExceeded
-                            ? "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60"
-                            : "bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-800"
+                            ? "bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-900/60"
+                            : "bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700"
                         }`}
                       >
                         <span
-                          className={`block text-[11px] ${
+                          className={`block text-[11px] font-medium ${
                             item.isExceeded
-                              ? "text-rose-600 dark:text-rose-400 font-semibold"
-                              : "text-slate-400"
+                              ? "text-rose-700 dark:text-rose-300 font-bold"
+                              : "text-slate-600 dark:text-slate-300"
                           }`}
                         >
                           {item.isExceeded ? "Превишен с" : "Оставащ бюджет"}
@@ -702,6 +710,85 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <span>Остават €{item.remaining.toFixed(2)}</span>
                     </div>
                   )}
+
+                  {/* Category Breakdown & Expansion (Show Details / Hide Details) */}
+                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => toggleCategoryExpand(item.budget.id)}
+                      className="w-full flex items-center justify-between text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 py-1 transition-colors cursor-pointer group"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Receipt className="w-3.5 h-3.5 text-indigo-500" />
+                        {expandedCategoryIds[item.budget.id]
+                          ? "Скрий детайли"
+                          : `Покажи детайли (${item.expenses.length})`}
+                      </span>
+                      {expandedCategoryIds[item.budget.id] ? (
+                        <ChevronUp className="w-4 h-4 text-indigo-500 group-hover:-translate-y-0.5 transition-transform" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-indigo-500 group-hover:translate-y-0.5 transition-transform" />
+                      )}
+                    </button>
+
+                    {/* Expanded individual expenses */}
+                    {expandedCategoryIds[item.budget.id] && (
+                      <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                        {item.expenses.length === 0 ? (
+                          <div className="p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-center text-slate-500 dark:text-slate-400 text-xs">
+                            Няма записани разходи в тази категория за {selectedMonthKey}.
+                          </div>
+                        ) : (
+                          item.expenses.map((exp) => {
+                            const title = exp.merchantName || exp.note?.split("\n")[0] || exp.categoryName;
+                            const dateStr = exp.date ? exp.date.split("T")[0] : "";
+                            const hasSubItems = exp.receiptItems && exp.receiptItems.length > 0;
+
+                            return (
+                              <div
+                                key={exp.id}
+                                className="p-2.5 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-100 dark:border-slate-800 text-xs space-y-1 shadow-2xs"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-bold text-slate-800 dark:text-slate-100 truncate">
+                                    {title}
+                                  </span>
+                                  <span className="font-extrabold text-slate-900 dark:text-white shrink-0">
+                                    €{exp.amount.toFixed(2)}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                  <span>{dateStr}</span>
+                                  {exp.isRecurring && (
+                                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">
+                                      Периодичен
+                                    </span>
+                                  )}
+                                </div>
+
+                                {hasSubItems && (
+                                  <div className="pt-1 mt-1 border-t border-slate-200/50 dark:border-slate-700/50 space-y-0.5">
+                                    {exp.receiptItems!.slice(0, 3).map((sub, sIdx) => (
+                                      <div key={sIdx} className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                                        <span className="truncate max-w-[140px]">• {sub.name}</span>
+                                        <span>€{sub.price.toFixed(2)}</span>
+                                      </div>
+                                    ))}
+                                    {exp.receiptItems!.length > 3 && (
+                                      <span className="text-[9px] text-indigo-500 block">
+                                        + още {exp.receiptItems!.length - 3} артикула
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

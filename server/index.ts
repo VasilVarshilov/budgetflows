@@ -81,12 +81,28 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // Serve the app on the port specified in the environment variable PORT, defaulting to 3000
-  const port = parseInt(process.env.PORT || "3000", 10);
+  // Serve the app on port 3000 (AI Studio standard) or parsed CLI args
+  const args = process.argv.slice(2);
+  let port = 3000;
+  const portArgIndex = args.indexOf("--port");
+  if (portArgIndex !== -1 && args[portArgIndex + 1]) {
+    port = parseInt(args[portArgIndex + 1], 10);
+  } else if (process.env.NODE_ENV === "production" && process.env.PORT) {
+    port = parseInt(process.env.PORT, 10);
+  } else if (process.env.PORT && process.env.PORT !== "8080") {
+    port = parseInt(process.env.PORT, 10);
+  }
+
+  let host = "0.0.0.0";
+  const hostArgIndex = args.indexOf("--host");
+  if (hostArgIndex !== -1 && args[hostArgIndex + 1]) {
+    host = args[hostArgIndex + 1];
+  }
+
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
+      host,
     },
     () => {
       log(`serving on port ${port}`);
