@@ -1,8 +1,6 @@
 /**
- * Client-Side Optical Character Recognition (OCR) Engine
- * Runs locally in browser via Tesseract.js WebAssembly.
- * Fully offline-capable, runs without backend or Gemini dependencies.
- */
+* Temporary OCR stub.
+* Receipt scanning is temporarily disabled.
 import { createWorker } from "tesseract.js";
 
 export async function runClientOcr(
@@ -48,3 +46,21 @@ export async function runClientOcr(
 
   return Promise.race([ocrPromise, timeoutPromise]);
 }
+ * Client-Side Optical Character Recognition (OCR) Engine
+ * Runs locally in browser via Tesseract.js WebAssembly.
+ * Fully offline-capable, runs without backend or Gemini dependencies.
+ */
+export async function runClientOcr(
+  imageSource: string | File | Blob,
+  onProgress?: (progressPercent: number, statusText: string) => void,
+  timeoutMs: number = 10000
+): Promise<{ text: string; confidence: number; durationMs: number }> {
+  onProgress?.(100, "OCR временно е деактивирано.");
+
+  return {
+    text: "",
+    confidence: 0,
+    durationMs: 0,
+  };
+}
+
