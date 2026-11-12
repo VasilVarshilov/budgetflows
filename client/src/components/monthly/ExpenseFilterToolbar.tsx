@@ -17,7 +17,7 @@ import {
   TrendingUp,
   Layers,
 } from "lucide-react";
-import { ExpenseCategory, ExpenseItem } from "@/types";
+import { ExpenseCategory, ExpenseItem, BudgetConfig } from "@/types";
 
 export type ExpenseSortOption = "newest" | "oldest" | "highest" | "lowest";
 
@@ -27,6 +27,7 @@ export interface ExpenseFiltersState {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   categoryId: string; // 'all' or specific category name/id
+  budgetCategoryId: string; // 'all' | 'none' | or specific budget id
   minAmount: string; // '' or number
   maxAmount: string; // '' or number
   sortBy: ExpenseSortOption;
@@ -39,6 +40,7 @@ export const DEFAULT_FILTERS: ExpenseFiltersState = {
   startDate: "",
   endDate: "",
   categoryId: "all",
+  budgetCategoryId: "all",
   minAmount: "",
   maxAmount: "",
   sortBy: "newest",
@@ -51,6 +53,7 @@ interface ExpenseFilterToolbarProps {
   availableMonths: string[];
   currentMonth: string;
   categories: ExpenseCategory[];
+  budgetCategories?: BudgetConfig[];
   totalResultsCount: number;
   totalFilteredSum: number;
   isFullWidthMode?: boolean;
@@ -63,6 +66,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
   availableMonths,
   currentMonth,
   categories,
+  budgetCategories = [],
   totalResultsCount,
   totalFilteredSum,
   isFullWidthMode = false,
@@ -77,6 +81,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
     if (filters.monthFilter !== "current") count++;
     if (filters.monthFilter === "custom" && (filters.startDate || filters.endDate)) count++;
     if (filters.categoryId !== "all") count++;
+    if (filters.budgetCategoryId && filters.budgetCategoryId !== "all") count++;
     if (filters.minAmount !== "" || filters.maxAmount !== "") count++;
     if (filters.sortBy !== "newest") count++;
     if (filters.includeFixed) count++;
@@ -216,17 +221,17 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
       {/* Expandable Filter Panel */}
       {isFilterPanelOpen && (
         <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3.5 animate-in slide-in-from-top-2 fade-in duration-200">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {/* Filter 1: Month / Period */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1 flex items-center gap-1">
                 <Calendar className="w-3 h-3 text-indigo-500" />
                 Период / Месец
               </label>
               <select
                 value={filters.monthFilter}
                 onChange={(e) => updateFilter("monthFilter", e.target.value)}
-                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 <option value="current">Текущ месец ({currentMonth})</option>
                 <option value="all">Всички месеци (Цяла история)</option>
@@ -243,19 +248,40 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
 
             {/* Filter 2: Category */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1 flex items-center gap-1">
                 <Tag className="w-3 h-3 text-indigo-500" />
-                Категория
+                Категория разход
               </label>
               <select
                 value={filters.categoryId}
                 onChange={(e) => updateFilter("categoryId", e.target.value)}
-                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 <option value="all">Всички категории</option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.name}>
                     {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filter 3: Budget Category */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Layers className="w-3 h-3 text-indigo-500" />
+                Бюджетна категория
+              </label>
+              <select
+                value={filters.budgetCategoryId || "all"}
+                onChange={(e) => updateFilter("budgetCategoryId", e.target.value)}
+                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                <option value="all">Всички бюджети</option>
+                <option value="none">Без бюджетна категория</option>
+                {budgetCategories.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.categoryName} (€{b.monthlyLimit})
                   </option>
                 ))}
               </select>

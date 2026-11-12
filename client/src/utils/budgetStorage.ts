@@ -221,6 +221,143 @@ export function deleteCategoryBudget(id: string): BudgetConfig[] {
 /**
  * Computes how much was spent in a given monthly record for a specific category budget.
  */
+/**
+ * Determines whether an ExpenseItem matches a specific BudgetConfig.
+ * 
+ * Rules:
+ * 1. If item has an explicit `budgetCategoryId`:
+ *    - If 'none' or empty, returns false (explicitly not mapped to any budget category).
+ *    - If matches budget.id or budget.categoryId, returns true.
+ *    - Otherwise returns false (assigned to a different budget category).
+ * 2. If item does NOT have `budgetCategoryId` (legacy/backward compatibility):
+ *    - Matches by categoryId, categoryName, or default semantic groups.
+ */
+export function isExpenseMatchingBudget(
+  item: ExpenseItem,
+  budget: BudgetConfig
+): boolean {
+  if (!item || !budget) return false;
+
+  // 1. Explicit user assignment via budgetCategoryId
+  if (
+    item.budgetCategoryId !== undefined &&
+    item.budgetCategoryId !== null &&
+    item.budgetCategoryId !== ""
+  ) {
+    if (item.budgetCategoryId === "none" || item.budgetCategoryId === "no_budget") {
+      return false;
+    }
+    // Match either budget ID or categoryId
+    if (item.budgetCategoryId === budget.id) {
+      return true;
+    }
+    if (budget.categoryId && item.budgetCategoryId === budget.categoryId) {
+      return true;
+    }
+    return false;
+  }
+
+  // 2. Legacy / Fallback matching for existing unassigned expenses
+  const budgetCatNameNorm = budget.categoryName.trim().toLowerCase();
+  const budgetCatIdNorm = (budget.categoryId || "").trim().toLowerCase();
+  const itemCatNameNorm = (item.categoryName || "").trim().toLowerCase();
+  const itemCatIdNorm = (item.categoryId || "").trim().toLowerCase();
+
+  // Exact ID match
+  if (budgetCatIdNorm && itemCatIdNorm && budgetCatIdNorm === itemCatIdNorm) {
+    return true;
+  }
+
+  // Exact name match
+  if (itemCatNameNorm === budgetCatNameNorm) {
+    return true;
+  }
+
+  // Common semantic mappings
+  if (
+    (budgetCatIdNorm === "electricity" || budgetCatNameNorm.includes("ток")) &&
+    (itemCatNameNorm.includes("ток") || itemCatIdNorm === "electricity")
+  ) {
+    return true;
+  }
+
+  if (
+    (budgetCatIdNorm === "food" || budgetCatNameNorm.includes("храна")) &&
+    (itemCatNameNorm.includes("храна") || itemCatIdNorm === "food")
+  ) {
+    return true;
+  }
+
+  if (
+    (budgetCatIdNorm === "restaurant" || budgetCatNameNorm.includes("ресторант")) &&
+    (itemCatNameNorm.includes("ресторант") || itemCatIdNorm === "restaurant")
+  ) {
+    return true;
+  }
+
+  if (
+    (budgetCatIdNorm === "entertainment" ||
+      budgetCatNameNorm.includes("забавления") ||
+      budgetCatNameNorm.includes("кино")) &&
+    (itemCatNameNorm.includes("кино") ||
+      itemCatNameNorm.includes("забавления") ||
+      itemCatIdNorm === "cinema" ||
+      itemCatIdNorm === "entertainment")
+  ) {
+    return true;
+  }
+
+  if (
+    (budgetCatIdNorm === "transport" ||
+      budgetCatNameNorm.includes("транспорт") ||
+      budgetCatNameNorm.includes("гориво")) &&
+    (itemCatNameNorm.includes("транспорт") ||
+      itemCatNameNorm.includes("гориво") ||
+      itemCatIdNorm === "fuel" ||
+      itemCatIdNorm === "transport")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Finds the default matching BudgetConfig ID for a given expense category (if any exists)
+ */
+export function findMatchingBudgetCategoryId(
+  expenseCatId: string,
+  expenseCatName: string,
+  categoryBudgets: BudgetConfig[]
+): string {
+  const normName = expenseCatName.trim().toLowerCase();
+  const normId = expenseCatId.trim().toLowerCase();
+
+  // 1. Exact categoryId match
+  const matchId = categoryBudgets.find(
+    (b) => b.categoryId && b.categoryId.toLowerCase() === normId
+  );
+  if (matchId) return matchId.id;
+
+  // 2. Exact name match
+  const matchName = categoryBudgets.find(
+    (b) => b.categoryName.trim().toLowerCase() === normName
+  );
+  if (matchName) return matchName.id;
+
+  // 3. Substring matching
+  const matchSub = categoryBudgets.find((b) => {
+    const bName = b.categoryName.trim().toLowerCase();
+    return bName.includes(normName) || normName.includes(bName);
+  });
+  if (matchSub) return matchSub.id;
+
+  return "";
+}
+
+/**
+ * Computes how much was spent in a given monthly record for a specific category budget.
+ */
 export function calculateCategorySpent(
   record: MonthlyRecord | undefined,
   budget: BudgetConfig
@@ -229,51 +366,11 @@ export function calculateCategorySpent(
 
   let total = 0;
   const budgetCatNameNorm = budget.categoryName.trim().toLowerCase();
-  const budgetCatIdNorm = (budget.categoryId || "").trim().toLowerCase();
-
-  const isMatch = (item: ExpenseItem) => {
-    const itemCatNameNorm = (item.categoryName || "").trim().toLowerCase();
-    const itemCatIdNorm = (item.categoryId || "").trim().toLowerCase();
-
-    // 1. Exact categoryId match
-    if (budgetCatIdNorm && itemCatIdNorm && budgetCatIdNorm === itemCatIdNorm) {
-      return true;
-    }
-
-    // 2. Exact categoryName match
-    if (itemCatNameNorm === budgetCatNameNorm) {
-      return true;
-    }
-
-    // 3. Substring matching for utilities/electricity or combined categories
-    if (
-      (budgetCatIdNorm === "electricity" || budgetCatNameNorm.includes("ток")) &&
-      (itemCatNameNorm.includes("ток") || itemCatIdNorm === "electricity")
-    ) {
-      return true;
-    }
-
-    if (
-      (budgetCatIdNorm === "food" || budgetCatNameNorm.includes("храна")) &&
-      (itemCatNameNorm.includes("храна") || itemCatIdNorm === "food")
-    ) {
-      return true;
-    }
-
-    if (
-      (budgetCatIdNorm === "transport" || budgetCatNameNorm.includes("транспорт") || budgetCatNameNorm.includes("гориво")) &&
-      (itemCatNameNorm.includes("транспорт") || itemCatNameNorm.includes("гориво") || itemCatIdNorm === "fuel" || itemCatIdNorm === "transport")
-    ) {
-      return true;
-    }
-
-    return false;
-  };
 
   // Fixed expenses
   if (Array.isArray(record.expenses.fixed_expenses)) {
     record.expenses.fixed_expenses.forEach((item) => {
-      if (isMatch(item)) {
+      if (isExpenseMatchingBudget(item, budget)) {
         total += item.amount;
       }
     });
@@ -293,7 +390,7 @@ export function calculateCategorySpent(
   // Additional / variable expenses
   if (Array.isArray(record.expenses.additional_expenses)) {
     record.expenses.additional_expenses.forEach((item) => {
-      if (isMatch(item)) {
+      if (isExpenseMatchingBudget(item, budget)) {
         total += item.amount;
       }
     });
@@ -312,61 +409,16 @@ export function getCategoryExpenses(
   if (!record || !record.expenses) return [];
 
   const matched: ExpenseItem[] = [];
-  const budgetCatNameNorm = budget.categoryName.trim().toLowerCase();
-  const budgetCatIdNorm = (budget.categoryId || "").trim().toLowerCase();
-
-  const isMatch = (item: ExpenseItem) => {
-    const itemCatNameNorm = (item.categoryName || "").trim().toLowerCase();
-    const itemCatIdNorm = (item.categoryId || "").trim().toLowerCase();
-
-    if (budgetCatIdNorm && itemCatIdNorm && budgetCatIdNorm === itemCatIdNorm) {
-      return true;
-    }
-    if (itemCatNameNorm === budgetCatNameNorm) {
-      return true;
-    }
-    if (
-      (budgetCatIdNorm === "electricity" || budgetCatNameNorm.includes("ток")) &&
-      (itemCatNameNorm.includes("ток") || itemCatIdNorm === "electricity")
-    ) {
-      return true;
-    }
-    if (
-      (budgetCatIdNorm === "food" || budgetCatNameNorm.includes("храна")) &&
-      (itemCatNameNorm.includes("храна") || itemCatIdNorm === "food")
-    ) {
-      return true;
-    }
-    if (
-      (budgetCatIdNorm === "restaurant" || budgetCatNameNorm.includes("ресторант")) &&
-      (itemCatNameNorm.includes("ресторант") || itemCatIdNorm === "restaurant")
-    ) {
-      return true;
-    }
-    if (
-      (budgetCatIdNorm === "entertainment" || budgetCatNameNorm.includes("забавления") || budgetCatNameNorm.includes("кино")) &&
-      (itemCatNameNorm.includes("кино") || itemCatNameNorm.includes("забавления") || itemCatIdNorm === "cinema" || itemCatIdNorm === "entertainment")
-    ) {
-      return true;
-    }
-    if (
-      (budgetCatIdNorm === "transport" || budgetCatNameNorm.includes("транспорт") || budgetCatNameNorm.includes("гориво")) &&
-      (itemCatNameNorm.includes("транспорт") || itemCatNameNorm.includes("гориво") || itemCatIdNorm === "fuel" || itemCatIdNorm === "transport")
-    ) {
-      return true;
-    }
-    return false;
-  };
 
   if (Array.isArray(record.expenses.fixed_expenses)) {
     record.expenses.fixed_expenses.forEach((item) => {
-      if (isMatch(item)) matched.push(item);
+      if (isExpenseMatchingBudget(item, budget)) matched.push(item);
     });
   }
 
   if (Array.isArray(record.expenses.additional_expenses)) {
     record.expenses.additional_expenses.forEach((item) => {
-      if (isMatch(item)) matched.push(item);
+      if (isExpenseMatchingBudget(item, budget)) matched.push(item);
     });
   }
 

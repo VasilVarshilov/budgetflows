@@ -44,8 +44,10 @@ import {
   Upload,
   Store,
   Receipt,
+  Target,
+  Layers,
 } from "lucide-react";
-import { ExpenseCategory, ExpenseItem, MonthlyRecord } from "@/types";
+import { ExpenseCategory, ExpenseItem, MonthlyRecord, BudgetConfig } from "@/types";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
@@ -55,6 +57,11 @@ import {
   AVAILABLE_ICONS_MAP,
   loadStoredCategories,
 } from "@/utils/categoryStorage";
+import {
+  loadBudgets,
+  findMatchingBudgetCategoryId,
+  isExpenseMatchingBudget,
+} from "@/utils/budgetStorage";
 import {
   ExpenseFilterToolbar,
   ExpenseFiltersState,
@@ -377,11 +384,26 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setCategories(updated);
   };
 
+  // User-defined Budget Categories for assignment
+  const [budgetCategories, setBudgetCategories] = useState<BudgetConfig[]>(() =>
+    loadBudgets().categoryBudgets
+  );
+
+  useEffect(() => {
+    const refreshBudgets = () => {
+      setBudgetCategories(loadBudgets().categoryBudgets);
+    };
+    refreshBudgets();
+    window.addEventListener("storage", refreshBudgets);
+    return () => window.removeEventListener("storage", refreshBudgets);
+  }, []);
+
   // Add Variable Expense Form State
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [selectedCategory, setSelectedCategory] =
     useState<ExpenseCategory | null>(null);
+  const [selectedBudgetCategoryId, setSelectedBudgetCategoryId] = useState<string>("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [isRecurringExpense, setIsRecurringExpense] = useState(false);
@@ -390,6 +412,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [editExpenseAmount, setEditExpenseAmount] = useState("");
   const [editExpenseNote, setEditExpenseNote] = useState("");
+  const [editExpenseBudgetCategoryId, setEditExpenseBudgetCategoryId] = useState<string>("");
   const [editExpenseRecurring, setEditExpenseRecurring] = useState(false);
   const [editingExpenseSourceMonth, setEditingExpenseSourceMonth] = useState<string | null>(null);
   const [editingExpenseIsFixed, setEditingExpenseIsFixed] = useState(false);
@@ -418,6 +441,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [showFixedCategoryPicker, setShowFixedCategoryPicker] = useState(false);
   const [selectedFixedCategory, setSelectedFixedCategory] =
     useState<ExpenseCategory | null>(null);
+  const [selectedFixedBudgetCategoryId, setSelectedFixedBudgetCategoryId] = useState<string>("");
   const [fixedAmount, setFixedAmount] = useState("");
   const [isRecurringFixed, setIsRecurringFixed] = useState(true);
 
@@ -425,6 +449,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editingFixedId, setEditingFixedId] = useState<string | null>(null);
   const [editFixedName, setEditFixedName] = useState("");
   const [editFixedAmount, setEditFixedAmount] = useState("");
+  const [editFixedBudgetCategoryId, setEditFixedBudgetCategoryId] = useState<string>("");
   const [editFixedRecurring, setEditFixedRecurring] = useState(true);
 
   // Import Recurring Modal & Notification State
@@ -578,6 +603,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           if (!matchesCategory) return false;
         }
 
+        // Filter by Budget Category
+        if (expenseFilters.budgetCategoryId && expenseFilters.budgetCategoryId !== "all") {
+          if (expenseFilters.budgetCategoryId === "none") {
+            if (item.budgetCategoryId && item.budgetCategoryId !== "none" && item.budgetCategoryId !== "no_budget") {
+              return false;
+            }
+          } else {
+            const targetBudget = budgetCategories.find((b) => b.id === expenseFilters.budgetCategoryId);
+            if (targetBudget) {
+              if (!isExpenseMatchingBudget(item, targetBudget)) {
+                return false;
+              }
+            } else if (item.budgetCategoryId !== expenseFilters.budgetCategoryId) {
+              return false;
+            }
+          }
+        }
+
         // Filter by Amount Range
         if (minVal !== null && !isNaN(minVal) && item.amount < minVal) {
           return false;
@@ -607,7 +650,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             return new Date(b.date).getTime() - new Date(a.date).getTime();
         }
       });
-  }, [candidateExpenses, expenseFilters]);
+  }, [candidateExpenses, expenseFilters, budgetCategories]);
 
   // Pagination for large dataset optimization
   const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / PAGE_SIZE));
@@ -632,6 +675,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleSelectCategory = (cat: ExpenseCategory) => {
     setSelectedCategory(cat);
     setShowCategoryPicker(false);
+    const suggested = findMatchingBudgetCategoryId(cat.id, cat.name, budgetCategories);
+    if (suggested) {
+      setSelectedBudgetCategoryId(suggested);
+    }
   };
 
   const handleAddExpense = () => {
@@ -640,12 +687,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) return;
 
+    const chosenBudget = budgetCategories.find(
+      (b) => b.id === selectedBudgetCategoryId
+    );
+
     const newExpense: ExpenseItem = {
       id: Date.now().toString(),
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
       categoryIcon: selectedCategory.iconName,
       categoryColor: selectedCategory.colorClass,
+      budgetCategoryId: selectedBudgetCategoryId || undefined,
+      budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsedAmount,
       note: note.trim() || undefined,
       date: new Date().toISOString(),
@@ -657,6 +710,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     // Reset form
     setIsAddingExpense(false);
     setSelectedCategory(null);
+    setSelectedBudgetCategoryId("");
     setAmount("");
     setNote("");
     setIsRecurringExpense(false);
@@ -701,6 +755,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditingExpenseId(expense.id);
     setEditExpenseAmount(expense.amount.toString());
     setEditExpenseNote(expense.note || "");
+    setEditExpenseBudgetCategoryId(expense.budgetCategoryId || "");
     setEditExpenseRecurring(!!expense.isRecurring);
     setEditingExpenseSourceMonth(expense.sourceMonth || currentMonth);
     setEditingExpenseIsFixed(!!expense.isFixedItem || expense.id.startsWith("fix_"));
@@ -711,8 +766,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     if (isNaN(val) || val < 0) return;
 
     const targetMonth = editingExpenseSourceMonth || currentMonth;
-
     const parsedNote = parseExpenseNote(editExpenseNote);
+    const chosenBudget = budgetCategories.find(
+      (b) => b.id === editExpenseBudgetCategoryId
+    );
 
     if (editingExpenseIsFixed) {
       setFixedExpenses((prev) =>
@@ -721,6 +778,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             ? {
                 ...item,
                 amount: val,
+                budgetCategoryId: editExpenseBudgetCategoryId || undefined,
+                budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
                 isRecurring: editExpenseRecurring,
               }
             : item
@@ -736,6 +795,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               note: editExpenseNote.trim() || undefined,
               merchantName: parsedNote.merchantName || item.merchantName,
               receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
+              budgetCategoryId: editExpenseBudgetCategoryId || undefined,
+              budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
               isRecurring: editExpenseRecurring,
             };
           }
@@ -753,6 +814,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 note: editExpenseNote.trim() || undefined,
                 merchantName: parsedNote.merchantName || item.merchantName,
                 receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
+                budgetCategoryId: editExpenseBudgetCategoryId || undefined,
+                budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
                 isRecurring: editExpenseRecurring,
               }
             : item
@@ -789,6 +852,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleSelectFixedCategory = (cat: ExpenseCategory) => {
     setSelectedFixedCategory(cat);
     setShowFixedCategoryPicker(false);
+    const suggested = findMatchingBudgetCategoryId(cat.id, cat.name, budgetCategories);
+    if (suggested) {
+      setSelectedFixedBudgetCategoryId(suggested);
+    }
   };
 
   const handleAddFixedExpense = () => {
@@ -797,12 +864,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const parsed = parseFloat(fixedAmount);
     if (isNaN(parsed) || parsed <= 0) return;
 
+    const chosenBudget = budgetCategories.find(
+      (b) => b.id === selectedFixedBudgetCategoryId
+    );
+
     const newFixed: ExpenseItem = {
       id: `fix_${Date.now()}`,
       categoryId: selectedFixedCategory.id,
       categoryName: selectedFixedCategory.name,
       categoryIcon: selectedFixedCategory.iconName,
       categoryColor: selectedFixedCategory.colorClass,
+      budgetCategoryId: selectedFixedBudgetCategoryId || undefined,
+      budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsed,
       date: new Date().toISOString(),
       isRecurring: isRecurringFixed,
@@ -813,6 +886,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     // Reset form
     setIsAddingFixed(false);
     setSelectedFixedCategory(null);
+    setSelectedFixedBudgetCategoryId("");
     setFixedAmount("");
     setIsRecurringFixed(true);
   };
@@ -828,12 +902,17 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditingFixedId(item.id);
     setEditFixedName(item.categoryName);
     setEditFixedAmount(item.amount.toString());
+    setEditFixedBudgetCategoryId(item.budgetCategoryId || "");
     setEditFixedRecurring(item.isRecurring !== false);
   };
 
   const handleSaveEditFixed = (id: string) => {
     const val = parseFloat(editFixedAmount);
     if (isNaN(val) || val < 0) return;
+
+    const chosenBudget = budgetCategories.find(
+      (b) => b.id === editFixedBudgetCategoryId
+    );
 
     setFixedExpenses((prev) =>
       prev.map((item) => {
@@ -842,6 +921,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             ...item,
             categoryName: editFixedName.trim() || item.categoryName,
             amount: val,
+            budgetCategoryId: editFixedBudgetCategoryId || undefined,
+            budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
             isRecurring: editFixedRecurring,
           };
         }
@@ -1078,6 +1159,31 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             />
           </div>
 
+          {/* Budget Category Selector */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                Бюджетна категория (Budget Category)
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">
+                За изчисляване и следене в бюджета
+              </span>
+            </label>
+            <select
+              value={selectedBudgetCategoryId}
+              onChange={(e) => setSelectedBudgetCategoryId(e.target.value)}
+              className="w-full px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white"
+            >
+              <option value="none">-- Без бюджетна категория (No Budget) --</option>
+              {budgetCategories.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
               Бележка (опционално)
@@ -1202,6 +1308,25 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 </button>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  Бюджетна категория (Budget Category)
+                </label>
+                <select
+                  value={selectedFixedBudgetCategoryId}
+                  onChange={(e) => setSelectedFixedBudgetCategoryId(e.target.value)}
+                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                  {budgetCategories.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex gap-2">
                 <input
                   type="number"
@@ -1294,6 +1419,25 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
                     </div>
 
+                    <div>
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        Бюджетна категория (Budget Category)
+                      </label>
+                      <select
+                        value={editFixedBudgetCategoryId}
+                        onChange={(e) => setEditFixedBudgetCategoryId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                        {budgetCategories.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     {/* Checkbox Recurring inside edit fixed */}
                     <div className="pt-1">
                       <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -1350,10 +1494,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       )}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
                           {item.categoryName}
                         </span>
+                        {item.budgetCategoryId && item.budgetCategoryId !== "none" && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800"
+                            title={`Бюджет: ${item.budgetCategoryName || item.budgetCategoryId}`}
+                          >
+                            <Target className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                            <span>{item.budgetCategoryName || item.budgetCategoryId}</span>
+                          </span>
+                        )}
                         {item.isRecurring !== false && (
                           <span
                             className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800"
@@ -1452,6 +1605,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             availableMonths={recordedMonthKeys}
             currentMonth={currentMonth}
             categories={categories}
+            budgetCategories={budgetCategories}
             totalResultsCount={filteredExpenses.length}
             totalFilteredSum={totalFilteredSum}
             isFullWidthMode={isFullWidthMode}
@@ -1471,6 +1625,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 {(expenseFilters.searchTerm ||
                   expenseFilters.monthFilter !== "current" ||
                   expenseFilters.categoryId !== "all" ||
+                  expenseFilters.budgetCategoryId !== "all" ||
                   expenseFilters.minAmount !== "" ||
                   expenseFilters.maxAmount !== "" ||
                   expenseFilters.includeFixed) && (
@@ -1537,6 +1692,31 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             placeholder="Бележка или артикули..."
                           />
                         </div>
+                      </div>
+
+                      {/* Budget Category Selector in Edit Expense */}
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            Бюджетна категория (Budget Category)
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            Промяната обновява разхода в съответния бюджет
+                          </span>
+                        </label>
+                        <select
+                          value={editExpenseBudgetCategoryId}
+                          onChange={(e) => setEditExpenseBudgetCategoryId(e.target.value)}
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                          {budgetCategories.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       {/* Recurring Checkbox in Edit Variable */}
@@ -1615,6 +1795,17 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">
                               {expense.categoryName}
                             </p>
+
+                            {/* Budget Category Badge */}
+                            {expense.budgetCategoryId && expense.budgetCategoryId !== "none" && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800"
+                                title={`Бюджет: ${expense.budgetCategoryName || expense.budgetCategoryId}`}
+                              >
+                                <Target className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                <span>Бюджет: {expense.budgetCategoryName || expense.budgetCategoryId}</span>
+                              </span>
+                            )}
 
                             {/* Source Month Badge if from another month */}
                             {expense.sourceMonth &&

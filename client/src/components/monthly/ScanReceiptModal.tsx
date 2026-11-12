@@ -22,12 +22,13 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { ExpenseCategory, ExpenseItem, ReceiptItemDetail } from "@/types";
+import { ExpenseCategory, ExpenseItem, ReceiptItemDetail, BudgetConfig } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { AVAILABLE_ICONS_MAP } from "@/utils/categoryStorage";
 import { parseReceiptTextLocally, ParsedReceiptData } from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
+import { loadBudgets, findMatchingBudgetCategoryId } from "@/utils/budgetStorage";
 
 export interface OCRReceiptResult {
   merchantName: string;
@@ -281,6 +282,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showRawText, setShowRawText] = useState(false);
 
+  // Budget Category Assignment State
+  const [budgetCategories, setBudgetCategories] = useState<BudgetConfig[]>(
+    () => loadBudgets().categoryBudgets
+  );
+  const [selectedBudgetCategoryId, setSelectedBudgetCategoryId] = useState<string>(() => {
+    const loaded = loadBudgets().categoryBudgets;
+    return categories[0] ? findMatchingBudgetCategoryId(categories[0].id, categories[0].name, loaded) : "";
+  });
+
   // Confidence Check Details
   const [detectedTotal, setDetectedTotal] = useState<number>(0);
   const [detectedMerchant, setDetectedMerchant] = useState<string>("");
@@ -345,6 +355,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setWarnings([]);
     setShowCategoryPicker(false);
     setShowRawText(false);
+    setSelectedBudgetCategoryId("");
     setScanElapsedSeconds(0);
     onClose();
   }, [onClose]);
@@ -508,6 +519,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       categories
     );
     setSelectedCategory(baseCat);
+    const matchingBudgetId = findMatchingBudgetCategoryId(baseCat.id, baseCat.name, budgetCategories);
+    if (matchingBudgetId) {
+      setSelectedBudgetCategoryId(matchingBudgetId);
+    }
 
     // 4. Gemini AI Enrichment (Optional improvement - never blocks expense creation)
     setScanStatusMessage("3/3 Интелигентен AI анализ с Gemini 3.8 Flash...");
@@ -604,6 +619,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           if (gData.suggestedCategory) {
             const enrichedCat = matchCategory(gData, categories);
             setSelectedCategory(enrichedCat);
+            const matchingBudgetId = findMatchingBudgetCategoryId(enrichedCat.id, enrichedCat.name, budgetCategories);
+            if (matchingBudgetId) {
+              setSelectedBudgetCategoryId(matchingBudgetId);
+            }
           }
 
           setAiSourceBadge("Gemini 3.8 Flash + OCR");
@@ -679,12 +698,18 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         ? merchantName.trim()
         : undefined;
 
+    const chosenBudget = budgetCategories.find(
+      (b) => b.id === selectedBudgetCategoryId
+    );
+
     const newExpense: ExpenseItem = {
       id: Date.now().toString(),
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
       categoryIcon: selectedCategory.iconName,
       categoryColor: selectedCategory.colorClass,
+      budgetCategoryId: selectedBudgetCategoryId || undefined,
+      budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsedAmount,
       merchantName: cleanMerchant,
       receiptItems: finalItems.length > 0 ? finalItems : undefined,
@@ -1157,6 +1182,31 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       </div>
                       <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-200 transition-transform" />
                     </button>
+                  </div>
+
+                  {/* Budget Category Selector */}
+                  <div className="bg-white dark:bg-slate-850 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                        Бюджетна категория (Budget Category)
+                      </label>
+                      <span className="text-[10px] text-slate-600 dark:text-slate-300 font-medium">
+                        Причислете разхода към месечен бюджет
+                      </span>
+                    </div>
+
+                    <select
+                      value={selectedBudgetCategoryId}
+                      onChange={(e) => setSelectedBudgetCategoryId(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 border border-slate-300 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="">Без бюджетна категория (No Budget Category)</option>
+                      {budgetCategories.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(2)})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Date & Merchant Grid */}

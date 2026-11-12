@@ -82,6 +82,8 @@ export interface ExpenseItem {
   isRecurring?: boolean; // When enabled, marked as a recurring expense (e.g., Rent, Internet, Mobile Plan, Insurance)
   isFixedItem?: boolean;
   sourceMonth?: string;
+  budgetCategoryId?: string; // Unique budget category ID (e.g. 'b_food', 'b_entertainment') or 'none'
+  budgetCategoryName?: string; // Display cache of the assigned budget category name
 }
 
 export interface IncomeItem extends ExpenseItem {
