@@ -32,7 +32,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { downloadAndParseCloudBackup, restoreCloudBackup } = useCloudSync();
+  const { user, downloadAndParseCloudBackup, restoreCloudBackup } = useCloudSync();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +49,9 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    setCurrentSnapshot(gatherApplicationData());
+    setCurrentSnapshot(
+      gatherApplicationData(user ? { uid: user.uid, email: user.email } : undefined)
+    );
     setIsLoading(true);
     setError(null);
     setBackup(null);
@@ -124,7 +126,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                 Възстановяване от Google Drive (Restore From Drive)
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Защитен архив: <code>budgetflows-backup.json</code> (appDataFolder)
+                Профил: <strong className="text-slate-700 dark:text-slate-200">{user?.email || "Текущ Google профил"}</strong> • <code>budgetflows-backup.json</code>
               </p>
             </div>
           </div>

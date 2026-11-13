@@ -1,4 +1,5 @@
 import { ElectricityRecord } from "@/types";
+import { userStorage, STORAGE_BASE_ELECTRICITY_HISTORY } from "./userStorage";
 
 export const STORAGE_KEY_ELECTRICITY_HISTORY = "HomeBudget_ElectricityHistory";
 
@@ -114,39 +115,37 @@ const DEFAULT_SEED_RECORDS: ElectricityRecord[] = [
 ];
 
 /**
- * Loads electricity history from localStorage.
- * If empty, initializes with default seed records.
+ * Loads electricity history from account-isolated userStorage.
+ * Authenticated accounts start clean with [] (never seeded with shared demo records).
+ * Unauthenticated guest workspace keeps seed records only if guest hasn't saved any yet.
  */
 export function getStoredElectricityHistory(): ElectricityRecord[] {
+  const activeUid = userStorage.getActiveUid();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_ELECTRICITY_HISTORY);
+    const raw = userStorage.getItem(STORAGE_BASE_ELECTRICITY_HISTORY);
     if (!raw) {
-      localStorage.setItem(
-        STORAGE_KEY_ELECTRICITY_HISTORY,
-        JSON.stringify(DEFAULT_SEED_RECORDS)
-      );
-      return DEFAULT_SEED_RECORDS;
+      return activeUid === "guest" ? DEFAULT_SEED_RECORDS : [];
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       return parsed;
     }
-    return DEFAULT_SEED_RECORDS;
+    return activeUid === "guest" ? DEFAULT_SEED_RECORDS : [];
   } catch (err) {
     console.error("Failed to load electricity history:", err);
-    return DEFAULT_SEED_RECORDS;
+    return activeUid === "guest" ? DEFAULT_SEED_RECORDS : [];
   }
 }
 
 /**
- * Saves full electricity history array to localStorage.
+ * Saves full electricity history array to account-isolated userStorage.
  */
 export function saveElectricityHistory(
   records: ElectricityRecord[]
 ): ElectricityRecord[] {
   try {
-    localStorage.setItem(
-      STORAGE_KEY_ELECTRICITY_HISTORY,
+    userStorage.setItem(
+      STORAGE_BASE_ELECTRICITY_HISTORY,
       JSON.stringify(records)
     );
   } catch (err) {

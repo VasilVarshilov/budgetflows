@@ -26,12 +26,14 @@ import {
   deleteElectricityRecord,
   MONTHS_BG_LIST,
 } from '@/utils/electricityStorage';
+import {
+  userStorage,
+  STORAGE_BASE_ELECTRICITY_LAST,
+} from '@/utils/userStorage';
 
 interface ElectricityTabProps {
   onAddToExpenses: (em1: number, em2: number) => void;
 }
-
-const STORAGE_KEY_LAST_READINGS = "HomeBudget_ElectricityLastReadings";
 
 export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses }) => {
   const [activeSubTab, setActiveSubTab] = useState<'calculator' | 'history'>('calculator');
@@ -46,9 +48,9 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
   const [calcYear, setCalcYear] = useState<string>(currentYearStr);
   const [calcNote, setCalcNote] = useState<string>('');
 
-  const [inputs, setInputs] = useState<ElectricityInputs>(() => {
+  const loadLastReadings = (): ElectricityInputs => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_LAST_READINGS);
+      const saved = userStorage.getItem(STORAGE_BASE_ELECTRICITY_LAST);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
@@ -73,16 +75,30 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
       priceT2: '0.09226',
       invoiceTotal: '',
     };
-  });
+  };
+
+  const [inputs, setInputs] = useState<ElectricityInputs>(() => loadLastReadings());
 
   const [lastCalculatedInputs, setLastCalculatedInputs] = useState<ElectricityInputs | null>(null);
   const [showAutoShiftNotice, setShowAutoShiftNotice] = useState(false);
   const [results, setResults] = useState<ElectricityResults | null>(null);
   const [isAdded, setIsAdded] = useState(false);
 
-  // Refresh history on mount if needed
+  // Refresh history & readings on mount, restore, or account switch
   useEffect(() => {
-    setHistoryRecords(getStoredElectricityHistory());
+    const reload = () => {
+      setHistoryRecords(getStoredElectricityHistory());
+      setInputs(loadLastReadings());
+      setResults(null);
+      setIsAdded(false);
+    };
+    reload();
+    window.addEventListener("homebudget:data-restored", reload);
+    window.addEventListener("budgetflows:account-changed", reload);
+    return () => {
+      window.removeEventListener("homebudget:data-restored", reload);
+      window.removeEventListener("budgetflows:account-changed", reload);
+    };
   }, []);
 
   const handleCalculate = () => {
@@ -142,8 +158,8 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
       const nextOldT2 = inputs.newT2 || inputs.oldT2;
 
       try {
-        localStorage.setItem(
-          STORAGE_KEY_LAST_READINGS,
+        userStorage.setItem(
+          STORAGE_BASE_ELECTRICITY_LAST,
           JSON.stringify({
             oldT1: nextOldT1,
             oldT2: nextOldT2,

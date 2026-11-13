@@ -5,6 +5,11 @@ import {
   RecurringIncomeTemplate,
 } from "@/types";
 import { MONTHS_BG } from "./comparisonStorage";
+import {
+  userStorage,
+  STORAGE_BASE_RECURRING_INCOMES,
+  STORAGE_BASE_SETTINGS,
+} from "./userStorage";
 
 export const STORAGE_KEY_RECURRING_INCOMES = "HomeBudget_RecurringIncomes";
 export const STORAGE_KEY_APP_SETTINGS = "HomeBudget_Settings";
@@ -38,7 +43,7 @@ export const MONTHS_SHORT_BG = [
 
 export function loadRecurringIncomes(): RecurringIncomeTemplate[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_RECURRING_INCOMES);
+    const raw = userStorage.getItem(STORAGE_BASE_RECURRING_INCOMES);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -50,8 +55,8 @@ export function loadRecurringIncomes(): RecurringIncomeTemplate[] {
 
 export function saveRecurringIncomes(templates: RecurringIncomeTemplate[]): void {
   try {
-    localStorage.setItem(
-      STORAGE_KEY_RECURRING_INCOMES,
+    userStorage.setItem(
+      STORAGE_BASE_RECURRING_INCOMES,
       JSON.stringify(templates)
     );
   } catch (err) {
@@ -72,7 +77,7 @@ export function loadAppSettings(): AppSettings {
   };
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_APP_SETTINGS);
+    const raw = userStorage.getItem(STORAGE_BASE_SETTINGS);
     if (!raw) return defaults;
     const parsed = JSON.parse(raw);
     return {
@@ -96,7 +101,7 @@ export function saveAppSettings(updates: Partial<AppSettings>): AppSettings {
     ...updates,
   };
   try {
-    localStorage.setItem(STORAGE_KEY_APP_SETTINGS, JSON.stringify(next));
+    userStorage.setItem(STORAGE_BASE_SETTINGS, JSON.stringify(next));
   } catch (err) {
     console.error("Failed saving app settings:", err);
   }

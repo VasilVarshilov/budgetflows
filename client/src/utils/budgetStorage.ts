@@ -1,5 +1,10 @@
 import { BudgetConfig, MonthlyRecord, ExpenseItem } from "@/types";
 import { loadStoredCategories, AVAILABLE_ICONS_MAP } from "./categoryStorage";
+import {
+  userStorage,
+  STORAGE_BASE_BUDGETS,
+  STORAGE_BASE_TOTAL_BUDGET,
+} from "./userStorage";
 
 export const STORAGE_KEY_BUDGETS = "HomeBudget_Budgets";
 export const STORAGE_KEY_TOTAL_BUDGET = "HomeBudget_TotalMonthlyBudget";
@@ -67,7 +72,7 @@ export interface OverallBudgetCalculation {
 }
 
 /**
- * Loads budgets from localStorage with robust fallback
+ * Loads budgets from account-isolated userStorage with robust fallback
  */
 export function loadBudgets(): {
   totalMonthlyBudget: number;
@@ -77,7 +82,7 @@ export function loadBudgets(): {
 
   // Try loading separate total monthly budget key
   try {
-    const rawTotal = localStorage.getItem(STORAGE_KEY_TOTAL_BUDGET);
+    const rawTotal = userStorage.getItem(STORAGE_BASE_TOTAL_BUDGET);
     if (rawTotal) {
       const parsedTotal = parseFloat(rawTotal);
       if (!isNaN(parsedTotal) && parsedTotal > 0) {
@@ -91,7 +96,7 @@ export function loadBudgets(): {
   // Load category budgets
   let categoryBudgets: BudgetConfig[] = [];
   try {
-    const rawBudgets = localStorage.getItem(STORAGE_KEY_BUDGETS);
+    const rawBudgets = userStorage.getItem(STORAGE_BASE_BUDGETS);
     if (rawBudgets) {
       const parsed = JSON.parse(rawBudgets);
       if (Array.isArray(parsed)) {
@@ -113,29 +118,28 @@ export function loadBudgets(): {
     console.warn("Failed loading budgets list:", e);
   }
 
-  // If no category budgets configured, use defaults
+  // If no category budgets configured yet, return default presets without dirtying empty storage
   if (categoryBudgets.length === 0) {
     categoryBudgets = DEFAULT_CATEGORY_BUDGETS;
-    saveBudgets(totalMonthlyBudget, categoryBudgets);
   }
 
   return { totalMonthlyBudget, categoryBudgets };
 }
 
 /**
- * Saves budgets to localStorage, maintaining full compatibility with backupRestore
+ * Saves budgets to account-isolated userStorage, maintaining full compatibility with backupRestore
  */
 export function saveBudgets(
   totalMonthlyBudget: number,
   categoryBudgets: BudgetConfig[]
 ): void {
   try {
-    localStorage.setItem(
-      STORAGE_KEY_TOTAL_BUDGET,
+    userStorage.setItem(
+      STORAGE_BASE_TOTAL_BUDGET,
       totalMonthlyBudget.toString()
     );
 
-    // Persist category budgets + total_monthly item in STORAGE_KEY_BUDGETS
+    // Persist category budgets + total_monthly item in STORAGE_BASE_BUDGETS
     const totalConfigItem: BudgetConfig = {
       id: "total_monthly",
       categoryName: "__TOTAL_MONTHLY__",
@@ -150,7 +154,7 @@ export function saveBudgets(
       ),
     ];
 
-    localStorage.setItem(STORAGE_KEY_BUDGETS, JSON.stringify(combined));
+    userStorage.setItem(STORAGE_BASE_BUDGETS, JSON.stringify(combined));
   } catch (e) {
     console.error("Failed saving budgets to storage:", e);
   }

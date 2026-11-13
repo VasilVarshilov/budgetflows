@@ -173,6 +173,8 @@ export interface BackupData {
   version: string;
   appName: string;
   exportDate: string;
+  ownerUid?: string;
+  ownerEmail?: string | null;
   summary: {
     incomeCount: number;
     expensesCount: number;

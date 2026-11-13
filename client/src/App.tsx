@@ -28,18 +28,20 @@ import { AiAnalysisTab } from "@/components/analysis/AiAnalysisTab";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ThemeProvider } from "@/utils/themeContext";
 import { CloudSyncProvider, useCloudSync } from "@/utils/cloudSyncContext";
-import { Cloud } from "lucide-react";
+import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
+import { Cloud, DownloadCloud, LogIn } from "lucide-react";
 
 // Utils & Types
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
 import { createEmptyMonthlyRecord } from "@/utils/incomeStorage";
+import {
+  userStorage,
+  STORAGE_BASE_MONTHLY,
+  STORAGE_BASE_SAVINGS,
+} from "@/utils/userStorage";
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 
 type Tab = "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
-
-// Storage Keys
-const STORAGE_KEY_MONTHLY = "HomeBudget_Data";
-const STORAGE_KEY_SAVINGS = "HomeBudget_GlobalSavings";
 
 interface NavTabItem {
   id: Tab;
@@ -141,9 +143,10 @@ const MOBILE_MORE_TABS = NAV_TABS.slice(5);
 
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
-  const [currentMonth, setCurrentMonth] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [currentMonth, setCurrentMonth] = useState(() => getCurrentMonthBulgarian());
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+  const [isGlobalRestoreModalOpen, setIsGlobalRestoreModalOpen] = useState(false);
 
   const [monthlyData, setMonthlyData] = useState<
     Record<string, MonthlyRecord>
@@ -155,46 +158,54 @@ const AppContent: React.FC = () => {
     syncStatus,
     user,
     storedProfile,
+    activeUid,
+    isAuthLoading,
+    isSwitchingAccount,
+    hasDriveAccessToken,
     isOnline,
+    pendingRestoreOffer,
+    dismissRestoreOffer,
+    loginWithGoogle,
   } = useCloudSync();
 
   const displayUser = user || storedProfile;
 
-  // Load stored data
-  useEffect(() => {
-    const loadData = async () => {
-        setCurrentMonth(getCurrentMonthBulgarian());
-
-        try {
-            const storedMonthly = localStorage.getItem(STORAGE_KEY_MONTHLY);
-            if (storedMonthly) setMonthlyData(JSON.parse(storedMonthly));
-        } catch (e) {
-            console.error("Failed to load monthly data", e);
-        }
-
-        try {
-            const storedSavings = localStorage.getItem(STORAGE_KEY_SAVINGS);
-            if (storedSavings) setGlobalSavings(JSON.parse(storedSavings));
-        } catch (e) {
-            console.error("Failed to load savings data", e);
-        }
-        
-        // Simulate a small delay to ensure hydration prevents flicker/overwrite
-        setTimeout(() => {
-           setIsLoading(false);
-        }, 500);
-    };
-
-    loadData();
+  // Reload isolated data for the active user account
+  const loadAccountWorkspaceData = useCallback((targetUid: string) => {
+    setCurrentMonth((prev) => prev || getCurrentMonthBulgarian());
+    const storedMonthly = userStorage.getJSON<Record<string, MonthlyRecord>>(
+      STORAGE_BASE_MONTHLY,
+      {},
+      targetUid
+    );
+    const storedSavings = userStorage.getJSON<IncomeItem[]>(
+      STORAGE_BASE_SAVINGS,
+      [],
+      targetUid
+    );
+    setMonthlyData(storedMonthly && typeof storedMonthly === "object" ? storedMonthly : {});
+    setGlobalSavings(Array.isArray(storedSavings) ? storedSavings : []);
+    setWorkspaceRevision((prev) => prev + 1);
   }, []);
 
-  // Save helpers
+  // Load isolated storage whenever auth resolves or activeUid changes
+  useEffect(() => {
+    if (isAuthLoading || isSwitchingAccount) {
+      // Clear active in-memory view during account transitions to avoid any data flash
+      setMonthlyData({});
+      setGlobalSavings([]);
+      return;
+    }
+    loadAccountWorkspaceData(activeUid);
+  }, [activeUid, isAuthLoading, isSwitchingAccount, loadAccountWorkspaceData]);
+
+  // Save helpers strictly scoped to activeUid
   const saveMonthlyToStorage = (updated: Record<string, MonthlyRecord>) => {
-    localStorage.setItem(STORAGE_KEY_MONTHLY, JSON.stringify(updated));
+    userStorage.setJSON(STORAGE_BASE_MONTHLY, updated, activeUid);
   };
 
   const saveSavingsToStorage = (updated: IncomeItem[]) => {
-    localStorage.setItem(STORAGE_KEY_SAVINGS, JSON.stringify(updated));
+    userStorage.setJSON(STORAGE_BASE_SAVINGS, updated, activeUid);
   };
 
   // Add Electricity to Expenses
@@ -344,32 +355,12 @@ const AppContent: React.FC = () => {
     [triggerAutoSync]
   );
 
-  // Restore / reload all state after backup import
+  // Restore / reload all state after backup import or local clear
   const handleDataRestored = useCallback(() => {
-    try {
-      const storedMonthly = localStorage.getItem(STORAGE_KEY_MONTHLY);
-      if (storedMonthly) {
-        setMonthlyData(JSON.parse(storedMonthly));
-      } else {
-        setMonthlyData({});
-      }
-    } catch (e) {
-      console.error("Failed reloading monthly data after restore", e);
-    }
+    loadAccountWorkspaceData(userStorage.getActiveUid());
+  }, [loadAccountWorkspaceData]);
 
-    try {
-      const storedSavings = localStorage.getItem(STORAGE_KEY_SAVINGS);
-      if (storedSavings) {
-        setGlobalSavings(JSON.parse(storedSavings));
-      } else {
-        setGlobalSavings([]);
-      }
-    } catch (e) {
-      console.error("Failed reloading savings data after restore", e);
-    }
-  }, []);
-
-  // Listen for data-restored events from either local JSON or Google Drive
+  // Listen for data-restored & account-changed events
   useEffect(() => {
     window.addEventListener("homebudget:data-restored", handleDataRestored);
     return () => {
@@ -379,12 +370,14 @@ const AppContent: React.FC = () => {
 
   const currentMonthRecord = monthlyData[currentMonth];
 
-  if (isLoading) {
+  if (isAuthLoading || isSwitchingAccount) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 transition-colors">
          <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-10 h-10 text-indigo-600 dark:text-indigo-400 animate-spin" />
-            <p className="text-slate-500 dark:text-slate-400 font-medium">Зареждане на данни...</p>
+            <p className="text-slate-600 dark:text-slate-300 font-medium text-sm">
+              {isSwitchingAccount ? "Превключване на профил и зареждане на данни..." : "Зареждане на профила..."}
+            </p>
          </div>
       </div>
     );
@@ -439,7 +432,7 @@ const AppContent: React.FC = () => {
                   </span>
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      !isOnline
+                      !isOnline || !hasDriveAccessToken
                         ? "bg-amber-400"
                         : syncStatus === "syncing"
                         ? "bg-blue-500 animate-pulse"
@@ -452,6 +445,8 @@ const AppContent: React.FC = () => {
                     title={
                       !isOnline
                         ? "Офлайн"
+                        : !hasDriveAccessToken
+                        ? "Изисква подновяване на Drive достъпа"
                         : syncStatus === "syncing"
                         ? "Синхронизиране..."
                         : syncStatus === "synced"
@@ -465,12 +460,15 @@ const AppContent: React.FC = () => {
               ) : (
                 <button
                   type="button"
-                  onClick={() => setActiveTab("backup")}
-                  title="Свържи Google Drive архив"
-                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
+                  onClick={() => {
+                    loginWithGoogle().catch(() => setActiveTab("backup"));
+                  }}
+                  title="Вход с Google и облачна синхронизация"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
                 >
-                  <Cloud className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                  <span className="text-[11px]">Drive</span>
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span className="text-[11px] hidden sm:inline">Вход с Google</span>
+                  <span className="text-[11px] sm:hidden">Вход</span>
                 </button>
               )}
 
@@ -515,8 +513,11 @@ const AppContent: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content (with bottom padding for mobile navigation bar) */}
-      <main className="flex-1 max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 w-full pb-28 md:pb-8">
+      {/* Main Content (keyed by activeUid + workspaceRevision so switching accounts cleanly remounts all local tab state) */}
+      <main
+        key={`${activeUid}-${workspaceRevision}`}
+        className="flex-1 max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 w-full pb-28 md:pb-8"
+      >
         {activeTab === "dashboard" && (
           <DashboardTab
             monthlyData={monthlyData}
@@ -711,6 +712,74 @@ const AppContent: React.FC = () => {
           </button>
         </div>
       </nav>
+
+      {/* Auto-Detected Cloud Backup Restore Offer (Multi-device login flow) */}
+      {pendingRestoreOffer &&
+        pendingRestoreOffer.uid === activeUid &&
+        !isGlobalRestoreModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-4 animate-in zoom-in-95">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 rounded-xl">
+                    <DownloadCloud className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                      Открит е облачен архив в Google Drive
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {user?.email || "Вашият Google акаунт"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={dismissRestoreOffer}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                В това устройство все още няма заредени данни за този акаунт, но в Google Drive (<code>appDataFolder</code>) има запазен архив{" "}
+                {pendingRestoreOffer.fileInfo.modifiedTime
+                  ? `от ${new Date(pendingRestoreOffer.fileInfo.modifiedTime).toLocaleString("bg-BG", { dateStyle: "short", timeStyle: "short" })}`
+                  : ""}
+                . Желаете ли да възстановите данните си веднага?
+              </p>
+
+              <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={dismissRestoreOffer}
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                >
+                  По-късно
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsGlobalRestoreModalOpen(true)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer"
+                >
+                  <DownloadCloud className="w-4 h-4" />
+                  <span>Възстанови от Google Drive</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* Global Drive Restore Modal (for fresh-device login flow) */}
+      <DriveRestoreModal
+        isOpen={isGlobalRestoreModalOpen}
+        onClose={() => setIsGlobalRestoreModalOpen(false)}
+        onSuccess={() => {
+          setIsGlobalRestoreModalOpen(false);
+          handleDataRestored();
+        }}
+      />
     </div>
   );
 };

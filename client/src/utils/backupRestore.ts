@@ -11,10 +11,20 @@ import {
   BackupData,
   RecurringIncomeTemplate,
 } from "@/types";
-import { STORAGE_KEY_ELECTRICITY_HISTORY } from "./electricityStorage";
-import { STORAGE_KEY_RECURRING_INCOMES } from "./incomeStorage";
+import {
+  userStorage,
+  STORAGE_BASE_MONTHLY,
+  STORAGE_BASE_SAVINGS,
+  STORAGE_BASE_ELECTRICITY_LAST,
+  STORAGE_BASE_ELECTRICITY_HISTORY,
+  STORAGE_BASE_CATEGORIES,
+  STORAGE_BASE_BUDGETS,
+  STORAGE_BASE_TOTAL_BUDGET,
+  STORAGE_BASE_SETTINGS,
+  STORAGE_BASE_RECURRING_INCOMES,
+} from "./userStorage";
 
-// Storage Keys
+// Legacy Storage Key Constants (kept exported for reference compatibility)
 export const STORAGE_KEY_MONTHLY = "HomeBudget_Data";
 export const STORAGE_KEY_SAVINGS = "HomeBudget_GlobalSavings";
 export const STORAGE_KEY_ELECTRICITY_LAST = "HomeBudget_ElectricityLastReadings";
@@ -77,63 +87,116 @@ export const DEFAULT_BUDGETS: BudgetConfig[] = [
 ];
 
 /**
- * Reads safe JSON from localStorage with fallback
+ * Reads safe JSON from account-isolated userStorage with fallback
  */
-function readStorageSafe<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch (e) {
-    console.warn(`Failed reading ${key} from storage:`, e);
-    return fallback;
-  }
+function readStorageSafe<T>(baseKey: string, fallback: T): T {
+  return userStorage.getJSON<T>(baseKey, fallback);
 }
 
 /**
- * Gathers complete application data from localStorage across all modules.
+ * Verifies whether a backup belongs to the currently authenticated user.
  */
-export function gatherApplicationData(): BackupData {
+export function validateBackupOwnership(
+  backup: BackupData,
+  currentUser: { uid: string; email?: string | null } | null
+): { allowed: boolean; reason?: string } {
+  if (!currentUser) {
+    return { allowed: true };
+  }
+
+  if (backup.ownerUid && backup.ownerUid !== currentUser.uid) {
+    return {
+      allowed: false,
+      reason:
+        "Достъпът е отказан: Този архив принадлежи на друг Google/Firebase акаунт и не може да бъде възстановен в текущия профил.",
+    };
+  }
+
+  if (
+    backup.ownerEmail &&
+    currentUser.email &&
+    backup.ownerEmail.trim().toLowerCase() !== currentUser.email.trim().toLowerCase()
+  ) {
+    return {
+      allowed: false,
+      reason: `Достъпът е отказан: Архивът принадлежи на (${backup.ownerEmail}), а вие сте влезли като (${currentUser.email}).`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Gathers complete application data from account-isolated userStorage across all modules.
+ */
+export function gatherApplicationData(owner?: {
+  uid?: string | null;
+  email?: string | null;
+}): BackupData {
+  const activeUid = userStorage.getActiveUid();
+  const effectiveOwnerUid =
+    owner?.uid || (activeUid !== "guest" ? activeUid : undefined);
+
   // 1. Monthly Records (containing Expenses and per-month Incomes)
   const monthlyRecords = readStorageSafe<Record<string, MonthlyRecord>>(
-    STORAGE_KEY_MONTHLY,
+    STORAGE_BASE_MONTHLY,
     {}
   );
 
   // 2. Savings & Global Income transactions
-  const savings = readStorageSafe<IncomeItem[]>(STORAGE_KEY_SAVINGS, []);
+  const savings = readStorageSafe<IncomeItem[]>(STORAGE_BASE_SAVINGS, []);
 
   // 3. Electricity History & Last Inputs
   const electricityHistory = readStorageSafe<ElectricityRecord[]>(
-    STORAGE_KEY_ELECTRICITY_HISTORY,
+    STORAGE_BASE_ELECTRICITY_HISTORY,
     []
   );
   const electricityLastReadings = readStorageSafe<ElectricityInputs | undefined>(
-    STORAGE_KEY_ELECTRICITY_LAST,
+    STORAGE_BASE_ELECTRICITY_LAST,
     undefined
   );
 
   // 4. Categories (expense + income)
-  const categories = readStorageSafe<CategoriesStore>(STORAGE_KEY_CATEGORIES, {
+  const categories = readStorageSafe<CategoriesStore>(STORAGE_BASE_CATEGORIES, {
     expenseCategories: DEFAULT_EXPENSE_CATEGORIES,
     incomeCategories: DEFAULT_INCOME_CATEGORIES,
   });
 
-  // 5. Budgets
-  const budgets = readStorageSafe<BudgetConfig[]>(
-    STORAGE_KEY_BUDGETS,
+  // 5. Budgets (preserve total monthly budget item if stored separately)
+  let budgets = readStorageSafe<BudgetConfig[]>(
+    STORAGE_BASE_BUDGETS,
     DEFAULT_BUDGETS
   );
+  const storedTotalBudget = userStorage.getItem(STORAGE_BASE_TOTAL_BUDGET);
+  if (
+    storedTotalBudget &&
+    !budgets.some(
+      (b) => b.id === "total_monthly" || b.categoryName === "__TOTAL_MONTHLY__"
+    )
+  ) {
+    const parsedTotal = parseFloat(storedTotalBudget);
+    if (!isNaN(parsedTotal) && parsedTotal > 0) {
+      budgets = [
+        {
+          id: "total_monthly",
+          categoryName: "__TOTAL_MONTHLY__",
+          monthlyLimit: parsedTotal,
+          period: "monthly",
+        },
+        ...budgets,
+      ];
+    }
+  }
 
   // 6. Settings
   const settings = readStorageSafe<AppSettings>(
-    STORAGE_KEY_SETTINGS,
+    STORAGE_BASE_SETTINGS,
     DEFAULT_SETTINGS
   );
 
   // 7. Recurring Incomes
   const recurringIncomes = readStorageSafe<RecurringIncomeTemplate[]>(
-    STORAGE_KEY_RECURRING_INCOMES,
+    STORAGE_BASE_RECURRING_INCOMES,
     []
   );
 
@@ -165,16 +228,13 @@ export function gatherApplicationData(): BackupData {
 
   // Count total expense items across all months
   let totalExpensesCount = 0;
-  const allExpenseItems: ExpenseItem[] = [];
   Object.values(monthlyRecords).forEach((record) => {
     if (record.expenses) {
       if (Array.isArray(record.expenses.fixed_expenses)) {
         totalExpensesCount += record.expenses.fixed_expenses.length;
-        allExpenseItems.push(...record.expenses.fixed_expenses);
       }
       if (Array.isArray(record.expenses.additional_expenses)) {
         totalExpensesCount += record.expenses.additional_expenses.length;
-        allExpenseItems.push(...record.expenses.additional_expenses);
       }
     }
   });
@@ -193,6 +253,8 @@ export function gatherApplicationData(): BackupData {
     version: "1.0",
     appName: "BudgetFlows",
     exportDate: nowIso,
+    ...(effectiveOwnerUid ? { ownerUid: effectiveOwnerUid } : {}),
+    ...(owner?.email ? { ownerEmail: owner.email } : {}),
     summary: {
       incomeCount: incomeList.length,
       expensesCount: totalExpensesCount,
@@ -223,17 +285,17 @@ export function gatherApplicationData(): BackupData {
 }
 
 /**
- * Triggers a download of the full backup JSON file.
+ * Triggers a download of the full backup JSON file for the active user.
  */
-export function exportBackupFile(): { filename: string; backup: BackupData } {
-  const backup = gatherApplicationData();
+export function exportBackupFile(owner?: {
+  uid?: string | null;
+  email?: string | null;
+}): { filename: string; backup: BackupData } {
+  const backup = gatherApplicationData(owner);
 
-  // Save the updated lastBackupDate to localStorage
+  // Save the updated lastBackupDate to account-isolated userStorage
   try {
-    localStorage.setItem(
-      STORAGE_KEY_SETTINGS,
-      JSON.stringify(backup.data.settings)
-    );
+    userStorage.setJSON(STORAGE_BASE_SETTINGS, backup.data.settings);
   } catch (e) {
     console.warn("Could not save settings timestamp:", e);
   }
@@ -378,6 +440,8 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
       version: parsed.version || "1.0",
       appName: parsed.appName || "BudgetFlows",
       exportDate: parsed.exportDate || new Date().toISOString(),
+      ...(typeof parsed.ownerUid === "string" ? { ownerUid: parsed.ownerUid } : {}),
+      ...(typeof parsed.ownerEmail === "string" ? { ownerEmail: parsed.ownerEmail } : {}),
       summary: {
         incomeCount:
           income.length ||
@@ -492,9 +556,9 @@ export interface ImportResult {
 }
 
 /**
- * Applies the validated backup data into localStorage.
+ * Applies the validated backup data into account-isolated userStorage.
  * Supports:
- * - 'replace': Overwrites all existing records with imported data.
+ * - 'replace': Overwrites all existing records for the active user with imported data.
  * - 'merge': Merges records without losing existing data, deduplicating IDs.
  */
 export function applyBackup(
@@ -505,58 +569,64 @@ export function applyBackup(
 
   if (mode === "replace") {
     // 1. Monthly Records
-    localStorage.setItem(
-      STORAGE_KEY_MONTHLY,
-      JSON.stringify(incoming.expenses.monthlyRecords || {})
+    userStorage.setJSON(
+      STORAGE_BASE_MONTHLY,
+      incoming.expenses.monthlyRecords || {}
     );
 
     // 2. Global Savings
-    localStorage.setItem(
-      STORAGE_KEY_SAVINGS,
-      JSON.stringify(incoming.savings || [])
-    );
+    userStorage.setJSON(STORAGE_BASE_SAVINGS, incoming.savings || []);
 
     // 3. Electricity History
-    localStorage.setItem(
-      STORAGE_KEY_ELECTRICITY_HISTORY,
-      JSON.stringify(incoming.electricityHistory || [])
+    userStorage.setJSON(
+      STORAGE_BASE_ELECTRICITY_HISTORY,
+      incoming.electricityHistory || []
     );
 
     // 4. Electricity Last Readings
     if (incoming.electricityLastReadings) {
-      localStorage.setItem(
-        STORAGE_KEY_ELECTRICITY_LAST,
-        JSON.stringify(incoming.electricityLastReadings)
+      userStorage.setJSON(
+        STORAGE_BASE_ELECTRICITY_LAST,
+        incoming.electricityLastReadings
       );
+    } else {
+      userStorage.removeItem(STORAGE_BASE_ELECTRICITY_LAST);
     }
 
     // 5. Categories
-    localStorage.setItem(
-      STORAGE_KEY_CATEGORIES,
-      JSON.stringify(
-        incoming.categories || {
-          expenseCategories: DEFAULT_EXPENSE_CATEGORIES,
-          incomeCategories: DEFAULT_INCOME_CATEGORIES,
-        }
-      )
+    userStorage.setJSON(
+      STORAGE_BASE_CATEGORIES,
+      incoming.categories || {
+        expenseCategories: DEFAULT_EXPENSE_CATEGORIES,
+        incomeCategories: DEFAULT_INCOME_CATEGORIES,
+      }
     );
 
-    // 6. Budgets
-    localStorage.setItem(
-      STORAGE_KEY_BUDGETS,
-      JSON.stringify(incoming.budgets || DEFAULT_BUDGETS)
+    // 6. Budgets + Total Monthly Budget
+    const incomingBudgets = incoming.budgets || DEFAULT_BUDGETS;
+    userStorage.setJSON(STORAGE_BASE_BUDGETS, incomingBudgets);
+    const totalItem = incomingBudgets.find(
+      (b) => b.id === "total_monthly" || b.categoryName === "__TOTAL_MONTHLY__"
     );
+    if (totalItem && totalItem.monthlyLimit > 0) {
+      userStorage.setItem(
+        STORAGE_BASE_TOTAL_BUDGET,
+        String(totalItem.monthlyLimit)
+      );
+    } else {
+      userStorage.removeItem(STORAGE_BASE_TOTAL_BUDGET);
+    }
 
     // 7. Settings
-    localStorage.setItem(
-      STORAGE_KEY_SETTINGS,
-      JSON.stringify(incoming.settings || DEFAULT_SETTINGS)
+    userStorage.setJSON(
+      STORAGE_BASE_SETTINGS,
+      incoming.settings || DEFAULT_SETTINGS
     );
 
     // 8. Recurring Incomes
-    localStorage.setItem(
-      STORAGE_KEY_RECURRING_INCOMES,
-      JSON.stringify(incoming.recurringIncomes || [])
+    userStorage.setJSON(
+      STORAGE_BASE_RECURRING_INCOMES,
+      incoming.recurringIncomes || []
     );
 
     const monthCount = Object.keys(incoming.expenses.monthlyRecords || {}).length;
@@ -578,7 +648,7 @@ export function applyBackup(
   // --- MERGE MODE ---
   // 1. Merge Monthly Records
   const currentMonthly = readStorageSafe<Record<string, MonthlyRecord>>(
-    STORAGE_KEY_MONTHLY,
+    STORAGE_BASE_MONTHLY,
     {}
   );
   const mergedMonthly = { ...currentMonthly };
@@ -645,10 +715,10 @@ export function applyBackup(
     }
   );
 
-  localStorage.setItem(STORAGE_KEY_MONTHLY, JSON.stringify(mergedMonthly));
+  userStorage.setJSON(STORAGE_BASE_MONTHLY, mergedMonthly);
 
   // 2. Merge Savings
-  const currentSavings = readStorageSafe<IncomeItem[]>(STORAGE_KEY_SAVINGS, []);
+  const currentSavings = readStorageSafe<IncomeItem[]>(STORAGE_BASE_SAVINGS, []);
   const savingsIds = new Set(currentSavings.map((s) => s.id));
   const mergedSavings = [...currentSavings];
   (incoming.savings || []).forEach((s) => {
@@ -657,11 +727,11 @@ export function applyBackup(
       mergedSavings.push(s);
     }
   });
-  localStorage.setItem(STORAGE_KEY_SAVINGS, JSON.stringify(mergedSavings));
+  userStorage.setJSON(STORAGE_BASE_SAVINGS, mergedSavings);
 
   // 3. Merge Electricity History
   const currentElec = readStorageSafe<ElectricityRecord[]>(
-    STORAGE_KEY_ELECTRICITY_HISTORY,
+    STORAGE_BASE_ELECTRICITY_HISTORY,
     []
   );
   const elecKeys = new Set(
@@ -675,24 +745,21 @@ export function applyBackup(
       mergedElec.push(e);
     }
   });
-  localStorage.setItem(
-    STORAGE_KEY_ELECTRICITY_HISTORY,
-    JSON.stringify(mergedElec)
-  );
+  userStorage.setJSON(STORAGE_BASE_ELECTRICITY_HISTORY, mergedElec);
 
   // 4. Electricity Last Readings (only replace if current is empty or if present)
   if (incoming.electricityLastReadings) {
-    const currentLast = localStorage.getItem(STORAGE_KEY_ELECTRICITY_LAST);
+    const currentLast = userStorage.getItem(STORAGE_BASE_ELECTRICITY_LAST);
     if (!currentLast) {
-      localStorage.setItem(
-        STORAGE_KEY_ELECTRICITY_LAST,
-        JSON.stringify(incoming.electricityLastReadings)
+      userStorage.setJSON(
+        STORAGE_BASE_ELECTRICITY_LAST,
+        incoming.electricityLastReadings
       );
     }
   }
 
   // 5. Merge Categories
-  const currentCats = readStorageSafe<CategoriesStore>(STORAGE_KEY_CATEGORIES, {
+  const currentCats = readStorageSafe<CategoriesStore>(STORAGE_BASE_CATEGORIES, {
     expenseCategories: DEFAULT_EXPENSE_CATEGORIES,
     incomeCategories: DEFAULT_INCOME_CATEGORIES,
   });
@@ -718,11 +785,11 @@ export function applyBackup(
     expenseCategories: Array.from(catExpenseMap.values()),
     incomeCategories: Array.from(catIncomeMap.values()),
   };
-  localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(mergedCats));
+  userStorage.setJSON(STORAGE_BASE_CATEGORIES, mergedCats);
 
   // 6. Merge Budgets
   const currentBudgets = readStorageSafe<BudgetConfig[]>(
-    STORAGE_KEY_BUDGETS,
+    STORAGE_BASE_BUDGETS,
     DEFAULT_BUDGETS
   );
   const budgetMap = new Map(
@@ -735,11 +802,17 @@ export function applyBackup(
     }
   });
   const mergedBudgets = Array.from(budgetMap.values());
-  localStorage.setItem(STORAGE_KEY_BUDGETS, JSON.stringify(mergedBudgets));
+  userStorage.setJSON(STORAGE_BASE_BUDGETS, mergedBudgets);
+  const mergedTotal = mergedBudgets.find(
+    (b) => b.id === "total_monthly" || b.categoryName === "__TOTAL_MONTHLY__"
+  );
+  if (mergedTotal && mergedTotal.monthlyLimit > 0 && !userStorage.getItem(STORAGE_BASE_TOTAL_BUDGET)) {
+    userStorage.setItem(STORAGE_BASE_TOTAL_BUDGET, String(mergedTotal.monthlyLimit));
+  }
 
   // 7. Settings: keep current, apply imported if missing
   const currentSettings = readStorageSafe<AppSettings>(
-    STORAGE_KEY_SETTINGS,
+    STORAGE_BASE_SETTINGS,
     DEFAULT_SETTINGS
   );
   const mergedSettings: AppSettings = {
@@ -747,11 +820,11 @@ export function applyBackup(
     ...currentSettings,
     lastBackupDate: new Date().toISOString(),
   };
-  localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(mergedSettings));
+  userStorage.setJSON(STORAGE_BASE_SETTINGS, mergedSettings);
 
   // 8. Merge Recurring Incomes
   const currentRecurring = readStorageSafe<RecurringIncomeTemplate[]>(
-    STORAGE_KEY_RECURRING_INCOMES,
+    STORAGE_BASE_RECURRING_INCOMES,
     []
   );
   const recurringMap = new Map(currentRecurring.map((r) => [r.id, r]));
@@ -769,9 +842,9 @@ export function applyBackup(
       });
     }
   });
-  localStorage.setItem(
-    STORAGE_KEY_RECURRING_INCOMES,
-    JSON.stringify(Array.from(recurringMap.values()))
+  userStorage.setJSON(
+    STORAGE_BASE_RECURRING_INCOMES,
+    Array.from(recurringMap.values())
   );
 
   const totalMonths = Object.keys(mergedMonthly).length;

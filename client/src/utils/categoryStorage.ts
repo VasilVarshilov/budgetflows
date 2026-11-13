@@ -62,6 +62,7 @@ import {
   Layers,
   RotateCcw,
 } from "lucide-react";
+import { userStorage, STORAGE_BASE_CATEGORIES } from "./userStorage";
 
 export const STORAGE_KEY_CATEGORIES = "HomeBudget_Categories";
 
@@ -552,15 +553,13 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
 }
 
 /**
- * Loads categories from localStorage. If none exist, initializes with default categories.
+ * Loads categories from account-isolated userStorage. If none exist, returns default categories.
  * Automatically preserves any existing custom categories or modifications.
  */
 export function loadStoredCategories(): ExpenseCategory[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+    const raw = userStorage.getItem(STORAGE_BASE_CATEGORIES);
     if (!raw) {
-      // Save defaults initially
-      saveStoredCategories(DEFAULT_CATEGORIES);
       return DEFAULT_CATEGORIES;
     }
 
@@ -575,7 +574,6 @@ export function loadStoredCategories(): ExpenseCategory[] {
     }
 
     if (loadedList.length === 0) {
-      saveStoredCategories(DEFAULT_CATEGORIES);
       return DEFAULT_CATEGORIES;
     }
 
@@ -598,14 +596,14 @@ export function loadStoredCategories(): ExpenseCategory[] {
 }
 
 /**
- * Saves categories to localStorage in a format fully compatible with Backup & Restore.
+ * Saves categories to account-isolated userStorage in a format fully compatible with Backup & Restore.
  */
 export function saveStoredCategories(categories: ExpenseCategory[]): void {
   try {
     // Read existing store if available to preserve incomeCategories
     let existingIncomeCategories: ExpenseCategory[] = [];
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+      const raw = userStorage.getItem(STORAGE_BASE_CATEGORIES);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.incomeCategories)) {
@@ -621,7 +619,7 @@ export function saveStoredCategories(categories: ExpenseCategory[]): void {
       incomeCategories: existingIncomeCategories,
     };
 
-    localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(store));
+    userStorage.setItem(STORAGE_BASE_CATEGORIES, JSON.stringify(store));
   } catch (err) {
     console.error("Failed saving categories to storage:", err);
   }
@@ -683,13 +681,12 @@ export function deleteCategoryFromStorage(categoryId: string): ExpenseCategory[]
 }
 
 /**
- * Loads income categories from localStorage. Initializes with DEFAULT_INCOME_CATEGORIES if empty.
+ * Loads income categories from account-isolated userStorage. Returns DEFAULT_INCOME_CATEGORIES if empty.
  */
 export function loadStoredIncomeCategories(): ExpenseCategory[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+    const raw = userStorage.getItem(STORAGE_BASE_CATEGORIES);
     if (!raw) {
-      saveStoredIncomeCategories(DEFAULT_INCOME_CATEGORIES);
       return DEFAULT_INCOME_CATEGORIES;
     }
 
@@ -701,7 +698,6 @@ export function loadStoredIncomeCategories(): ExpenseCategory[] {
     }
 
     if (loadedList.length === 0) {
-      saveStoredIncomeCategories(DEFAULT_INCOME_CATEGORIES);
       return DEFAULT_INCOME_CATEGORIES;
     }
 
@@ -723,13 +719,13 @@ export function loadStoredIncomeCategories(): ExpenseCategory[] {
 }
 
 /**
- * Saves income categories to localStorage while preserving existing expenseCategories.
+ * Saves income categories to account-isolated userStorage while preserving existing expenseCategories.
  */
 export function saveStoredIncomeCategories(incomeCategories: ExpenseCategory[]): void {
   try {
     let existingExpenseCategories: ExpenseCategory[] = DEFAULT_CATEGORIES;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+      const raw = userStorage.getItem(STORAGE_BASE_CATEGORIES);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
@@ -747,7 +743,7 @@ export function saveStoredIncomeCategories(incomeCategories: ExpenseCategory[]):
       incomeCategories,
     };
 
-    localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(store));
+    userStorage.setItem(STORAGE_BASE_CATEGORIES, JSON.stringify(store));
   } catch (err) {
     console.error("Failed saving income categories to storage:", err);
   }

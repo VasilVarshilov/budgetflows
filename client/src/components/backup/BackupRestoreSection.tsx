@@ -25,11 +25,12 @@ import {
 import {
   exportBackupFile,
   validateAndParseBackupFile,
+  validateBackupOwnership,
   applyBackup,
   gatherApplicationData,
-  STORAGE_KEY_SETTINGS,
   DEFAULT_SETTINGS,
 } from "@/utils/backupRestore";
+import { useCloudSync } from "@/utils/cloudSyncContext";
 import { BackupData, AppSettings } from "@/types";
 import { GoogleAuthCard } from "@/components/auth/GoogleAuthCard";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
@@ -41,6 +42,8 @@ interface BackupRestoreSectionProps {
 export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
   onDataRestored,
 }) => {
+  const { user, activeUid } = useCloudSync();
+
   // Current system snapshot
   const [currentSnapshot, setCurrentSnapshot] = useState<BackupData | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -60,10 +63,12 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedJson, setCopiedJson] = useState(false);
 
+  const ownerInfo = user ? { uid: user.uid, email: user.email } : undefined;
+
   // Refresh current data snapshot
   const refreshSnapshot = () => {
     try {
-      const data = gatherApplicationData();
+      const data = gatherApplicationData(ownerInfo);
       setCurrentSnapshot(data);
       setSettings(data.data.settings);
     } catch (e) {
@@ -83,13 +88,23 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
 
   useEffect(() => {
     refreshSnapshot();
-  }, []);
+  }, [activeUid, user?.uid]);
+
+  useEffect(() => {
+    const handleReload = () => refreshSnapshot();
+    window.addEventListener("budgetflows:account-changed", handleReload);
+    window.addEventListener("homebudget:data-restored", handleReload);
+    return () => {
+      window.removeEventListener("budgetflows:account-changed", handleReload);
+      window.removeEventListener("homebudget:data-restored", handleReload);
+    };
+  }, [activeUid]);
 
   // Handle Export Backup
   const handleExportBackup = () => {
     setErrorMessage(null);
     try {
-      const { filename, backup } = exportBackupFile();
+      const { filename, backup } = exportBackupFile(ownerInfo);
       refreshSnapshot();
       setSuccessMessage(
         `Архивът беше изтеглен успешно като "${filename}". Включени са ${backup.summary.expensesCount} разхода, ${backup.summary.savingsCount} спестявания и ${backup.summary.electricityCount} сметки за ток.`
@@ -106,7 +121,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
   // Handle Copy JSON to clipboard
   const handleCopyJson = () => {
     try {
-      const data = gatherApplicationData();
+      const data = gatherApplicationData(ownerInfo);
       navigator.clipboard.writeText(JSON.stringify(data, null, 2));
       setCopiedJson(true);
       setTimeout(() => setCopiedJson(false), 2500);
@@ -135,6 +150,18 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
         setErrorMessage(
           result.errorMessage ||
             "Файлът не можа да бъде валидиран като съвместим архив."
+        );
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      const ownership = validateBackupOwnership(
+        result.backup,
+        user ? { uid: user.uid, email: user.email } : null
+      );
+      if (!ownership.allowed) {
+        setErrorMessage(
+          ownership.reason || "Този архив принадлежи на друг Google акаунт."
         );
         if (fileInputRef.current) fileInputRef.current.value = "";
         return;

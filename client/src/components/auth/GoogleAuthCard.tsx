@@ -20,11 +20,15 @@ import {
   AlertTriangle,
   X,
   FileText,
+  Users,
+  KeyRound,
+  Eraser,
 } from "lucide-react";
 import { useCloudSync } from "@/utils/cloudSyncContext";
 import {
   formatFirebaseAuthError,
   isUnauthorizedDomainError,
+  isAccessDeniedError,
 } from "@/utils/googleAuth";
 
 interface GoogleAuthCardProps {
@@ -38,6 +42,9 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     user,
     storedProfile,
     isAuthenticated,
+    isSwitchingAccount,
+    hasDriveAccessToken,
+    authError,
     isOnline,
     autoBackupEnabled,
     setAutoBackupEnabled,
@@ -47,7 +54,10 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     cloudBackupInfo,
     isLoadingCloudInfo,
     loginWithGoogle,
+    switchGoogleAccount,
+    reconnectGoogleDrive,
     logoutGoogle,
+    clearAccountLocalData,
     backupNow,
     deleteCloudBackup,
     disconnectGoogleDrive,
@@ -58,12 +68,16 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+  const [showClearLocalModal, setShowClearLocalModal] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(
     null
   );
   const [unauthorizedDomainError, setUnauthorizedDomainError] = useState(false);
+  const [accessDeniedError, setAccessDeniedError] = useState(() =>
+    Boolean(authError && isAccessDeniedError(authError))
+  );
   const [copiedDomain, setCopiedDomain] = useState(false);
 
   const displayUser = user || storedProfile;
@@ -85,6 +99,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     setIsLoggingIn(true);
     setFeedback(null);
     setUnauthorizedDomainError(false);
+    setAccessDeniedError(false);
     try {
       await loginWithGoogle();
       setFeedback({
@@ -93,8 +108,54 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
-      const isUnauth = isUnauthorizedDomainError(e);
-      setUnauthorizedDomainError(isUnauth);
+      setUnauthorizedDomainError(isUnauthorizedDomainError(e));
+      setAccessDeniedError(isAccessDeniedError(e));
+      setFeedback({
+        type: "error",
+        text: formatFirebaseAuthError(e),
+      });
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleSwitchAccount = async () => {
+    setIsLoggingIn(true);
+    setFeedback(null);
+    setUnauthorizedDomainError(false);
+    setAccessDeniedError(false);
+    try {
+      await switchGoogleAccount();
+      setFeedback({
+        type: "success",
+        text: "Профилът бе сменен успешно! Заредени са изолираните данни за избрания акаунт.",
+      });
+      setTimeout(() => setFeedback(null), 4000);
+    } catch (e: any) {
+      setUnauthorizedDomainError(isUnauthorizedDomainError(e));
+      setAccessDeniedError(isAccessDeniedError(e));
+      setFeedback({
+        type: "error",
+        text: formatFirebaseAuthError(e),
+      });
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleReconnectDrive = async () => {
+    setIsLoggingIn(true);
+    setFeedback(null);
+    setAccessDeniedError(false);
+    try {
+      await reconnectGoogleDrive();
+      setFeedback({
+        type: "success",
+        text: "Достъпът до Google Drive бе успешно подновен за текущата сесия.",
+      });
+      setTimeout(() => setFeedback(null), 4000);
+    } catch (e: any) {
+      setAccessDeniedError(isAccessDeniedError(e));
       setFeedback({
         type: "error",
         text: formatFirebaseAuthError(e),
@@ -334,6 +395,45 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
         </div>
       )}
 
+      {/* 403 access_denied / OAuth Consent Screen Testing Mode Guide */}
+      {(accessDeniedError || (authError && isAccessDeniedError(authError))) && (
+        <div className="p-4 sm:p-5 rounded-xl bg-rose-50/90 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-700/80 text-rose-950 dark:text-rose-200 text-xs space-y-3 animate-in fade-in">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-slate-900 dark:text-white text-sm">
+                Грешка 403 (access_denied): OAuth приложението е в режим „Testing“
+              </p>
+              <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
+                Google блокира останалите Google акаунти, защото OAuth Consent Screen в Google Cloud е все още в статус <strong>Testing</strong> (разрешен само за ръчно добавени тестови имейли).
+              </p>
+            </div>
+          </div>
+
+          <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
+            <li>
+              Отворете{" "}
+              <a
+                href="https://console.cloud.google.com/auth/audience"
+                target="_blank"
+                rel="noreferrer"
+                className="underline font-semibold text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-0.5"
+              >
+                <span>Google Cloud Console → Google Auth Platform → Audience</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              .
+            </li>
+            <li>
+              Под <strong>Publishing status</strong> натиснете <strong>Publish app</strong> (преминаване в режим <strong>In production</strong>), за да може всеки Google акаунт да влиза.
+            </li>
+            <li>
+              Като алтернатива при тестване: в секция <strong>Test users</strong> натиснете <strong>Add users</strong> и добавете имейлите на желаните потребители (до 100 акаунта).
+            </li>
+          </ol>
+        </div>
+      )}
+
       {lastSyncError && (
         <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -420,16 +520,27 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               </div>
             </div>
 
-            {/* Actions: Disconnect Google Drive & Sign Out */}
+            {/* Actions: Switch Account, Disconnect & Sign Out */}
             <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
               <button
                 type="button"
+                onClick={handleSwitchAccount}
+                disabled={isLoggingIn || isSwitchingAccount}
+                title="Превключване към друг Google акаунт (изолираните локални и облачни данни се сменят автоматично)"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:text-indigo-800 dark:hover:text-indigo-200 bg-indigo-50 hover:bg-indigo-100/80 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800/80 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Смени акаунта</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowDisconnectModal(true)}
-                title="Прекъсва връзката с Google Drive, изчиства токените и деактивира автоматичния архив, запазвайки локалните ви данни непокътнати"
+                title="Прекъсва връзката с Google Drive, изчиства токените и деактивира автоматичния архив"
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300 hover:text-amber-800 dark:hover:text-amber-200 bg-amber-50 hover:bg-amber-100/80 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-800/80 rounded-xl transition-all cursor-pointer"
               >
                 <Unlink className="w-3.5 h-3.5" />
-                <span>Прекъсни връзката (Disconnect)</span>
+                <span>Прекъсни връзката</span>
               </button>
 
               <button
@@ -442,6 +553,30 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               </button>
             </div>
           </div>
+
+          {/* In-memory Google Drive token refresh prompt after page reload */}
+          {!hasDriveAccessToken && (
+            <div className="p-3.5 rounded-xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-start gap-2.5 text-indigo-950 dark:text-indigo-200">
+                <KeyRound className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Сесията за сигурност на Google Drive изисква потвърждение</span>
+                  <span className="text-[11px] text-indigo-800/90 dark:text-indigo-300">
+                    За максимална защита OAuth токените се пазят само в оперативната памет. Подновете достъпа, за да проверим и синхронизираме Google Drive.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleReconnectDrive}
+                disabled={isLoggingIn}
+                className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isLoggingIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span>Поднови Drive достъпа</span>
+              </button>
+            </div>
+          )}
 
           {/* Cloud Info & Details Grid: Auto Backup, Backup Exists, Last Backup Date, File Size */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-4 border-t border-slate-200/80 dark:border-slate-700/80 text-xs">
@@ -543,7 +678,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <button
               type="button"
               onClick={onOpenRestoreModal}
-              disabled={!isOnline || !cloudBackupInfo}
+              disabled={!isOnline || (!cloudBackupInfo && hasDriveAccessToken)}
               className="w-full sm:w-auto flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-100 rounded-xl font-semibold text-sm border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
             >
               <DownloadCloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -562,7 +697,17 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               ) : (
                 <Trash2 className="w-4 h-4 text-rose-600 dark:text-rose-400" />
               )}
-              <span>Изтрий облачния архив (Delete Cloud Backup)</span>
+              <span>Изтрий облачния архив</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowClearLocalModal(true)}
+              title="Изтрива локално съхранените данни само за текущия профил на това устройство"
+              className="w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-semibold text-xs border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
+            >
+              <Eraser className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+              <span>Изчисти устройството</span>
             </button>
           </div>
         </div>
@@ -737,6 +882,66 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                     <span>Прекъсни връзката (Disconnect)</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Local Account Data Confirmation Modal */}
+      {showClearLocalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 rounded-xl">
+                  <Eraser className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    Изчистване на локалните данни
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Профил: {displayUser?.email || "Текущ профил"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowClearLocalModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Това действие ще изтрие локално съхранените приходи, разходи, спестявания и настройки на <strong>това устройство</strong> само за текущия профил. Архивът ви в Google Drive остава запазен.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearLocalModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Отказ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearAccountLocalData();
+                  setShowClearLocalModal(false);
+                  setFeedback({
+                    type: "success",
+                    text: "Локалните данни за този акаунт бяха изчистени от устройството.",
+                  });
+                  setTimeout(() => setFeedback(null), 4000);
+                }}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                <span>Изчисти локалните данни</span>
               </button>
             </div>
           </div>
