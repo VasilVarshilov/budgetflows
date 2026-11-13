@@ -58,30 +58,15 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "monthly",
-    label: "Месечни разходи",
-    shortLabel: "Разходи",
+    label: "Разходи",
     icon: Calendar,
     accentColor: "text-blue-600 dark:text-blue-400",
   },
   {
     id: "income",
     label: "Приходи",
-    shortLabel: "Приходи",
     icon: Banknote,
     accentColor: "text-emerald-600 dark:text-emerald-400",
-  },
-  {
-    id: "electricity",
-    label: "Сметка ТОК",
-    shortLabel: "ТОК",
-    icon: Zap,
-    accentColor: "text-amber-500 dark:text-amber-400",
-  },
-  {
-    id: "reports",
-    label: "Отчети",
-    icon: PieChart,
-    accentColor: "text-purple-600 dark:text-purple-400",
   },
   {
     id: "savings",
@@ -91,10 +76,21 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "budgets",
-    label: "Бюджети",
-    shortLabel: "Бюджет",
+    label: "Бюджет",
     icon: Target,
     accentColor: "text-rose-600 dark:text-rose-400",
+  },
+  {
+    id: "reports",
+    label: "Отчети",
+    icon: PieChart,
+    accentColor: "text-purple-600 dark:text-purple-400",
+  },
+  {
+    id: "electricity",
+    label: "ТОК",
+    icon: Zap,
+    accentColor: "text-amber-500 dark:text-amber-400",
   },
   {
     id: "ai-analysis",
