@@ -56,6 +56,7 @@ import { ScanReceiptModal } from "@/components/monthly/ScanReceiptModal";
 import {
   AVAILABLE_ICONS_MAP,
   loadStoredCategories,
+  getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
 import {
   loadBudgets,
@@ -1009,7 +1010,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-400 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Управлявайте фиксираните и текущи разходи за домакинството
           </p>
         </div>
@@ -1048,7 +1049,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           </button>
 
           <div className="text-right pl-2 border-l border-slate-100 dark:border-slate-800">
-            <span className="text-[11px] text-slate-400 block uppercase font-medium tracking-wider">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 block uppercase font-medium tracking-wider">
               Общо разходи
             </span>
             <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
@@ -1095,7 +1096,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <h4 className="font-bold text-slate-800 dark:text-white text-base">
                   Нов допълнителен разход
                 </h4>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Въведете текущ или периодичен разход за месеца
                 </p>
               </div>
@@ -1128,7 +1129,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 {selectedCategory ? (
                   <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-medium">
                     <span
-                      className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedCategory.colorClass}`}
+                      className={`w-5 h-5 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(selectedCategory.colorClass)}`}
                     >
                       {selectedCategory.iconName &&
                       ICON_MAP[selectedCategory.iconName] ? (
@@ -1143,7 +1144,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     {selectedCategory.name}
                   </span>
                 ) : (
-                  <span className="text-slate-400 dark:text-slate-500 text-sm">
+                  <span className="text-slate-500 dark:text-slate-400 text-sm">
                     Избери категория...
                   </span>
                 )}
@@ -1166,7 +1167,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                 Бюджетна категория (Budget Category)
               </span>
-              <span className="text-[10px] text-slate-400 font-normal">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
                 За изчисляване и следене в бюджета
               </span>
             </label>
@@ -1192,7 +1193,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
+              className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400"
               placeholder="напр. пазаруване, вечеря, гориво, абонамент..."
             />
           </div>
@@ -1288,7 +1289,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   {selectedFixedCategory ? (
                     <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-medium">
                       <span
-                        className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedFixedCategory.colorClass}`}
+                        className={`w-5 h-5 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(selectedFixedCategory.colorClass)}`}
                       >
                         {ICON_MAP[selectedFixedCategory.iconName] ? (
                           React.createElement(
@@ -1302,7 +1303,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       {selectedFixedCategory.name}
                     </span>
                   ) : (
-                    <span className="text-slate-400 dark:text-slate-500">Избери категория (напр. Наем, Застраховка)...</span>
+                    <span className="text-slate-500 dark:text-slate-400">Избери категория (напр. Наем, Застраховка)...</span>
                   )}
                   <Plus className="w-3.5 h-3.5 text-slate-400" />
                 </button>
@@ -1359,7 +1360,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     Периодичен разход (Recurring Expense)
                   </span>
                 </label>
-                <p className="text-[11px] text-slate-400 ml-6">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 ml-6">
                   Позволява автоматично копиране в следващите месеци
                 </p>
               </div>
@@ -1483,7 +1484,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center ${item.categoryColor}`}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center ${getCategoryBadgeClasses(item.categoryColor)}`}
                     >
                       {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
                         React.createElement(ICON_MAP[item.categoryIcon], {
@@ -1517,7 +1518,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-slate-400">
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
                         Фиксиран месечен
                       </span>
                     </div>
@@ -1547,7 +1548,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               );
             })}
             {fixedExpenses.length === 0 && (
-              <div className="p-8 text-center text-slate-400 text-sm italic">
+              <div className="p-8 text-center text-slate-500 dark:text-slate-400 text-sm italic">
                 Няма добавени фиксирани разходи
               </div>
             )}
@@ -1615,7 +1616,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           {/* Expenses List */}
           <div className="space-y-3">
             {filteredExpenses.length === 0 ? (
-              <div className="text-center py-10 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 space-y-2">
+              <div className="text-center py-10 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 space-y-2">
                 <Search className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
                 <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                   {expenses.length === 0
@@ -1701,7 +1702,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                             Бюджетна категория (Budget Category)
                           </span>
-                          <span className="text-[10px] text-slate-400 font-normal">
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
                             Промяната обновява разхода в съответния бюджет
                           </span>
                         </label>
@@ -1770,14 +1771,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 return (
                   <div
                     key={expense.id}
-                    className="group bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-100 dark:border-slate-800 hover:shadow-md dark:hover:bg-slate-850/50 transition-all p-3.5 sm:p-4 space-y-2.5"
+                    className="group bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-100 dark:border-slate-800 hover:shadow-md dark:hover:bg-slate-800/70 transition-all p-3.5 sm:p-4 space-y-2.5"
                   >
                     {/* Top Row: Category Icon & Badges (Left) + Amount & Actions (Right) */}
                     <div className="flex items-start justify-between gap-3">
                       {/* Left: Category Icon + Category Name + Badges + Date */}
                       <div className="flex items-start gap-3 min-w-0 flex-1">
                         <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${expense.categoryColor}`}
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${getCategoryBadgeClasses(expense.categoryColor)}`}
                         >
                           {expense.categoryIcon &&
                           ICON_MAP[expense.categoryIcon] ? (

@@ -222,7 +222,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
           <button
             onClick={handleExportPng}
             disabled={filteredRecords.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-slate-950 rounded-lg text-xs font-bold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             title="Експорт на историята в изображение (.png)"
           >
             <Download className="w-4 h-4" />
@@ -288,13 +288,13 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <div className="text-xs text-slate-400 dark:text-slate-500">ЕМ 1:</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">ЕМ 1:</div>
               <div className="text-lg font-bold text-slate-800 dark:text-white">
                 €{stats.totalEm1.toFixed(2)}
               </div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-slate-400 dark:text-slate-500">ЕМ 2 (Остатък):</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">ЕМ 2 (Остатък):</div>
               <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
                 €{stats.totalEm2.toFixed(2)}
               </div>
@@ -389,7 +389,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                     }}
                   />
                   <Legend
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }}
+                    wrapperStyle={{ fontSize: "11px", paddingTop: "8px", color: isDark ? "#cbd5e1" : "#475569" }}
                     formatter={(val) =>
                       val === "consT1"
                         ? "Т1 (Дневна)"
@@ -403,7 +403,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
+              <div className="h-full flex items-center justify-center text-slate-500 dark:text-slate-400 text-xs">
                 Няма данни за визуализация на потреблението.
               </div>
             )}
@@ -475,7 +475,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                     }}
                   />
                   <Legend
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }}
+                    wrapperStyle={{ fontSize: "11px", paddingTop: "8px", color: isDark ? "#cbd5e1" : "#475569" }}
                     formatter={(val) =>
                       val === "totalCost"
                         ? "Общо по фактура (€)"
@@ -514,7 +514,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
+              <div className="h-full flex items-center justify-center text-slate-500 dark:text-slate-400 text-xs">
                 Няма данни за визуализация на разходите.
               </div>
             )}
@@ -579,7 +579,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                         <div className="font-bold text-slate-900 dark:text-white text-base">
                           {r.periodLabel}
                         </div>
-                        <div className="text-xs text-slate-400 dark:text-slate-500">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
                           {new Date(r.createdAt).toLocaleDateString("bg-BG")}
                         </div>
                       </div>
@@ -602,7 +602,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                     {/* 2-Column Metrics */}
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                        <span className="text-[11px] text-slate-400 dark:text-slate-500 block mb-0.5">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 block mb-0.5">
                           Потребление
                         </span>
                         <span className="font-bold text-amber-600 dark:text-amber-400 text-sm font-mono block">
@@ -614,7 +614,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                       </div>
 
                       <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                        <span className="text-[11px] text-slate-400 dark:text-slate-500 block mb-0.5">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 block mb-0.5">
                           Единична цена
                         </span>
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm font-mono block">
@@ -642,7 +642,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
 
                     {/* Readings Summary & Delete Action */}
                     <div className="flex items-center justify-between pt-1 text-xs">
-                      <span className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">
+                      <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                         Показания: {r.previousReading.toFixed(0)} → {r.currentReading.toFixed(0)}
                       </span>
 
@@ -664,7 +664,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                       ) : (
                         <button
                           onClick={() => setConfirmDeleteId(r.id)}
-                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
                           title="Изтрий този отчет"
                           aria-label="Изтрий отчет"
                         >
@@ -705,7 +705,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           <div className="font-bold text-slate-800 dark:text-slate-200">
                             {r.periodLabel}
                           </div>
-                          <div className="text-xs text-slate-400 dark:text-slate-500">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
                             {new Date(r.createdAt).toLocaleDateString("bg-BG")}
                           </div>
                           {r.note && (
@@ -720,7 +720,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           <div className="text-slate-800 dark:text-slate-200 font-semibold">
                             {r.previousReading.toFixed(1)}
                           </div>
-                          <div className="text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
+                          <div className="text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                             <Sun className="w-3 h-3 text-amber-500" /> {r.prevT1}
                             <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.prevT2}
                           </div>
@@ -731,7 +731,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           <div className="text-slate-800 dark:text-slate-200 font-semibold">
                             {r.currentReading.toFixed(1)}
                           </div>
-                          <div className="text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
+                          <div className="text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                             <Sun className="w-3 h-3 text-amber-500" /> {r.currT1}
                             <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.currT2}
                           </div>
@@ -742,7 +742,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           <div className="font-bold text-amber-600 dark:text-amber-400 text-sm">
                             {r.consumption.toFixed(2)} kWh
                           </div>
-                          <div className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-2 mt-0.5">
+                          <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
                             <span>Дн: {r.consT1.toFixed(1)}</span>
                             <span>Нощ: {r.consT2.toFixed(1)}</span>
                           </div>
@@ -753,7 +753,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           <div className="font-semibold text-slate-800 dark:text-slate-200">
                             €{r.unitPrice.toFixed(4)}/kWh
                           </div>
-                          <div className="text-slate-400 dark:text-slate-500 mt-0.5">
+                          <div className="text-slate-500 dark:text-slate-400 mt-0.5">
                             Т1: €{r.priceT1.toFixed(4)} | Т2: €{r.priceT2.toFixed(4)}
                           </div>
                         </td>
@@ -802,7 +802,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           ) : (
                             <button
                               onClick={() => setConfirmDeleteId(r.id)}
-                              className="p-2 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                              className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
                               title="Изтрий този отчет от историята"
                               aria-label="Изтрий отчет"
                             >

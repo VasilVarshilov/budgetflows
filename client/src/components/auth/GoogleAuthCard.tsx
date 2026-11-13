@@ -452,7 +452,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                   <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>Автоматичен архив</span>
                 </div>
-                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   Синхронизиране при промяна
                 </p>
               </div>
@@ -476,7 +476,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               </div>
               <div className="mt-1 flex items-center gap-1.5">
                 {isLoadingCloudInfo ? (
-                  <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
                     <span>Проверка в Drive...</span>
                   </span>
@@ -486,7 +486,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                     <span>Наличен в appDataFolder</span>
                   </span>
                 ) : (
-                  <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                     Няма създаден архив
                   </span>
                 )}
@@ -512,13 +512,13 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               </div>
               <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
                 {isLoadingCloudInfo ? (
-                  <span className="text-slate-400">...</span>
+                  <span className="text-slate-500 dark:text-slate-400">...</span>
                 ) : cloudBackupInfo?.size ? (
                   <span>{cloudBackupInfo.size}</span>
                 ) : cloudBackupInfo ? (
                   <span>JSON файл</span>
                 ) : (
-                  <span className="text-slate-400">-</span>
+                  <span className="text-slate-500 dark:text-slate-400">-</span>
                 )}
               </p>
             </div>
@@ -530,7 +530,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               type="button"
               onClick={handleManualBackup}
               disabled={isBackingUp || !isOnline}
-              className="w-full sm:w-auto flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl font-semibold text-sm shadow-xs transition-all cursor-pointer"
+              className="w-full sm:w-auto flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-400 text-white rounded-xl font-semibold text-sm shadow-xs transition-all cursor-pointer disabled:cursor-not-allowed"
             >
               {isBackingUp ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />

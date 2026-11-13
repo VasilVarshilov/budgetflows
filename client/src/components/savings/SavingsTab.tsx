@@ -22,6 +22,7 @@ import { ExpenseCategory, IncomeItem } from "@/types";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { getHexFromTailwindClass } from "@/utils/colors";
+import { getCategoryBadgeClasses } from "@/utils/categoryStorage";
 import { useTheme } from "@/utils/themeContext";
 
 // Map за lucide-react иконките (използва се по iconName)
@@ -473,7 +474,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     x={x + barWidth / 2}
                     y={chartHeight + 25}
                     textAnchor="middle"
-                    className="text-[12px] fill-slate-400 dark:fill-slate-500 font-semibold uppercase tracking-wide"
+                    className="text-[12px] fill-slate-500 dark:fill-slate-400 font-semibold uppercase tracking-wide"
                   >
                     {MONTHS_SHORT[index]}
                   </text>
@@ -509,7 +510,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
             <span>Експорт</span>
           </button>
           <div className="text-right bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-emerald-100 dark:border-slate-800 shadow-sm transition-colors">
-            <span className="text-xs text-slate-400 block uppercase tracking-wider font-semibold">
+            <span className="text-xs text-slate-500 dark:text-slate-400 block uppercase tracking-wider font-semibold">
               Налични средства
             </span>
             <span
@@ -588,7 +589,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     {selectedCategory ? (
                       <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100">
                         <span
-                          className={`w-5 h-5 rounded-full flex items-center justify-center ${selectedCategory.colorClass}`}
+                          className={`w-5 h-5 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(selectedCategory.colorClass)}`}
                         >
                           {selectedCategory.iconName &&
                           ICON_MAP[selectedCategory.iconName] ? (
@@ -605,11 +606,11 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                         {selectedCategory.name}
                       </span>
                     ) : (
-                      <span className="text-slate-400 dark:text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         Избери категория...
                       </span>
                     )}
-                    <Plus className="w-4 h-4 text-slate-400" />
+                    <Plus className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                   </button>
                 </div>
 
@@ -628,7 +629,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     type="text"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
                     placeholder="..."
                   />
                 </div>
@@ -661,11 +662,11 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 >
                   <div className="flex items-center gap-4">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center ${item.categoryColor}`}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(item.categoryColor)}`}
                     >
                       {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
                         React.createElement(ICON_MAP[item.categoryIcon], {
-                          className: "w-4 h-4 text-white",
+                          className: "w-4 h-4 text-current",
                         })
                       ) : item.type === "expense" ? (
                         <Minus className="w-4 h-4" />
@@ -677,11 +678,11 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       <p className="font-medium text-slate-800 dark:text-slate-100">
                         {item.categoryName}
                       </p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         {new Date(item.date).toLocaleDateString("bg-BG")}
                       </p>
                       {item.note && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 italic">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 italic">
                           {item.note}
                         </p>
                       )}
@@ -696,7 +697,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     </span>
                     <button
                       onClick={() => handleDeleteTransaction(item.id)}
-                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 text-slate-300 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 text-slate-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                       title="Изтрий транзакция"
                       aria-label="Изтрий транзакция"
                     >
@@ -707,8 +708,8 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               ))}
 
             {savingsData.length === 0 && (
-              <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400">
-                <PiggyBank className="w-10 h-10 mx-auto mb-2 opacity-20" />
+              <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+                <PiggyBank className="w-10 h-10 mx-auto mb-2 opacity-30" />
                 <p>Все още няма записи</p>
               </div>
             )}
@@ -725,7 +726,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
             {savingsData.length > 0 ? (
               renderMonthlyGrowthChart()
             ) : (
-              <div className="h-[200px] flex items-center justify-center text-slate-400">
+              <div className="h-[200px] flex items-center justify-center text-slate-500 dark:text-slate-400">
                 Няма достатъчно данни за графиката
               </div>
             )}
@@ -754,12 +755,12 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-800 dark:text-white">Експорт на спестявания</h3>
-                  <p className="text-xs text-slate-400">Сваляне на транзакции в текстов (.txt) файл</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Сваляне на транзакции в текстов (.txt) файл</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsExportModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md cursor-pointer"
+                className="text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -781,7 +782,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     />
                     <div className="text-sm">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">Всички транзакции</span>
-                      <span className="text-xs text-slate-400">Пълна история на спестяванията</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">Пълна история на спестяванията</span>
                     </div>
                   </label>
 
@@ -795,7 +796,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     />
                     <div className="text-sm">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">Текущ месец</span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
                         {new Date().toLocaleDateString("bg-BG", { month: "long" })} {new Date().getFullYear()}
                       </span>
                     </div>
@@ -811,7 +812,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     />
                     <div className="text-sm">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">Текуща година</span>
-                      <span className="text-xs text-slate-400">{currentYear} година</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{currentYear} година</span>
                     </div>
                   </label>
 
@@ -825,7 +826,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     />
                     <div className="text-sm">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">Конкретен диапазон от дати</span>
-                      <span className="text-xs text-slate-400">Избор на начална и крайна дата</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">Избор на начална и крайна дата</span>
                     </div>
                   </label>
                 </div>

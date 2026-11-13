@@ -27,6 +27,7 @@ import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import {
   AVAILABLE_ICONS_MAP,
   loadStoredIncomeCategories,
+  getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
 import {
   loadRecurringIncomes,
@@ -784,7 +785,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${template.categoryColor}`}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(template.categoryColor)}`}
                     >
                       {renderCategoryIcon(template.categoryIcon)}
                     </div>
@@ -885,7 +886,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   <div className="flex items-center gap-3 min-w-0">
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        tpl.active ? tpl.categoryColor : "bg-slate-100 dark:bg-slate-800 text-slate-400"
+                        tpl.active ? getCategoryBadgeClasses(tpl.categoryColor) : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
                       }`}
                     >
                       {renderCategoryIcon(tpl.categoryIcon, "w-4 h-4")}
@@ -895,7 +896,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                         className={`font-semibold text-sm truncate ${
                           tpl.active
                             ? "text-slate-900 dark:text-white"
-                            : "text-slate-400 dark:text-slate-500 line-through"
+                            : "text-slate-500 dark:text-slate-400 line-through"
                         }`}
                       >
                         {tpl.categoryName}
@@ -1010,9 +1011,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               >
                 <div className="flex items-start sm:items-center gap-3.5 min-w-0">
                   <div
-                    className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
                       item.categoryColor || "bg-emerald-100 text-emerald-600"
-                    }`}
+                    )}`}
                   >
                     {renderCategoryIcon(item.categoryIcon)}
                   </div>
@@ -1176,14 +1177,14 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   {formCategory ? (
                     <span className="flex items-center gap-2.5 text-sm font-medium text-slate-800 dark:text-slate-100">
                       <span
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center ${formCategory.colorClass}`}
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center ${getCategoryBadgeClasses(formCategory.colorClass)}`}
                       >
                         {renderCategoryIcon(formCategory.iconName, "w-4 h-4")}
                       </span>
                       <span>{formCategory.name}</span>
                     </span>
                   ) : (
-                    <span className="text-sm text-slate-400">
+                    <span className="text-sm text-slate-500 dark:text-slate-400">
                       Избери категория...
                     </span>
                   )}
@@ -1249,7 +1250,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   value={formNote}
                   onChange={(e) => setFormNote(e.target.value)}
                   placeholder="Напр. Месечна заплата, дивидент, наем..."
-                  className="w-full px-3.5 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 

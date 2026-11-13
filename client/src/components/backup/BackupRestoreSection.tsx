@@ -284,7 +284,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           <div className="text-xl font-bold text-slate-800 dark:text-white">
             {currentSnapshot?.summary.incomeCount ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400 dark:text-slate-500">записа в системата</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">записа в системата</div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -295,7 +295,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           <div className="text-xl font-bold text-slate-800 dark:text-white">
             {currentSnapshot?.summary.expensesCount ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400 dark:text-slate-500">фиксирани & текущи</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">фиксирани & текущи</div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -306,7 +306,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           <div className="text-xl font-bold text-slate-800 dark:text-white">
             {currentSnapshot?.summary.savingsCount ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400 dark:text-slate-500">транзакции</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">транзакции</div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -317,7 +317,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           <div className="text-xl font-bold text-slate-800 dark:text-white">
             {currentSnapshot?.summary.electricityCount ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400 dark:text-slate-500">в историята</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">в историята</div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -328,7 +328,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           <div className="text-xl font-bold text-slate-800 dark:text-white">
             {currentSnapshot?.summary.monthsCovered.length ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400 dark:text-slate-500">с въведени данни</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">с въведени данни</div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -339,7 +339,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate" title={settings.lastBackupDate}>
             {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleDateString("bg-BG") : "Няма"}
           </div>
-          <div className="text-[11px] text-slate-400 dark:text-slate-500">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">
             {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleTimeString("bg-BG", { hour: "2-digit", minute: "2-digit" }) : "препоръчително"}
           </div>
         </div>
@@ -468,7 +468,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
                   Кликнете тук за избор на JSON файл
                 </span>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Поддържа формат BudgetFlows Backup (*.json)
                 </p>
               </div>
@@ -829,7 +829,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                   importMode === "replace"
                     ? confirmReplaceChecked
                       ? "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/30"
-                      : "bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed shadow-none"
+                      : "bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed shadow-none"
                     : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/30"
                 }`}
               >

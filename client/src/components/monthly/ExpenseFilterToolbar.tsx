@@ -131,13 +131,13 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
         {/* Smart Search Input */}
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-4 h-4 text-slate-400 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={filters.searchTerm}
             onChange={(e) => updateFilter("searchTerm", e.target.value)}
             placeholder="Търси по бележка, категория или сума (€)..."
-            className="w-full pl-9 pr-8 py-2 min-h-[44px] sm:min-h-[38px] bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+            className="w-full pl-9 pr-8 py-2 min-h-[44px] sm:min-h-[38px] bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
           />
           {filters.searchTerm && (
             <button
@@ -202,7 +202,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
               onClick={onToggleFullWidthMode}
               className={`hidden sm:flex items-center gap-1 px-2.5 py-2 min-h-[38px] rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
                 isFullWidthMode
-                  ? "bg-slate-800 text-white border-slate-800"
+                  ? "bg-slate-800 dark:bg-indigo-600 text-white border-slate-800 dark:border-indigo-500"
                   : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
               }`}
               title={
@@ -301,7 +301,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 value={filters.minAmount}
                 onChange={(e) => updateFilter("minAmount", e.target.value)}
                 placeholder="0.00"
-                className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
               />
             </div>
 
@@ -319,7 +319,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 value={filters.maxAmount}
                 onChange={(e) => updateFilter("maxAmount", e.target.value)}
                 placeholder="Без лимит"
-                className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
               />
             </div>
           </div>
@@ -351,7 +351,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
 
               {/* Quick Date Range Shortcuts */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-slate-400">Бързи:</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Бързи:</span>
                 <button
                   type="button"
                   onClick={() => handleSetDatePreset(7)}
@@ -380,7 +380,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
           {/* Quick Amount Chips & Include Fixed Toggle */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] text-slate-400">Бързи суми:</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">Бързи суми:</span>
               <button
                 type="button"
                 onClick={() => handleSetAmountPreset("", "20")}
@@ -447,7 +447,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
       {/* Active Filter Chips / Badges Row */}
       {activeFiltersCount > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px]">
-          <span className="text-slate-400 font-medium">Активни:</span>
+          <span className="text-slate-500 dark:text-slate-400 font-medium">Активни:</span>
 
           {filters.searchTerm && (
             <span className="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800 font-semibold">
@@ -533,7 +533,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             {totalResultsCount === 1 ? "разход" : "разхода"}
           </span>
           {activeFiltersCount > 0 && (
-            <span className="text-[11px] text-slate-400 hidden sm:inline">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
               (приложени филтри)
             </span>
           )}
@@ -546,7 +546,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             </strong>
           </span>
           {totalResultsCount > 0 && (
-            <span className="hidden sm:inline text-slate-400">
+            <span className="hidden sm:inline text-slate-500 dark:text-slate-400">
               • Средно: €{(totalFilteredSum / totalResultsCount).toFixed(2)}
             </span>
           )}

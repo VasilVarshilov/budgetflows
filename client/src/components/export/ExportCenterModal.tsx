@@ -356,7 +356,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
               </div>
 
               {previewData.categoryBreakdown.length === 0 ? (
-                <p className="text-xs text-slate-400 dark:text-slate-500 italic">
+                <p className="text-xs text-slate-500 dark:text-slate-400 italic">
                   Няма записани разходи в избрания период.
                 </p>
               ) : (
@@ -372,11 +372,11 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
                       />
                       <span className="font-medium">{cat.name}:</span>
                       <span className="font-bold">€{cat.amount.toFixed(0)}</span>
-                      <span className="text-slate-400 dark:text-slate-500">({cat.percentage.toFixed(0)}%)</span>
+                      <span className="text-slate-500 dark:text-slate-400">({cat.percentage.toFixed(0)}%)</span>
                     </span>
                   ))}
                   {previewData.categoryBreakdown.length > 6 && (
-                    <span className="inline-flex items-center text-xs px-2 py-1 rounded-md text-slate-400 dark:text-slate-500">
+                    <span className="inline-flex items-center text-xs px-2 py-1 rounded-md text-slate-500 dark:text-slate-400">
                       +{previewData.categoryBreakdown.length - 6} още
                     </span>
                   )}

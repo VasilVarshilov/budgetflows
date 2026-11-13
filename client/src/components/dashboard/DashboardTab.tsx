@@ -807,7 +807,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 onChange={(e) => setCustomStartDate(e.target.value)}
                 className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 px-3 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
               />
-              <span className="text-slate-400 text-xs text-center hidden sm:inline">—</span>
+              <span className="text-slate-500 dark:text-slate-400 text-xs text-center hidden sm:inline">—</span>
               <input
                 type="date"
                 value={customEndDate}
@@ -1042,7 +1042,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
                   Разходи по категории
                 </h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Дял на отделните видове харчове
                 </p>
               </div>
@@ -1103,7 +1103,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                         <span className="font-bold text-slate-900 dark:text-white">
                           €{cat.value.toFixed(2)}
                         </span>
-                        <span className="text-slate-400 dark:text-slate-500 w-9 text-right">
+                        <span className="text-slate-500 dark:text-slate-400 w-9 text-right">
                           {pct}%
                         </span>
                       </div>
@@ -1113,7 +1113,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               </div>
             </div>
           ) : (
-            <div className="h-[220px] flex flex-col items-center justify-center text-center p-6 text-slate-400 dark:text-slate-500">
+            <div className="h-[220px] flex flex-col items-center justify-center text-center p-6 text-slate-500 dark:text-slate-400">
               <Info className="w-8 h-8 opacity-40 mb-2" />
               <p className="text-sm font-medium">Няма разходи за този период</p>
               <button
@@ -1137,7 +1137,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
                   Приходи спрямо Разходи
                 </h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Сравнение на входящи и изходящи потоци
                 </p>
               </div>
@@ -1159,7 +1159,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     formatter={(val: any) => [`€${Number(val).toFixed(2)}`]}
                   />
                   <Legend
-                    wrapperStyle={{ fontSize: 11, paddingTop: 6 }}
+                    wrapperStyle={{ fontSize: 11, paddingTop: 6, color: isDark ? "#cbd5e1" : "#475569" }}
                     formatter={(val) =>
                       val === "income" ? "Приходи" : "Разходи"
                     }
@@ -1213,7 +1213,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
                   Месечна тенденция на разходите
                 </h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Динамика през годината (€)
                 </p>
               </div>
@@ -1237,7 +1237,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   ]}
                 />
                 <Legend
-                  wrapperStyle={{ fontSize: 11, paddingTop: 6 }}
+                  wrapperStyle={{ fontSize: 11, paddingTop: 6, color: isDark ? "#cbd5e1" : "#475569" }}
                   formatter={(val) => (val === "expenses" ? "Разходи" : "Приходи")}
                 />
                 <Line
@@ -1272,7 +1272,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
                   Натрупване на спестявания
                 </h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Кумулативен баланс на спестовния фонд
                 </p>
               </div>

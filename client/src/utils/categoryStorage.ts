@@ -170,6 +170,40 @@ export const COLOR_OPTIONS: ColorOption[] = [
   { id: "zinc", label: "Тъмно сиво", colorClass: "bg-zinc-100 text-zinc-700", previewBg: "bg-zinc-600" },
 ];
 
+const DARK_CATEGORY_BADGE_MAP: Record<string, string> = {
+  blue: "dark:bg-blue-950/90 dark:text-blue-300 dark:ring-1 dark:ring-blue-800/70",
+  indigo: "dark:bg-indigo-950/90 dark:text-indigo-300 dark:ring-1 dark:ring-indigo-800/70",
+  purple: "dark:bg-purple-950/90 dark:text-purple-300 dark:ring-1 dark:ring-purple-800/70",
+  fuchsia: "dark:bg-fuchsia-950/90 dark:text-fuchsia-300 dark:ring-1 dark:ring-fuchsia-800/70",
+  pink: "dark:bg-pink-950/90 dark:text-pink-300 dark:ring-1 dark:ring-pink-800/70",
+  rose: "dark:bg-rose-950/90 dark:text-rose-300 dark:ring-1 dark:ring-rose-800/70",
+  red: "dark:bg-red-950/90 dark:text-red-300 dark:ring-1 dark:ring-red-800/70",
+  orange: "dark:bg-orange-950/90 dark:text-orange-300 dark:ring-1 dark:ring-orange-800/70",
+  amber: "dark:bg-amber-950/90 dark:text-amber-300 dark:ring-1 dark:ring-amber-800/70",
+  yellow: "dark:bg-yellow-950/90 dark:text-yellow-300 dark:ring-1 dark:ring-yellow-800/70",
+  emerald: "dark:bg-emerald-950/90 dark:text-emerald-300 dark:ring-1 dark:ring-emerald-800/70",
+  teal: "dark:bg-teal-950/90 dark:text-teal-300 dark:ring-1 dark:ring-teal-800/70",
+  cyan: "dark:bg-cyan-950/90 dark:text-cyan-300 dark:ring-1 dark:ring-cyan-800/70",
+  sky: "dark:bg-sky-950/90 dark:text-sky-300 dark:ring-1 dark:ring-sky-800/70",
+  slate: "dark:bg-slate-800 dark:text-slate-200 dark:ring-1 dark:ring-slate-600/80",
+  zinc: "dark:bg-zinc-800 dark:text-zinc-200 dark:ring-1 dark:ring-zinc-600/80",
+};
+
+export function getCategoryBadgeClasses(colorClass?: string): string {
+  if (!colorClass) {
+    return "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:ring-1 dark:ring-slate-600/80";
+  }
+  if (colorClass.includes("dark:")) {
+    return colorClass;
+  }
+  for (const [hue, darkClasses] of Object.entries(DARK_CATEGORY_BADGE_MAP)) {
+    if (colorClass.includes(`bg-${hue}-`) || colorClass.includes(`text-${hue}-`)) {
+      return `${colorClass} ${darkClasses}`;
+    }
+  }
+  return `${colorClass} dark:bg-slate-800 dark:text-slate-200 dark:ring-1 dark:ring-slate-600/80`;
+}
+
 // Predefined Initial Categories
 export const DEFAULT_CATEGORIES: ExpenseCategory[] = [
   { id: "water", name: "Вода", iconName: "Droplets", colorClass: "bg-blue-100 text-blue-500" },

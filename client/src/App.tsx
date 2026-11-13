@@ -100,7 +100,7 @@ const NAV_TABS: NavTabItem[] = [
     id: "ai-analysis",
     label: "AI Анализ",
     icon: Sparkles,
-    accentColor: "text-amber-500",
+    accentColor: "text-amber-500 dark:text-amber-400",
   },
   {
     id: "backup",
@@ -440,7 +440,7 @@ const AppContent: React.FC = () => {
                   title="Свържи Google Drive архив"
                   className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
                 >
-                  <Cloud className="w-3.5 h-3.5 text-slate-400" />
+                  <Cloud className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                   <span className="text-[11px]">Drive</span>
                 </button>
               )}
@@ -471,7 +471,7 @@ const AppContent: React.FC = () => {
                   >
                     <Icon
                       className={`w-4 h-4 shrink-0 ${
-                        isActive ? tab.accentColor : "text-slate-400 dark:text-slate-500"
+                        isActive ? tab.accentColor : "text-slate-500 dark:text-slate-400"
                       }`}
                     />
                     <span className="truncate">
@@ -557,7 +557,7 @@ const AppContent: React.FC = () => {
 
       <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto transition-colors mb-16 md:mb-0">
         <div className="max-w-6xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-          <p className="text-center text-xs text-slate-400 dark:text-slate-500">
+          <p className="text-center text-xs text-slate-500 dark:text-slate-400">
             Budget Flow Application © {new Date().getFullYear()}
           </p>
         </div>

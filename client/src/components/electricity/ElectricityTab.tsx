@@ -245,8 +245,8 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
           onClick={() => setActiveSubTab('calculator')}
           className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-5 rounded-lg font-bold text-sm transition-all ${
             activeSubTab === 'calculator'
-              ? 'bg-yellow-500 text-white shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+              ? 'bg-yellow-500 text-slate-950 shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
           <Calculator className="w-4 h-4" />
@@ -257,8 +257,8 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
           onClick={() => setActiveSubTab('history')}
           className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-5 rounded-lg font-bold text-sm transition-all ${
             activeSubTab === 'history'
-              ? 'bg-yellow-500 text-white shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+              ? 'bg-yellow-500 text-slate-950 shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
           <History className="w-4 h-4" />
@@ -267,7 +267,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
             <span
               className={`text-xs px-2 py-0.5 rounded-full font-bold ml-1 ${
                 activeSubTab === 'history'
-                  ? 'bg-yellow-600 text-white'
+                  ? 'bg-slate-950/15 text-slate-950'
                   : 'bg-yellow-100 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300'
               }`}
             >
@@ -408,13 +408,13 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
                   placeholder="напр. Редовен месечен отчет, климатици..."
                   value={calcNote}
                   onChange={(e) => setCalcNote(e.target.value)}
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-yellow-500/20"
+                  className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/20"
                 />
               </div>
 
               <button
                 onClick={handleCalculate}
-                className="w-full mt-4 bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                className="w-full mt-4 bg-yellow-500 text-slate-950 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
               >
                 <Calculator className="w-5 h-5" />
                 Изчисли и запиши в историята
@@ -576,12 +576,12 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
                   )}
                 </div>
               ) : (
-                <div className="h-full min-h-[400px] bg-slate-50 rounded-xl border border-slate-200 border-dashed flex flex-col items-center justify-center text-slate-400 gap-3">
-                  <div className="p-4 bg-white rounded-full shadow-sm">
-                    <Calculator className="w-8 h-8 text-slate-300" />
+                <div className="h-full min-h-[400px] bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 border-dashed flex flex-col items-center justify-center text-slate-500 dark:text-slate-300 gap-3 px-4">
+                  <div className="p-4 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-slate-100 dark:border-slate-700">
+                    <Calculator className="w-8 h-8 text-slate-400 dark:text-slate-400" />
                   </div>
-                  <p className="text-sm font-medium">Въведете данни и натиснете Изчисли</p>
-                  <p className="text-xs text-slate-400 text-center max-w-xs">
+                  <p className="text-sm font-medium text-slate-600 dark:text-slate-200">Въведете данни и натиснете Изчисли</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 text-center max-w-xs">
                     Всеки изчислен отчет автоматично ще се запази в историята на тока с пълна статистика.
                   </p>
                 </div>

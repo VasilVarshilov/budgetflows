@@ -111,7 +111,7 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
                 <h4 className="font-bold text-slate-900 dark:text-white text-sm">
                   {metric.name}
                 </h4>
-                <span className="text-[11px] text-slate-400 dark:text-slate-500 block">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
                   {currentMonthLabel} спрямо предходен
                 </span>
               </div>
@@ -137,7 +137,7 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
           {/* Current vs Previous Values */}
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
-              <span className="text-slate-400 dark:text-slate-500 block text-[11px] font-medium">
+              <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
                 Текущ ({currentMonthLabel})
               </span>
               <span className="font-black text-slate-900 dark:text-white text-base">
@@ -146,7 +146,7 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
             </div>
 
             <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
-              <span className="text-slate-400 dark:text-slate-500 block text-[11px] font-medium">
+              <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
                 Предходен ({previousMonthLabel})
               </span>
               <span className="font-bold text-slate-700 dark:text-slate-300 text-base">

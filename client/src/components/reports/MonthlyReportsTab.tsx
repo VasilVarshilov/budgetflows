@@ -314,7 +314,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         </svg>
         {/* Center Text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xs text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider mb-1">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-1">
             Общо
           </span>
           <span className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">
@@ -454,7 +454,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           {/* Chart Section */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center min-h-[350px] transition-colors">
             <h3 className="w-full text-left font-semibold text-slate-700 dark:text-slate-200 mb-6 flex items-center gap-2">
-              <Filter className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+              <Filter className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               Разпределение
             </h3>
 
@@ -462,7 +462,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
               renderDonutChart()
             ) : (
               <div className="h-64 flex items-center justify-center w-full">
-                <p className="text-slate-400 dark:text-slate-500">Няма разходи за показване</p>
+                <p className="text-slate-500 dark:text-slate-400">Няма разходи за показване</p>
               </div>
             )}
 
@@ -480,7 +480,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                   <span className="text-slate-600 dark:text-slate-300 font-bold">
                     {Math.round(item.percentage)}%
                   </span>
-                  <span className="text-slate-400 dark:text-slate-400 truncate max-w-[80px]">
+                  <span className="text-slate-500 dark:text-slate-300 truncate max-w-[80px]">
                     {item.name}
                   </span>
                 </div>
@@ -491,7 +491,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           {/* List Section */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col transition-colors">
             <h3 className="font-semibold text-slate-700 dark:text-slate-200 mb-6 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+              <CreditCard className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               Детайли по категория
             </h3>
 
@@ -533,7 +533,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                             }}
                           />
                         </div>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           {item.percentage.toFixed(1)}%
                         </p>
                       </div>
@@ -546,7 +546,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
               ))}
 
               {chartData.length === 0 && (
-                <div className="text-center py-8 text-slate-400 dark:text-slate-500 italic">
+                <div className="text-center py-8 text-slate-500 dark:text-slate-400 italic">
                   Няма записани разходи
                 </div>
               )}
@@ -603,7 +603,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                             }}
                           />
                         </div>
-                        <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                           {item.percentage.toFixed(1)}% · {item.count}{" "}
                           {item.count === 1 ? "запис" : "записа"}
                         </span>

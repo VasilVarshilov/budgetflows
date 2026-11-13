@@ -13,6 +13,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { MonthlyRecord, ExpenseItem } from "@/types";
+import { getCategoryBadgeClasses } from "@/utils/categoryStorage";
 
 interface ImportRecurringModalProps {
   isOpen: boolean;
@@ -417,12 +418,12 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
             </div>
 
             {candidateItems.length === 0 ? (
-              <div className="py-10 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 text-sm">
+              <div className="py-10 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-sm">
                 <Repeat className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
                 <p className="font-medium text-slate-600 dark:text-slate-300">
                   Няма намерени периодични разходи в {selectedSourceMonth || "избрания месец"}
                 </p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Маркирайте разходи с чекбокса „Периодичен разход“ при въвеждане, за да се копират лесно всеки месец.
                 </p>
               </div>
@@ -452,7 +453,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                           className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed"
                         />
                         <div
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${c.item.categoryColor || "bg-indigo-100 text-indigo-600"}`}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${getCategoryBadgeClasses(c.item.categoryColor || "bg-indigo-100 text-indigo-600")}`}
                         >
                           <Repeat className="w-4 h-4" />
                         </div>
@@ -477,7 +478,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                               {c.item.note}
                             </span>
                           ) : (
-                            <span className="text-[11px] text-slate-400 dark:text-slate-500 block mt-0.5">
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
                               Готов за импортиране
                             </span>
                           )}
@@ -489,7 +490,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
                           €{c.item.amount.toFixed(2)}
                         </span>
                         {c.isDuplicate ? (
-                          <span className="block text-[10px] text-slate-400">
+                          <span className="block text-[10px] text-slate-500 dark:text-slate-400">
                             Пропуснат
                           </span>
                         ) : (

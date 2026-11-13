@@ -36,6 +36,7 @@ import {
   loadStoredCategories,
   AVAILABLE_ICONS_MAP,
   getAiSuggestedIconAndColor,
+  getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
 
@@ -336,7 +337,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Общ месечен бюджет
                 </span>
                 <span
@@ -492,10 +493,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             />
           </div>
 
-          <div className="flex justify-between items-center text-xs text-slate-400 dark:text-slate-500 pt-0.5">
+          <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400 pt-0.5">
             <span>0%</span>
-            <span className="text-slate-400 dark:text-slate-500">80% праг</span>
-            <span className="text-slate-400 dark:text-slate-500">100% лимит</span>
+            <span className="text-slate-500 dark:text-slate-400">80% праг</span>
+            <span className="text-slate-500 dark:text-slate-400">100% лимит</span>
           </div>
         </div>
       </div>
@@ -532,12 +533,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
         </div>
 
         {budgetCalc.categoryStatuses.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-400">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-500 dark:text-slate-400">
             <HelpCircle className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               Няма добавени бюджети за категории
             </p>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Създайте нов бюджет за Храна, Транспорт, Забавления или други разходи.
             </p>
             <button
@@ -581,7 +582,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${item.colorClass}`}
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.colorClass)}`}
                         >
                           <IconComponent className="w-5 h-5" />
                         </div>
@@ -776,7 +777,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                       </div>
                                     ))}
                                     {exp.receiptItems!.length > 3 && (
-                                      <span className="text-[9px] text-indigo-500 block">
+                                      <span className="text-[9px] text-indigo-600 dark:text-indigo-400 block">
                                         + още {exp.receiptItems!.length - 3} артикула
                                       </span>
                                     )}
@@ -895,7 +896,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       }))
                     }
                     placeholder="напр. Ресторанти, Спорт, Развлечения"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                     required
                   />
                 </div>

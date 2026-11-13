@@ -66,7 +66,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
               <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base">
                 Бюджет и контрол на разходите
               </h3>
-              <p className="text-xs text-slate-400 dark:text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Сравнение на разходите спрямо предварително зададените лимити ({currentPeriodLabel})
               </p>
             </div>
@@ -108,7 +108,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                   <div className="text-2xl font-black text-slate-900 dark:text-white">
                     €{budgetData.totalSpent.toFixed(2)}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     от лимит €{totalLimit.toFixed(2)}
                   </div>
                 </div>
@@ -125,7 +125,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                       ? `-€${(budgetData.totalSpent - totalLimit).toFixed(2)}`
                       : `€${budgetData.totalRemaining.toFixed(2)}`}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {isExceeded ? "Превишение" : "Оставащи"}
                   </div>
                 </div>
@@ -172,13 +172,13 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
               <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                 Категории с дефиниран бюджет
               </span>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
                 Разход / Лимит
               </span>
             </div>
 
             {budgetData.categoryStatuses.length === 0 ? (
-              <div className="p-6 text-center text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+              <div className="p-6 text-center text-slate-500 dark:text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                 <Target className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p className="text-xs font-medium">Все още няма въведени лимити по категории.</p>
                 <button
@@ -206,7 +206,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                           <span className="font-bold text-slate-900 dark:text-white">
                             €{cat.spent.toFixed(2)}
                           </span>
-                          <span className="text-slate-400">/ €{cat.limit.toFixed(2)}</span>
+                          <span className="text-slate-500 dark:text-slate-400">/ €{cat.limit.toFixed(2)}</span>
                           <span
                             className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
                               cat.status === "green"
@@ -234,7 +234,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                         />
                       </div>
 
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                         <span>
                           {cat.isExceeded ? (
                             <span className="text-rose-600 dark:text-rose-400 font-semibold">

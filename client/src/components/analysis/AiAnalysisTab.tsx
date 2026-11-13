@@ -71,26 +71,26 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
       case "high":
         return {
           label: "Висок приоритет",
-          className: "bg-rose-50 text-rose-700 border-rose-200",
+          className: "bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800",
           dot: "bg-rose-500",
         };
       case "opportunity":
         return {
           label: "Възможност за растеж",
-          className: "bg-indigo-50 text-indigo-700 border-indigo-200",
+          className: "bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800",
           dot: "bg-indigo-500",
         };
       case "medium":
         return {
           label: "Препоръка за оптимизация",
-          className: "bg-amber-50 text-amber-700 border-amber-200",
+          className: "bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",
           dot: "bg-amber-500",
         };
       case "low":
       default:
         return {
           label: "Положителен статус",
-          className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+          className: "bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
           dot: "bg-emerald-500",
         };
     }
@@ -99,16 +99,16 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case "income":
-        return <Banknote className="w-5 h-5 text-emerald-600" />;
+        return <Banknote className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
       case "spending":
-        return <Wallet className="w-5 h-5 text-rose-600" />;
+        return <Wallet className="w-5 h-5 text-rose-600 dark:text-rose-400" />;
       case "savings":
-        return <PiggyBank className="w-5 h-5 text-emerald-600" />;
+        return <PiggyBank className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
       case "electricity":
-        return <Zap className="w-5 h-5 text-yellow-600" />;
+        return <Zap className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />;
       case "trend":
       default:
-        return <TrendingUp className="w-5 h-5 text-indigo-600" />;
+        return <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />;
     }
   };
 
@@ -186,7 +186,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <span className="text-2xl sm:text-3xl font-black text-white">
                 {analysis.healthScore.savingsRate}%
               </span>
-              <span className="text-[11px] text-slate-400 ml-1">от дохода</span>
+              <span className="text-[11px] text-slate-300 ml-1">от дохода</span>
             </div>
           </div>
 
@@ -198,7 +198,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <span className="text-2xl sm:text-3xl font-black text-white">
                 {analysis.healthScore.runwayMonths}
               </span>
-              <span className="text-xs text-slate-400 ml-1">месеца буфер</span>
+              <span className="text-xs text-slate-300 ml-1">месеца буфер</span>
             </div>
           </div>
 
@@ -210,7 +210,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <span className="text-2xl sm:text-3xl font-black text-emerald-400">
                 ~€{analysis.healthScore.monthlySavingsPotential}
               </span>
-              <span className="text-xs text-slate-400 ml-1">/месец</span>
+              <span className="text-xs text-slate-300 ml-1">/месец</span>
             </div>
           </div>
         </div>
@@ -298,17 +298,17 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
           </button>
         </div>
 
-        <span className="text-xs text-slate-400 dark:text-slate-500 hidden md:block shrink-0 pr-2">
+        <span className="text-xs text-slate-500 dark:text-slate-400 hidden md:block shrink-0 pr-2">
           Анализирани {analysis.monthsAnalyzedCount} месеца
         </span>
       </div>
 
       {/* Insight Cards Grid */}
       {filteredInsights.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-400">
-          <HelpCircle className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500 dark:text-slate-400">
+          <HelpCircle className="w-10 h-10 mx-auto text-slate-400 dark:text-slate-400 mb-2" />
           <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">Няма инсайти в тази категория</h4>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Всички параметри в тази група функционират оптимално.
           </p>
         </div>
@@ -358,7 +358,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                     {/* Metric Chip */}
                     {insight.metricValue && (
                       <div className="text-right shrink-0">
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
                           {insight.metricLabel || "Стойност"}
                         </span>
                         <span className="text-sm font-black text-slate-900 dark:text-white">
