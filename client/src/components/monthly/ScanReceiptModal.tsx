@@ -21,6 +21,9 @@ import {
   Store,
   ZoomIn,
   ZoomOut,
+  ListChecks,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem, ReceiptItemDetail, BudgetConfig } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
@@ -275,6 +278,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [notes, setNotes] = useState<string>("");
   const [merchantName, setMerchantName] = useState<string>("");
   const [receiptItems, setReceiptItems] = useState<ReceiptItemDetail[]>([]);
+  const [selectedItemIndices, setSelectedItemIndices] = useState<Set<number>>(new Set());
   const [rawText, setRawText] = useState<string>("");
   const [confidence, setConfidence] = useState<"high" | "medium" | "low">("high");
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -351,11 +355,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setNotes("");
     setMerchantName("");
     setReceiptItems([]);
+    setSelectedItemIndices(new Set());
     setRawText("");
     setWarnings([]);
     setShowCategoryPicker(false);
     setShowRawText(false);
     setSelectedBudgetCategoryId("");
+    setDetectedTotal(0);
+    setDetectedMerchant("");
+    setDetectedDate("");
+    setDetectedItemsCount(0);
     setScanElapsedSeconds(0);
     onClose();
   }, [onClose]);
@@ -406,6 +415,39 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setStep("review");
     },
     [addDebugLog]
+  );
+
+  // Apply item selection changes: recalculate amount and regenerate notes with ONLY selected items
+  const applyItemSelection = useCallback(
+    (nextSelected: Set<number>, itemsList: ReceiptItemDetail[], fullReceiptTotal: number) => {
+      setSelectedItemIndices(nextSelected);
+
+      if (itemsList.length === 0) return;
+
+      const selectedItems = itemsList.filter((_, idx) => nextSelected.has(idx));
+      const allSelected = selectedItems.length === itemsList.length;
+
+      // Recalculate live total
+      if (selectedItems.length === 0) {
+        setAmount("0.00");
+      } else if (allSelected && fullReceiptTotal > 0) {
+        setAmount(fullReceiptTotal.toFixed(2));
+      } else {
+        const sum = selectedItems.reduce((acc, item) => acc + item.price, 0);
+        setAmount(sum.toFixed(2));
+      }
+
+      // Regenerate notes using ONLY selected items
+      const generatedNotes = selectedItems
+        .map((it) => {
+          const qtyStr = it.quantity && it.quantity > 1 ? `${it.quantity}x ` : "";
+          return `${qtyStr}${it.name} €${it.price.toFixed(2)}`;
+        })
+        .join("\n");
+      setNotes(generatedNotes);
+      setErrorMessage(null);
+    },
+    []
   );
 
   if (!isOpen) return null;
@@ -496,11 +538,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     );
 
     // Initial baseline state populated from OCR-first results
+    const initialItems = localParsed.items || [];
     setMerchantName(localParsed.merchantName);
     setAmount(localParsed.totalAmount > 0 ? localParsed.totalAmount.toFixed(2) : "");
     setDate(localParsed.date);
     setNotes(localParsed.notesFormatted);
-    setReceiptItems(localParsed.items || []);
+    setReceiptItems(initialItems);
+    setSelectedItemIndices(new Set(initialItems.map((_, idx) => idx)));
     setRawText(ocrRawText);
     setConfidence(localParsed.confidence);
     setWarnings(localParsed.warnings);
@@ -508,7 +552,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDetectedMerchant(localParsed.merchantName);
     setDetectedDate(localParsed.date);
     setDetectedTotal(localParsed.totalAmount);
-    setDetectedItemsCount(localParsed.items.length);
+    setDetectedItemsCount(initialItems.length);
     setAiSourceBadge("Вграден OCR модул");
 
     const baseCat = matchCategory(
@@ -593,22 +637,31 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setDetectedDate(gData.date);
           }
 
-          // Formatted Notes
+          // Formatted Notes & Items count & structured items
+          const resolvedItems: ReceiptItemDetail[] =
+            gData.items && gData.items.length > 0
+              ? gData.items
+              : localParsed.items && localParsed.items.length > 0
+              ? localParsed.items
+              : [];
+
+          setReceiptItems(resolvedItems);
+          setSelectedItemIndices(new Set(resolvedItems.map((_, idx) => idx)));
+          setDetectedItemsCount(resolvedItems.length);
+
           if (gData.notesFormatted && gData.notesFormatted.trim().length > 3) {
             setNotes(gData.notesFormatted);
+          } else if (resolvedItems.length > 0) {
+            setNotes(
+              resolvedItems
+                .map((it) => {
+                  const qtyStr = it.quantity && it.quantity > 1 ? `${it.quantity}x ` : "";
+                  return `${qtyStr}${it.name} €${it.price.toFixed(2)}`;
+                })
+                .join("\n")
+            );
           } else if (localParsed.notesFormatted) {
             setNotes(localParsed.notesFormatted);
-          }
-
-          // Items count & structured items
-          if (gData.items && gData.items.length > 0) {
-            setReceiptItems(gData.items);
-            setDetectedItemsCount(gData.items.length);
-          } else if (localParsed.items && localParsed.items.length > 0) {
-            setReceiptItems(localParsed.items);
-            setDetectedItemsCount(localParsed.items.length);
-          } else {
-            setDetectedItemsCount(0);
           }
 
           if (gData.rawText) {
@@ -672,25 +725,59 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
   };
 
+  const handleToggleReceiptItem = (index: number) => {
+    const next = new Set(selectedItemIndices);
+    if (next.has(index)) {
+      next.delete(index);
+    } else {
+      next.add(index);
+    }
+    applyItemSelection(next, receiptItems, detectedTotal);
+  };
+
+  const handleSelectAllItems = () => {
+    const all = new Set(receiptItems.map((_, idx) => idx));
+    applyItemSelection(all, receiptItems, detectedTotal);
+  };
+
+  const handleDeselectAllItems = () => {
+    applyItemSelection(new Set(), receiptItems, detectedTotal);
+  };
+
+  // Computed receipt totals & counts
+  const itemsFullSum = receiptItems.reduce((sum, item) => sum + item.price, 0);
+  const receiptTotalDisplay = detectedTotal > 0 ? detectedTotal : itemsFullSum;
+  const selectedItemsList = receiptItems.filter((_, idx) => selectedItemIndices.has(idx));
+  const selectedItemsSum = selectedItemsList.reduce((sum, item) => sum + item.price, 0);
+  const includedTotalDisplay =
+    receiptItems.length === 0
+      ? parseFloat(amount) || 0
+      : selectedItemIndices.size === receiptItems.length && detectedTotal > 0
+      ? detectedTotal
+      : selectedItemsSum;
+
   // Save confirmed expense
   const handleSaveExpense = () => {
+    if (receiptItems.length > 0 && selectedItemIndices.size === 0) {
+      setErrorMessage("Моля, изберете поне един артикул от бележката.");
+      return;
+    }
+
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       setErrorMessage("Моля, въведете валидна сума, по-голяма от 0.");
       return;
     }
 
-    // Determine structured items: check if user edited the notes box
-    let finalItems = receiptItems;
+    // Determine structured items using ONLY selected items (or edited notes)
+    let finalItems = selectedItemsList;
     if (notes.trim()) {
-      const parsedFromNotes = parseExpenseNote(
-        notes,
-        merchantName,
-        receiptItems.length > 0 ? receiptItems : undefined
-      );
+      const parsedFromNotes = parseExpenseNote(notes, merchantName);
       if (parsedFromNotes.items && parsedFromNotes.items.length > 0) {
         finalItems = parsedFromNotes.items;
       }
+    } else if (receiptItems.length > 0) {
+      finalItems = selectedItemsList;
     }
 
     const cleanMerchant =
@@ -724,7 +811,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
     addDebugLog(
       "expense",
-      `Разходът е записан успешно: ${newExpense.categoryName} €${newExpense.amount} (${finalItems.length} артикула)`,
+      `Разходът е записан успешно: ${newExpense.categoryName} €${newExpense.amount} (${finalItems.length} избрани артикула)`,
       newExpense
     );
     onExpenseCreated(newExpense);
@@ -1031,18 +1118,18 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 </div>
               )}
 
-              {/* CONFIDENCE CHECK CARD (Detected summary) */}
-              <div className="p-3.5 bg-white dark:bg-slate-850 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs">
-                <div className="flex items-center justify-between mb-2">
+              {/* CONFIDENCE CHECK & RECEIPT PREVIEW SUMMARY */}
+              <div className="p-3.5 bg-white dark:bg-slate-850 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-2.5">
+                <div className="flex items-center justify-between flex-wrap gap-1.5">
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    Проверка на разпознатите стойности (Confidence Check)
+                    Преглед на разпознатите стойности
                   </span>
                   <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300">
                     Източник: {aiSourceBadge}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                   <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Търговец</span>
                     <span className="font-bold text-slate-900 dark:text-white truncate block">
@@ -1056,15 +1143,21 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     </span>
                   </div>
                   <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Обща сума</span>
-                    <span className="font-black text-indigo-700 dark:text-indigo-300 block">
-                      €{amount || (detectedTotal > 0 ? detectedTotal.toFixed(2) : "0.00")}
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Категория</span>
+                    <span className="font-bold text-slate-900 dark:text-white truncate block">
+                      {selectedCategory?.name || "—"}
                     </span>
                   </div>
                   <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Артикули</span>
-                    <span className="font-bold text-slate-900 dark:text-white block">
-                      {detectedItemsCount || (notes ? notes.split("\n").filter(Boolean).length : 0)} бр.
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Общо по бележка</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 block">
+                      €{receiptTotalDisplay.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl border border-indigo-200 dark:border-indigo-800 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] text-indigo-700 dark:text-indigo-300 block uppercase font-bold">Избрана сума</span>
+                    <span className="font-black text-indigo-700 dark:text-indigo-200 block">
+                      €{(parseFloat(amount) || 0).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -1125,9 +1218,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 <div className="md:col-span-8 space-y-3.5">
                   {/* Amount Field (Hero) */}
                   <div className="bg-white dark:bg-slate-850 p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-                      Крайна сума (€ / EUR) *
-                    </label>
+                    <div className="flex items-center justify-between flex-wrap gap-1.5">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                        Крайна сума за запис (€ / EUR) *
+                      </label>
+                      {receiptItems.length > 0 && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          {selectedItemIndices.size} от {receiptItems.length} артикула
+                        </span>
+                      )}
+                    </div>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-600 dark:text-slate-300">
                         €
@@ -1143,10 +1243,136 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         autoFocus
                       />
                     </div>
-                    <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium block">
-                      Точно разпозната крайна сума (TOTAL / GRAND TOTAL)
-                    </span>
+                    <div className="flex items-center justify-between flex-wrap gap-1 text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                      <span>
+                        {receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length
+                          ? "Сумата е преизчислена автоматично според избраните артикули"
+                          : "Точно разпозната крайна сума (TOTAL / GRAND TOTAL)"}
+                      </span>
+                      {receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length && (
+                        <span className="text-slate-500 dark:text-slate-400 font-semibold">
+                          Общо по бележка: €{receiptTotalDisplay.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Interactive Receipt Items Selection (Partial Payment / Bill Splitting) */}
+                  {receiptItems.length > 0 && (
+                    <div className="bg-white dark:bg-slate-850 p-3.5 sm:p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                            <ListChecks className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                            <span>Избор на артикули от бележката</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                            Изберете кои артикули да се включат в разхода (напр. при разделяне на сметка)
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllItems}
+                            disabled={selectedItemIndices.size === receiptItems.length}
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <CheckSquare className="w-3.5 h-3.5" />
+                            <span>Избери всички</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeselectAllItems}
+                            disabled={selectedItemIndices.size === 0}
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Square className="w-3.5 h-3.5" />
+                            <span>Премахни всички</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Items Checklist */}
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                        {receiptItems.map((item, idx) => {
+                          const isChecked = selectedItemIndices.has(idx);
+                          return (
+                            <label
+                              key={`${idx}-${item.name}`}
+                              className={`min-h-[48px] flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                                isChecked
+                                  ? "bg-indigo-50/70 dark:bg-indigo-950/35 border-indigo-300 dark:border-indigo-700/80 text-slate-900 dark:text-white shadow-2xs"
+                                  : "bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 opacity-75 hover:opacity-100"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => handleToggleReceiptItem(idx)}
+                                  className="w-5 h-5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <span
+                                    className={`text-sm font-semibold block truncate ${
+                                      !isChecked ? "line-through" : ""
+                                    }`}
+                                  >
+                                    {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ""}
+                                    {item.name}
+                                  </span>
+                                </div>
+                              </div>
+                              <span
+                                className={`text-sm font-extrabold shrink-0 tabular-nums ${
+                                  isChecked
+                                    ? "text-indigo-700 dark:text-indigo-300"
+                                    : "text-slate-500 dark:text-slate-400 line-through"
+                                }`}
+                              >
+                                €{item.price.toFixed(2)}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      {/* Live Item Counts & Totals Summary */}
+                      <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2 text-xs">
+                        <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                          <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
+                            Избрани артикули
+                          </span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {selectedItemIndices.size} от {receiptItems.length}
+                          </span>
+                        </div>
+                        <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                          <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-semibold">
+                            Включена сума
+                          </span>
+                          <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                            €{includedTotalDisplay.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                          <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
+                            Общо по бележка
+                          </span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            €{receiptTotalDisplay.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {selectedItemIndices.size === 0 && (
+                        <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                          <span>Изберете поне един артикул, за да запазите разхода.</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Category Selector */}
                   <div className="bg-white dark:bg-slate-850 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
@@ -1385,8 +1611,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 <button
                   type="button"
                   onClick={handleSaveExpense}
-                  disabled={!amount || parseFloat(amount) <= 0}
-                  className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-md active:scale-95"
+                  disabled={
+                    (receiptItems.length > 0 && selectedItemIndices.size === 0) ||
+                    !amount ||
+                    parseFloat(amount) <= 0
+                  }
+                  className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-md active:scale-95 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   <span>Добави към разходите</span>
