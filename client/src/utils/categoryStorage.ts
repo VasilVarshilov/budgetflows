@@ -60,6 +60,7 @@ import {
   Wallet,
   Clock,
   Layers,
+  RotateCcw,
 } from "lucide-react";
 
 export const STORAGE_KEY_CATEGORIES = "HomeBudget_Categories";
@@ -85,6 +86,7 @@ export const AVAILABLE_ICONS_MAP: Record<string, React.ElementType> = {
   Shield,
   RefreshCw,
   Repeat,
+  RotateCcw,
 
   // Food & Dining
   Utensils,
@@ -189,6 +191,19 @@ export const DEFAULT_CATEGORIES: ExpenseCategory[] = [
   { id: "transport", name: "Транспорт", iconName: "Bus", colorClass: "bg-slate-100 text-slate-600" },
   { id: "taxi", name: "Такси и услуги", iconName: "CarTaxiFront", colorClass: "bg-yellow-50 text-yellow-600" },
   { id: "other", name: "Други", iconName: "ShoppingBag", colorClass: "bg-emerald-100 text-emerald-500" },
+];
+
+// Predefined Income Categories
+export const DEFAULT_INCOME_CATEGORIES: ExpenseCategory[] = [
+  { id: "salary", name: "Заплата", iconName: "Briefcase", colorClass: "bg-emerald-100 text-emerald-600" },
+  { id: "bonus", name: "Бонус", iconName: "Sparkles", colorClass: "bg-amber-100 text-amber-600" },
+  { id: "freelance", name: "Фрийланс", iconName: "Laptop", colorClass: "bg-blue-100 text-blue-600" },
+  { id: "dividends", name: "Дивиденти", iconName: "TrendingUp", colorClass: "bg-purple-100 text-purple-600" },
+  { id: "rental", name: "Наем", iconName: "Home", colorClass: "bg-teal-100 text-teal-600" },
+  { id: "interest", name: "Лихви", iconName: "Landmark", colorClass: "bg-indigo-100 text-indigo-600" },
+  { id: "gift", name: "Подарък", iconName: "Gift", colorClass: "bg-pink-100 text-pink-500" },
+  { id: "refund", name: "Възстановяване", iconName: "RotateCcw", colorClass: "bg-cyan-100 text-cyan-600" },
+  { id: "other_income", name: "Други", iconName: "Wallet", colorClass: "bg-slate-100 text-slate-600" },
 ];
 
 /**
@@ -427,6 +442,42 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
       iconName: "PiggyBank",
       colorClass: "bg-emerald-100 text-emerald-600",
     },
+    // Income: Salary & Wages
+    {
+      keywords: ["заплата", "възнаграждение", "аванс", "пенсия", "стипендия", "salary", "wage", "payroll", "pension"],
+      iconName: "Briefcase",
+      colorClass: "bg-emerald-100 text-emerald-600",
+    },
+    // Income: Bonus & Awards
+    {
+      keywords: ["бонус", "премия", "награда", "13-та", "bonus", "reward"],
+      iconName: "Sparkles",
+      colorClass: "bg-amber-100 text-amber-600",
+    },
+    // Income: Freelance & Consulting
+    {
+      keywords: ["фрийланс", "хонорар", "проект", "консултация", "услуга", "freelance", "consulting"],
+      iconName: "Laptop",
+      colorClass: "bg-blue-100 text-blue-600",
+    },
+    // Income: Dividends & Capital Gains
+    {
+      keywords: ["дивидент", "дивиденти", "доходност", "печалба", "etf", "dividend", "dividends"],
+      iconName: "TrendingUp",
+      colorClass: "bg-purple-100 text-purple-600",
+    },
+    // Income: Interest
+    {
+      keywords: ["лихва", "лихви", "депозит", "облигации", "interest", "yield"],
+      iconName: "Landmark",
+      colorClass: "bg-indigo-100 text-indigo-600",
+    },
+    // Income: Refund & Cashback
+    {
+      keywords: ["възстановяване", "рефунд", "кешбек", "връщане", "данъчно облекчение", "refund", "cashback"],
+      iconName: "RotateCcw",
+      colorClass: "bg-cyan-100 text-cyan-600",
+    },
   ];
 
   // Try matching rule keywords
@@ -594,5 +645,124 @@ export function deleteCategoryFromStorage(categoryId: string): ExpenseCategory[]
   const current = loadStoredCategories();
   const updated = current.filter((cat) => cat.id !== categoryId);
   saveStoredCategories(updated);
+  return updated;
+}
+
+/**
+ * Loads income categories from localStorage. Initializes with DEFAULT_INCOME_CATEGORIES if empty.
+ */
+export function loadStoredIncomeCategories(): ExpenseCategory[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+    if (!raw) {
+      saveStoredIncomeCategories(DEFAULT_INCOME_CATEGORIES);
+      return DEFAULT_INCOME_CATEGORIES;
+    }
+
+    const parsed = JSON.parse(raw);
+    let loadedList: ExpenseCategory[] = [];
+
+    if (parsed && Array.isArray(parsed.incomeCategories)) {
+      loadedList = parsed.incomeCategories;
+    }
+
+    if (loadedList.length === 0) {
+      saveStoredIncomeCategories(DEFAULT_INCOME_CATEGORIES);
+      return DEFAULT_INCOME_CATEGORIES;
+    }
+
+    const existingIds = new Set(loadedList.map((c) => c.id));
+    const merged = [...loadedList];
+
+    for (const def of DEFAULT_INCOME_CATEGORIES) {
+      if (!existingIds.has(def.id)) {
+        merged.push(def);
+        existingIds.add(def.id);
+      }
+    }
+
+    return merged;
+  } catch (err) {
+    console.warn("Failed loading income categories from storage:", err);
+    return DEFAULT_INCOME_CATEGORIES;
+  }
+}
+
+/**
+ * Saves income categories to localStorage while preserving existing expenseCategories.
+ */
+export function saveStoredIncomeCategories(incomeCategories: ExpenseCategory[]): void {
+  try {
+    let existingExpenseCategories: ExpenseCategory[] = DEFAULT_CATEGORIES;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          existingExpenseCategories = parsed;
+        } else if (parsed && Array.isArray(parsed.expenseCategories)) {
+          existingExpenseCategories = parsed.expenseCategories;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const store: CategoriesStore = {
+      expenseCategories: existingExpenseCategories,
+      incomeCategories,
+    };
+
+    localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(store));
+  } catch (err) {
+    console.error("Failed saving income categories to storage:", err);
+  }
+}
+
+export function addIncomeCategoryToStorage(
+  category: Partial<ExpenseCategory> & { name: string }
+): ExpenseCategory[] {
+  const current = loadStoredIncomeCategories();
+  const aiSuggestion = getAiSuggestedIconAndColor(category.name);
+
+  const newCategory: ExpenseCategory = {
+    id:
+      category.id ||
+      `inc_cat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: category.name.trim(),
+    iconName: category.iconName || aiSuggestion.iconName,
+    colorClass: category.colorClass || aiSuggestion.colorClass,
+    isCustom: true,
+  };
+
+  const updated = [...current, newCategory];
+  saveStoredIncomeCategories(updated);
+  return updated;
+}
+
+export function updateIncomeCategoryInStorage(
+  categoryId: string,
+  updates: Partial<Pick<ExpenseCategory, "name" | "iconName" | "colorClass">>
+): ExpenseCategory[] {
+  const current = loadStoredIncomeCategories();
+  const updated = current.map((cat) => {
+    if (cat.id === categoryId) {
+      return {
+        ...cat,
+        ...updates,
+        name: updates.name ? updates.name.trim() : cat.name,
+      };
+    }
+    return cat;
+  });
+
+  saveStoredIncomeCategories(updated);
+  return updated;
+}
+
+export function deleteIncomeCategoryFromStorage(categoryId: string): ExpenseCategory[] {
+  const current = loadStoredIncomeCategories();
+  const updated = current.filter((cat) => cat.id !== categoryId);
+  saveStoredIncomeCategories(updated);
   return updated;
 }

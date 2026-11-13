@@ -55,11 +55,13 @@ import { AiRecommendationsSection } from "./AiRecommendationsSection";
 import { computeMonthToMonthComparison } from "@/utils/comparisonStorage";
 import { generateLocalFinancialAnalysis } from "@/utils/aiAnalysisEngine";
 import { useTheme } from "@/utils/themeContext";
+import { loadAppSettings, saveAppSettings } from "@/utils/incomeStorage";
 
 interface DashboardTabProps {
   monthlyData: Record<string, MonthlyRecord>;
   globalSavings: IncomeItem[];
-  onNavigateTab?: (tab: "dashboard" | "monthly" | "electricity" | "reports" | "savings" | "backup" | "budgets" | "ai-analysis") => void;
+  onNavigateTab?: (tab: "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "backup" | "budgets" | "ai-analysis") => void;
+  onTriggerSync?: () => void;
 }
 
 type PeriodType = "current" | "month" | "year" | "custom";
@@ -120,6 +122,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   monthlyData,
   globalSavings,
   onNavigateTab,
+  onTriggerSync,
 }) => {
   const now = new Date();
   const currentMonthName = now.toLocaleDateString("bg-BG", { month: "long" });
@@ -143,6 +146,27 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
   // Export Center Modal State
   const [isExportCenterOpen, setIsExportCenterOpen] = useState(false);
+
+  // Savings Target % setting (for Automatic Savings Suggestions)
+  const [savingsTargetPercent, setSavingsTargetPercent] = useState<number>(() => {
+    return loadAppSettings().savingsTargetPercent ?? 20;
+  });
+
+  React.useEffect(() => {
+    const handleRestored = () => {
+      setSavingsTargetPercent(loadAppSettings().savingsTargetPercent ?? 20);
+    };
+    window.addEventListener("homebudget:data-restored", handleRestored);
+    return () => window.removeEventListener("homebudget:data-restored", handleRestored);
+  }, []);
+
+  const handleSavingsTargetChange = (rawValue: string) => {
+    const parsed = parseFloat(rawValue);
+    const clamped = isNaN(parsed) ? 0 : Math.min(100, Math.max(0, parsed));
+    setSavingsTargetPercent(clamped);
+    saveAppSettings({ savingsTargetPercent: clamped });
+    onTriggerSync?.();
+  };
 
   // 1. Helper to extract active months based on period
   const activeMonthsList = useMemo(() => {
@@ -336,15 +360,39 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       };
     }, [activeMonthsList, periodType, customStartDate, customEndDate]);
 
-  // Income from Savings transactions (type === 'income')
-  const totalIncome = useMemo(() => {
-    return filteredSavings.reduce((acc, item) => {
-      if (item.type !== "expense") {
-        return acc + item.amount;
+  // Income from monthly records (Income tab) + Savings income transactions (deduplicated by ID)
+  const { totalIncome, incomeCount } = useMemo(() => {
+    let sum = 0;
+    let count = 0;
+    const seenIds = new Set<string>();
+
+    activeMonthsList.forEach(({ record }) => {
+      if (record?.incomes && Array.isArray(record.incomes)) {
+        record.incomes.forEach((inc) => {
+          if (!inc || inc.type === "expense" || seenIds.has(inc.id)) return;
+          if (periodType === "custom" && inc.date) {
+            const itemDate = new Date(inc.date);
+            const start = new Date(customStartDate + "T00:00:00");
+            const end = new Date(customEndDate + "T23:59:59");
+            if (itemDate < start || itemDate > end) return;
+          }
+          seenIds.add(inc.id);
+          sum += Number(inc.amount) || 0;
+          count += 1;
+        });
       }
-      return acc;
-    }, 0);
-  }, [filteredSavings]);
+    });
+
+    filteredSavings.forEach((item) => {
+      if (item && item.type !== "expense" && !seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        sum += Number(item.amount) || 0;
+        count += 1;
+      }
+    });
+
+    return { totalIncome: sum, incomeCount: count };
+  }, [activeMonthsList, filteredSavings, periodType, customStartDate, customEndDate]);
 
   // Savings in period (income - expense in savings ledger)
   const periodSavings = useMemo(() => {
@@ -360,8 +408,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     }, 0);
   }, [globalSavings]);
 
-  // Net Balance = Income - Expenses (as requested)
+  // Net Balance = Income - Expenses
   const netBalance = totalIncome - totalExpenses;
+
+  // Automatic Recommended Savings based on Savings Target %
+  const recommendedSavings = useMemo(() => {
+    return parseFloat(((totalIncome * savingsTargetPercent) / 100).toFixed(2));
+  }, [totalIncome, savingsTargetPercent]);
 
   // 4. Chart 2 Data: Income vs Expenses
   const incomeVsExpensesData = useMemo(() => {
@@ -376,7 +429,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         monthMap[idx] = { monthName: MONTHS_SHORT[idx], income: 0, expenses: 0 };
       });
 
-      // Add monthlyData expenses
+      const seenIncomeIds = new Set<string>();
+
+      // Add monthlyData expenses & incomes
       activeMonthsList.forEach(({ monthIndex, record }) => {
         const exp = record.expenses;
         let sum = 0;
@@ -394,11 +449,28 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         if (monthMap[monthIndex]) {
           monthMap[monthIndex].expenses += sum;
         }
+
+        if (record.incomes && Array.isArray(record.incomes)) {
+          record.incomes.forEach((inc) => {
+            if (!inc || inc.type === "expense" || seenIncomeIds.has(inc.id)) return;
+            if (periodType === "custom" && inc.date) {
+              const d = new Date(inc.date);
+              const start = new Date(customStartDate + "T00:00:00");
+              const end = new Date(customEndDate + "T23:59:59");
+              if (d < start || d > end) return;
+            }
+            seenIncomeIds.add(inc.id);
+            if (monthMap[monthIndex]) {
+              monthMap[monthIndex].income += Number(inc.amount) || 0;
+            }
+          });
+        }
       });
 
       // Add incomes from filtered savings
       filteredSavings.forEach((tx) => {
-        if (tx.type !== "expense") {
+        if (tx.type !== "expense" && !seenIncomeIds.has(tx.id)) {
+          seenIncomeIds.add(tx.id);
           const mIdx = new Date(tx.date).getMonth();
           if (monthMap[mIdx]) {
             monthMap[mIdx].income += tx.amount;
@@ -420,6 +492,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     periodType,
     activeMonthsList,
     filteredSavings,
+    customStartDate,
+    customEndDate,
     totalIncome,
     totalFixed,
     totalVariable,
@@ -436,10 +510,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         income: 0,
       }));
 
-    // Fill expenses
     const targetYear =
       periodType === "year" ? parseInt(selectedYear, 10) : now.getFullYear();
+    const seenIncomeIds = new Set<string>();
 
+    // Fill expenses & monthly incomes
     Object.entries(monthlyData).forEach(([key, record]) => {
       const parts = key.trim().split(" ");
       if (parts.length >= 2) {
@@ -463,14 +538,23 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             sum += exp.additional_expenses.reduce((s, i) => s + i.amount, 0);
           }
           trend[mIndex].expenses += sum;
+
+          if (record.incomes && Array.isArray(record.incomes)) {
+            record.incomes.forEach((inc) => {
+              if (!inc || inc.type === "expense" || seenIncomeIds.has(inc.id)) return;
+              seenIncomeIds.add(inc.id);
+              trend[mIndex].income += Number(inc.amount) || 0;
+            });
+          }
         }
       }
     });
 
-    // Fill incomes
+    // Fill incomes from savings ledger
     globalSavings.forEach((tx) => {
       const d = new Date(tx.date);
-      if (d.getFullYear() === targetYear && tx.type !== "expense") {
+      if (d.getFullYear() === targetYear && tx.type !== "expense" && !seenIncomeIds.has(tx.id)) {
+        seenIncomeIds.add(tx.id);
         const m = d.getMonth();
         trend[m].income += tx.amount;
       }
@@ -758,13 +842,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </div>
           </div>
           <div className="mt-3">
-            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
               €{totalIncome.toFixed(2)}
             </span>
             <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-semibold">
+              <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-semibold tabular-nums">
                 <TrendingUp className="w-3.5 h-3.5 mr-0.5" />
-                {filteredSavings.filter((t) => t.type !== "expense").length} бр.
+                {incomeCount} бр.
               </span>
               <span>постъпления в периода</span>
             </div>
@@ -782,12 +866,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </div>
           </div>
           <div className="mt-3">
-            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
               €{totalExpenses.toFixed(2)}
             </span>
-            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
               <span>Фикс.: €{totalFixed.toFixed(2)}</span>
-              <span>•</span>
+              <span>·</span>
               <span>Доп.: €{totalVariable.toFixed(2)}</span>
             </div>
           </div>
@@ -804,12 +888,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </div>
           </div>
           <div className="mt-3">
-            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
               €{periodSavings.toFixed(2)}
             </span>
             <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
               <span>Общ наличен фонд:</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200">
+              <span className="font-bold text-slate-700 dark:text-slate-200 tabular-nums">
                 €{lifetimeSavings.toFixed(2)}
               </span>
             </div>
@@ -840,7 +924,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
           <div className="mt-3">
             <span
-              className={`text-2xl font-black tracking-tight ${
+              className={`text-2xl font-black tracking-tight tabular-nums ${
                 netBalance >= 0
                   ? "text-emerald-700 dark:text-emerald-300"
                   : "text-rose-600 dark:text-rose-400"
@@ -852,7 +936,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               <span className="font-medium">Приходи − Разходи</span>
               {totalIncome > 0 && (
                 <span
-                  className={`font-semibold ml-auto ${
+                  className={`font-semibold ml-auto tabular-nums ${
                     netBalance >= 0
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-rose-600 dark:text-rose-400"
@@ -863,6 +947,75 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Automatic Savings Suggestions Card */}
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <PiggyBank className="w-5 h-5" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+              Автоматично предложение за спестяване
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              При приходи от{" "}
+              <strong className="text-slate-800 dark:text-slate-200 tabular-nums">
+                €{totalIncome.toFixed(2)}
+              </strong>{" "}
+              и цел{" "}
+              <strong className="text-emerald-600 dark:text-emerald-400 tabular-nums">
+                {savingsTargetPercent}%
+              </strong>
+              : препоръчително заделяне{" "}
+              <strong className="text-emerald-700 dark:text-emerald-300 tabular-nums">
+                €{recommendedSavings.toFixed(2)}
+              </strong>
+              {totalIncome > 0 && (
+                <>
+                  {" · "}
+                  {netBalance >= recommendedSavings
+                    ? "Нетният баланс покрива целта ви"
+                    : `Недостиг до целта: €${Math.max(0, recommendedSavings - Math.max(0, netBalance)).toFixed(2)}`}
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <span>Цел (%):</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={savingsTargetPercent}
+              onChange={(e) => handleSavingsTargetChange(e.target.value)}
+              className="w-18 px-2.5 py-1.5 min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-900 dark:text-white text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              aria-label="Цел за спестяване в проценти"
+            />
+          </label>
+
+          <div className="px-3.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-right">
+            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 block font-medium">
+              Препоръчително спестяване
+            </span>
+            <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
+              €{recommendedSavings.toFixed(2)}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onNavigateTab?.("income")}
+            className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Управление на приходи
+          </button>
         </div>
       </div>
 
@@ -1179,7 +1332,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             Добави разход
           </button>
           <button
-            onClick={() => onNavigateTab?.("savings")}
+            onClick={() => onNavigateTab?.("income")}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold transition-colors shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />

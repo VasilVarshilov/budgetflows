@@ -12,12 +12,14 @@ import {
   ChevronRight,
   X,
   SlidersHorizontal,
+  Banknote,
 } from "lucide-react";
 
 // Components
 import { DashboardTab } from "@/components/dashboard/DashboardTab";
 import { ElectricityTab } from "@/components/electricity/ElectricityTab";
 import { MonthlyExpensesTab } from "@/components/monthly/MonthlyExpensesTab";
+import { IncomeTab } from "@/components/income/IncomeTab";
 import { MonthlyReportsTab } from "@/components/reports/MonthlyReportsTab";
 import { SavingsTab } from "@/components/savings/SavingsTab";
 import { BackupRestoreSection } from "@/components/backup/BackupRestoreSection";
@@ -30,9 +32,10 @@ import { Cloud } from "lucide-react";
 
 // Utils & Types
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
+import { createEmptyMonthlyRecord } from "@/utils/incomeStorage";
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 
-type Tab = "dashboard" | "monthly" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
+type Tab = "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
 
 // Storage Keys
 const STORAGE_KEY_MONTHLY = "HomeBudget_Data";
@@ -59,6 +62,13 @@ const NAV_TABS: NavTabItem[] = [
     shortLabel: "Разходи",
     icon: Calendar,
     accentColor: "text-blue-600 dark:text-blue-400",
+  },
+  {
+    id: "income",
+    label: "Приходи",
+    shortLabel: "Приходи",
+    icon: Banknote,
+    accentColor: "text-emerald-600 dark:text-emerald-400",
   },
   {
     id: "electricity",
@@ -274,6 +284,27 @@ const AppContent: React.FC = () => {
     });
   }, [currentMonth, triggerAutoSync]);
 
+  // Monthly Incomes Save (for any monthKey)
+  const handleSaveIncomesForMonth = useCallback(
+    (targetMonthKey: string, incomes: IncomeItem[]) => {
+      setMonthlyData((prev) => {
+        const monthKey = targetMonthKey || currentMonth || getCurrentMonthBulgarian();
+        const existing = prev[monthKey] || createEmptyMonthlyRecord(monthKey);
+
+        const updated: MonthlyRecord = {
+          ...existing,
+          incomes,
+        };
+
+        const newData = { ...prev, [monthKey]: updated };
+        saveMonthlyToStorage(newData);
+        triggerAutoSync();
+        return newData;
+      });
+    },
+    [currentMonth, triggerAutoSync]
+  );
+
   // Global Savings Save
   const handleUpdateGlobalSavings = useCallback(
     (newSavings: IncomeItem[]) => {
@@ -422,7 +453,7 @@ const AppContent: React.FC = () => {
           <div className="py-2 hidden md:block">
             <nav
               aria-label="Основна навигация"
-              className="grid grid-cols-8 gap-1.5 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
+              className="grid grid-cols-9 gap-1 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
             >
               {NAV_TABS.map((tab) => {
                 const Icon = tab.icon;
@@ -432,7 +463,7 @@ const AppContent: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 py-2 px-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                       isActive
                         ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold shadow-xs border border-slate-200/80 dark:border-slate-700/80"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/50 dark:hover:bg-slate-700/50"
@@ -462,6 +493,7 @@ const AppContent: React.FC = () => {
             monthlyData={monthlyData}
             globalSavings={globalSavings}
             onNavigateTab={setActiveTab}
+            onTriggerSync={triggerAutoSync}
           />
         )}
 
@@ -472,6 +504,16 @@ const AppContent: React.FC = () => {
             onSaveExpenses={handleSaveExpenses}
             allMonthlyData={monthlyData}
             onMonthChange={setCurrentMonth}
+          />
+        )}
+
+        {activeTab === "income" && (
+          <IncomeTab
+            currentMonth={currentMonth}
+            allMonthlyData={monthlyData}
+            onMonthChange={setCurrentMonth}
+            onSaveIncomesForMonth={handleSaveIncomesForMonth}
+            onTriggerSync={triggerAutoSync}
           />
         )}
 
@@ -555,6 +597,33 @@ const AppContent: React.FC = () => {
             </div>
 
             <div className="space-y-2">
+              {/* Savings */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("savings");
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
+                  activeTab === "savings"
+                    ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900"
+                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                    <PiggyBank className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-sm font-bold block">Спестявания</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      Спестовен фонд и баланс
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+
               {/* Budgets */}
               <button
                 type="button"
@@ -680,21 +749,21 @@ const AppContent: React.FC = () => {
             <span className="text-[10px] tracking-tight">Разходи</span>
           </button>
 
-          {/* 3. Savings */}
+          {/* 3. Income */}
           <button
             type="button"
             onClick={() => {
-              setActiveTab("savings");
+              setActiveTab("income");
               setIsMobileMoreOpen(false);
             }}
             className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
-              activeTab === "savings"
+              activeTab === "income"
                 ? "text-emerald-600 dark:text-emerald-400 font-bold scale-105"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            <PiggyBank className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">Спести</span>
+            <Banknote className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Приходи</span>
           </button>
 
           {/* 4. Electricity */}
@@ -736,6 +805,7 @@ const AppContent: React.FC = () => {
             type="button"
             onClick={() => setIsMobileMoreOpen((prev) => !prev)}
             className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === "savings" ||
               activeTab === "budgets" ||
               activeTab === "ai-analysis" ||
               activeTab === "backup" ||

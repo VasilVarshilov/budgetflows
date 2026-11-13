@@ -9,8 +9,10 @@ import {
   Phone,
   Wifi,
   Download,
-  FileText,
-  X,
+  TrendingUp,
+  PiggyBank,
+  Scale,
+  Banknote,
 } from "lucide-react";
 import { MonthlyRecord, ExpenseItem, IncomeItem } from "@/types";
 import {
@@ -19,8 +21,11 @@ import {
 } from "@/utils/colors";
 import { ExportCenterModal } from "@/components/export/ExportCenterModal";
 import { MonthToMonthComparison } from "@/components/common/MonthToMonthComparison";
-import { computeMonthToMonthComparison } from "@/utils/comparisonStorage";
-import { useTheme } from "@/utils/themeContext";
+import {
+  computeMonthToMonthComparison,
+  calculateMonthIncome,
+  calculateMonthSavings,
+} from "@/utils/comparisonStorage";
 
 interface MonthlyReportsTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -197,6 +202,71 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
 
   const totalExpense = chartData.reduce((sum, item) => sum + item.value, 0);
 
+  const selectedYearNum = parseInt(selectedYear, 10) || now.getFullYear();
+
+  const totalIncomeForMonth = useMemo(() => {
+    return calculateMonthIncome(
+      selectedMonth,
+      selectedYearNum,
+      record,
+      globalSavings
+    );
+  }, [selectedMonth, selectedYearNum, record, globalSavings]);
+
+  const totalSavingsForMonth = useMemo(() => {
+    return calculateMonthSavings(selectedMonth, selectedYearNum, globalSavings);
+  }, [selectedMonth, selectedYearNum, globalSavings]);
+
+  const netBalanceForMonth = totalIncomeForMonth - totalExpense;
+
+  // Income Category Breakdown for selected month
+  const incomeBreakdown = useMemo(() => {
+    const map: Record<string, { value: number; color: string; count: number }> = {};
+    const seenIds = new Set<string>();
+    const monthIdx = MONTHS_BG.indexOf(selectedMonth);
+
+    const addItem = (item: IncomeItem, fallbackName: string) => {
+      if (!item || item.amount <= 0 || item.type === "expense" || seenIds.has(item.id)) return;
+      seenIds.add(item.id);
+      const name = item.categoryName || fallbackName;
+      if (!map[name]) {
+        map[name] = {
+          value: 0,
+          color: item.categoryColor ? getHexFromTailwindClass(item.categoryColor) : "#10b981",
+          count: 0,
+        };
+      }
+      map[name].value += Number(item.amount) || 0;
+      map[name].count += 1;
+    };
+
+    if (record?.incomes && Array.isArray(record.incomes)) {
+      record.incomes.forEach((inc) => addItem(inc, "Други приходи"));
+    }
+
+    globalSavings.forEach((tx) => {
+      if (!tx || !tx.date) return;
+      const d = new Date(tx.date);
+      if (!isNaN(d.getTime()) && d.getFullYear() === selectedYearNum && d.getMonth() === monthIdx) {
+        addItem(tx, "Спестявания / Приход");
+      }
+    });
+
+    const total = Object.values(map).reduce((s, d) => s + d.value, 0);
+    return Object.entries(map)
+      .map(([name, data]) => ({
+        name,
+        value: data.value,
+        color: data.color,
+        count: data.count,
+        percentage: total > 0 ? (data.value / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [record, globalSavings, selectedMonth, selectedYearNum]);
+
+  const hasAnyMonthData =
+    Boolean(record) || totalIncomeForMonth > 0 || totalSavingsForMonth !== 0;
+
   // Helper for Donut Chart SVG
   const renderDonutChart = () => {
     if (chartData.length === 0) return null;
@@ -314,8 +384,59 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
       {/* Month-to-Month Comparison Section */}
       <MonthToMonthComparison comparisonData={comparisonData} />
 
+      {/* Monthly KPI Summary Strip */}
+      {hasAnyMonthData && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60 p-4 shadow-2xs transition-colors">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 mb-1">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>Приходи</span>
+            </div>
+            <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              +€{totalIncomeForMonth.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 dark:border-rose-900/60 p-4 shadow-2xs transition-colors">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 mb-1">
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Разходи</span>
+            </div>
+            <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              -€{totalExpense.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-purple-200/80 dark:border-purple-900/60 p-4 shadow-2xs transition-colors">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-purple-700 dark:text-purple-400 mb-1">
+              <PiggyBank className="w-3.5 h-3.5" />
+              <span>Спестявания</span>
+            </div>
+            <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              €{totalSavingsForMonth.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-blue-200/80 dark:border-blue-900/60 p-4 shadow-2xs transition-colors">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 mb-1">
+              <Scale className="w-3.5 h-3.5" />
+              <span>Нетен баланс</span>
+            </div>
+            <p
+              className={`text-xl font-bold tabular-nums ${
+                netBalanceForMonth >= 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-rose-600 dark:text-rose-400"
+              }`}
+            >
+              {netBalanceForMonth >= 0 ? "+" : ""}€{netBalanceForMonth.toFixed(2)}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
-      {!record ? (
+      {!hasAnyMonthData ? (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-12 text-center transition-colors">
           <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
             <Calendar className="w-8 h-8 text-slate-300 dark:text-slate-600" />
@@ -328,6 +449,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           </p>
         </div>
       ) : (
+        <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Chart Section */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center min-h-[350px] transition-colors">
@@ -434,11 +556,68 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
               <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 Общо разходи
               </span>
-              <span className="text-xl font-bold text-slate-800 dark:text-white">
+              <span className="text-xl font-bold text-slate-800 dark:text-white tabular-nums">
                 €{totalExpense.toFixed(2)}
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Income Breakdown Section */}
+        {incomeBreakdown.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 transition-colors">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                <Banknote className="w-4 h-4 text-emerald-500" />
+                Приходи по категории
+              </h3>
+              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                Общо: +€{totalIncomeForMonth.toFixed(2)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {incomeBreakdown.map((item, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-3 rounded-lg bg-slate-50/70 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                      style={{ backgroundColor: item.color }}
+                    >
+                      {item.name.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">
+                        {item.name}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <div className="w-16 h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${item.percentage}%`,
+                              backgroundColor: item.color,
+                            }}
+                          />
+                        </div>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+                          {item.percentage.toFixed(1)}% · {item.count}{" "}
+                          {item.count === 1 ? "запис" : "записа"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0 ml-2">
+                    +€{item.value.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         </div>
       )}
 

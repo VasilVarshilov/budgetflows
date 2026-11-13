@@ -35,6 +35,7 @@ export interface ExportReportData {
   netBalance: number; // Income - Expenses
   savingsRate: number; // (Savings / Income) * 100 or 0
   categoryBreakdown: CategorySummary[];
+  incomeCategoryBreakdown: CategorySummary[];
   monthlyBreakdown: MonthlyTrendItem[];
   recordCount: number;
   detailedRecords: {
@@ -193,29 +194,64 @@ export function aggregateExportData(params: {
   // 4. Compute Income & Savings from filteredSavings + record.incomes
   let incomeTotal = 0;
   let savingsTotal = 0; // Net added to savings
+  const seenIncomeIds = new Set<string>();
+  const incomeCategoryMap: Record<
+    string,
+    { amount: number; color?: string; count: number }
+  > = {};
+
+  const sCustomDate = periodType === "custom" ? new Date(customStartDate + "T00:00:00") : null;
+  const eCustomDate = periodType === "custom" ? new Date(customEndDate + "T23:59:59") : null;
 
   filteredSavings.forEach((tx) => {
     if (tx.type === "expense") {
       savingsTotal -= tx.amount;
     } else {
+      seenIncomeIds.add(tx.id);
       incomeTotal += tx.amount;
       savingsTotal += tx.amount;
+
+      const catName = tx.categoryName || "Спестявания / Приход";
+      if (!incomeCategoryMap[catName]) {
+        incomeCategoryMap[catName] = {
+          amount: 0,
+          color: tx.categoryColor ? getHexFromTailwindClass(tx.categoryColor) : "#10b981",
+          count: 0,
+        };
+      }
+      incomeCategoryMap[catName].amount += tx.amount;
+      incomeCategoryMap[catName].count += 1;
     }
   });
 
-  // Also check if any monthly records have explicit incomes
+  // Also include explicit monthly incomes from MonthlyRecord.incomes (Income Tab)
+  // Note: MonthlyRecord.incomes are income entries, NOT savings fund deposits.
   activeMonths.forEach(({ record }) => {
     if (record.incomes && Array.isArray(record.incomes)) {
       record.incomes.forEach((inc) => {
-        // If not already in filteredSavings (prevent double counting)
-        const exists = filteredSavings.some((s) => s.id === inc.id);
-        if (!exists) {
-          if (inc.type === "expense") {
-            savingsTotal -= inc.amount;
-          } else {
-            incomeTotal += inc.amount;
-            savingsTotal += inc.amount;
+        if (!inc || inc.amount <= 0) return;
+
+        if (periodType === "custom" && inc.date && sCustomDate && eCustomDate) {
+          const incDate = new Date(inc.date);
+          if (!isNaN(incDate.getTime()) && (incDate < sCustomDate || incDate > eCustomDate)) {
+            return;
           }
+        }
+
+        if (!seenIncomeIds.has(inc.id) && inc.type !== "expense") {
+          seenIncomeIds.add(inc.id);
+          incomeTotal += inc.amount;
+
+          const catName = inc.categoryName || "Други приходи";
+          if (!incomeCategoryMap[catName]) {
+            incomeCategoryMap[catName] = {
+              amount: 0,
+              color: inc.categoryColor ? getHexFromTailwindClass(inc.categoryColor) : "#10b981",
+              count: 0,
+            };
+          }
+          incomeCategoryMap[catName].amount += inc.amount;
+          incomeCategoryMap[catName].count += 1;
         }
       });
     }
@@ -345,6 +381,20 @@ export function aggregateExportData(params: {
     .filter((c) => c.amount > 0)
     .sort((a, b) => b.amount - a.amount);
 
+  const incomeCategoryBreakdown: CategorySummary[] = Object.entries(incomeCategoryMap)
+    .map(([name, data], idx) => ({
+      name,
+      amount: parseFloat(data.amount.toFixed(2)),
+      percentage:
+        incomeTotal > 0
+          ? parseFloat(((data.amount / incomeTotal) * 100).toFixed(1))
+          : 0,
+      color: data.color || DEFAULT_PALETTE[idx % DEFAULT_PALETTE.length],
+      count: data.count,
+    }))
+    .filter((c) => c.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
   // 6. Build Monthly Breakdown / Trend
   const monthlyBreakdown: MonthlyTrendItem[] = [];
 
@@ -375,17 +425,27 @@ export function aggregateExportData(params: {
       // Incomes & savings for this month
       let mInc = 0;
       let mSav = 0;
+      const seenMonthIncIds = new Set<string>();
       filteredSavings.forEach((tx) => {
         const d = new Date(tx.date);
         if (d.getFullYear() === targetY && d.getMonth() === mIdx) {
           if (tx.type === "expense") {
             mSav -= tx.amount;
           } else {
+            seenMonthIncIds.add(tx.id);
             mInc += tx.amount;
             mSav += tx.amount;
           }
         }
       });
+      if (recItem?.record.incomes && Array.isArray(recItem.record.incomes)) {
+        recItem.record.incomes.forEach((inc) => {
+          if (inc && inc.amount > 0 && inc.type !== "expense" && !seenMonthIncIds.has(inc.id)) {
+            seenMonthIncIds.add(inc.id);
+            mInc += inc.amount;
+          }
+        });
+      }
 
       monthlyBreakdown.push({
         monthKey,
@@ -412,23 +472,46 @@ export function aggregateExportData(params: {
           mExp += (leg.credit_eur || 0) + (leg.phone_eur || 0) + (leg.internet_eur || 0);
         }
         if (Array.isArray(exp.additional_expenses)) {
-          mExp += exp.additional_expenses.reduce((s, i) => s + i.amount, 0);
+          exp.additional_expenses.forEach((item) => {
+            if (periodType === "custom" && item.date && sCustomDate && eCustomDate) {
+              const itemDate = new Date(item.date);
+              if (itemDate < sCustomDate || itemDate > eCustomDate) return;
+            }
+            mExp += item.amount;
+          });
         }
       }
 
       let mInc = 0;
       let mSav = 0;
+      const seenMonthIncIds = new Set<string>();
       filteredSavings.forEach((tx) => {
         const d = new Date(tx.date);
         if (d.getFullYear() === m.year && d.getMonth() === m.monthIndex) {
           if (tx.type === "expense") {
             mSav -= tx.amount;
           } else {
+            seenMonthIncIds.add(tx.id);
             mInc += tx.amount;
             mSav += tx.amount;
           }
         }
       });
+      if (m.record.incomes && Array.isArray(m.record.incomes)) {
+        m.record.incomes.forEach((inc) => {
+          if (!inc || inc.amount <= 0 || inc.type === "expense") return;
+          if (periodType === "custom" && inc.date && sCustomDate && eCustomDate) {
+            const incDate = new Date(inc.date);
+            if (!isNaN(incDate.getTime()) && (incDate < sCustomDate || incDate > eCustomDate)) {
+              return;
+            }
+          }
+          if (!seenMonthIncIds.has(inc.id)) {
+            seenMonthIncIds.add(inc.id);
+            mInc += inc.amount;
+          }
+        });
+      }
 
       monthlyBreakdown.push({
         monthKey: m.key,
@@ -461,6 +544,7 @@ export function aggregateExportData(params: {
     netBalance: parseFloat(netBalance.toFixed(2)),
     savingsRate: parseFloat(savingsRate.toFixed(1)),
     categoryBreakdown,
+    incomeCategoryBreakdown,
     monthlyBreakdown,
     recordCount: activeMonths.length,
     detailedRecords: activeMonths,
@@ -551,6 +635,16 @@ export function exportTxtReport(data: ExportReportData): void {
       lines.push(`\n>>> МЕСЕЦ: ${key.toUpperCase()}`);
       const exp = record.expenses;
 
+      if (Array.isArray(record.incomes) && record.incomes.length > 0) {
+        lines.push("   [Приходи]:");
+        record.incomes.forEach((inc) => {
+          const catLabel = inc.categoryName || "Приход";
+          const noteText = inc.note ? ` (${inc.note})` : "";
+          const dateText = inc.date ? ` [${new Date(inc.date).toLocaleDateString("bg-BG")}]` : "";
+          lines.push(`     • ${(catLabel + noteText).padEnd(28)}: +€${inc.amount.toFixed(2)}${dateText}`);
+        });
+      }
+
       if (exp?.saved_em2_eur && exp.saved_em2_eur > 0) {
         lines.push(`   [Ток - Електроенергия] : €${exp.saved_em2_eur.toFixed(2)}`);
       }
@@ -570,6 +664,19 @@ export function exportTxtReport(data: ExportReportData): void {
           lines.push(`     • ${(item.categoryName + noteText).padEnd(28)}: €${item.amount.toFixed(2)}${dateText}`);
         });
       }
+    });
+    lines.push("");
+  }
+
+  if (data.incomeCategoryBreakdown.length > 0) {
+    lines.push("5. РАЗПРЕДЕЛЕНИЕ НА ПРИХОДИТЕ ПО КАТЕГОРИИ");
+    lines.push(subDivider);
+    data.incomeCategoryBreakdown.forEach((cat, index) => {
+      const idxStr = (index + 1).toString().padEnd(4);
+      const nameStr = cat.name.padEnd(28);
+      const amtStr = `+€${cat.amount.toFixed(2)}`.padEnd(14);
+      const pctStr = `${cat.percentage.toFixed(1)}%`.padEnd(10);
+      lines.push(` ${idxStr} ${nameStr} ${amtStr} ${pctStr}`);
     });
     lines.push("");
   }

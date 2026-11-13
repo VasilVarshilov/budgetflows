@@ -22,6 +22,10 @@ import {
   addCategoryToStorage,
   updateCategoryInStorage,
   deleteCategoryFromStorage,
+  loadStoredIncomeCategories,
+  addIncomeCategoryToStorage,
+  updateIncomeCategoryInStorage,
+  deleteIncomeCategoryFromStorage,
 } from "@/utils/categoryStorage";
 
 interface CategoryPickerProps {
@@ -30,6 +34,7 @@ interface CategoryPickerProps {
   onClose: () => void;
   onAddNewCategory?: (category: ExpenseCategory) => void;
   onCategoriesChanged?: (updatedCategories: ExpenseCategory[]) => void;
+  mode?: "expense" | "income";
 }
 
 export const CategoryPicker: React.FC<CategoryPickerProps> = ({
@@ -38,12 +43,16 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   onClose,
   onAddNewCategory,
   onCategoriesChanged,
+  mode = "expense",
 }) => {
+  const isIncomeMode = mode === "income";
+
   // Category list loaded from storage
   const [categories, setCategories] = useState<ExpenseCategory[]>(() => {
-    return propCategories && propCategories.length > 0
-      ? propCategories
-      : loadStoredCategories();
+    if (propCategories && propCategories.length > 0) {
+      return propCategories;
+    }
+    return isIncomeMode ? loadStoredIncomeCategories() : loadStoredCategories();
   });
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -60,10 +69,15 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   // AI-suggested icon & color based on current typing
   const aiSuggestion = useMemo(() => {
     if (!newCategoryName.trim()) {
-      return { iconName: "Tag", colorClass: "bg-indigo-100 text-indigo-600" };
+      return {
+        iconName: isIncomeMode ? "Wallet" : "Tag",
+        colorClass: isIncomeMode
+          ? "bg-emerald-100 text-emerald-600"
+          : "bg-indigo-100 text-indigo-600",
+      };
     }
     return getAiSuggestedIconAndColor(newCategoryName);
-  }, [newCategoryName]);
+  }, [newCategoryName, isIncomeMode]);
 
   const activeNewIcon = customIcon || aiSuggestion.iconName;
   const activeNewColor = customColor || aiSuggestion.colorClass;
@@ -105,14 +119,16 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
     if (!newCategoryName.trim()) return;
 
     const newCat: ExpenseCategory = {
-      id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `${isIncomeMode ? "inc_cat" : "custom"}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: newCategoryName.trim(),
       iconName: activeNewIcon,
       colorClass: activeNewColor,
       isCustom: true,
     };
 
-    const updated = addCategoryToStorage(newCat);
+    const updated = isIncomeMode
+      ? addIncomeCategoryToStorage(newCat)
+      : addCategoryToStorage(newCat);
     notifyChanges(updated);
 
     if (onAddNewCategory) {
@@ -144,11 +160,17 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   const handleSaveEdit = () => {
     if (!editingCategory || !editName.trim()) return;
 
-    const updated = updateCategoryInStorage(editingCategory.id, {
-      name: editName.trim(),
-      iconName: editIcon,
-      colorClass: editColor,
-    });
+    const updated = isIncomeMode
+      ? updateIncomeCategoryInStorage(editingCategory.id, {
+          name: editName.trim(),
+          iconName: editIcon,
+          colorClass: editColor,
+        })
+      : updateCategoryInStorage(editingCategory.id, {
+          name: editName.trim(),
+          iconName: editIcon,
+          colorClass: editColor,
+        });
 
     notifyChanges(updated);
     setEditingCategory(null);
@@ -158,7 +180,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   const handleConfirmDelete = () => {
     if (!categoryToDelete) return;
 
-    const updated = deleteCategoryFromStorage(categoryToDelete.id);
+    const updated = isIncomeMode
+      ? deleteIncomeCategoryFromStorage(categoryToDelete.id)
+      : deleteCategoryFromStorage(categoryToDelete.id);
     notifyChanges(updated);
     setCategoryToDelete(null);
   };

@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Award,
   Layers,
+  Banknote,
 } from "lucide-react";
 import { MonthlyRecord, IncomeItem } from "@/types";
 import {
@@ -32,7 +33,7 @@ interface AiAnalysisTabProps {
   onNavigateTab?: (tab: any) => void;
 }
 
-type FilterCategory = "all" | "spending" | "savings" | "electricity" | "trend" | "top";
+type FilterCategory = "all" | "income" | "spending" | "savings" | "electricity" | "trend" | "top";
 
 export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
   monthlyData,
@@ -97,6 +98,8 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
+      case "income":
+        return <Banknote className="w-5 h-5 text-emerald-600" />;
       case "spending":
         return <Wallet className="w-5 h-5 text-rose-600" />;
       case "savings":
@@ -237,6 +240,17 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>⭐ Топ препоръки ({analysis.topRecommendations.length})</span>
+          </button>
+
+          <button
+            onClick={() => setSelectedFilter("income")}
+            className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              selectedFilter === "income"
+                ? "bg-emerald-600 text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+            }`}
+          >
+            Приходи
           </button>
 
           <button

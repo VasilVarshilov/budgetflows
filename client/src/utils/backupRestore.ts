@@ -9,8 +9,10 @@ import {
   BudgetConfig,
   CategoriesStore,
   BackupData,
+  RecurringIncomeTemplate,
 } from "@/types";
 import { STORAGE_KEY_ELECTRICITY_HISTORY } from "./electricityStorage";
+import { STORAGE_KEY_RECURRING_INCOMES } from "./incomeStorage";
 
 // Storage Keys
 export const STORAGE_KEY_MONTHLY = "HomeBudget_Data";
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultPriceT1: "0.15458",
   defaultPriceT2: "0.09226",
   notificationReminder: true,
+  savingsTargetPercent: 20,
 };
 
 // Default Categories
@@ -54,11 +57,14 @@ export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [
 ];
 
 export const DEFAULT_INCOME_CATEGORIES: ExpenseCategory[] = [
-  { id: "salary", name: "Заплата", iconName: "Wallet", colorClass: "bg-emerald-100 text-emerald-600" },
+  { id: "salary", name: "Заплата", iconName: "Briefcase", colorClass: "bg-emerald-100 text-emerald-600" },
   { id: "bonus", name: "Бонус", iconName: "Sparkles", colorClass: "bg-amber-100 text-amber-600" },
-  { id: "freelance", name: "Допълнителни", iconName: "Laptop", colorClass: "bg-blue-100 text-blue-600" },
-  { id: "investments", name: "Дивиденти", iconName: "TrendingUp", colorClass: "bg-purple-100 text-purple-600" },
-  { id: "savings_deposit", name: "Спестяване", iconName: "PiggyBank", colorClass: "bg-cyan-100 text-cyan-600" },
+  { id: "freelance", name: "Фрийланс", iconName: "Laptop", colorClass: "bg-blue-100 text-blue-600" },
+  { id: "dividends", name: "Дивиденти", iconName: "TrendingUp", colorClass: "bg-purple-100 text-purple-600" },
+  { id: "rental", name: "Наем", iconName: "Home", colorClass: "bg-teal-100 text-teal-600" },
+  { id: "interest", name: "Лихви", iconName: "Landmark", colorClass: "bg-indigo-100 text-indigo-600" },
+  { id: "gift", name: "Подарък", iconName: "Gift", colorClass: "bg-pink-100 text-pink-500" },
+  { id: "refund", name: "Възстановяване", iconName: "RotateCcw", colorClass: "bg-cyan-100 text-cyan-600" },
   { id: "other_income", name: "Други", iconName: "Wallet", colorClass: "bg-slate-100 text-slate-600" },
 ];
 
@@ -123,6 +129,12 @@ export function gatherApplicationData(): BackupData {
   const settings = readStorageSafe<AppSettings>(
     STORAGE_KEY_SETTINGS,
     DEFAULT_SETTINGS
+  );
+
+  // 7. Recurring Incomes
+  const recurringIncomes = readStorageSafe<RecurringIncomeTemplate[]>(
+    STORAGE_KEY_RECURRING_INCOMES,
+    []
   );
 
   // Compute Income list (combines global savings of income type + any per-month explicit incomes)
@@ -190,6 +202,7 @@ export function gatherApplicationData(): BackupData {
         categories.expenseCategories.length +
         categories.incomeCategories.length,
       budgetsCount: budgets.length,
+      recurringIncomesCount: recurringIncomes.length,
       monthsCovered,
     },
     data: {
@@ -204,6 +217,7 @@ export function gatherApplicationData(): BackupData {
       categories,
       budgets,
       settings: updatedSettings,
+      recurringIncomes,
     },
   };
 }
@@ -335,7 +349,15 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
         ? { ...DEFAULT_SETTINGS, ...d.settings }
         : DEFAULT_SETTINGS;
 
+    // Normalize recurringIncomes
+    const recurringIncomes: RecurringIncomeTemplate[] = Array.isArray(
+      d.recurringIncomes
+    )
+      ? d.recurringIncomes
+      : [];
+
     let totalExpensesCount = 0;
+    let totalMonthlyIncomesCount = 0;
     Object.values(monthlyRecords).forEach((record: any) => {
       if (record?.expenses) {
         if (Array.isArray(record.expenses.fixed_expenses)) {
@@ -344,6 +366,9 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
         if (Array.isArray(record.expenses.additional_expenses)) {
           totalExpensesCount += record.expenses.additional_expenses.length;
         }
+      }
+      if (Array.isArray(record?.incomes)) {
+        totalMonthlyIncomesCount += record.incomes.length;
       }
     });
 
@@ -354,7 +379,10 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
       appName: parsed.appName || "BudgetFlows",
       exportDate: parsed.exportDate || new Date().toISOString(),
       summary: {
-        incomeCount: income.length || savings.filter((s: any) => s?.type === "income").length,
+        incomeCount:
+          income.length ||
+          totalMonthlyIncomesCount +
+            savings.filter((s: any) => s?.type === "income").length,
         expensesCount: totalExpensesCount,
         savingsCount: savings.length,
         electricityCount: electricityHistory.length,
@@ -362,6 +390,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
           categories.expenseCategories.length +
           categories.incomeCategories.length,
         budgetsCount: budgets.length,
+        recurringIncomesCount: recurringIncomes.length,
         monthsCovered,
       },
       data: {
@@ -376,6 +405,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
         categories,
         budgets,
         settings,
+        recurringIncomes,
       },
     };
 
@@ -521,6 +551,12 @@ export function applyBackup(
     localStorage.setItem(
       STORAGE_KEY_SETTINGS,
       JSON.stringify(incoming.settings || DEFAULT_SETTINGS)
+    );
+
+    // 8. Recurring Incomes
+    localStorage.setItem(
+      STORAGE_KEY_RECURRING_INCOMES,
+      JSON.stringify(incoming.recurringIncomes || [])
     );
 
     const monthCount = Object.keys(incoming.expenses.monthlyRecords || {}).length;
@@ -712,6 +748,31 @@ export function applyBackup(
     lastBackupDate: new Date().toISOString(),
   };
   localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(mergedSettings));
+
+  // 8. Merge Recurring Incomes
+  const currentRecurring = readStorageSafe<RecurringIncomeTemplate[]>(
+    STORAGE_KEY_RECURRING_INCOMES,
+    []
+  );
+  const recurringMap = new Map(currentRecurring.map((r) => [r.id, r]));
+  (incoming.recurringIncomes || []).forEach((r) => {
+    const existing = recurringMap.get(r.id);
+    if (!existing) {
+      recurringMap.set(r.id, r);
+    } else {
+      recurringMap.set(r.id, {
+        ...existing,
+        handledOccurrences: {
+          ...(r.handledOccurrences || {}),
+          ...(existing.handledOccurrences || {}),
+        },
+      });
+    }
+  });
+  localStorage.setItem(
+    STORAGE_KEY_RECURRING_INCOMES,
+    JSON.stringify(Array.from(recurringMap.values()))
+  );
 
   const totalMonths = Object.keys(mergedMonthly).length;
 

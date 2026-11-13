@@ -86,8 +86,31 @@ export interface ExpenseItem {
   budgetCategoryName?: string; // Display cache of the assigned budget category name
 }
 
+export type RecurrenceFrequency = 'monthly' | 'weekly' | 'yearly';
+
 export interface IncomeItem extends ExpenseItem {
-  type?: 'income' | 'expense'; // 'income' adds to savings, 'expense' subtracts
+  type?: 'income' | 'expense'; // 'income' adds to savings/income, 'expense' subtracts from savings
+  frequency?: RecurrenceFrequency;
+  recurringTemplateId?: string;
+}
+
+export interface RecurringIncomeTemplate {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  categoryIcon: string;
+  categoryColor: string;
+  amount: number;
+  note?: string;
+  frequency: RecurrenceFrequency;
+  dayOfMonth?: number; // 1-31 for monthly or yearly
+  monthOfYear?: number; // 0-11 for yearly
+  dayOfWeek?: number; // 0 (Sun) - 6 (Sat) for weekly
+  startDate: string; // YYYY-MM-DD
+  active: boolean;
+  createdAt: string;
+  /** Map of period occurrence key (YYYY-MM for monthly, YYYY-MM-DD for weekly, YYYY for yearly) -> 'confirmed' | 'skipped' */
+  handledOccurrences?: Record<string, 'confirmed' | 'skipped'>;
 }
 
 export interface MonthlyRecord {
@@ -130,6 +153,7 @@ export interface AppSettings {
   defaultPriceT2: string;
   lastBackupDate?: string;
   notificationReminder?: boolean;
+  savingsTargetPercent?: number; // e.g., 20 for 20% automatic savings suggestion
 }
 
 export interface BudgetConfig {
@@ -156,6 +180,7 @@ export interface BackupData {
     electricityCount: number;
     categoriesCount: number;
     budgetsCount: number;
+    recurringIncomesCount?: number;
     monthsCovered: string[];
   };
   data: {
@@ -170,5 +195,6 @@ export interface BackupData {
     categories: CategoriesStore;
     budgets: BudgetConfig[];
     settings: AppSettings;
+    recurringIncomes?: RecurringIncomeTemplate[];
   };
 }

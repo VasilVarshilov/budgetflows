@@ -1,8 +1,11 @@
-import { MonthlyRecord, IncomeItem, ExpenseItem, ElectricityRecord, BudgetConfig } from "@/types";
+import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 import { getStoredElectricityHistory } from "./electricityStorage";
 import { loadBudgets } from "./budgetStorage";
+import { computeMonthToMonthComparison, MONTHS_BG } from "./comparisonStorage";
+import { loadAppSettings } from "./incomeStorage";
 
 export type InsightType =
+  | "income"
   | "spending"
   | "savings"
   | "electricity"
@@ -15,7 +18,7 @@ export type InsightPriority = "high" | "medium" | "low" | "opportunity";
 export interface FinancialInsight {
   id: string;
   type: InsightType;
-  category: "spending" | "savings" | "electricity" | "trend";
+  category: "income" | "spending" | "savings" | "electricity" | "trend";
   priority: InsightPriority;
   title: string;
   description: string;
@@ -107,19 +110,29 @@ export function generateLocalFinancialAnalysis(
     }
   });
 
-  // Calculate total income
+  // Calculate total income (deduplicated across globalSavings & record.incomes)
   let totalIncome = 0;
-  globalSavings.forEach((tx) => {
-    if (tx.type !== "expense") {
-      totalIncome += tx.amount;
-    }
-  });
+  const seenIncomeIds = new Set<string>();
+  const incomesByCategory: Record<string, number> = {};
+
   allMonthlyRecords.forEach((r) => {
     if (r.incomes && Array.isArray(r.incomes)) {
       r.incomes.forEach((inc) => {
+        if (!inc || inc.amount <= 0 || inc.type === "expense" || seenIncomeIds.has(inc.id)) return;
+        seenIncomeIds.add(inc.id);
         totalIncome += inc.amount;
+        const cat = inc.categoryName || "Други приходи";
+        incomesByCategory[cat] = (incomesByCategory[cat] || 0) + inc.amount;
       });
     }
+  });
+
+  globalSavings.forEach((tx) => {
+    if (!tx || tx.amount <= 0 || tx.type === "expense" || seenIncomeIds.has(tx.id)) return;
+    seenIncomeIds.add(tx.id);
+    totalIncome += tx.amount;
+    const cat = tx.categoryName || "Спестявания / Приход";
+    incomesByCategory[cat] = (incomesByCategory[cat] || 0) + tx.amount;
   });
 
   // Calculate current savings balance
@@ -481,6 +494,103 @@ export function generateLocalFinancialAnalysis(
         metricValue: `€${surplus}/мес`,
       });
     }
+  }
+
+  // ----------------------------------------------------
+  // 6. INCOME TRENDS, DIVERSIFICATION & SAVINGS TARGET
+  // ----------------------------------------------------
+  const now = new Date();
+  const currentMonthName = MONTHS_BG[now.getMonth()];
+  const currentYear = now.getFullYear();
+  const momComparison = computeMonthToMonthComparison(
+    currentMonthName,
+    currentYear,
+    monthlyData,
+    globalSavings
+  );
+
+  if (
+    momComparison.income.previousValue > 0 &&
+    momComparison.income.currentValue > 0 &&
+    Math.abs(momComparison.income.percentageChange) >= 3
+  ) {
+    const isUp = momComparison.income.difference > 0;
+    insights.push({
+      id: "income_mom_trend",
+      type: "income",
+      category: "income",
+      priority: isUp ? "opportunity" : "medium",
+      title: isUp
+        ? `Приходите са нараснали с ${momComparison.income.formattedPercentage} спрямо миналия месец`
+        : `Понижение на приходите с ${momComparison.income.formattedPercentage} спрямо миналия месец`,
+      description: `За ${momComparison.currentMonthLabel} са отчетени €${momComparison.income.currentValue.toFixed(
+        2
+      )} приход спрямо €${momComparison.income.previousValue.toFixed(
+        2
+      )} за ${momComparison.previousMonthLabel}.`,
+      impact: isUp
+        ? `+€${momComparison.income.difference.toFixed(2)} повече ресурс`
+        : `-€${Math.abs(momComparison.income.difference).toFixed(2)} по-нисък приход`,
+      actionableTip: isUp
+        ? `Използвайте допълнителния приход за ускоряване на спестовната цел или погасяване на фиксирани задължения.`
+        : `При по-нисък месечен приход прегледайте променливите разходи, за да запазите положителния нетен баланс.`,
+      metricLabel: "Промяна (MoM)",
+      metricValue: momComparison.income.formattedPercentage,
+    });
+  }
+
+  const sortedIncomeCats = Object.entries(incomesByCategory).sort((a, b) => b[1] - a[1]);
+  const topIncomeCat = sortedIncomeCats[0];
+  if (topIncomeCat && totalIncome > 0) {
+    const sharePct = Math.round((topIncomeCat[1] / totalIncome) * 100);
+    insights.push({
+      id: "income_top_source",
+      type: "income",
+      category: "income",
+      priority: sharePct >= 85 && sortedIncomeCats.length === 1 ? "medium" : "low",
+      title: `Основен източник на доход: „${topIncomeCat[0]}“ (${sharePct}%)`,
+      description: `Категория „${topIncomeCat[0]}“ генерира €${topIncomeCat[1].toFixed(
+        2
+      )} или ${sharePct}% от общите анализирани приходи.`,
+      actionableTip:
+        sortedIncomeCats.length > 1
+          ? `Имате ${sortedIncomeCats.length} активни източника на приход — поддържането на допълнителни канали повишава финансовата устойчивост.`
+          : `Добавянето на вторичен източник на доход (фрийланс, дивидент или наем) намалява риска при промяна в основната заплата.`,
+      metricLabel: "Дял от приходите",
+      metricValue: `${sharePct}%`,
+    });
+  }
+
+  const { savingsTargetPercent = 20 } = loadAppSettings();
+  if (avgMonthlyIncome > 0) {
+    const targetSaveAmount = (avgMonthlyIncome * savingsTargetPercent) / 100;
+    const actualSavedAvg = Math.max(0, avgMonthlyIncome - avgMonthlyExpenses);
+    const meetsTarget = savingsRate >= savingsTargetPercent;
+
+    insights.push({
+      id: "income_savings_target_alignment",
+      type: "income",
+      category: "income",
+      priority: meetsTarget ? "low" : "opportunity",
+      title: meetsTarget
+        ? `Постигате целевото спестяване от ${savingsTargetPercent}%`
+        : `Препоръка за спестяване: €${targetSaveAmount.toFixed(0)}/мес (${savingsTargetPercent}%)`,
+      description: `При среден месечен доход €${avgMonthlyIncome.toFixed(
+        2
+      )} зададената цел от ${savingsTargetPercent}% изисква заделяне на €${targetSaveAmount.toFixed(
+        2
+      )} на месец (текущ нетен остатък: €${actualSavedAvg.toFixed(2)}).`,
+      impact: `Цел: €${targetSaveAmount.toFixed(2)}/мес`,
+      actionableTip: meetsTarget
+        ? `Запазете текущата дисциплина или увеличете процента на спестяване на таблото за по-бързо натрупване.`
+        : `Заделете €${targetSaveAmount.toFixed(
+            2
+          )} веднага при постъпване на дохода и планирайте месечните разходи с останалите €${(
+            avgMonthlyIncome - targetSaveAmount
+          ).toFixed(2)}.`,
+      metricLabel: `Цел ${savingsTargetPercent}%`,
+      metricValue: `€${targetSaveAmount.toFixed(0)}/мес`,
+    });
   }
 
   // Ensure we have top recommendations prioritized
