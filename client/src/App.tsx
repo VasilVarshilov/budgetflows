@@ -45,66 +45,99 @@ interface NavTabItem {
   id: Tab;
   label: string;
   shortLabel?: string;
+  description?: string;
   icon: React.ComponentType<{ className?: string }>;
   accentColor: string;
+  drawerActiveClass: string;
+  drawerIconClass: string;
 }
 
 const NAV_TABS: NavTabItem[] = [
   {
     id: "dashboard",
     label: "Табло",
+    description: "Обобщен преглед на финансите",
     icon: LayoutDashboard,
     accentColor: "text-indigo-600 dark:text-indigo-400",
+    drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
+    drawerIconClass: "bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300",
   },
   {
     id: "monthly",
     label: "Разходи",
+    description: "Фиксирани и променливи разходи",
     icon: Calendar,
     accentColor: "text-blue-600 dark:text-blue-400",
+    drawerActiveClass: "bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 font-bold border border-blue-200 dark:border-blue-900",
+    drawerIconClass: "bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300",
   },
   {
     id: "income",
     label: "Приходи",
+    description: "Месечни приходи и шаблони",
     icon: Banknote,
     accentColor: "text-emerald-600 dark:text-emerald-400",
+    drawerActiveClass: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900",
+    drawerIconClass: "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300",
   },
   {
     id: "savings",
     label: "Спестявания",
+    description: "Спестовен фонд и баланс",
     icon: PiggyBank,
     accentColor: "text-emerald-600 dark:text-emerald-400",
+    drawerActiveClass: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900",
+    drawerIconClass: "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300",
   },
   {
     id: "budgets",
     label: "Бюджет",
+    description: "Месечен бюджет и контрол на разходите",
     icon: Target,
     accentColor: "text-rose-600 dark:text-rose-400",
+    drawerActiveClass: "bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 font-bold border border-rose-200 dark:border-rose-900",
+    drawerIconClass: "bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-300",
   },
   {
     id: "reports",
     label: "Отчети",
+    description: "Месечни отчети и разпределение",
     icon: PieChart,
     accentColor: "text-purple-600 dark:text-purple-400",
+    drawerActiveClass: "bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-bold border border-purple-200 dark:border-purple-900",
+    drawerIconClass: "bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-300",
   },
   {
     id: "electricity",
     label: "ТОК",
+    description: "Калкулатор и история на тока",
     icon: Zap,
     accentColor: "text-amber-500 dark:text-amber-400",
+    drawerActiveClass: "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold border border-amber-200 dark:border-amber-900",
+    drawerIconClass: "bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-300",
   },
   {
     id: "ai-analysis",
     label: "AI Анализ",
+    description: "Автоматични финансови препоръки",
     icon: Sparkles,
     accentColor: "text-amber-500 dark:text-amber-400",
+    drawerActiveClass: "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold border border-amber-200 dark:border-amber-900",
+    drawerIconClass: "bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-300",
   },
   {
     id: "backup",
     label: "Архив",
+    description: "Облачен архив & Google Drive",
     icon: FolderArchive,
     accentColor: "text-slate-600 dark:text-slate-300",
+    drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
+    drawerIconClass: "bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300",
   },
 ];
+
+const MOBILE_PRIMARY_TABS = NAV_TABS.slice(0, 5);
+const MOBILE_MORE_TABS = NAV_TABS.slice(5);
 
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -593,113 +626,40 @@ const AppContent: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              {/* Savings */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab("savings");
-                  setIsMobileMoreOpen(false);
-                }}
-                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
-                  activeTab === "savings"
-                    ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900"
-                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 flex items-center justify-center shrink-0">
-                    <PiggyBank className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <span className="text-sm font-bold block">Спестявания</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      Спестовен фонд и баланс
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              {/* Budgets */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab("budgets");
-                  setIsMobileMoreOpen(false);
-                }}
-                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
-                  activeTab === "budgets"
-                    ? "bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 font-bold border border-rose-200 dark:border-rose-900"
-                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-300 flex items-center justify-center shrink-0">
-                    <Target className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <span className="text-sm font-bold block">Бюджети & Лимити</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      Месечен бюджет и контрол на разходите
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              {/* AI Analysis */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab("ai-analysis");
-                  setIsMobileMoreOpen(false);
-                }}
-                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
-                  activeTab === "ai-analysis"
-                    ? "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold border border-amber-200 dark:border-amber-900"
-                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-300 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <span className="text-sm font-bold block">AI Финансов Анализ</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      Автоматични финансови препоръки
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              {/* Cloud Backup & Drive */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab("backup");
-                  setIsMobileMoreOpen(false);
-                }}
-                className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
-                  activeTab === "backup"
-                    ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900"
-                    : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0">
-                    <FolderArchive className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <span className="text-sm font-bold block">Облачен архив & Google Drive</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      Синхронизация, бекъп и възстановяване
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
+              {MOBILE_MORE_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      setIsMobileMoreOpen(false);
+                    }}
+                    className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
+                      isActive
+                        ? tab.drawerActiveClass
+                        : "hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${tab.drawerIconClass}`}>
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="text-left">
+                        <span className="text-sm font-bold block">{tab.label}</span>
+                        {tab.description && (
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {tab.description}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -711,101 +671,37 @@ const AppContent: React.FC = () => {
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg"
       >
         <div className="grid grid-cols-6 items-center h-16 px-1">
-          {/* 1. Dashboard */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("dashboard");
-              setIsMobileMoreOpen(false);
-            }}
-            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
-              activeTab === "dashboard"
-                ? "text-indigo-600 dark:text-indigo-400 font-bold scale-105"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            <LayoutDashboard className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">Табло</span>
-          </button>
-
-          {/* 2. Expenses */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("monthly");
-              setIsMobileMoreOpen(false);
-            }}
-            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
-              activeTab === "monthly"
-                ? "text-blue-600 dark:text-blue-400 font-bold scale-105"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            <Calendar className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">Разходи</span>
-          </button>
-
-          {/* 3. Income */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("income");
-              setIsMobileMoreOpen(false);
-            }}
-            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
-              activeTab === "income"
-                ? "text-emerald-600 dark:text-emerald-400 font-bold scale-105"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            <Banknote className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">Приходи</span>
-          </button>
-
-          {/* 4. Electricity */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("electricity");
-              setIsMobileMoreOpen(false);
-            }}
-            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
-              activeTab === "electricity"
-                ? "text-amber-500 dark:text-amber-400 font-bold scale-105"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            <Zap className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">ТОК</span>
-          </button>
-
-          {/* 5. Reports */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("reports");
-              setIsMobileMoreOpen(false);
-            }}
-            className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
-              activeTab === "reports"
-                ? "text-purple-600 dark:text-purple-400 font-bold scale-105"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            <PieChart className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">Отчети</span>
-          </button>
+          {MOBILE_PRIMARY_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  isActive
+                    ? `${tab.accentColor} font-bold scale-105`
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <Icon className="w-5 h-5 mb-0.5" />
+                <span className="text-[10px] tracking-tight truncate max-w-full px-0.5">
+                  {tab.shortLabel || tab.label}
+                </span>
+              </button>
+            );
+          })}
 
           {/* 6. More */}
           <button
             type="button"
             onClick={() => setIsMobileMoreOpen((prev) => !prev)}
             className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
-              activeTab === "savings" ||
-              activeTab === "budgets" ||
-              activeTab === "ai-analysis" ||
-              activeTab === "backup" ||
-              isMobileMoreOpen
+              MOBILE_MORE_TABS.some((tab) => tab.id === activeTab) || isMobileMoreOpen
                 ? "text-indigo-600 dark:text-indigo-400 font-bold scale-105"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
