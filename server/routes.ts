@@ -151,23 +151,23 @@ export async function registerRoutes(
 
       const promptText = `Analyze this receipt (primarily Bulgarian fiscal receipts in Cyrillic/Latin, or English receipts). Return ONLY a valid JSON object matching this exact schema:
 {
-  "merchantName": "Clean Store/Brand Name (e.g. Kaufland, Lidl, Billa, Fantastico, OMV, Shell, Happy, Lilly, Sopharmacy)",
-  "date": "YYYY-MM-DD",
+  "merchantName": "Clean Store/Brand Name (e.g. Kaufland, Lidl, Billa, Fantastico, T Market, Metro, OMV, Shell, Happy, Lilly, Sopharmacy)",
+  "date": "YYYY-MM-DD or empty string if unreadable",
   "totalAmount": 12.34,
-  "currency": "лв. or € or $",
+  "currency": "€",
   "suggestedCategory": "One of: храна, ресторант, гориво, кино, козметика, аптека, кола, дрехи, фризьор, домашни любимци, почистване, други",
   "items": [
-    { "name": "Readable Item Name", "price": 1.23, "quantity": 1 }
+    { "name": "Readable Item Name", "price": 4.80, "quantity": 2 }
   ],
-  "notesFormatted": "Хляб бял - 2.39 лв.\\nПрясно мляко - 3.49 лв."
+  "notesFormatted": "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"
 }
 Important rules for Bulgarian & international receipts:
 - "merchantName": Extract the store/restaurant/company name. IGNORE EIK/BULSTAT (ЕИК, БУЛСТАТ), VAT numbers (BG...), fiscal device IDs (ФУ, ФП, УНП, КАСА), and street addresses (гр., ул., бул.).
-- "date": Extract the actual transaction date (formats like 14.11.2026, 14/11/2026, 14-11-2026, 2026-11-14) and format strictly as YYYY-MM-DD. Ignore receipt/fiscal numbers.
-- "totalAmount": MUST be the final amount paid (ОБЩО, ОБЩА СУМА, КРАЙНА СУМА, ЗА ПЛАЩАНЕ, СУМА ЗА ПЛАЩАНЕ, TOTAL, GRAND TOTAL). NEVER pick VAT (ДДС), discount (ОТСТЪПКА), subtotal (МЕЖДИННА СУМА), or change (РЕСТО).
-- "currency": Use "лв." when receipt is in BGN/лв./лева, or "€" when in EUR/€.
-- "items": Extract every purchased product/service with its line total price. Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, ОТСТЪПКА, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items. Format item names cleanly (not ALL-CAPS if readable in Sentence case).
-- "notesFormatted": Multi-line list, one item per line formatted as "<Item Name> - <price> <currency>" (e.g. "Хляб - 2.39 лв."). Never put all items on a single line.
+- "date": Extract ONLY the transaction date printed on the receipt (e.g. 14.11.2026, 14/11/2026, 14-11-2026, 2026-11-14) and format strictly as YYYY-MM-DD. NEVER guess or substitute today's date if no date is visible — return "" when unreadable. Ignore receipt/fiscal numbers.
+- "totalAmount": MUST be the final amount paid in the receipt's primary currency (ОБЩО, ОБЩА СУМА, КРАЙНА СУМА, ЗА ПЛАЩАНЕ, СУМА ЗА ПЛАЩАНЕ, TOTAL, GRAND TOTAL). NEVER pick VAT (ДДС), discount (ОТСТЪПКА), subtotal (МЕЖДИННА СУМА), or change (РЕСТО).
+- "currency": Bulgaria uses the Euro (€, EUR). Prefer "€" whenever € or EUR appears (including dual-display receipts). Do NOT assume BGN and NEVER convert currencies — use the exact printed price values. Only return "лв." if the receipt is exclusively in BGN/лв. with no € or EUR values, or "$" / "£" if explicitly shown.
+- "items": Extract EVERY purchased product/service in order without dropping or merging items. Preserve Bulgarian Cyrillic names accurately (e.g. ХЛЯБ БЯЛ, ПРЯСНО МЛЯКО, СИРЕНЕ). Extract exact quantity as integer ("quantity": 2 for "2 x Coca Cola" or "2 бр. Вода"; default 1) and line total price ("price"). Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, ОТСТЪПКА, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
+- "notesFormatted": Multi-line list, one item per line strictly formatted as "<quantity> x <Item Name> - <currency><price>" (e.g. "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"). Never put all items on a single line.
 - "suggestedCategory": Lidl/Kaufland/Billa/Fantastico/T Market/Metro -> "храна"; Shell/OMV/Lukoil/Eko/Rompetrol -> "гориво"; Happy/Raffy/KFC/McDonald's -> "ресторант"; Cinema City/Kino Arena -> "кино"; Lilly/DM -> "козметика"; Sopharmacy/Subra -> "аптека".
 - Raw OCR text hint (may contain Cyrillic/Latin OCR artifacts): ${ocrText ? JSON.stringify(ocrText.slice(0, 2500)) : "None"}
 - Return ONLY pure JSON, no markdown code blocks.`;

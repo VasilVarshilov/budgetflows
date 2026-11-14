@@ -168,10 +168,11 @@ async function prepareReceiptImageWithTimeout(
               ocrCtx.drawImage(canvas, 0, 0);
               const imgData = ocrCtx.getImageData(0, 0, width, height);
               const data = imgData.data;
-              const contrast = 1.35;
+              // Gentle luminance grayscale + slight highlight boost preserves faded thermal paper without crushing shadowed areas
+              const contrast = 1.12;
               for (let p = 0; p < data.length; p += 4) {
                 const gray = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-                const enhanced = Math.min(255, Math.max(0, (gray - 128) * contrast + 132));
+                const enhanced = Math.min(255, Math.max(0, (gray - 128) * contrast + 136));
                 data[p] = enhanced;
                 data[p + 1] = enhanced;
                 data[p + 2] = enhanced;
@@ -449,7 +450,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   // Review Form State
   const [amount, setAmount] = useState<string>("");
-  const [receiptCurrency, setReceiptCurrency] = useState<string>("лв.");
+  const [receiptCurrency, setReceiptCurrency] = useState<string>("€");
   const [date, setDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState<string>("");
   const [merchantName, setMerchantName] = useState<string>("");
@@ -471,10 +472,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     return categories[0] ? findMatchingBudgetCategoryId(categories[0].id, categories[0].name, loaded) : "";
   });
 
-  // Confidence Check Details
+  // Confidence Check Details & Date Diagnostics
   const [detectedTotal, setDetectedTotal] = useState<number>(0);
   const [detectedMerchant, setDetectedMerchant] = useState<string>("");
   const [detectedDate, setDetectedDate] = useState<string>("");
+  const [ocrDetectedDate, setOcrDetectedDate] = useState<string | null>(null);
+  const [dateFallbackReason, setDateFallbackReason] = useState<string | null>(null);
   const [detectedItemsCount, setDetectedItemsCount] = useState<number>(0);
   const [aiSourceBadge, setAiSourceBadge] = useState<string>("OCR Engine");
 
@@ -528,7 +531,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setIsZoomed(false);
     setErrorMessage(null);
     setAmount("");
-    setReceiptCurrency("лв.");
+    setReceiptCurrency("€");
     setNotes("");
     setMerchantName("");
     setReceiptItems([]);
@@ -541,6 +544,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDetectedTotal(0);
     setDetectedMerchant("");
     setDetectedDate("");
+    setOcrDetectedDate(null);
+    setDateFallbackReason(null);
     setDetectedItemsCount(0);
     setScanElapsedSeconds(0);
     onClose();
@@ -620,7 +625,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       }
 
       // Regenerate clean multi-line notes using ONLY selected items in detected currency
-      const activeCurrency = currencyOverride || receiptCurrency || "лв.";
+      const activeCurrency = currencyOverride || receiptCurrency || "€";
       const generatedNotes = formatReceiptNotes(selectedItems, activeCurrency);
       setNotes(generatedNotes);
       setErrorMessage(null);
@@ -689,7 +694,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     ocrImageUrl?: string;
   }) => {
     setStep("scanning");
-    setScanStatusMessage("1/3 Оптимизиране на изображението за кирилица...");
+    setScanStatusMessage("1/3 Оптимизиране на изображението за кирилица (bul+eng)...");
     let ocrRawText = "";
     try {
       const ocrResult = await runClientOcr(
@@ -697,47 +702,59 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         (percent, status) => {
           setScanStatusMessage(`2/3 OCR разпознаване (${percent}%): ${status}`);
         },
-        22000 // 22s timeout allows loading bul+eng traineddata reliably
+        45000 // 45s timeout allows cold-downloading bul.traineddata.gz + eng.traineddata.gz reliably
       );
       ocrRawText = ocrResult.text;
       addDebugLog(
         "ocr_text",
         `OCR [${ocrResult.languagesUsed}] (${ocrResult.durationMs}ms, точност ${ocrResult.confidence.toFixed(0)}%, ${ocrRawText.length} символа):\n` +
-          ocrRawText.slice(0, 500)
+          ocrRawText.slice(0, 600)
       );
     } catch (ocrErr: any) {
       addDebugLog("error", `Локалното OCR отне твърде много време или се провали: ${ocrErr?.message}`);
     }
 
-    // 3. Deterministic Local Parsing (Bulgarian-first)
+    // 3. Deterministic Local Parsing (Bulgarian-first + Euro-first)
     const localParsed: ParsedReceiptData = parseReceiptTextLocally(ocrRawText);
-    const localCurrency = localParsed.currency || "лв.";
+    const localCurrency = localParsed.currency || "€";
     setReceiptCurrency(localCurrency);
+
+    const ocrDateValue = localParsed.dateDetected ? localParsed.date : null;
+    setOcrDetectedDate(ocrDateValue);
+    setDateFallbackReason(localParsed.dateDetected ? null : localParsed.dateFallbackReason || "Не е открита валидна дата в OCR текста.");
 
     addDebugLog(
       "parsed_merchant",
-      `Разпознат търговец: "${localParsed.merchantName}" (${localParsed.merchantRule || "—"})`
+      `OCR detected merchant: "${localParsed.merchantName}" (${localParsed.merchantRule || "—"})`
     );
     addDebugLog(
       "parsed_date",
-      `Разпозната дата: "${localParsed.date}" (${localParsed.dateRule || "—"})`
+      localParsed.dateDetected
+        ? `OCR detected date: "${localParsed.date}" (${localParsed.dateRule || "—"}) | Final saved date: "${localParsed.date}"`
+        : `OCR detected date: НЕ Е ОТКРИТА | Fallback date: "${localParsed.date}" | Reason for fallback: ${localParsed.dateFallbackReason || "Липсва дата в OCR текста"}`
     );
     addDebugLog(
       "parsed_total",
-      `Разпозната обща сума: ${localParsed.totalAmount.toFixed(2)} ${localCurrency} (Увереност: ${localParsed.confidence}, Правило: ${localParsed.matchedRule || "—"})`
+      `OCR detected total: ${localParsed.totalAmount.toFixed(2)} ${localCurrency} (Увереност: ${localParsed.confidence}, Правило: ${localParsed.matchedRule || "—"})`
     );
     addDebugLog(
       "parsed_items",
-      `Разпознати артикули (${localParsed.items.length}): ${
+      `OCR detected quantities & items (${localParsed.items.length}): ${
         localParsed.items.length > 0
-          ? localParsed.items.map((it) => `${it.name} (${it.price.toFixed(2)} ${localCurrency})`).join(", ")
+          ? localParsed.items
+              .map((it) => `${it.quantity || 1} x ${it.name} - ${localCurrency === "€" ? `€${it.price.toFixed(2)}` : `${it.price.toFixed(2)} ${localCurrency}`}`)
+              .join(" | ")
           : "няма открити редове"
       }`,
       localParsed.items
     );
 
     // Initial baseline state populated from OCR-first results
-    const initialItems = localParsed.items || [];
+    const initialItems: ReceiptItemDetail[] = (localParsed.items || []).map((it) => ({
+      name: it.name,
+      price: it.price,
+      quantity: it.quantity && it.quantity >= 1 ? it.quantity : 1,
+    }));
     setMerchantName(localParsed.merchantName);
     setAmount(localParsed.totalAmount > 0 ? localParsed.totalAmount.toFixed(2) : "");
     setDate(localParsed.date);
@@ -767,7 +784,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setSelectedBudgetCategoryId(matchingBudgetId);
     }
 
-    // 4. Gemini AI Enrichment (Optional improvement - never blocks expense creation)
+    // 4. Gemini AI Enrichment (Optional improvement - never overwrites valid OCR date)
     setScanStatusMessage("3/3 Интелигентен AI анализ с Gemini...");
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -796,7 +813,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
         if (json.success && json.data) {
           const gData = json.data;
-          const resolvedCurrency = gData.currency || localCurrency || "лв.";
+          // Bulgaria uses Euro (€) - do not let AI flip an explicitly detected Euro receipt back to BGN
+          const hasExplicitEuroInOcr = /€|\bEUR\b|\bЕУР\b/i.test(ocrRawText);
+          const resolvedCurrency =
+            hasExplicitEuroInOcr && gData.currency === "лв."
+              ? "€"
+              : gData.currency || localCurrency || "€";
           setReceiptCurrency(resolvedCurrency);
 
           let finalTotal = localParsed.totalAmount;
@@ -827,37 +849,60 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             addDebugLog("parsed_merchant", `Gemini търговец: "${gData.merchantName}"`);
           }
 
-          // Date
-          if (gData.date && /^\d{4}-\d{2}-\d{2}$/.test(gData.date)) {
-            setDate(gData.date);
-            setDetectedDate(gData.date);
-            addDebugLog("parsed_date", `Gemini дата: "${gData.date}"`);
+          // Date Priority: 1. OCR detected date -> 2. AI analysis date -> 3. User correction -> 4. Today fallback
+          const isValidGeminiDate =
+            typeof gData.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(gData.date.trim());
+          if (localParsed.dateDetected) {
+            addDebugLog(
+              "parsed_date",
+              `Запазена дата от OCR: "${localParsed.date}" (Приоритет 1: OCR датата не се презаписва от AI${isValidGeminiDate && gData.date !== localParsed.date ? `, AI предложи "${gData.date}"` : ""})`
+            );
+          } else if (isValidGeminiDate) {
+            const aiDate = gData.date.trim();
+            setDate(aiDate);
+            setDetectedDate(aiDate);
+            setDateFallbackReason(null);
+            setWarnings((prev) => prev.filter((w) => !w.includes("Не е открита дата")));
+            addDebugLog("parsed_date", `AI (Gemini) detected date: "${aiDate}" | Final date: "${aiDate}"`);
+          } else {
+            addDebugLog(
+              "parsed_date",
+              `Нито OCR, нито AI откриха валидна дата. Final fallback date: "${localParsed.date}" | Reason: ${localParsed.dateFallbackReason || "Липсва четима дата на бележката"}`
+            );
           }
 
-          // Formatted Notes & Items count & structured items
-          const resolvedItems: ReceiptItemDetail[] =
-            gData.items && gData.items.length > 0
+          // Structured items with normalized quantities >= 1
+          const rawResolvedItems =
+            gData.items && Array.isArray(gData.items) && gData.items.length > 0
               ? gData.items
               : localParsed.items && localParsed.items.length > 0
               ? localParsed.items
               : [];
+
+          const resolvedItems: ReceiptItemDetail[] = rawResolvedItems
+            .filter((it: any) => it && typeof it.name === "string" && it.name.trim() && Number(it.price) > 0)
+            .map((it: any) => ({
+              name: it.name.trim(),
+              price: Number(it.price),
+              quantity:
+                typeof it.quantity === "number" && Number.isFinite(it.quantity) && it.quantity >= 1
+                  ? Math.round(it.quantity)
+                  : 1,
+            }));
 
           setReceiptItems(resolvedItems);
           setSelectedItemIndices(new Set(resolvedItems.map((_, idx) => idx)));
           setDetectedItemsCount(resolvedItems.length);
           addDebugLog(
             "parsed_items",
-            `Финални артикули (${resolvedItems.length}): ${resolvedItems.map((it) => `${it.name} (${it.price.toFixed(2)})`).join(", ")}`,
+            `Финални артикули и количества (${resolvedItems.length}): ${resolvedItems
+              .map((it) => `${it.quantity || 1} x ${it.name} - ${it.price.toFixed(2)}`)
+              .join(" | ")}`,
             resolvedItems
           );
 
           if (resolvedItems.length > 0) {
-            // Always prefer consistent multi-line format or Gemini formatted notes if multiline
-            if (gData.notesFormatted && gData.notesFormatted.includes("\n")) {
-              setNotes(gData.notesFormatted.trim());
-            } else {
-              setNotes(formatReceiptNotes(resolvedItems, resolvedCurrency));
-            }
+            setNotes(formatReceiptNotes(resolvedItems, resolvedCurrency));
           } else if (gData.notesFormatted && gData.notesFormatted.trim().length > 3) {
             setNotes(gData.notesFormatted.trim());
           } else if (localParsed.notesFormatted) {
@@ -976,15 +1021,24 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       return;
     }
 
-    // Determine structured items using ONLY selected items (or edited notes)
-    let finalItems = selectedItemsList;
+    // Determine structured items using ONLY selected items (or edited notes), preserving quantities
+    let finalItems: ReceiptItemDetail[] = selectedItemsList.map((it) => ({
+      name: it.name,
+      price: it.price,
+      quantity: it.quantity && it.quantity >= 1 ? it.quantity : 1,
+    }));
     if (notes.trim()) {
       const parsedFromNotes = parseExpenseNote(notes, merchantName);
       if (parsedFromNotes.items && parsedFromNotes.items.length > 0) {
-        finalItems = parsedFromNotes.items;
+        finalItems = parsedFromNotes.items.map((it, idx) => ({
+          name: it.name,
+          price: it.price,
+          quantity:
+            it.quantity && it.quantity >= 1
+              ? it.quantity
+              : selectedItemsList[idx]?.quantity || 1,
+        }));
       }
-    } else if (receiptItems.length > 0) {
-      finalItems = selectedItemsList;
     }
 
     const cleanMerchant =
@@ -996,6 +1050,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       (b) => b.id === selectedBudgetCategoryId
     );
 
+    const savedDateStr = date || new Date().toISOString().split("T")[0];
     const newExpense: ExpenseItem = {
       id: Date.now().toString(),
       categoryId: selectedCategory.id,
@@ -1012,13 +1067,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           ? `${cleanMerchant}\n${notes.trim()}`
           : notes.trim()
         : cleanMerchant || undefined,
-      date: date ? `${date}T12:00:00.000Z` : new Date().toISOString(),
+      date: `${savedDateStr}T12:00:00.000Z`,
       isRecurring: false,
     };
 
     addDebugLog(
       "expense",
-      `Разходът е записан успешно: ${newExpense.categoryName} €${newExpense.amount} (${finalItems.length} избрани артикула)`,
+      `Записан разход: ${newExpense.categoryName} | Обект: "${cleanMerchant || "—"}" | Сума: €${newExpense.amount.toFixed(2)} | OCR дата: ${ocrDetectedDate || "неоткрита"} | Крайна дата: ${savedDateStr}${dateFallbackReason ? ` (Fallback: ${dateFallbackReason})` : ""} | Артикули: ${finalItems.map((i) => `${i.quantity || 1} x ${i.name}`).join(", ")}`,
       newExpense
     );
     onExpenseCreated(newExpense);
@@ -1346,8 +1401,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Дата</span>
                     <span className="font-bold text-slate-900 dark:text-white block">
-                      {detectedDate || date || "—"}
+                      {date || detectedDate || "—"}
                     </span>
+                    {ocrDetectedDate ? (
+                      <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-medium">
+                        OCR: {ocrDetectedDate}
+                      </span>
+                    ) : dateFallbackReason ? (
+                      <span className="text-[10px] text-amber-700 dark:text-amber-300 block font-medium truncate" title={dateFallbackReason}>
+                        Резервна (днес)
+                      </span>
+                    ) : null}
                   </div>
                   <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Категория</span>
@@ -1527,7 +1591,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                       !isChecked ? "line-through" : ""
                                     }`}
                                   >
-                                    {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ""}
+                                    {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
                                     {item.name}
                                   </span>
                                 </div>
@@ -1692,7 +1756,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         setNotes(e.target.value);
                         adjustNotesHeight();
                       }}
-                      placeholder={"Хляб бял - 2.39 лв.\nПрясно мляко - 3.49 лв.\nСалата Шопска - 7.90 лв."}
+                      placeholder={"2 x Coca Cola - €4.80\n1 x Water - €1.20\n1 x Chips - €3.50"}
                       className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono leading-relaxed placeholder:text-slate-500 dark:placeholder:text-slate-400 resize-none overflow-hidden transition-[height] shadow-2xs"
                     />
                   </div>

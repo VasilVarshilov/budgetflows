@@ -28,12 +28,28 @@ function parsePriceAndCurrency(str: string): { price: number; currency?: string 
   return { price, currency };
 }
 
+function splitQuantityAndName(rawName: string): { name: string; quantity?: number } {
+  const cleaned = rawName.replace(/^[•\-*\s]+/, "").trim();
+  const qtyMatch =
+    cleaned.match(/^(\d+)\s*(?:(?:бр\.?|pcs)\s*[xхХX*×]?|[xхХX*×])\s+(.+)$/i) ||
+    cleaned.match(/^(\d+)\s*[xхХX*×]\s*(.+)$/i);
+  if (qtyMatch) {
+    const qty = parseInt(qtyMatch[1], 10);
+    const name = qtyMatch[2].trim();
+    if (qty >= 1 && qty <= 999 && name.length >= 1) {
+      return { name, quantity: qty };
+    }
+  }
+  return { name: cleaned };
+}
+
 /**
  * Parses an expense note into structured merchant name and items.
  * Supports:
- * 1. Pre-structured multiline notes (e.g. "HARBOR LANE CAFE\nBeer €5.00\nSoup €7.00")
- * 2. Legacy run-on single-line notes (e.g. "HARBOR LANE CAFE Tacos Del Mal Shrimp $14.98 Especial Salad Chicken $12.50 Fountain Beverage $1.99")
- * 3. Standard user text notes (e.g. "Обяд с колеги")
+ * 1. Pre-structured multiline notes (e.g. "Lidl\n2 x Coca Cola - €4.80\n1 x Water - €1.20")
+ * 2. Single-line formatted receipt item (e.g. "2 x Coca Cola - €4.80")
+ * 3. Legacy run-on single-line notes (e.g. "HARBOR LANE CAFE Tacos Del Mal Shrimp $14.98 Especial Salad Chicken $12.50")
+ * 4. Standard user text notes (e.g. "Обяд с колеги")
  */
 export function parseExpenseNote(
   note?: string,
@@ -62,8 +78,11 @@ export function parseExpenseNote(
   const trimmed = note.trim();
   let detectedCurrency = "€";
 
-  // 1. Check if note has line breaks: "Merchant\nItem 1 €5.00\nItem 2 €7.00"
-  if (trimmed.includes("\n")) {
+  // 1. Check if note has line breaks OR is a single formatted item line like "2 x Coca Cola - €4.80"
+  const looksLikeFormattedSingleLine =
+    /^[•\-*\s]*.+?\s+[-—:=]\s+[$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?$/i.test(trimmed);
+
+  if (trimmed.includes("\n") || looksLikeFormattedSingleLine) {
     const lines = trimmed
       .split("\n")
       .map((l) => l.trim())
@@ -73,7 +92,7 @@ export function parseExpenseNote(
 
     let startIndex = 0;
     // If first line doesn't look like an item with a price, treat it as the merchant name
-    if (!/(\d+[.,]\d{2})\b/.test(lines[0])) {
+    if (lines.length > 1 && !/(\d+[.,]\d{2})\b/.test(lines[0])) {
       merchant = lines[0].replace(/^[•\-*\s]+/, "").trim();
       startIndex = 1;
     }
@@ -81,28 +100,36 @@ export function parseExpenseNote(
     for (let i = startIndex; i < lines.length; i++) {
       const line = lines[i];
       // Regex matching: name ... separator ... price
-      // e.g. "• Tacos Del Mar Shrimp - $14.98" or "Beer ........ 5.00" or "Salad €8.50"
+      // e.g. "2 x Coca Cola - €4.80", "1 x Хляб бял - €1.20", "Beer €5.00"
       const match = line.match(
-        /^[•\-*\s]*(.+?)\s*(?:[-—:=]|\.{2,}|\s{2,}|\s+)\s*([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.)?)$/i
+        /^[•\-*\s]*(.+?)\s*(?:[-—:=]|\.{2,}|\s{2,}|\s+)\s*([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)$/i
       );
 
       if (match) {
-        const name = match[1].replace(/^[•\-*\s]+/, "").trim();
+        const parsedName = splitQuantityAndName(match[1]);
         const priceInfo = parsePriceAndCurrency(match[2]);
-        if (name && !isNaN(priceInfo.price) && priceInfo.price > 0) {
-          items.push({ name, price: priceInfo.price });
+        if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price > 0) {
+          items.push({
+            name: parsedName.name,
+            price: priceInfo.price,
+            ...(parsedName.quantity ? { quantity: parsedName.quantity } : {}),
+          });
           if (priceInfo.currency) detectedCurrency = priceInfo.currency;
         }
       } else {
         // Loose fallback: look for last price in line
         const looseMatch = line.match(
-          /^[•\-*\s]*(.+?)\s+([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.)?)$/i
+          /^[•\-*\s]*(.+?)\s+([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)$/i
         );
         if (looseMatch) {
-          const name = looseMatch[1].replace(/^[•\-*\s]+/, "").trim();
+          const parsedName = splitQuantityAndName(looseMatch[1]);
           const priceInfo = parsePriceAndCurrency(looseMatch[2]);
-          if (name && !isNaN(priceInfo.price) && priceInfo.price > 0) {
-            items.push({ name, price: priceInfo.price });
+          if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price > 0) {
+            items.push({
+              name: parsedName.name,
+              price: priceInfo.price,
+              ...(parsedName.quantity ? { quantity: parsedName.quantity } : {}),
+            });
             if (priceInfo.currency) detectedCurrency = priceInfo.currency;
           }
         }
@@ -123,7 +150,7 @@ export function parseExpenseNote(
   // 2. Backwards compatibility for single-line run-on string:
   // e.g. "HARBOR LANE CAFE Tacos Del Mal Shrimp $14.98 Especial Salad Chicken $12.50 Fountain Beverage $1.99"
   // Match all price occurrences: "$14.98", "€12.50", "1.99", etc.
-  const priceRegex = /([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.)?)\b/gi;
+  const priceRegex = /([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)\b/gi;
   const matches: { index: number; length: number; priceStr: string; price: number; currency: string }[] = [];
   let m: RegExpExecArray | null;
 
@@ -173,14 +200,29 @@ export function parseExpenseNote(
             merchant = words.slice(0, capCount).join(" ");
             const itemName = words.slice(capCount).join(" ").trim();
             if (itemName) {
-              items.push({ name: itemName, price: match.price });
+              const parsed = splitQuantityAndName(itemName);
+              items.push({
+                name: parsed.name,
+                price: match.price,
+                ...(parsed.quantity ? { quantity: parsed.quantity } : {}),
+              });
             }
             continue;
           }
         }
-        items.push({ name: chunk || `Артикул 1`, price: match.price });
+        const parsed = splitQuantityAndName(chunk || `Артикул 1`);
+        items.push({
+          name: parsed.name,
+          price: match.price,
+          ...(parsed.quantity ? { quantity: parsed.quantity } : {}),
+        });
       } else {
-        items.push({ name: chunk || `Артикул ${i + 1}`, price: match.price });
+        const parsed = splitQuantityAndName(chunk || `Артикул ${i + 1}`);
+        items.push({
+          name: parsed.name,
+          price: match.price,
+          ...(parsed.quantity ? { quantity: parsed.quantity } : {}),
+        });
       }
     }
 
@@ -213,9 +255,10 @@ export function formatReceiptItemsToText(items: ReceiptItemDetail[], currency = 
   return items
     .map((item) => {
       const formattedPrice = item.price.toFixed(2);
+      const qty = item.quantity && item.quantity >= 1 ? item.quantity : 1;
       return currency === "$" || currency === "€" || currency === "£"
-        ? `• ${item.name} - ${currency}${formattedPrice}`
-        : `• ${item.name} - ${formattedPrice} ${currency}`;
+        ? `• ${qty} x ${item.name} - ${currency}${formattedPrice}`
+        : `• ${qty} x ${item.name} - ${formattedPrice} ${currency}`;
     })
     .join("\n");
 }

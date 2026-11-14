@@ -1,15 +1,15 @@
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 
 /**
  * Client-Side Optical Character Recognition (OCR) Engine
  * Runs locally in browser via Tesseract.js WebAssembly.
- * Configured with Bulgarian Cyrillic + English ("bul+eng") as primary language pack,
- * with automatic fallback to "eng" only if Bulgarian language data cannot be fetched offline.
+ * Configured with Bulgarian Cyrillic + English ("bul+eng") as mandatory primary language pack,
+ * using SINGLE_BLOCK page segmentation to keep receipt item names and prices aligned on the same row.
  */
 export async function runClientOcr(
   imageSource: string | File | Blob,
   onProgress?: (progressPercent: number, statusText: string) => void,
-  timeoutMs: number = 22000
+  timeoutMs: number = 45000
 ): Promise<{
   text: string;
   confidence: number;
@@ -21,20 +21,20 @@ export async function runClientOcr(
   let timedOut = false;
 
   const createConfiguredWorker = async (
-    langs: string[],
+    langs: string,
     langLabel: string
   ) => {
     const worker = await createWorker(langs, 1, {
       logger: (m) => {
         if (timedOut) return;
         if (m.status === "recognizing text") {
-          const pct = Math.min(95, Math.round(20 + (m.progress || 0) * 75));
+          const pct = Math.min(95, Math.round(25 + (m.progress || 0) * 70));
           onProgress?.(
             pct,
             `Сканиране на кирилица и числа (${Math.round((m.progress || 0) * 100)}%)...`
           );
         } else if (m.status) {
-          onProgress?.(15, `Подготовка (${langLabel}: ${m.status})...`);
+          onProgress?.(18, `Зареждане (${langLabel}: ${m.status})...`);
         }
       },
     });
@@ -42,28 +42,29 @@ export async function runClientOcr(
     try {
       await worker.setParameters({
         preserve_interword_spaces: "1",
+        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
       });
-    } catch {
-      // Ignore optional parameter warning on older builds
+    } catch (paramErr) {
+      console.warn("[OCR] Could not apply optional Tesseract parameters:", paramErr);
     }
 
     return worker;
   };
 
   const ocrPromise = (async () => {
-    onProgress?.(10, "Инициализиране на български + английски OCR...");
+    onProgress?.(10, "Инициализиране на български + английски OCR (bul+eng)...");
     let languagesUsed = "bul+eng";
 
     try {
       try {
-        activeWorker = await createConfiguredWorker(["bul", "eng"], "BG+EN");
+        activeWorker = await createConfiguredWorker("bul+eng", "BG+EN");
       } catch (bulErr: any) {
         console.warn(
-          "[OCR] Could not load 'bul+eng' traineddata, falling back to 'eng':",
+          "[OCR] Failed loading 'bul+eng' traineddata, falling back to 'eng':",
           bulErr?.message || bulErr
         );
         languagesUsed = "eng";
-        activeWorker = await createConfiguredWorker(["eng"], "EN");
+        activeWorker = await createConfiguredWorker("eng", "EN");
       }
 
       if (timedOut) {
@@ -71,11 +72,11 @@ export async function runClientOcr(
           text: "",
           confidence: 0,
           durationMs: Date.now() - startTime,
-          languagesUsed,
+          languagesUsed: "timeout",
         };
       }
 
-      onProgress?.(30, "Сканиране на символи и цени...");
+      onProgress?.(30, "Разчитане на български и английски текст...");
       const ret = await activeWorker.recognize(imageSource);
 
       onProgress?.(95, "Финализиране на разчетения текст...");
@@ -83,7 +84,7 @@ export async function runClientOcr(
       const confidence = ret.data?.confidence || 0;
 
       console.log(
-        `[Receipt OCR] Completed with ${languagesUsed} in ${Date.now() - startTime}ms (confidence: ${confidence.toFixed(1)}%, chars: ${text.length})`
+        `[Receipt OCR] Worker=${languagesUsed} | PSM=SINGLE_BLOCK | Duration=${Date.now() - startTime}ms | Confidence=${confidence.toFixed(1)}% | Chars=${text.length}`
       );
 
       return {
@@ -104,13 +105,14 @@ export async function runClientOcr(
     }
   })();
 
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<{
     text: string;
     confidence: number;
     durationMs: number;
     languagesUsed: string;
   }>((resolve) => {
-    setTimeout(async () => {
+    timeoutHandle = setTimeout(async () => {
       timedOut = true;
       console.warn(`[Receipt OCR] Timed out after ${timeoutMs}ms`);
       if (activeWorker) {
@@ -131,8 +133,11 @@ export async function runClientOcr(
   });
 
   try {
-    return await Promise.race([ocrPromise, timeoutPromise]);
+    const result = await Promise.race([ocrPromise, timeoutPromise]);
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    return result;
   } catch (err: any) {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
     console.warn("[OCR] Error during local OCR:", err?.message || err);
     return {
       text: "",

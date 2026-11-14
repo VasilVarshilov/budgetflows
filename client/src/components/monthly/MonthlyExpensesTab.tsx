@@ -1919,7 +1919,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                   className="flex items-center justify-between gap-3 text-slate-700 dark:text-slate-300 py-0.5"
                                 >
                                   <span className="break-words leading-tight flex-1">
-                                    • {item.name}
+                                    • {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : ""}{item.name}
                                   </span>
                                   <span className="font-semibold text-slate-900 dark:text-slate-100 shrink-0 font-mono">
                                     {parsedReceipt.currencySymbol === "$" ||
@@ -1933,7 +1933,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             </ul>
                           ) : (
                             <div className="text-xs text-slate-500 dark:text-slate-400 italic">
-                              • {parsedReceipt.items[0].name} (
+                              • {parsedReceipt.items[0].quantity && parsedReceipt.items[0].quantity >= 1 ? `${parsedReceipt.items[0].quantity} x ` : ""}{parsedReceipt.items[0].name} (
                               {parsedReceipt.currencySymbol === "$" ||
                               parsedReceipt.currencySymbol === "€" ||
                               parsedReceipt.currencySymbol === "£"

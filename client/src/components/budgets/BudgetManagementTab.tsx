@@ -772,7 +772,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                   <div className="pt-1 mt-1 border-t border-slate-200/50 dark:border-slate-700/50 space-y-0.5">
                                     {exp.receiptItems!.slice(0, 3).map((sub, sIdx) => (
                                       <div key={sIdx} className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                                        <span className="truncate max-w-[140px]">• {sub.name}</span>
+                                        <span className="truncate max-w-[140px]">• {sub.quantity && sub.quantity >= 1 ? `${sub.quantity} x ` : ""}{sub.name}</span>
                                         <span>€{sub.price.toFixed(2)}</span>
                                       </div>
                                     ))}

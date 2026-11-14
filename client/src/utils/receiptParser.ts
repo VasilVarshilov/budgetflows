@@ -1,16 +1,18 @@
 /**
- * Robust Receipt Text Parser (Bulgarian-First + English Backwards Compatible)
+ * Robust Receipt Text Parser (Bulgarian-First + Euro-First + English Backwards Compatible)
  * Performs deterministic local text extraction on OCR outputs without requiring Gemini.
  */
 
 export interface ParsedReceiptData {
   merchantName: string;
   date: string;
+  dateDetected: boolean;
+  dateFallbackReason?: string;
   totalAmount: number;
   subtotal?: number;
   tax?: number;
   currency: string;
-  items: Array<{ name: string; price: number; quantity?: number }>;
+  items: Array<{ name: string; price: number; quantity: number }>;
   notesFormatted: string;
   confidence: "high" | "medium" | "low";
   matchedRule?: string;
@@ -208,7 +210,7 @@ const KNOWN_BG_MERCHANTS: KnownMerchantRule[] = [
 
 /**
  * Converts common Latin/Cyrillic OCR homoglyph mistakes into uppercase Cyrillic
- * strictly for keyword matching (never alters final displayed item names unnecessarily).
+ * strictly for keyword matching.
  */
 export function toCyrillicMatchForm(text: string): string {
   const map: Record<string, string> = {
@@ -227,6 +229,7 @@ export function toCyrillicMatchForm(text: string): string {
     N: "И",
     "0": "О",
     "3": "З",
+    "8": "В",
   };
   return text
     .toUpperCase()
@@ -256,6 +259,7 @@ export function toLatinMatchForm(text: string): string {
     И: "I",
     "0": "O",
     "1": "I",
+    "8": "B",
     "|": "L",
   };
   return text
@@ -266,30 +270,99 @@ export function toLatinMatchForm(text: string): string {
 }
 
 /**
+ * Repairs OCR homoglyphs inside words that are clearly Bulgarian/Cyrillic
+ * (contain at least one Cyrillic character), leaving pure English words (Coca Cola, Water) untouched.
+ * Handles: О↔0, В↔B, С↔C, И↔N, 8↔В, 6↔Б, A↔А, E↔Е, K↔К, M↔М, H↔Н, P↔Р, T↔Т, X↔Х.
+ */
+export function repairCyrillicWordTokens(text: string): string {
+  const letterHomoglyphMap: Record<string, string> = {
+    A: "А",
+    a: "а",
+    B: "В",
+    C: "С",
+    c: "с",
+    E: "Е",
+    e: "е",
+    H: "Н",
+    K: "К",
+    k: "к",
+    M: "М",
+    O: "О",
+    o: "о",
+    P: "Р",
+    p: "р",
+    T: "Т",
+    X: "Х",
+    x: "х",
+    N: "И",
+  };
+
+  const unitOrCodeToken =
+    /^\d+(?:[.,]\d+)?(?:г|гр|кг|мл|л|см|мм|бр|шт|g|gr|kg|ml|l|pcs)\.?$/i;
+
+  return text
+    .split(/(\s+)/)
+    .map((token) => {
+      if (!token || /^\s+$/.test(token)) return token;
+      if (!/[а-яА-Я]/.test(token)) return token; // Pure English / numbers untouched
+      if (unitOrCodeToken.test(token)) return token; // Measurements like 500г, 1.5л untouched
+      if (/^АИ\d+$/i.test(token)) return token; // Fuel grade АИ95 untouched
+
+      let repaired = token
+        .split("")
+        .map((ch) => letterHomoglyphMap[ch] || ch)
+        .join("");
+
+      // Repair 0->О, 8->В, 6->Б only when part of an alphabetic Cyrillic word (not numbers like 500г or 95)
+      if (/^[а-яА-Я086-]+$/.test(repaired) && /[а-яА-Я]{2,}/.test(repaired)) {
+        const isAllLower = repaired === repaired.toLowerCase();
+        repaired = repaired
+          .replace(/0/g, isAllLower ? "о" : "О")
+          .replace(/8/g, isAllLower ? "в" : "В")
+          .replace(/6/g, isAllLower ? "б" : "Б");
+      }
+
+      return repaired;
+    })
+    .join("");
+}
+
+/**
  * Normalizes raw OCR text before parsing:
- * - Fixes Unicode spaces, OCR broken decimal separators ("12 , 50" -> "12,50")
- * - Fixes O/О -> 0 inside monetary/decimal patterns ("5.O0" -> "5.00", "12,3О" -> "12,30")
- * - Normalizes spaced Bulgarian currency tokens ("л в ." / "лB." -> "лв.")
+ * - Fixes Unicode spaces, OCR broken decimal separators ("4 . 80" -> "4.80")
+ * - Fixes О/O -> 0 inside monetary/decimal patterns & years ("€4.8O" -> "€4.80", "14.11.2O26" -> "14.11.2026")
+ * - Normalizes EUR / € / лв. / бр. / × variants
  */
 export function normalizeBulgarianOcrText(rawText: string): string {
   if (!rawText) return "";
-  return rawText
-    .replace(/\u00A0/g, " ")
-    .replace(/[“”„‟]/g, '"')
-    .replace(/[‘’`]/g, "'")
-    .replace(/[–—]/g, "-")
-    // Fix OCR spaces around decimal separators in numbers: "12 . 34" -> "12.34"
-    .replace(/(\d)\s+([.,])\s+(\d{2})\b/g, "$1$2$3")
-    // Fix OCR letter О/O inside decimal numbers like "12.3О" or "О.50" or "5,O0"
-    .replace(/\b(\d*)[ОO]([.,])(\d{1,2})\b/g, "$10$2$3")
-    .replace(/\b(\d+[.,])([ОO\d])([ОO\d])\b/g, (_m, p1, d1, d2) => {
-      const f1 = d1 === "О" || d1 === "O" ? "0" : d1;
-      const f2 = d2 === "О" || d2 === "O" ? "0" : d2;
-      return `${p1}${f1}${f2}`;
-    })
-    // Normalize Bulgarian currency OCR variants: "лв .", "лB.", "л8." after digits
-    .replace(/(\d)\s*л\s*[вB8]\s*\.?/gi, "$1 лв.")
-    .replace(/(^|\s)л\s*в\s*\.?(?=\s|$)/gi, "$1лв.");
+  return (
+    rawText
+      .replace(/\u00A0/g, " ")
+      .replace(/[“”„‟]/g, '"')
+      .replace(/[‘’`]/g, "'")
+      .replace(/[–—]/g, "-")
+      // Normalize spaced EUR / BGN tokens
+      .replace(/\bE\s*U\s*R\b/gi, "EUR")
+      // Fix OCR spaces around decimal separators in numbers: "4 . 80" -> "4.80"
+      .replace(/(\d)\s+([.,])\s+(\d{2})(?=$|\s|[^\d])/g, "$1$2$3")
+      // Fix OCR letter О/O inside 4-digit years like "2O26" or "2О26" -> "2026"
+      .replace(/(^|[^\dа-яА-Яa-zA-Z])2[ОO]([1-3])([ОO\d])(?=$|[^\d])/g, (_m, pre, d3, d4) => {
+        const f4 = d4 === "О" || d4 === "O" ? "0" : d4;
+        return `${pre}20${d3}${f4}`;
+      })
+      // Fix OCR letter О/O inside decimal numbers like "€4.8O", "O.50", "12,3О", "5,O0"
+      .replace(/(^|[\s€$£:/-])(\d*)[ОO]([.,])(\d{1,2})(?=$|\s|[^\d])/g, "$1$20$3$4")
+      .replace(/(^|[\s€$£:/-])(\d+[.,])([ОO\d])([ОO\d])(?=$|\s|[^\d])/g, (_m, pre, p1, d1, d2) => {
+        const f1 = d1 === "О" || d1 === "O" ? "0" : d1;
+        const f2 = d2 === "О" || d2 === "O" ? "0" : d2;
+        return `${pre}${p1}${f1}${f2}`;
+      })
+      // Normalize Bulgarian currency OCR variants: "лв .", "лB.", "л8." after digits
+      .replace(/(\d)\s*л\s*[вB8]\s*\.?/gi, "$1 лв.")
+      .replace(/(^|\s)л\s*в\s*\.?(?=\s|$)/gi, "$1лв.")
+      // Normalize Cyrillic/symbol multiplication & Bulgarian unit бр.
+      .replace(/(\d)\s*б\s*р\s*\./gi, "$1 бр.")
+  );
 }
 
 // Clean and normalize price string to a valid float
@@ -299,12 +372,10 @@ export function parsePrice(val: string): number | null {
 
   let clean = val
     .replace(/[$€£]/g, "")
-    .replace(/лв\.?|лева|лев|BGN|EUR|USD|GBP|[:=]/gi, "")
-    // Fix O/О -> 0 if isolated inside numeric string
+    .replace(/лв\.?|лева|лев|BGN|EUR|ЕВРО|USD|GBP|[:=]/gi, "")
     .replace(/(?<=\d)[ОO]|[ОO](?=[\d.,])/g, "0")
     .trim();
 
-  // Reject trailing non-numeric artifacts
   clean = clean.replace(/[^\d.,-]+$/, "").trim();
   if (!clean) return null;
 
@@ -316,7 +387,7 @@ export function parsePrice(val: string): number | null {
   else if (/^\d{1,3}(,\d{3})*\.\d{1,2}$/.test(clean)) {
     clean = clean.replace(/,/g, "");
   }
-  // Single comma decimal: 31,39 -> 31.39
+  // Single comma decimal: 4,80 -> 4.80
   else if (/^\d+,\d{1,2}$/.test(clean)) {
     clean = clean.replace(",", ".");
   }
@@ -346,25 +417,34 @@ function isNonMerchantMetadataLine(line: string): boolean {
     /^(FISCAL\s*RECEIPT|RECEIPT|TAX\s*INVOICE|INVOICE|SALES\s*RECEIPT|CUSTOMER\s*RECEIPT)/i,
     /(ФИСКАЛЕН\s*БОН|СИСТЕМЕН\s*БОН|СЛУЖЕБЕН\s*БОН|КАСОВА\s*БЕЛЕЖКА|КАСОВ\s*БОН|ФАКТУРА|ОРИГИНАЛ|ДУБЛИКАТ)/,
     /^(WELCOME|THANK\s*YOU|ДОБРЕ\s*ДОШЛИ|БЛАГОДАРИМ|МЕРСИ|ПРИЯТЕН\s*ДЕН)/,
-    // VAT / EIK / Bulstat / BG...
     /\bBG\s*\d{8,11}\b/i,
     /(ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ДДС\s*№|ДДС\s*N|VAT\s*№|VAT\s*NO|ИН:|ИД\.?\s*№)/,
-    // Fiscal device / Cash register / Receipt serial / Operator
     /(?:^|\s)(ФУ|ФП|ЗД|ДТ|УНП|НРА|ТД)(?:$|[\s:№N#\-\d])/,
     /(КАСА\s*№?|КАСИЕР|ОПЕРАТОР|БОН\s*№|ЧЕК\s*№|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ\s*№|ОБ\.?\s*№|МАГАЗИН\s*№|ОБ\.?\s*МЯСТО)/,
-    // Address & Contact lines
     /(?:^|\s)(ГР\.|С\.|УЛ\.|БУЛ\.|Ж\.К\.|КВ\.|ПЛ\.|БЛ\.|ВХ\.|ЕТ\.|АП\.|ОБЛ\.|ОБЩ\.|П\.К\.)(?:\s|$)/,
     /(?:^|[^а-яА-Яa-zA-Z])(TEL|PHONE|ТЕЛ|ФАКС|FAX|EMAIL|E-MAIL|WWW\.|HTTP|HTTPS)(?:$|[^а-яА-Яa-zA-Z])/i,
-    // Date / Time / Pure numbers / Lines with trailing prices
-    /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/,
+    /^\d{1,2}[./,-]\d{1,2}[./,-]\d{2,4}/,
     /^\d+[\s\-/.:]*$/,
-    /\d+[.,]\d{2}\s*(?:[АБВГABCD]|ЛВ\.?|BGN|EUR|€)?\s*$/i,
+    /\d+[.,]\d{2}\s*(?:[АБВГA-D8]|ЛВ\.?|BGN|EUR|€)?\s*$/i,
   ];
 
   return (
     rejectPatterns.some((re) => re.test(line)) ||
     rejectPatterns.some((re) => re.test(cyr)) ||
     rejectPatterns.some((re) => re.test(lat))
+  );
+}
+
+/**
+ * Checks if a parsed product name is actually a stray EIK/VAT/address/fiscal header line
+ * (never blocks legitimate product weights like "400 гр." or "500 г").
+ */
+function isStrayFiscalOrAddressName(name: string): boolean {
+  const cyr = toCyrillicMatchForm(name);
+  return (
+    /\bBG\s*\d{8,11}\b/i.test(name) ||
+    /(ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ДДС\s*№|УНП|ФИСКАЛЕН\s*БОН|КАСОВА\s*БЕЛЕЖКА)/.test(cyr) ||
+    /(?:^|\s)(?:УЛ\.|БУЛ\.|Ж\.К\.|ТЕЛ:|WWW\.|HTTP)/.test(cyr)
   );
 }
 
@@ -384,7 +464,6 @@ export function extractMerchant(lines: string[]): {
   merchantName: string;
   matchedRule: string;
 } {
-  // 1. Check top 14 lines (or entire header) against known Bulgarian/international chains
   const searchSlice = lines.slice(0, Math.min(lines.length, 15));
   for (const line of searchSlice) {
     const cyr = toCyrillicMatchForm(line);
@@ -401,13 +480,12 @@ export function extractMerchant(lines: string[]): {
     }
   }
 
-  // 2. Fallback: pick first clean header line that isn't VAT/EIK/Fiscal/Address/Receipt metadata
   for (let i = 0; i < Math.min(lines.length, 10); i++) {
     const rawLine = lines[i].trim();
     if (rawLine.length < 2) continue;
     if (isNonMerchantMetadataLine(rawLine)) continue;
 
-    const cleaned = cleanMerchantName(rawLine);
+    const cleaned = cleanMerchantName(repairCyrillicWordTokens(rawLine));
     const letterCount = (cleaned.match(/[a-zA-Zа-яА-Я]/g) || []).length;
     if (cleaned.length >= 2 && letterCount >= 2 && !/^\d+$/.test(cleaned)) {
       return {
@@ -435,10 +513,21 @@ function isValidCalendarDate(year: number, month: number, day: number): boolean 
   );
 }
 
+function normalizeDateCandidateLine(line: string): string {
+  // Replace Cyrillic/Latin O -> 0 inside digit-separator-digit patterns like "14.11.2O26", "O4.11.2026"
+  return line
+    .replace(/([0-3]?)[ОO](?=\s*[-/.,:]\s*[01ОO]?\d\s*[-/.,:]\s*2)/g, "$10")
+    .replace(/([01]?)[ОO](?=\s*[-/.,:]\s*20[1-3]\d)/g, "$10")
+    .replace(/2[ОO]([1-3])([ОO\d])/g, (_m, d3, d4) => `20${d3}${d4 === "О" || d4 === "O" ? "0" : d4}`)
+    .replace(/(\d{1,2}\s*[-/.,]\s*\d{1,2}\s*[-/.,]\s*\d{2,4})\s*г\.?/gi, "$1");
+}
+
 // Extract Transaction Date (YYYY-MM-DD), prioritizing Bulgarian DD.MM.YYYY / ДАТА lines
 export function extractDate(lines: string[]): {
   date: string;
+  dateDetected: boolean;
   matchedRule: string;
+  fallbackReason?: string;
 } {
   interface DateCandidate {
     iso: string;
@@ -448,8 +537,9 @@ export function extractDate(lines: string[]): {
   const candidates: DateCandidate[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const cyr = toCyrillicMatchForm(line);
+    const rawLine = lines[i];
+    const line = normalizeDateCandidateLine(rawLine);
+    const cyr = toCyrillicMatchForm(rawLine);
 
     const hasDateLabel = /(ДАТА|DATE|ДЕН|ЧАС)/.test(cyr);
     const hasTime = /\b([01]?\d|2[0-3])[:.]([0-5]\d)(?:[:.]([0-5]\d))?\b/.test(line);
@@ -457,16 +547,15 @@ export function extractDate(lines: string[]): {
       /(УНП|ЕИК|БУЛСТАТ|(?:^|\s)(?:ФУ|ФП)(?:$|[\s:№N#\-\d])|BG\d|БОН\s*№|СТОРНО|КАСА)/.test(cyr) &&
       !hasDateLabel;
 
-    // 1. DD.MM.YYYY or DD/MM/YYYY or DD-MM-YYYY (with optional spaces around separator)
-    const dmyFull = line.match(
-      /(?:^|[^\d])([0-3]?\d)\s*[-/.]\s*([01]?\d)\s*[-/.]\s*(20[1-3]\d)(?:[^\d]|$)/
-    );
-    if (dmyFull) {
+    // 1. DD.MM.YYYY or DD/MM/YYYY or DD-MM-YYYY or DD,MM,YYYY (with optional spaces around separator)
+    const dmyRegex =
+      /(?:^|[^\d])([0-3]?\d)\s*[-/.,:]\s*([01]?\d)\s*[-/.,]\s*(20[1-3]\d)(?=[^\d]|$)/g;
+    let dmyFull: RegExpExecArray | null;
+    while ((dmyFull = dmyRegex.exec(line)) !== null) {
       let day = parseInt(dmyFull[1], 10);
       let month = parseInt(dmyFull[2], 10);
       const year = parseInt(dmyFull[3], 10);
 
-      // Only treat slash-separated as MM/DD/YYYY if month > 12 and day <= 12
       if (month > 12 && day <= 12 && line.includes("/")) {
         const tmp = day;
         day = month;
@@ -478,20 +567,20 @@ export function extractDate(lines: string[]): {
         candidates.push({
           iso,
           score:
-            80 +
+            85 +
             (hasDateLabel ? 30 : 0) +
             (hasTime ? 20 : 0) +
-            (isFiscalOrIdLine ? -50 : 0),
-          rule: `DD.MM.YYYY in "${line}"`,
+            (isFiscalOrIdLine ? -45 : 0),
+          rule: `DD.MM.YYYY in "${rawLine}"`,
         });
       }
     }
 
     // 2. YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD
-    const ymdFull = line.match(
-      /(?:^|[^\d])(20[1-3]\d)\s*[-/.]\s*([01]?\d)\s*[-/.]\s*([0-3]?\d)(?:[^\d]|$)/
-    );
-    if (ymdFull) {
+    const ymdRegex =
+      /(?:^|[^\d])(20[1-3]\d)\s*[-/.]\s*([01]?\d)\s*[-/.]\s*([0-3]?\d)(?=[^\d]|$)/g;
+    let ymdFull: RegExpExecArray | null;
+    while ((ymdFull = ymdRegex.exec(line)) !== null) {
       const year = parseInt(ymdFull[1], 10);
       const month = parseInt(ymdFull[2], 10);
       const day = parseInt(ymdFull[3], 10);
@@ -500,20 +589,20 @@ export function extractDate(lines: string[]): {
         candidates.push({
           iso,
           score:
-            75 +
+            80 +
             (hasDateLabel ? 30 : 0) +
             (hasTime ? 20 : 0) +
-            (isFiscalOrIdLine ? -50 : 0),
-          rule: `YYYY-MM-DD in "${line}"`,
+            (isFiscalOrIdLine ? -45 : 0),
+          rule: `YYYY-MM-DD in "${rawLine}"`,
         });
       }
     }
 
     // 3. DD.MM.YY or DD/MM/YY or DD-MM-YY
-    const dmyShort = line.match(
-      /(?:^|[^\d])([0-3]?\d)\s*[-/.]\s*([01]?\d)\s*[-/.]\s*(2[0-9]|1[89])(?:[^\d]|$)/
-    );
-    if (dmyShort && !dmyFull && !ymdFull) {
+    const dmyShortRegex =
+      /(?:^|[^\d])([0-3]?\d)\s*[-/.]\s*([01]?\d)\s*[-/.]\s*(2[0-9]|1[89])(?=[^\d]|$)/g;
+    let dmyShort: RegExpExecArray | null;
+    while ((dmyShort = dmyShortRegex.exec(line)) !== null) {
       const day = parseInt(dmyShort[1], 10);
       const month = parseInt(dmyShort[2], 10);
       const year = 2000 + parseInt(dmyShort[3], 10);
@@ -525,8 +614,8 @@ export function extractDate(lines: string[]): {
             65 +
             (hasDateLabel ? 30 : 0) +
             (hasTime ? 20 : 0) +
-            (isFiscalOrIdLine ? -50 : 0),
-          rule: `DD.MM.YY in "${line}"`,
+            (isFiscalOrIdLine ? -45 : 0),
+          rule: `DD.MM.YY in "${rawLine}"`,
         });
       }
     }
@@ -536,53 +625,48 @@ export function extractDate(lines: string[]): {
     candidates.sort((a, b) => b.score - a.score);
     return {
       date: candidates[0].iso,
+      dateDetected: true,
       matchedRule: candidates[0].rule,
     };
   }
 
+  const fallbackReason =
+    lines.length === 0
+      ? "OCR returned empty text"
+      : "No valid calendar date pattern (DD.MM.YYYY / YYYY-MM-DD) found in OCR lines";
+
   return {
     date: new Date().toISOString().split("T")[0],
-    matchedRule: "Default today fallback",
+    dateDetected: false,
+    matchedRule: "Today fallback",
+    fallbackReason,
   };
 }
 
-// Extract Currency (Bulgarian-aware, handles dual-currency receipts)
+// Extract Currency (Euro-first for Bulgaria, never assumes BGN unless explicitly BGN-only)
 export function extractCurrency(rawText: string): string {
   const normalized = normalizeBulgarianOcrText(rawText);
-  const hasBgn = /(?:лв\.?|лева|лев|\bbgn\b)/i.test(normalized);
   const hasEur = /(?:€|\beur\b|евро)/i.test(normalized);
+  const hasBgn = /(?:лв\.?|лева|лев|\bbgn\b)/i.test(normalized);
   const hasUsd = /(?:\$|\busd\b)/i.test(normalized);
   const hasGbp = /(?:£|\bgbp\b)/i.test(normalized);
 
-  // Check total/payment lines to identify primary receipt currency
-  const lines = normalized.split(/\r?\n/);
-  for (const line of lines) {
-    const cyr = toCyrillicMatchForm(line);
-    if (/(ОБЩО|ОБЩА\s*СУМА|КРАЙНА\s*СУМА|ЗА\s*ПЛАЩАНЕ|СУМА|TOTAL)/.test(cyr)) {
-      const bgnPos = line.search(/(?:лв\.?|\bbgn\b)/i);
-      const eurPos = line.search(/(?:€|\beur\b)/i);
-      if (bgnPos !== -1 && (eurPos === -1 || bgnPos < eurPos)) return "лв.";
-      if (eurPos !== -1 && (bgnPos === -1 || eurPos < bgnPos)) return "€";
-    }
-  }
-
-  if (hasBgn && !hasEur) return "лв.";
-  if (hasEur && !hasBgn) return "€";
-  if (hasBgn && hasEur) return "лв."; // Primary fiscal currency in dual-display BG receipts
+  // Bulgaria uses EUR: whenever € / EUR appears (even alongside legacy BGN info), use €
+  if (hasEur) return "€";
+  if (hasBgn) return "лв.";
   if (hasUsd) return "$";
   if (hasGbp) return "£";
 
-  // If receipt contains Cyrillic text without explicit currency symbol, default to лв.
-  if (/[а-яА-Я]{3,}/.test(normalized)) return "лв.";
+  // Default to € (never assume BGN)
   return "€";
 }
 
 /**
- * Robust Total Amount Extraction Algorithm (Bulgarian-First)
+ * Robust Total Amount Extraction Algorithm (Bulgarian + Euro-First)
  * Handles ОБЩО, ОБЩА СУМА, КРАЙНА СУМА, ЗА ПЛАЩАНЕ, СУМА, ТОТАЛ, TOTAL, GRAND TOTAL
  * and strictly ignores VAT (ДДС), discounts (ОТСТЪПКА), subtotals, and change (РЕСТО).
  */
-export function extractTotal(lines: string[]): {
+export function extractTotal(lines: string[], preferredCurrency: string = "€"): {
   total: number;
   subtotal?: number;
   tax?: number;
@@ -592,8 +676,10 @@ export function extractTotal(lines: string[]): {
   let foundSubtotal: number | undefined;
   let foundTax: number | undefined;
 
-  const subtotalRegex = /(?:SUB\s*TOTAL|МЕЖДИННА\s*СУМА)\s*[:=]?\s*[$€£]?\s*([\d,.]+)/i;
-  const taxRegex = /(?:TAX|VAT|ДДС|ДАНЪК)\s*(?:\([^)]*\))?\s*(?:\d+[.,]?\d*\s*%)?\s*[:=]?\s*[$€£]?\s*([\d,.]+)/i;
+  const subtotalRegex =
+    /(?:SUB\s*TOTAL|МЕЖДИННА\s*СУМА)\s*[:=]?\s*(?:EUR|BGN|[$€£])?\s*([\d,.]+)/i;
+  const taxRegex =
+    /(?:TAX|VAT|ДДС|ДАНЪК)\s*(?:\([^)]*\))?\s*(?:\d+[.,]?\d*\s*%)?\s*[:=]?\s*(?:EUR|BGN|[$€£])?\s*([\d,.]+)/i;
 
   for (const line of lines) {
     const cyr = toCyrillicMatchForm(line);
@@ -613,7 +699,6 @@ export function extractTotal(lines: string[]): {
     }
   }
 
-  // Ranked keyword rules (tested against both raw uppercase and Cyrillic/Latin normalized text)
   const totalKeywordRules: Array<{ regex: RegExp; basePriority: number; label: string }> = [
     {
       regex: /(?:ОБЩА\s*СУМА|КРАЙНА\s*СУМА|СУМА\s*ЗА\s*ПЛАЩАНЕ|ОБЩО\s*ЗА\s*ПЛАЩАНЕ|ДЪЛЖИМА\s*СУМА)/,
@@ -626,22 +711,22 @@ export function extractTotal(lines: string[]): {
       label: "EN explicit final total",
     },
     {
-      regex: /(?:^|\s)(?:ЗА\s*ПЛАЩАНЕ|ОБЩО\s*ЛВ|ОБЩО\s*EUR|ОБЩО\s*BGN)(?:$|[\s:=\d])/,
+      regex: /(?:^|\s)(?:ЗА\s*ПЛАЩАНЕ|ОБЩО\s*EUR|ОБЩО\s*ЕВРО|ОБЩО\s*ЛВ|ОБЩО\s*BGN)(?:$|[\s:=\d€])/,
       basePriority: 96,
       label: "BG ЗА ПЛАЩАНЕ / ОБЩО",
     },
     {
-      regex: /(?:^|\s)ОБЩО(?:$|[\s:=]|\s+\d)/,
+      regex: /(?:^|\s)ОБЩО(?:$|[\s:=€]|\s+\d|\s+EUR)/,
       basePriority: 94,
       label: "BG ОБЩО",
     },
     {
-      regex: /(?:^|\s)(?:ВСИЧКО|ТОТАЛ)(?:$|[\s:=\d])/,
+      regex: /(?:^|\s)(?:ВСИЧКО|ТОТАЛ)(?:$|[\s:=€\d])/,
       basePriority: 88,
       label: "BG ВСИЧКО / ТОТАЛ",
     },
     {
-      regex: /(?:^|\s)СУМА(?:$|[\s:=]|\s+\d)/,
+      regex: /(?:^|\s)СУМА(?:$|[\s:=€]|\s+\d|\s+EUR)/,
       basePriority: 84,
       label: "BG СУМА",
     },
@@ -665,7 +750,6 @@ export function extractTotal(lines: string[]): {
     const cyr = toCyrillicMatchForm(line);
     const lat = toLatinMatchForm(line);
 
-    // Strictly exclude VAT, discount, change, subtotal, net, or taxable base lines
     const isExcludedSummaryLine =
       /(?:SUB\s*TOTAL|МЕЖДИННА\s*СУМА|НЕТО|ОБЛАГАЕМ|ДАНЪЧНА\s*ОСНОВА|ДАНЪЧНА\s*ГРУПА)/.test(cyr) ||
       /(?:^|\s)(?:ДДС|ДАНЪК|VAT|TAX)(?:\s|$|:|=)/.test(cyr) ||
@@ -673,19 +757,24 @@ export function extractTotal(lines: string[]): {
 
     if (isExcludedSummaryLine) continue;
 
-    // Penalize tendered-cash / card-tender lines unless paired with explicit total
     const isPaymentTenderLine =
       /(?:В\s*БРОЙ|БРОЙ|ПОС|ТЕРМИНАЛ|РЕСТО|CASH|CARD|VISA|MASTERCARD)/.test(cyr);
 
     for (const rule of totalKeywordRules) {
       if (rule.regex.test(cyr) || rule.regex.test(lat)) {
-        // Extract non-percentage monetary decimals on this line
         const lineWithoutPct = line.replace(/\d+[.,]\d+\s*%/g, " ").replace(/\d+\s*%/g, " ");
-        const numMatches =
-          lineWithoutPct.match(/[$€£]?\s*\d{1,6}[.,]\d{2}(?:\s*(?:лв\.?|BGN|EUR|€))?/gi) || [];
+        const tokenMatches =
+          lineWithoutPct.match(
+            /(?:EUR|BGN|[$€£])?\s*\d{1,6}[.,]\d{2}(?:\s*(?:лв\.?|BGN|EUR|€))?/gi
+          ) || [];
 
-        for (const rawNum of numMatches) {
-          const val = parsePrice(rawNum);
+        // On dual-currency lines (e.g. "ОБЩО 18.58 лв. / €9.50"), pick the EUR value when preferredCurrency is €
+        const eurMatch = tokenMatches.find((m) => /(?:€|EUR)/i.test(m));
+        const chosenRaw =
+          preferredCurrency === "€" && eurMatch ? eurMatch : tokenMatches[0];
+
+        if (chosenRaw) {
+          const val = parsePrice(chosenRaw);
           if (val && val > 0) {
             candidates.push({
               amount: val,
@@ -693,17 +782,15 @@ export function extractTotal(lines: string[]): {
               line,
               ruleLabel: rule.label,
             });
-            // Prefer the FIRST (primary) monetary amount on dual-currency lines (e.g. "ОБЩО 31.39 лв. / 16.05 EUR")
-            break;
           }
         }
 
-        // Handle wrapped total on next line: "ОБЩО" -> "31.39 лв."
-        if (numMatches.length === 0 && i + 1 < lines.length) {
+        // Handle wrapped total on next line: "ОБЩО" -> "€9.50"
+        if (tokenMatches.length === 0 && i + 1 < lines.length) {
           const nextLine = lines[i + 1];
           const nextClean = nextLine.replace(/\d+[.,]?\d*\s*%/g, " ");
           const nextMatch = nextClean.match(
-            /[$€£]?\s*(\d{1,6}[.,]\d{2})(?:\s*(?:лв\.?|BGN|EUR|€))?/i
+            /(?:EUR|BGN|[$€£])?\s*(\d{1,6}[.,]\d{2})(?:\s*(?:лв\.?|BGN|EUR|€))?/i
           );
           if (nextMatch) {
             const val = parsePrice(nextMatch[1]);
@@ -717,12 +804,11 @@ export function extractTotal(lines: string[]): {
             }
           }
         }
-        break; // Stop after highest-ranked matching keyword on this line
+        break;
       }
     }
   }
 
-  // 1. Evaluate explicit TOTAL keyword candidates FIRST
   if (candidates.length > 0) {
     if (foundSubtotal && foundSubtotal > 0) {
       candidates.forEach((c) => {
@@ -751,7 +837,6 @@ export function extractTotal(lines: string[]): {
     }
   }
 
-  // 2. Fallback: Subtotal + Tax
   if (foundSubtotal && foundTax) {
     const expectedTotal = parseFloat((foundSubtotal + foundTax).toFixed(2));
     if (expectedTotal > 0) {
@@ -765,7 +850,6 @@ export function extractTotal(lines: string[]): {
     }
   }
 
-  // 3. Fallback: Payment method line (e.g. КАРТА / В БРОЙ minus РЕСТО)
   for (const line of lines) {
     const cyr = toCyrillicMatchForm(line);
     if (/(?:^|\s)(?:ПЛАТЕНО|КАРТА|ПЛАЩАНЕ\s*С\s*КАРТА)(?:$|[\s:=\d])/.test(cyr)) {
@@ -783,16 +867,15 @@ export function extractTotal(lines: string[]): {
     }
   }
 
-  // 4. Last fallback: largest monetary number in bottom 50% excluding dates/VAT/change
   const bottomLines = lines.slice(Math.floor(lines.length * 0.4));
   let fallbackMax = 0;
   let fallbackLine = "";
 
   for (const line of bottomLines) {
     const cyr = toCyrillicMatchForm(line);
-    if (/\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test(line)) continue;
+    if (/\d{1,2}[./,-]\d{1,2}[./,-]\d{2,4}/.test(line)) continue;
     if (/(ДДС|VAT|TAX|РЕСТО|CHANGE|ОТСТЪПКА|DISCOUNT|ЕИК|УНП)/.test(cyr)) continue;
-    const matches = line.match(/(\d{1,5}[.,]\d{2})\b/g) || [];
+    const matches = line.match(/(\d{1,5}[.,]\d{2})(?=$|\s|[^\d])/g) || [];
     for (const m of matches) {
       const val = parsePrice(m);
       if (val && val > fallbackMax && val < 100000) {
@@ -826,33 +909,34 @@ function isNonItemSummaryOrMetaLine(line: string): boolean {
   const cyr = toCyrillicMatchForm(line);
   const lat = toLatinMatchForm(line);
 
-  const rejectCyr = [
+  const rejectPatterns = [
     /(?:^|\s)(?:SUBTOTAL|SUB\s*TOTAL|TOTAL|GRAND\s*TOTAL|TAX|VAT|CASH|CHANGE|BALANCE|CARD|VISA|MASTERCARD|AMEX|DISCOUNT|SAVED)(?:$|[\s:=\d])/i,
-    /(?:^|\s)(?:МЕЖДИННА\s*СУМА|ОБЩА\s*СУМА|КРАЙНА\s*СУМА|ЗА\s*ПЛАЩАНЕ|ОБЩО|СУМА|ВСИЧКО|ТОТАЛ|ДЪЛЖИМА)(?:$|[\s:=\d])/,
+    /(?:^|\s)(?:МЕЖДИННА\s*СУМА|ОБЩА\s*СУМА|КРАЙНА\s*СУМА|ЗА\s*ПЛАЩАНЕ|ОБЩО|СУМА|ВСИЧКО|ТОТАЛ|ДЪЛЖИМА)(?:$|[\s:=€\d])/,
     /(?:^|\s)(?:ДДС|ДАНЪК|ДАНЪЧНА\s*ГРУПА|ДАНЪЧНА\s*ОСНОВА|НЕТО|ОБЛАГАЕМА|ГРУПА\s*[АБВГA-D])(?:$|[\s:=\d%])/,
     /(?:^|\s)(?:В\s*БРОЙ|КАРТА|ПЛАТЕНО|ПЛАЩАНЕ|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ|РЕСТО|ВЪРНАТИ|ОДОБРЕНИЕ|ОДОБРЕНА)(?:$|[\s:=\d])/,
     /(?:^|\s)(?:ОТСТЪПКА|НАМАЛЕНИЕ|СПЕСТЕНИ|ВАУЧЕР|КУПОН|ТОЧКИ)(?:$|[\s:=\d])/,
     /(?:^|\s)(?:ЕИК|БУЛСТАТ|ДДС\s*№|ИН\s*ПО\s*ДДС|ФУ|ФП|ЗД|УНП|КАСА|КАСИЕР|ОПЕРАТОР|БОН\s*№|АРТИКУЛА)(?:$|[\s:№N#\-\d])/,
     /(?:^|\s)(?:ТЕЛ|ФАКС|WWW\.|HTTP|БЛАГОДАРИМ|МЕРСИ|ДОБРЕ\s*ДОШЛИ|ФИСКАЛЕН\s*БОН|СЛУЖЕБЕН\s*БОН)(?:$|[\s:!.])/,
     /\b(?:AID|AUTH|PAN|RRN|STAN|TID|MID)\b/i,
-    /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/,
+    /^\d{1,2}[./,-]\d{1,2}[./,-]\d{2,4}/,
     /^\d{1,2}:\d{2}(?::\d{2})?/,
   ];
 
   return (
-    rejectCyr.some((re) => re.test(line)) ||
-    rejectCyr.some((re) => re.test(cyr)) ||
-    rejectCyr.some((re) => re.test(lat))
+    rejectPatterns.some((re) => re.test(line)) ||
+    rejectPatterns.some((re) => re.test(cyr)) ||
+    rejectPatterns.some((re) => re.test(lat))
   );
 }
 
 /**
- * Formats ALL-CAPS item names into readable Sentence case while keeping abbreviations
+ * Formats ALL-CAPS item names into readable Sentence case and repairs Cyrillic OCR homoglyphs.
  */
 function formatReadableItemName(rawName: string): string {
-  const cleaned = rawName
+  const repaired = repairCyrillicWordTokens(rawName);
+  const cleaned = repaired
     .replace(/^[•\-*\d.)\s]+(?=[а-яА-Яa-zA-Z])/, "")
-    .replace(/[.*_~=-]+$/, "")
+    .replace(/[.*_~=|:;\-]+$/, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -864,38 +948,44 @@ function formatReadableItemName(rawName: string): string {
 
   if (!isMostlyUpper) return cleaned;
 
-  // Preserve numeric/unit tokens (e.g. 500Г, 1.5Л, АИ95, Т1) while title-casing first letter
   const lower = cleaned.toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
-// Extract Item Lines from text (Bulgarian-first + 2-line quantity patterns + trailing tax groups)
+// Extract Item Lines from text (Bulgarian + English + EUR + quantity preservation)
 export function extractItems(
   lines: string[],
   _totalAmount: number
-): Array<{ name: string; price: number; quantity?: number }> {
-  const items: Array<{ name: string; price: number; quantity?: number }> = [];
+): Array<{ name: string; price: number; quantity: number }> {
+  const items: Array<{ name: string; price: number; quantity: number }> = [];
 
-  // Regex for trailing price on Bulgarian/English receipts:
-  // Matches: "2.39", "2,39", "2.39 Б", "2.39 B", "2.39 *Б", "2.39 лв.", "2.39 EUR", "€2.39"
+  // Matches trailing price with optional leading/trailing currency & Bulgarian tax code:
+  // "€4.80", "EUR 4.80", "4.80 EUR", "4.80 €", "4.80 EUR B", "4.80 Б", "4.80 *B", "4.80 8", "4.80 лв."
   const trailingPriceRegex =
-    /[$€£]?\s*(\d{1,5}[.,]\d{2})\s*(?:[*#]?\s*[АБВГA-D](?=$|\s)|лв\.?|BGN|EUR|USD|GBP|€|\$|£)?\s*$/i;
+    /(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|USD|GBP|€|\$|£)?\s*(?:[*#]?\s*[АБВГA-D8])?\s*[.,|*\]]*\s*$/i;
 
-  // Two-line quantity/weight row e.g.:
-  // "2 x 1.20           2.40 Б" or "0.542 кг x 12.90   6.99 Б" or "32.15 л x 2.65  85.20 Б"
-  const qtyCalculationLineRegex =
-    /^(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхX*×]\s*(\d+[.,]\d{2,3})\s+.*?(\d{1,5}[.,]\d{2})\s*(?:[*#]?\s*[АБВГA-D](?=$|\s)|лв\.?|BGN|EUR|€|\$|£)?\s*$/i;
+  // Quantity x UnitPrice (+ optional trailing line total)
+  // e.g. "2 x 2.40   €4.80", "2.000 бр. x 1.20 = 2.40 Б", "32.15 л x 2.65  85.20 Б"
+  const qtyCalculationWithTotalRegex =
+    /^[*#•\s]*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*(\d+[.,]\d{2,3})\s*(?:=|.*?\s)\s*(?:EUR|BGN|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|€|\$|£)?\s*(?:[*#]?\s*[АБВГA-D8])?\s*[.,|*\]]*\s*$/i;
+
+  // Quantity x UnitPrice WITHOUT total on the same line (used when line i-1 is qty x unit and line i has "NAME  TOTAL")
+  const qtyCalculationOnlyRegex =
+    /^[*#•\s]*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*(\d+[.,]\d{2,3})\s*$/i;
+
+  const consumedLineIndices = new Set<number>();
 
   for (let i = 0; i < lines.length; i++) {
+    if (consumedLineIndices.has(i)) continue;
     const line = lines[i];
 
     if (isNonItemSummaryOrMetaLine(line)) continue;
 
-    // 1. Check for two-line item pattern:
-    //    Line i-1: "ХЛЯБ ДОБРУДЖА 650Г"
-    //    Line i  : "2 x 1.20            2.40 Б"
-    const qtyLineMatch = line.match(qtyCalculationLineRegex);
-    if (qtyLineMatch && i > 0) {
+    // 1. Two-line pattern A:
+    //    Line i-1: "COCA COLA 2L" (or "ХЛЯБ БЯЛ")
+    //    Line i  : "2 x 2.40            €4.80"
+    const qtyLineMatch = line.match(qtyCalculationWithTotalRegex);
+    if (qtyLineMatch && i > 0 && !consumedLineIndices.has(i - 1)) {
       const prevLine = lines[i - 1];
       const prevHasPrice = trailingPriceRegex.test(prevLine);
       const prevHasLetters = /[а-яА-Яa-zA-Z]{2,}/.test(prevLine);
@@ -907,46 +997,91 @@ export function extractItems(
       ) {
         const rawQty = parseFloat(qtyLineMatch[1].replace(",", "."));
         const totalLinePrice = parsePrice(qtyLineMatch[3]);
+        const isWeightOrVolume = /(?:кг|гр|л\.?|kg|g|l)/i.test(line);
         const isDiscreteCount =
-          !/(?:кг|гр|л\.?|kg|g|l)/i.test(line) &&
+          !isWeightOrVolume &&
           Number.isInteger(rawQty) &&
           rawQty >= 1 &&
-          rawQty <= 99;
+          rawQty <= 999;
+
         const unitLabelMatch = line.match(
-          /^(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|kg|l|g))(?=$|[^а-яА-Яa-zA-Z])/i
+          /^[*#•\s]*(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|kg|l|g))(?=$|[^а-яА-Яa-zA-Z])/i
         );
         const displayName = unitLabelMatch
           ? `${formatReadableItemName(prevLine)} (${unitLabelMatch[1].trim()})`
           : formatReadableItemName(prevLine);
 
-        if (totalLinePrice && totalLinePrice > 0 && displayName.length >= 2) {
+        if (
+          totalLinePrice &&
+          totalLinePrice > 0 &&
+          displayName.length >= 2 &&
+          !isStrayFiscalOrAddressName(displayName)
+        ) {
           items.push({
             name: displayName,
             price: totalLinePrice,
             quantity: isDiscreteCount ? rawQty : 1,
           });
+          consumedLineIndices.add(i);
+          consumedLineIndices.add(i - 1);
+          continue;
         }
-        continue;
       }
     }
 
-    // 2. Standard single-line item with trailing price
+    // 2. Two-line pattern B (some POS printers put qty x unitPrice ABOVE the product line):
+    //    Line i  : "2 x 2.40"
+    //    Line i+1: "COCA COLA 2L       €4.80"
+    const qtyOnlyMatch = line.match(qtyCalculationOnlyRegex);
+    if (qtyOnlyMatch && i + 1 < lines.length) {
+      const nextLine = lines[i + 1];
+      const nextPriceMatch = nextLine.match(trailingPriceRegex);
+      if (
+        nextPriceMatch &&
+        nextPriceMatch.index !== undefined &&
+        !isNonItemSummaryOrMetaLine(nextLine)
+      ) {
+        const rawQty = parseFloat(qtyOnlyMatch[1].replace(",", "."));
+        const isDiscreteCount =
+          !/(?:кг|гр|л\.?|kg|g|l)/i.test(line) &&
+          Number.isInteger(rawQty) &&
+          rawQty >= 1 &&
+          rawQty <= 999;
+        const price = parsePrice(nextPriceMatch[1]);
+        const rawName = nextLine.slice(0, nextPriceMatch.index).replace(/[.\-_=~*:\s]+$/, "").trim();
+        const name = formatReadableItemName(rawName);
+        if (
+          price &&
+          price > 0 &&
+          name.length >= 2 &&
+          /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
+          !isStrayFiscalOrAddressName(name)
+        ) {
+          items.push({
+            name,
+            price,
+            quantity: isDiscreteCount ? rawQty : 1,
+          });
+          consumedLineIndices.add(i);
+          consumedLineIndices.add(i + 1);
+          continue;
+        }
+      }
+    }
+
+    // 3. Standard single-line item with trailing price
     const hasLetters = /[а-яА-Яa-zA-Z]{2,}/.test(line);
     if (!hasLetters) continue;
-    if (isNonMerchantMetadataLine(line) && !trailingPriceRegex.test(line)) {
-      continue;
-    }
 
     const priceMatch = line.match(trailingPriceRegex);
     if (priceMatch && priceMatch.index !== undefined) {
       const price = parsePrice(priceMatch[1]);
       let rawName = line.slice(0, priceMatch.index).trim();
-
-      // Strip inline "qty x unitPrice" segment if embedded on the same line:
-      // e.g. "АИ 95 БЕНЗИН 32.15 л x 2.65" or "САЛАТА ШОПСКА 2 x 7.90"
       let quantity = 1;
+
+      // 3a. Inline trailing "qty x unitPrice": e.g. "Coca Cola 2 x 2.40" or "Вода 2 бр. x 1.20"
       const inlineQtyUnitMatch = rawName.match(
-        /^(.+?)\s+(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|л\.?|kg|g|l)?\s*[xхX*×]\s*\d+[.,]\d{2,3}\s*$/i
+        /^(.+?)\s+(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*\d+[.,]\d{2,3}\s*$/i
       );
       if (inlineQtyUnitMatch) {
         rawName = inlineQtyUnitMatch[1].trim();
@@ -955,32 +1090,32 @@ export function extractItems(
           !/(?:кг|л|гр|kg|l|g)/i.test(inlineQtyUnitMatch[0]) &&
           Number.isInteger(qVal) &&
           qVal >= 1 &&
-          qVal <= 99
+          qVal <= 999
         ) {
           quantity = qVal;
         }
       } else {
-        // Check prefix quantity like "2 x БИРА ЗАГОРКА"
-        const prefixQtyMatch = rawName.match(/^(\d+)\s*[xхX*×]\s*(.+)$/);
+        // 3b. Prefix quantity: "2 x Coca Cola", "2x Coca Cola", "2 х Вода", "2 бр. x Вода", "2 бр Вода", "2 * Бира"
+        const prefixQtyMatch = rawName.match(
+          /^(\d+)\s*(?:(?:бр\.?|pcs)\s*[xхХX*×]?|[xхХX*×])\s*(.+)$/i
+        );
         if (prefixQtyMatch) {
           const qVal = parseInt(prefixQtyMatch[1], 10);
-          if (qVal >= 1 && qVal <= 99) {
+          if (qVal >= 1 && qVal <= 999) {
             quantity = qVal;
             rawName = prefixQtyMatch[2].trim();
           }
         }
       }
 
-      // Clean trailing separator dots/dashes/currency left on item name
       rawName = rawName.replace(/[.\-_=~*:\s]+$/, "").trim();
       const name = formatReadableItemName(rawName);
 
-      // Avoid picking up EIK/VAT/address/phone fragments that happen to end with digits
       if (
         name.length >= 2 &&
         /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
         !isNonItemSummaryOrMetaLine(name) &&
-        !isNonMerchantMetadataLine(name) &&
+        !isStrayFiscalOrAddressName(name) &&
         price &&
         price > 0 &&
         price < 50000
@@ -994,30 +1129,32 @@ export function extractItems(
 }
 
 /**
- * Formats extracted receipt items into clean multi-line Bulgarian notes:
+ * Formats extracted receipt items into clean multi-line notes preserving quantity:
  * Example:
- * Хляб бял - 2.39 лв.
- * Прясно мляко - 3.49 лв.
+ * 2 x Coca Cola - €4.80
+ * 1 x Water - €1.20
+ * 1 x Chips - €3.50
  */
 export function formatReceiptNotes(
   items: Array<{ name: string; price: number; quantity?: number }>,
-  currency: string = "лв."
+  currency: string = "€"
 ): string {
   if (!items || items.length === 0) return "";
 
   return items
     .map((it) => {
-      const qtyStr = it.quantity && it.quantity > 1 ? `${it.quantity}x ` : "";
+      const qty = it.quantity && it.quantity >= 1 ? it.quantity : 1;
       if (currency === "лв." || currency === "BGN") {
-        return `${qtyStr}${it.name} - ${it.price.toFixed(2)} лв.`;
+        return `${qty} x ${it.name} - ${it.price.toFixed(2)} лв.`;
       }
-      return `${qtyStr}${it.name} - ${currency}${it.price.toFixed(2)}`;
+      const sym = currency || "€";
+      return `${qty} x ${it.name} - ${sym}${it.price.toFixed(2)}`;
     })
     .join("\n");
 }
 
 /**
- * Main Deterministic Local Receipt Parser (Bulgarian-First)
+ * Main Deterministic Local Receipt Parser (Bulgarian-First + Euro-First)
  * Operates instantly on OCR text without requiring Gemini API calls.
  */
 export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
@@ -1025,10 +1162,9 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
   const merchantRes = extractMerchant(lines);
   const dateRes = extractDate(lines);
   const currency = extractCurrency(rawText);
-  const totalResult = extractTotal(lines);
+  const totalResult = extractTotal(lines, currency);
   const items = extractItems(lines, totalResult.total);
 
-  // If totalAmount could not be found explicitly, fall back to sum of parsed items
   let finalTotal = totalResult.total;
   let finalConfidence = totalResult.confidence;
   let finalRule = totalResult.matchedLine;
@@ -1053,18 +1189,25 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
       `Сумата (${finalTotal.toFixed(2)} ${currency}) беше избрана автоматично. Моля, проверете дали съвпада.`
     );
   }
+  if (!dateRes.dateDetected && dateRes.fallbackReason) {
+    warnings.push(
+      "Датата от касовата бележка не беше разчетена — временно е зададена днешната дата."
+    );
+  }
 
-  // Detailed structured debug logging for Bulgarian/English receipt diagnostics
   console.log("[Receipt Parser] Diagnostics:", {
     lineCount: lines.length,
     currency,
     detectedMerchant: merchantRes.merchantName,
     merchantRule: merchantRes.matchedRule,
-    detectedDate: dateRes.date,
+    ocrDetectedDate: dateRes.dateDetected ? dateRes.date : null,
+    finalDate: dateRes.date,
     dateRule: dateRes.matchedRule,
+    dateFallbackReason: dateRes.fallbackReason || null,
     detectedTotal: finalTotal,
     totalRule: finalRule,
     confidence: finalConfidence,
+    detectedQuantities: items.map((it) => `${it.quantity} x ${it.name}`),
     detectedItemsCount: items.length,
     detectedItems: items,
   });
@@ -1072,6 +1215,8 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
   return {
     merchantName: merchantRes.merchantName,
     date: dateRes.date,
+    dateDetected: dateRes.dateDetected,
+    dateFallbackReason: dateRes.fallbackReason,
     totalAmount: finalTotal,
     subtotal: totalResult.subtotal,
     tax: totalResult.tax,
