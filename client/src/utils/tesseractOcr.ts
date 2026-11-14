@@ -6,19 +6,29 @@ import { createWorker, PSM } from "tesseract.js";
  * Configured with Bulgarian Cyrillic + English ("bul+eng") as mandatory primary language pack,
  * using SINGLE_BLOCK page segmentation to keep receipt item names and prices aligned on the same row.
  */
-export async function runClientOcr(
-  imageSource: string | File | Blob,
-  onProgress?: (progressPercent: number, statusText: string) => void,
-  timeoutMs: number = 45000
-): Promise<{
+export interface ClientOcrResult {
   text: string;
   confidence: number;
   durationMs: number;
   languagesUsed: string;
-}> {
+  requestedLanguages: string;
+  fallbackOccurred: boolean;
+  psmMode: string;
+}
+
+export async function runClientOcr(
+  imageSource: string | File | Blob,
+  onProgress?: (progressPercent: number, statusText: string) => void,
+  timeoutMs: number = 45000
+): Promise<ClientOcrResult> {
   const startTime = Date.now();
+  const requestedLanguages = "bul+eng";
   let activeWorker: any = null;
   let timedOut = false;
+
+  console.log(
+    `[Receipt OCR] Starting OCR worker | requestedLanguages="${requestedLanguages}" | OEM=1 (LSTM) | PSM=SINGLE_BLOCK | preserve_interword_spaces=1`
+  );
 
   const createConfiguredWorker = async (
     langs: string,
@@ -51,19 +61,23 @@ export async function runClientOcr(
     return worker;
   };
 
-  const ocrPromise = (async () => {
+  const ocrPromise = (async (): Promise<ClientOcrResult> => {
     onProgress?.(10, "Инициализиране на български + английски OCR (bul+eng)...");
-    let languagesUsed = "bul+eng";
+    let languagesUsed = requestedLanguages;
+    let fallbackOccurred = false;
+    let psmMode = "SINGLE_BLOCK";
 
     try {
       try {
-        activeWorker = await createConfiguredWorker("bul+eng", "BG+EN");
+        activeWorker = await createConfiguredWorker(requestedLanguages, "BG+EN");
+        console.log(`[Receipt OCR] Worker initialized with languages="${requestedLanguages}" (Bulgarian + English active)`);
       } catch (bulErr: any) {
+        fallbackOccurred = true;
+        languagesUsed = "eng";
         console.warn(
-          "[OCR] Failed loading 'bul+eng' traineddata, falling back to 'eng':",
+          `[Receipt OCR] Failed loading "${requestedLanguages}" traineddata, falling back to "eng":`,
           bulErr?.message || bulErr
         );
-        languagesUsed = "eng";
         activeWorker = await createConfiguredWorker("eng", "EN");
       }
 
@@ -73,18 +87,43 @@ export async function runClientOcr(
           confidence: 0,
           durationMs: Date.now() - startTime,
           languagesUsed: "timeout",
+          requestedLanguages,
+          fallbackOccurred,
+          psmMode,
         };
       }
 
       onProgress?.(30, "Разчитане на български и английски текст...");
       const ret = await activeWorker.recognize(imageSource);
 
+      let text: string = ret.data?.text || "";
+      let confidence: number = ret.data?.confidence || 0;
+
+      // If SINGLE_BLOCK returns sparse text on a tall receipt, retry once with SINGLE_COLUMN
+      if (!timedOut && text.trim().length < 25) {
+        try {
+          onProgress?.(78, "Повторно разчитане в колонен режим (SINGLE_COLUMN)...");
+          await activeWorker.setParameters({
+            preserve_interword_spaces: "1",
+            tessedit_pageseg_mode: PSM.SINGLE_COLUMN,
+          });
+          const retryRet = await activeWorker.recognize(imageSource);
+          const retryText: string = retryRet.data?.text || "";
+          const retryConfidence: number = retryRet.data?.confidence || 0;
+          if (retryText.trim().length > text.trim().length) {
+            text = retryText;
+            confidence = retryConfidence;
+            psmMode = "SINGLE_COLUMN";
+          }
+        } catch {
+          // keep initial result
+        }
+      }
+
       onProgress?.(95, "Финализиране на разчетения текст...");
-      const text = ret.data?.text || "";
-      const confidence = ret.data?.confidence || 0;
 
       console.log(
-        `[Receipt OCR] Worker=${languagesUsed} | PSM=SINGLE_BLOCK | Duration=${Date.now() - startTime}ms | Confidence=${confidence.toFixed(1)}% | Chars=${text.length}`
+        `[Receipt OCR] Completed | requestedLanguages="${requestedLanguages}" | languagesUsed="${languagesUsed}" | fallback=${fallbackOccurred} | PSM=${psmMode} | Duration=${Date.now() - startTime}ms | Confidence=${confidence.toFixed(1)}% | Chars=${text.length}`
       );
 
       return {
@@ -92,6 +131,9 @@ export async function runClientOcr(
         confidence,
         durationMs: Date.now() - startTime,
         languagesUsed,
+        requestedLanguages,
+        fallbackOccurred,
+        psmMode,
       };
     } finally {
       if (activeWorker) {
@@ -106,15 +148,10 @@ export async function runClientOcr(
   })();
 
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<{
-    text: string;
-    confidence: number;
-    durationMs: number;
-    languagesUsed: string;
-  }>((resolve) => {
+  const timeoutPromise = new Promise<ClientOcrResult>((resolve) => {
     timeoutHandle = setTimeout(async () => {
       timedOut = true;
-      console.warn(`[Receipt OCR] Timed out after ${timeoutMs}ms`);
+      console.warn(`[Receipt OCR] Timed out after ${timeoutMs}ms (requestedLanguages="${requestedLanguages}")`);
       if (activeWorker) {
         try {
           await activeWorker.terminate();
@@ -128,6 +165,9 @@ export async function runClientOcr(
         confidence: 0,
         durationMs: timeoutMs,
         languagesUsed: "timeout",
+        requestedLanguages,
+        fallbackOccurred: true,
+        psmMode: "SINGLE_BLOCK",
       });
     }, timeoutMs);
   });
@@ -144,6 +184,9 @@ export async function runClientOcr(
       confidence: 0,
       durationMs: Date.now() - startTime,
       languagesUsed: "error",
+      requestedLanguages,
+      fallbackOccurred: true,
+      psmMode: "SINGLE_BLOCK",
     };
   }
 }

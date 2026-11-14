@@ -24,6 +24,10 @@ import {
   ListChecks,
   CheckSquare,
   Square,
+  Plus,
+  Pencil,
+  Trash2,
+  Save,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem, ReceiptItemDetail, BudgetConfig } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
@@ -576,10 +580,31 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [detectedDate, setDetectedDate] = useState<string>("");
   const [ocrDetectedDate, setOcrDetectedDate] = useState<string | null>(null);
   const [dateFallbackReason, setDateFallbackReason] = useState<string | null>(null);
+  const [dateEditedByUser, setDateEditedByUser] = useState<boolean>(false);
   const [detectedItemsCount, setDetectedItemsCount] = useState<number>(0);
+  const [detectedDiscount, setDetectedDiscount] = useState<number>(0);
   const [expectedItemsCount, setExpectedItemsCount] = useState<number | null>(null);
   const [confirmMismatchOverride, setConfirmMismatchOverride] = useState<boolean>(false);
-  const [aiSourceBadge, setAiSourceBadge] = useState<string>("OCR Engine");
+  const [aiSourceBadge, setAiSourceBadge] = useState<string>("OCR анализ");
+  const [aiUnavailable, setAiUnavailable] = useState<boolean>(false);
+  const [aiSucceeded, setAiSucceeded] = useState<boolean>(false);
+  const [processingWarning, setProcessingWarning] = useState<string | null>(null);
+  const [ocrLanguageInfo, setOcrLanguageInfo] = useState<{
+    requested: string;
+    used: string;
+    fallbackOccurred: boolean;
+    psmMode: string;
+  } | null>(null);
+
+  // Manual Item Addition & Inline Editing State
+  const [showAddItemForm, setShowAddItemForm] = useState<boolean>(false);
+  const [newItemName, setNewItemName] = useState<string>("");
+  const [newItemQuantity, setNewItemQuantity] = useState<string>("1");
+  const [newItemPrice, setNewItemPrice] = useState<string>("");
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+  const [editItemName, setEditItemName] = useState<string>("");
+  const [editItemQuantity, setEditItemQuantity] = useState<string>("1");
+  const [editItemPrice, setEditItemPrice] = useState<string>("");
 
   // Debug Panel State
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
@@ -646,9 +671,21 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDetectedDate("");
     setOcrDetectedDate(null);
     setDateFallbackReason(null);
+    setDateEditedByUser(false);
     setDetectedItemsCount(0);
+    setDetectedDiscount(0);
     setExpectedItemsCount(null);
     setConfirmMismatchOverride(false);
+    setAiSourceBadge("OCR анализ");
+    setAiUnavailable(false);
+    setAiSucceeded(false);
+    setProcessingWarning(null);
+    setOcrLanguageInfo(null);
+    setShowAddItemForm(false);
+    setNewItemName("");
+    setNewItemQuantity("1");
+    setNewItemPrice("");
+    setEditingItemIndex(null);
     setScanElapsedSeconds(0);
     onClose();
   }, [onClose]);
@@ -693,9 +730,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setMerchantName((prev) => prev || "Касова бележка");
       setDate((prev) => prev || new Date().toISOString().split("T")[0]);
       setConfidence("low");
-      setWarnings((prev) =>
-        prev.length > 0 ? prev : ["Можете да попълните сумата и категорията ръчно."]
-      );
+      setProcessingWarning("Ръчен режим: попълнете сумата, търговеца и артикулите по-долу.");
       setStep("review");
     },
     [addDebugLog]
@@ -774,7 +809,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setStep("preview");
     } catch (prepErr: any) {
       addDebugLog("error", `Грешка при предварителна обработка: ${prepErr.message}`);
-      setWarnings(["Неуспешна обработка на файла. Въведете данните ръчно."]);
+      setProcessingWarning("Неуспешна обработка на файла. Въведете данните ръчно.");
       setMerchantName("Касова бележка");
       setStep("review");
     }
@@ -796,6 +831,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     ocrImageUrl?: string;
   }) => {
     setStep("scanning");
+    setAiUnavailable(false);
+    setAiSucceeded(false);
+    setProcessingWarning(null);
+    setDateEditedByUser(false);
+    setShowAddItemForm(false);
+    setEditingItemIndex(null);
     setScanStatusMessage("1/3 Оптимизиране на изображението за кирилица (bul+eng)...");
     let ocrRawText = "";
     try {
@@ -807,9 +848,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         45000 // 45s timeout allows cold-downloading bul.traineddata.gz + eng.traineddata.gz reliably
       );
       ocrRawText = ocrResult.text;
+      setOcrLanguageInfo({
+        requested: ocrResult.requestedLanguages,
+        used: ocrResult.languagesUsed,
+        fallbackOccurred: ocrResult.fallbackOccurred,
+        psmMode: ocrResult.psmMode,
+      });
       addDebugLog(
         "ocr_text",
-        `OCR [${ocrResult.languagesUsed}] (${ocrResult.durationMs}ms, точност ${ocrResult.confidence.toFixed(0)}%, ${ocrRawText.length} символа):\n` +
+        `OCR Config: requested="${ocrResult.requestedLanguages}" | active="${ocrResult.languagesUsed}" | fallback=${ocrResult.fallbackOccurred} | PSM=${ocrResult.psmMode} | ${ocrResult.durationMs}ms | точност ${ocrResult.confidence.toFixed(0)}% | ${ocrRawText.length} символа\n` +
           ocrRawText.slice(0, 600)
       );
     } catch (ocrErr: any) {
@@ -872,8 +919,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDetectedMerchant(localParsed.merchantName);
     setDetectedDate(localParsed.date);
     setDetectedTotal(localParsed.totalAmount);
+    setDetectedDiscount(localParsed.discountTotal || 0);
     setDetectedItemsCount(initialItems.length);
-    setAiSourceBadge("Вграден BG+EN OCR модул");
+    setAiSourceBadge("OCR анализ");
 
     const baseCat = matchCategory(
       {
@@ -966,7 +1014,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setDate(aiDate);
             setDetectedDate(aiDate);
             setDateFallbackReason(null);
-            setWarnings((prev) => prev.filter((w) => !w.includes("Не е открита дата")));
+            setWarnings((prev) => prev.filter((w) => !w.includes("Датата") && !w.includes("Не е открита дата")));
             addDebugLog("parsed_date", `AI (Gemini) detected date: "${aiDate}" | Final date: "${aiDate}"`);
           } else {
             addDebugLog(
@@ -1005,7 +1053,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           const validation = validateReceiptTotals(
             resolvedItems,
             finalTotal,
-            resolvedExpectedCount ?? undefined
+            resolvedExpectedCount ?? undefined,
+            localParsed.discountTotal || 0
           );
 
           setReceiptItems(resolvedItems);
@@ -1062,28 +1111,27 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setSelectedBudgetCategoryId(matchingBudgetId);
           }
 
-          setAiSourceBadge(bestChoice.source === "local" ? "BG+EN OCR + Gemini Total" : "Gemini + BG OCR");
+          setAiSucceeded(true);
+          setAiUnavailable(false);
+          setAiSourceBadge("AI + OCR анализ");
         } else {
-          addDebugLog("gemini_res", "Gemini не е активен или върна грешка. Използват се данните от локалния BG OCR.");
-          setWarnings((prev) => [
-            ...prev,
-            "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
-          ]);
+          addDebugLog("gemini_res", "Gemini не е активен или върна грешка. Използват се данните от локалния BG+EN OCR.");
+          setAiUnavailable(true);
+          setAiSucceeded(false);
+          setAiSourceBadge("OCR анализ");
         }
       } else {
-        addDebugLog("gemini_res", "Статичен хостинг. Използват се локалните BG OCR данни.");
-        setWarnings((prev) => [
-          ...prev,
-          "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
-        ]);
+        addDebugLog("gemini_res", "Статичен хостинг. Използват се локалните BG+EN OCR данни.");
+        setAiUnavailable(true);
+        setAiSucceeded(false);
+        setAiSourceBadge("OCR анализ");
       }
     } catch (gErr: any) {
       clearTimeout(timeoutTimer);
-      addDebugLog("gemini_res", `Gemini заявката не успя (${gErr?.message}). Използват се локалните BG OCR данни.`);
-      setWarnings((prev) => [
-        ...prev,
-        "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
-      ]);
+      addDebugLog("gemini_res", `Gemini заявката не успя (${gErr?.message}). Използват се локалните BG+EN OCR данни.`);
+      setAiUnavailable(true);
+      setAiSucceeded(false);
+      setAiSourceBadge("OCR анализ");
     } finally {
       abortControllerRef.current = null;
       setStep("review");
@@ -1128,6 +1176,116 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     applyItemSelection(new Set(), receiptItems, detectedTotal);
   };
 
+  // Sync items list after manual addition, inline edit, or removal
+  const commitItemsMutation = (
+    nextItems: ReceiptItemDetail[],
+    nextSelected: Set<number>
+  ) => {
+    setReceiptItems(nextItems);
+    setSelectedItemIndices(nextSelected);
+    setDetectedItemsCount(nextItems.length);
+    setConfirmMismatchOverride(false);
+    setErrorMessage(null);
+
+    const selectedItems = nextItems.filter((_, idx) => nextSelected.has(idx));
+    const selectedSum = parseFloat(
+      selectedItems.reduce((sum, it) => sum + it.price, 0).toFixed(2)
+    );
+    const activeCurrency = receiptCurrency || "€";
+    setNotes(formatReceiptNotes(selectedItems, activeCurrency));
+
+    if (nextItems.length === 0) {
+      return;
+    }
+    if (selectedItems.length === 0) {
+      setAmount("0.00");
+    } else if (
+      detectedTotal > 0 &&
+      selectedItems.length === nextItems.length &&
+      Math.abs(selectedSum - detectedTotal) <= 0.05
+    ) {
+      setAmount(detectedTotal.toFixed(2));
+    } else {
+      setAmount(selectedSum.toFixed(2));
+    }
+  };
+
+  // Step 4: Add manual item
+  const handleAddManualItem = () => {
+    const cleanName = newItemName.trim();
+    const parsedQty = Math.max(1, Math.round(parseFloat(newItemQuantity.replace(",", ".")) || 1));
+    const parsedPrice = parseFloat(newItemPrice.replace(",", "."));
+    if (!cleanName) {
+      setErrorMessage("Моля, въведете име на артикула.");
+      return;
+    }
+    if (isNaN(parsedPrice) || parsedPrice <= 0) {
+      setErrorMessage("Моля, въведете валидна цена, по-голяма от 0.");
+      return;
+    }
+
+    const nextItems: ReceiptItemDetail[] = [
+      ...receiptItems,
+      { name: cleanName, quantity: parsedQty, price: parseFloat(parsedPrice.toFixed(2)) },
+    ];
+    const nextSelected = new Set(selectedItemIndices);
+    nextSelected.add(nextItems.length - 1);
+    commitItemsMutation(nextItems, nextSelected);
+
+    setNewItemName("");
+    setNewItemQuantity("1");
+    setNewItemPrice("");
+    setShowAddItemForm(false);
+  };
+
+  // Step 5: Start / Save / Delete inline edited item
+  const handleStartEditItem = (idx: number) => {
+    const target = receiptItems[idx];
+    if (!target) return;
+    setEditingItemIndex(idx);
+    setEditItemName(target.name);
+    setEditItemQuantity(String(target.quantity && target.quantity >= 1 ? target.quantity : 1));
+    setEditItemPrice(target.price.toFixed(2));
+    setErrorMessage(null);
+  };
+
+  const handleSaveEditItem = (idx: number) => {
+    const cleanName = editItemName.trim();
+    const parsedQty = Math.max(1, Math.round(parseFloat(editItemQuantity.replace(",", ".")) || 1));
+    const parsedPrice = parseFloat(editItemPrice.replace(",", "."));
+    if (!cleanName) {
+      setErrorMessage("Моля, въведете име на артикула.");
+      return;
+    }
+    if (isNaN(parsedPrice) || parsedPrice <= 0) {
+      setErrorMessage("Моля, въведете валидна цена, по-голяма от 0.");
+      return;
+    }
+
+    const nextItems = receiptItems.map((it, i) =>
+      i === idx
+        ? { name: cleanName, quantity: parsedQty, price: parseFloat(parsedPrice.toFixed(2)) }
+        : it
+    );
+    commitItemsMutation(nextItems, new Set(selectedItemIndices));
+    setEditingItemIndex(null);
+  };
+
+  const handleDeleteItem = (idx: number) => {
+    const nextItems = receiptItems.filter((_, i) => i !== idx);
+    const nextSelected = new Set<number>();
+    selectedItemIndices.forEach((selectedIdx) => {
+      if (selectedIdx < idx) nextSelected.add(selectedIdx);
+      else if (selectedIdx > idx) nextSelected.add(selectedIdx - 1);
+    });
+    if (editingItemIndex === idx) {
+      setEditingItemIndex(null);
+    } else if (editingItemIndex !== null && editingItemIndex > idx) {
+      setEditingItemIndex(editingItemIndex - 1);
+    }
+    commitItemsMutation(nextItems, nextSelected);
+  };
+
   const formatDisplayPrice = (val: number) =>
     receiptCurrency === "лв." || receiptCurrency === "BGN"
       ? `${val.toFixed(2)} лв.`
@@ -1144,29 +1302,57 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const selectedItemsSum = parseFloat(
     selectedItemsList.reduce((sum, item) => sum + item.price, 0).toFixed(2)
   );
-  // In Selection Mode (when user deselects items), Selected Total MUST equal ONLY selected items sum
-  const includedTotalDisplay =
-    receiptItems.length === 0
-      ? parseFloat(amount) || 0
-      : isPartialSelection
-      ? selectedItemsSum
-      : detectedTotal > 0
-      ? detectedTotal
-      : selectedItemsSum;
 
   const liveAmountNum = parseFloat(amount) || 0;
   const liveValidation = validateReceiptTotals(
     isPartialSelection ? selectedItemsList : receiptItems,
-    isPartialSelection ? liveAmountNum : receiptTotalDisplay,
-    isPartialSelection ? undefined : expectedItemsCount ?? undefined
+    isPartialSelection ? liveAmountNum : (liveAmountNum > 0 ? liveAmountNum : receiptTotalDisplay),
+    isPartialSelection ? undefined : expectedItemsCount ?? undefined,
+    isPartialSelection ? 0 : detectedDiscount
   );
-  // Verify Sum of items ≈ Receipt total (within 5%) when saving full receipt
+  // Verify Sum of items ≈ Receipt total (within 5% or expected item count deficit) when saving full receipt
   const hasFullReceiptMismatch =
     !isPartialSelection &&
     receiptItems.length > 0 &&
     receiptTotalDisplay > 0 &&
-    liveValidation.isMismatch &&
-    Math.abs(liveAmountNum - itemsFullSum) / Math.max(0.01, liveAmountNum) > 0.05;
+    liveValidation.isMismatch;
+
+  // Scanner Quality Indicators & Data-Only Warnings (independent from AI availability)
+  const cleanMerchantStr = merchantName.trim();
+  const isMerchantDetected =
+    cleanMerchantStr.length >= 2 &&
+    cleanMerchantStr !== "Касова бележка" &&
+    cleanMerchantStr !== "Неизвестен търговец";
+  const isDateDetected = Boolean(ocrDetectedDate || dateEditedByUser || (!dateFallbackReason && date));
+  const isTotalDetected = liveAmountNum > 0 || detectedTotal > 0;
+  const isItemsDetected = receiptItems.length > 0;
+
+  const dataWarnings: string[] = [];
+  if (processingWarning) {
+    dataWarnings.push(processingWarning);
+  }
+  if (!isTotalDetected) {
+    dataWarnings.push("Не е открита обща сума на бележката. Моля, въведете сумата ръчно.");
+  }
+  if (!isDateDetected) {
+    dataWarnings.push("Не е открита дата на бележката — временно е зададена днешната дата.");
+  }
+  if (!isMerchantDetected) {
+    dataWarnings.push("Не е разпознат търговец — моля, въведете името на обекта.");
+  }
+  if (!isItemsDetected) {
+    dataWarnings.push("Не са разпознати артикули от бележката. Можете да ги добавите ръчно по-долу.");
+  }
+  if (hasFullReceiptMismatch && liveValidation.warningMessage) {
+    dataWarnings.push(liveValidation.warningMessage);
+  }
+  const hasAllKeyFields =
+    isMerchantDetected &&
+    isDateDetected &&
+    isTotalDetected &&
+    isItemsDetected &&
+    !hasFullReceiptMismatch &&
+    !processingWarning;
 
   // Save confirmed expense
   const handleSaveExpense = () => {
@@ -1521,81 +1707,175 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           {step === "review" && (
             <div className="space-y-4">
               {/* Status / Warnings Banner */}
-              {warnings.length > 0 ? (
+              {hasAllKeyFields && dataWarnings.length === 0 ? (
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex items-center justify-between flex-wrap gap-2 text-emerald-800 dark:text-emerald-200 text-xs sm:text-sm">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="font-bold">
+                      ✅ Бележката е успешно разчетена.
+                    </span>
+                  </div>
+                  <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 font-bold rounded-full text-[11px] text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    Източник: {aiSourceBadge}
+                  </span>
+                </div>
+              ) : (
                 <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-2xl flex items-start gap-3 text-amber-800 dark:text-amber-200 text-xs sm:text-sm">
-                  <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="space-y-0.5">
-                    <span className="font-bold block">Резултат от разчитането:</span>
-                    <ul className="list-disc list-inside space-y-0.5">
-                      {warnings.map((w, idx) => (
+                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center justify-between flex-wrap gap-1.5">
+                      <span className="font-bold">Изисква се проверка на липсващи данни:</span>
+                      <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 font-semibold rounded-full text-[10px] text-amber-800 dark:text-amber-200">
+                        Източник: {aiSourceBadge}
+                      </span>
+                    </div>
+                    <ul className="list-disc list-inside space-y-0.5 text-xs">
+                      {dataWarnings.map((w, idx) => (
                         <li key={idx}>{w}</li>
                       ))}
                     </ul>
                   </div>
                 </div>
-              ) : (
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex items-center justify-between text-emerald-800 dark:text-emerald-200 text-xs sm:text-sm">
-                  <div className="flex items-center gap-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              )}
+
+              {/* Neutral AI Fallback Notice (never styled as warning when OCR succeeded) */}
+              {aiUnavailable && (
+                <div className="px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
                     <span>
-                      Касовата бележка е разчетена успешно.
+                      <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
+                      AI подобренията временно не са налични.
                     </span>
                   </div>
-                  <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 font-bold rounded-full text-[11px] text-emerald-700 dark:text-emerald-300">
-                    {aiSourceBadge}
-                  </span>
+                  {ocrLanguageInfo && (
+                    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                      OCR: {ocrLanguageInfo.used}
+                    </span>
+                  )}
                 </div>
               )}
 
-              {/* CONFIDENCE CHECK & RECEIPT PREVIEW SUMMARY */}
-              <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-2.5">
+              {/* Scanner Quality Indicators + Quality Meter */}
+              <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-1.5">
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    Преглед на разпознатите стойности
+                    Качество на разчитането
                   </span>
                   <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300">
                     Източник: {aiSourceBadge}
+                    {ocrLanguageInfo ? ` (${ocrLanguageInfo.used})` : ""}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Търговец</span>
-                    <span className="font-bold text-slate-900 dark:text-white truncate block">
-                      {detectedMerchant || merchantName || "—"}
-                    </span>
-                  </div>
-                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Дата</span>
-                    <span className="font-bold text-slate-900 dark:text-white block">
-                      {date || detectedDate || "—"}
-                    </span>
-                    {ocrDetectedDate ? (
-                      <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-medium">
-                        OCR: {ocrDetectedDate}
+
+                {/* 4 Clear Quality Status Indicators */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 ${
+                      isMerchantDetected
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200"
+                        : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200"
+                    }`}
+                  >
+                    <span className="text-sm shrink-0">{isMerchantDetected ? "✅" : "⚠️"}</span>
+                    <div className="min-w-0">
+                      <span className="text-[10px] uppercase font-bold block opacity-75">Търговец</span>
+                      <span className="font-bold truncate block">
+                        {isMerchantDetected ? merchantName : "Неразпознат"}
                       </span>
-                    ) : dateFallbackReason ? (
-                      <span className="text-[10px] text-amber-700 dark:text-amber-300 block font-medium truncate" title={dateFallbackReason}>
-                        Резервна (днес)
-                      </span>
-                    ) : null}
+                    </div>
                   </div>
-                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Категория</span>
-                    <span className="font-bold text-slate-900 dark:text-white truncate block">
-                      {selectedCategory?.name || "—"}
+
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 ${
+                      isDateDetected
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200"
+                        : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200"
+                    }`}
+                  >
+                    <span className="text-sm shrink-0">{isDateDetected ? "✅" : "⚠️"}</span>
+                    <div className="min-w-0">
+                      <span className="text-[10px] uppercase font-bold block opacity-75">Дата</span>
+                      <span className="font-bold truncate block">
+                        {date || "Липсва"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 ${
+                      isTotalDetected
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200"
+                        : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200"
+                    }`}
+                  >
+                    <span className="text-sm shrink-0">{isTotalDetected ? "✅" : "⚠️"}</span>
+                    <div className="min-w-0">
+                      <span className="text-[10px] uppercase font-bold block opacity-75">Обща сума</span>
+                      <span className="font-bold truncate block">
+                        {isTotalDetected ? formatDisplayPrice(receiptTotalDisplay) : "Неоткрита"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 ${
+                      isItemsDetected
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200"
+                        : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200"
+                    }`}
+                  >
+                    <span className="text-sm shrink-0">{isItemsDetected ? "✅" : "⚠️"}</span>
+                    <div className="min-w-0">
+                      <span className="text-[10px] uppercase font-bold block opacity-75">Артикули</span>
+                      <span className="font-bold truncate block">
+                        {isItemsDetected ? `${receiptItems.length} разпознати` : "0 артикула"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quality Meter Strip (Detected Items | Receipt Total | Items Total | Difference) */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
+                  <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
+                      Detected Items
+                    </span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      {receiptItems.length}
+                      {expectedItemsCount ? ` / ${expectedItemsCount}` : ""}
                     </span>
                   </div>
-                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Общо по бележка</span>
-                    <span className="font-bold text-slate-900 dark:text-slate-100 block">
+                  <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
+                      Receipt Total
+                    </span>
+                    <span className="font-bold text-slate-900 dark:text-white">
                       {formatDisplayPrice(receiptTotalDisplay)}
                     </span>
                   </div>
-                  <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl border border-indigo-200 dark:border-indigo-800 col-span-2 sm:col-span-1">
-                    <span className="text-[10px] text-indigo-700 dark:text-indigo-300 block uppercase font-bold">Избрана сума</span>
-                    <span className="font-black text-indigo-700 dark:text-indigo-200 block">
-                      {formatDisplayPrice(parseFloat(amount) || 0)}
+                  <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
+                      Items Total
+                    </span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      {formatDisplayPrice(itemsFullSum)}
+                    </span>
+                  </div>
+                  <div
+                    className={`p-2 rounded-xl border ${
+                      liveValidation.differencePercent <= 5
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200"
+                        : "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200"
+                    }`}
+                  >
+                    <span className="text-[10px] block font-semibold opacity-80">
+                      Difference
+                    </span>
+                    <span className="font-extrabold">
+                      {formatDisplayPrice(liveValidation.difference)} (
+                      {liveValidation.differencePercent.toFixed(1)}%)
                     </span>
                   </div>
                 </div>
@@ -1697,87 +1977,277 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Interactive Receipt Items Selection (Partial Payment / Bill Splitting) */}
-                  {receiptItems.length > 0 && (
-                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-                            <ListChecks className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                            <span>Избор на артикули от бележката</span>
-                          </h4>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
-                            Изберете кои артикули да се включат в разхода (напр. при разделяне на сметка)
-                          </p>
+                  {/* Interactive Receipt Items Selection, Inline Editing & Manual Item Addition */}
+                  <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                          <ListChecks className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                          <span>Артикули от бележката ({receiptItems.length})</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                          Избирайте, редактирайте или добавете липсващ артикул ръчно
+                        </p>
+                      </div>
+                      <div className="flex items-center flex-wrap gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddItemForm((prev) => !prev);
+                            setEditingItemIndex(null);
+                          }}
+                          className="min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Добави артикул ръчно</span>
+                        </button>
+                        {receiptItems.length > 0 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={handleSelectAllItems}
+                              disabled={selectedItemIndices.size === receiptItems.length}
+                              className="min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <CheckSquare className="w-3.5 h-3.5" />
+                              <span>Всички</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleDeselectAllItems}
+                              disabled={selectedItemIndices.size === 0}
+                              className="min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <Square className="w-3.5 h-3.5" />
+                              <span>Изчисти</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step 4: Manual Add Item Inline Form */}
+                    {showAddItemForm && (
+                      <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2.5">
+                        <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">
+                          Нов артикул (ръчно добавяне)
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                          <div className="sm:col-span-6">
+                            <input
+                              type="text"
+                              value={newItemName}
+                              onChange={(e) => setNewItemName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddManualItem();
+                                }
+                              }}
+                              placeholder="Име на артикул (напр. Мляко Верея)"
+                              className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                              autoFocus
+                            />
+                          </div>
+                          <div className="sm:col-span-3">
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={newItemQuantity}
+                              onChange={(e) => setNewItemQuantity(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddManualItem();
+                                }
+                              }}
+                              placeholder="К-во"
+                              className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </div>
+                          <div className="sm:col-span-3">
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={newItemPrice}
+                              onChange={(e) => setNewItemPrice(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddManualItem();
+                                }
+                              }}
+                              placeholder={`Цена (${receiptCurrency || "€"})`}
+                              className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
-                            onClick={handleSelectAllItems}
-                            disabled={selectedItemIndices.size === receiptItems.length}
-                            className="min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 cursor-pointer"
+                            onClick={() => setShowAddItemForm(false)}
+                            className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           >
-                            <CheckSquare className="w-3.5 h-3.5" />
-                            <span>Избери всички</span>
+                            Отказ
                           </button>
                           <button
                             type="button"
-                            onClick={handleDeselectAllItems}
-                            disabled={selectedItemIndices.size === 0}
-                            className="min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 cursor-pointer"
+                            onClick={handleAddManualItem}
+                            className="px-3.5 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                           >
-                            <Square className="w-3.5 h-3.5" />
-                            <span>Премахни всички</span>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Добави</span>
                           </button>
                         </div>
                       </div>
+                    )}
 
-                      {/* Items Checklist */}
-                      <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                    {/* Items Checklist + Step 5 Inline Editing */}
+                    {receiptItems.length === 0 ? (
+                      <div className="py-4 px-3 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center text-xs text-slate-600 dark:text-slate-300">
+                        Няма автоматично разпознати артикули. Натиснете <strong>„+ Добави артикул ръчно“</strong>, за да добавите позиции.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-72 overflow-y-auto pr-0.5">
                         {receiptItems.map((item, idx) => {
                           const isChecked = selectedItemIndices.has(idx);
+                          const isEditing = editingItemIndex === idx;
+
+                          if (isEditing) {
+                            return (
+                              <div
+                                key={`edit-${idx}`}
+                                className="p-2.5 rounded-xl border-2 border-indigo-400 dark:border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 space-y-2"
+                              >
+                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                                  <input
+                                    type="text"
+                                    value={editItemName}
+                                    onChange={(e) => setEditItemName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSaveEditItem(idx);
+                                      }
+                                    }}
+                                    placeholder="Име на артикул"
+                                    className="sm:col-span-6 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                                    autoFocus
+                                  />
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={editItemQuantity}
+                                    onChange={(e) => setEditItemQuantity(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSaveEditItem(idx);
+                                      }
+                                    }}
+                                    placeholder="К-во"
+                                    className="sm:col-span-3 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                                  />
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={editItemPrice}
+                                    onChange={(e) => setEditItemPrice(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSaveEditItem(idx);
+                                      }
+                                    }}
+                                    placeholder="Цена"
+                                    className="sm:col-span-3 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                                  />
+                                </div>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingItemIndex(null)}
+                                    className="px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    Отказ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveEditItem(idx)}
+                                    className="px-3 py-1 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Save className="w-3 h-3" />
+                                    <span>Запази</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }
+
                           return (
-                            <label
+                            <div
                               key={`${idx}-${item.name}`}
-                              className={`min-h-[48px] flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                              className={`min-h-[46px] flex items-center justify-between gap-2 px-3 py-2 rounded-xl border transition-all ${
                                 isChecked
                                   ? "bg-indigo-50/70 dark:bg-indigo-950/35 border-indigo-300 dark:border-indigo-700/80 text-slate-900 dark:text-white shadow-2xs"
                                   : "bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 opacity-75 hover:opacity-100"
                               }`}
                             >
-                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer select-none">
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
                                   onChange={() => handleToggleReceiptItem(idx)}
-                                  className="w-5 h-5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                  className="w-4.5 h-4.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
                                 />
-                                <div className="min-w-0 flex-1">
-                                  <span
-                                    className={`text-sm font-semibold block truncate ${
-                                      !isChecked ? "line-through" : ""
-                                    }`}
-                                  >
-                                    {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
-                                    {item.name}
-                                  </span>
-                                </div>
+                                <span
+                                  className={`text-xs sm:text-sm font-semibold truncate ${
+                                    !isChecked ? "line-through" : ""
+                                  }`}
+                                >
+                                  {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
+                                  {item.name}
+                                </span>
+                              </label>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span
+                                  className={`text-xs sm:text-sm font-extrabold tabular-nums mr-1 ${
+                                    isChecked
+                                      ? "text-indigo-700 dark:text-indigo-300"
+                                      : "text-slate-500 dark:text-slate-400 line-through"
+                                  }`}
+                                >
+                                  {formatDisplayPrice(item.price)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditItem(idx)}
+                                  className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+                                  title="Редактирай артикул"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteItem(idx)}
+                                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 hover:bg-rose-100/70 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
+                                  title="Премахни артикул"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-                              <span
-                                className={`text-sm font-extrabold shrink-0 tabular-nums ${
-                                  isChecked
-                                    ? "text-indigo-700 dark:text-indigo-300"
-                                    : "text-slate-500 dark:text-slate-400 line-through"
-                                }`}
-                              >
-                                {formatDisplayPrice(item.price)}
-                              </span>
-                            </label>
+                            </div>
                           );
                         })}
                       </div>
+                    )}
 
-                      {/* Live Item Counts, Selected/Items Totals & Validation */}
+                    {/* Live Item Counts & Selected/Items Totals */}
+                    {receiptItems.length > 0 && (
                       <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2 text-xs">
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                           <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
@@ -1804,43 +2274,43 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           </span>
                         </div>
                       </div>
+                    )}
 
-                      {hasFullReceiptMismatch && (
-                        <div className="p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-200 space-y-2">
-                          <div className="flex items-start gap-2">
-                            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
-                            <div className="space-y-1">
-                              <span className="font-bold block">
-                                Possible missing receipt items detected.
-                              </span>
-                              <p className="text-[11px] leading-relaxed">
-                                Receipt Total: <strong>{formatDisplayPrice(receiptTotalDisplay)}</strong> | Items Total: <strong>{formatDisplayPrice(itemsFullSum)}</strong> | Разлика: <strong>{formatDisplayPrice(liveValidation.difference)} ({liveValidation.differencePercent.toFixed(1)}%)</strong>
-                                {expectedItemsCount ? ` | Артикули: ${receiptItems.length} от ${expectedItemsCount}` : ""}
-                              </p>
-                            </div>
-                          </div>
-                          <label className="flex items-center gap-2 pt-1 border-t border-rose-200 dark:border-rose-800/60 cursor-pointer select-none font-semibold text-[11px]">
-                            <input
-                              type="checkbox"
-                              checked={confirmMismatchOverride}
-                              onChange={(e) => setConfirmMismatchOverride(e.target.checked)}
-                              className="w-4 h-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500 cursor-pointer"
-                            />
-                            <span>
-                              Потвърждавам записа въпреки разликата (&gt;5%) между сумата на артикулите и общата сума
+                    {hasFullReceiptMismatch && (
+                      <div className="p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-200 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                          <div className="space-y-1">
+                            <span className="font-bold block">
+                              Possible missing receipt items.
                             </span>
-                          </label>
+                            <p className="text-[11px] leading-relaxed">
+                              Receipt Total: <strong>{formatDisplayPrice(receiptTotalDisplay)}</strong> | Items Total: <strong>{formatDisplayPrice(itemsFullSum)}</strong> | Разлика: <strong>{formatDisplayPrice(liveValidation.difference)} ({liveValidation.differencePercent.toFixed(1)}%)</strong>
+                              {expectedItemsCount ? ` | Артикули: ${receiptItems.length} от ${expectedItemsCount}` : ""}
+                            </p>
+                          </div>
                         </div>
-                      )}
+                        <label className="flex items-center gap-2 pt-1 border-t border-rose-200 dark:border-rose-800/60 cursor-pointer select-none font-semibold text-[11px]">
+                          <input
+                            type="checkbox"
+                            checked={confirmMismatchOverride}
+                            onChange={(e) => setConfirmMismatchOverride(e.target.checked)}
+                            className="w-4 h-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                          />
+                          <span>
+                            Потвърждавам записа въпреки разликата (&gt;5%) между сумата на артикулите и общата сума
+                          </span>
+                        </label>
+                      </div>
+                    )}
 
-                      {selectedItemIndices.size === 0 && (
-                        <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                          <span>Изберете поне един артикул, за да запазите разхода.</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    {receiptItems.length > 0 && selectedItemIndices.size === 0 && (
+                      <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span>Изберете поне един артикул, за да запазите разхода.</span>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Category Selector */}
                   <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
@@ -1914,7 +2384,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         <input
                           type="date"
                           value={date}
-                          onChange={(e) => setDate(e.target.value)}
+                          onChange={(e) => {
+                            setDate(e.target.value);
+                            setDateEditedByUser(true);
+                          }}
                           className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                         />
                       </div>
