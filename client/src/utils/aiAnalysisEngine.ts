@@ -110,7 +110,7 @@ export function generateLocalFinancialAnalysis(
     }
   });
 
-  // Calculate total income (deduplicated across globalSavings & record.incomes)
+  // Calculate total income strictly from MonthlyRecord.incomes (Savings are NOT income)
   let totalIncome = 0;
   const seenIncomeIds = new Set<string>();
   const incomesByCategory: Record<string, number> = {};
@@ -125,14 +125,6 @@ export function generateLocalFinancialAnalysis(
         incomesByCategory[cat] = (incomesByCategory[cat] || 0) + inc.amount;
       });
     }
-  });
-
-  globalSavings.forEach((tx) => {
-    if (!tx || tx.amount <= 0 || tx.type === "expense" || seenIncomeIds.has(tx.id)) return;
-    seenIncomeIds.add(tx.id);
-    totalIncome += tx.amount;
-    const cat = tx.categoryName || "Спестявания / Приход";
-    incomesByCategory[cat] = (incomesByCategory[cat] || 0) + tx.amount;
   });
 
   // Calculate current savings balance

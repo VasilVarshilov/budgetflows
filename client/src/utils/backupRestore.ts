@@ -200,25 +200,15 @@ export function gatherApplicationData(owner?: {
     []
   );
 
-  // Compute Income list (combines global savings of income type + any per-month explicit incomes)
+  // Compute Income list strictly from per-month explicit incomes (Savings are NOT income)
   const incomeList: IncomeItem[] = [];
   const seenIncomeIds = new Set<string>();
-
-  // From global savings
-  savings.forEach((s) => {
-    if (s.type === "income" || !s.type) {
-      if (!seenIncomeIds.has(s.id)) {
-        seenIncomeIds.add(s.id);
-        incomeList.push(s);
-      }
-    }
-  });
 
   // From monthly records
   Object.values(monthlyRecords).forEach((record) => {
     if (record.incomes && Array.isArray(record.incomes)) {
       record.incomes.forEach((inc) => {
-        if (!seenIncomeIds.has(inc.id)) {
+        if (inc && inc.type !== "expense" && !seenIncomeIds.has(inc.id)) {
           seenIncomeIds.add(inc.id);
           incomeList.push(inc);
         }
@@ -444,9 +434,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
       ...(typeof parsed.ownerEmail === "string" ? { ownerEmail: parsed.ownerEmail } : {}),
       summary: {
         incomeCount:
-          income.length ||
-          totalMonthlyIncomesCount +
-            savings.filter((s: any) => s?.type === "income").length,
+          totalMonthlyIncomesCount > 0 ? totalMonthlyIncomesCount : income.length,
         expensesCount: totalExpensesCount,
         savingsCount: savings.length,
         electricityCount: electricityHistory.length,

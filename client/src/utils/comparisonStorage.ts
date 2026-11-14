@@ -86,13 +86,13 @@ export function calculateMonthExpenses(record: MonthlyRecord | undefined): numbe
 }
 
 /**
- * Calculates total income for a given month and year
+ * Calculates total income for a given month and year (strictly from MonthlyRecord.incomes; Savings are NOT income)
  */
 export function calculateMonthIncome(
-  monthName: string,
-  year: number,
+  _monthName: string,
+  _year: number,
   record: MonthlyRecord | undefined,
-  globalSavings: IncomeItem[]
+  _globalSavings: IncomeItem[] = []
 ): number {
   let total = 0;
   const seenIds = new Set<string>();
@@ -100,29 +100,12 @@ export function calculateMonthIncome(
   // Incomes recorded inside monthlyRecord
   if (record && record.incomes && Array.isArray(record.incomes)) {
     record.incomes.forEach((inc) => {
-      if (inc && inc.amount > 0 && !seenIds.has(inc.id)) {
+      if (inc && inc.amount > 0 && inc.type !== "expense" && !seenIds.has(inc.id)) {
         seenIds.add(inc.id);
         total += Number(inc.amount) || 0;
       }
     });
   }
-
-  // Incomes recorded inside globalSavings transactions
-  const monthIdx = MONTHS_BG.indexOf(monthName);
-  globalSavings.forEach((tx) => {
-    if (!tx || seenIds.has(tx.id)) return;
-    const d = new Date(tx.date);
-    if (!isNaN(d.getTime())) {
-      if (
-        d.getFullYear() === year &&
-        d.getMonth() === monthIdx &&
-        (tx.type === "income" || !tx.type)
-      ) {
-        seenIds.add(tx.id);
-        total += Number(tx.amount) || 0;
-      }
-    }
-  });
 
   return parseFloat(total.toFixed(2));
 }

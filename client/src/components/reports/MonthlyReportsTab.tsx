@@ -219,11 +219,10 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
 
   const netBalanceForMonth = totalIncomeForMonth - totalExpense;
 
-  // Income Category Breakdown for selected month
+  // Income Category Breakdown for selected month (strictly from MonthlyRecord.incomes)
   const incomeBreakdown = useMemo(() => {
     const map: Record<string, { value: number; color: string; count: number }> = {};
     const seenIds = new Set<string>();
-    const monthIdx = MONTHS_BG.indexOf(selectedMonth);
 
     const addItem = (item: IncomeItem, fallbackName: string) => {
       if (!item || item.amount <= 0 || item.type === "expense" || seenIds.has(item.id)) return;
@@ -244,14 +243,6 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
       record.incomes.forEach((inc) => addItem(inc, "Други приходи"));
     }
 
-    globalSavings.forEach((tx) => {
-      if (!tx || !tx.date) return;
-      const d = new Date(tx.date);
-      if (!isNaN(d.getTime()) && d.getFullYear() === selectedYearNum && d.getMonth() === monthIdx) {
-        addItem(tx, "Спестявания / Приход");
-      }
-    });
-
     const total = Object.values(map).reduce((s, d) => s + d.value, 0);
     return Object.entries(map)
       .map(([name, data]) => ({
@@ -262,7 +253,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         percentage: total > 0 ? (data.value / total) * 100 : 0,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [record, globalSavings, selectedMonth, selectedYearNum]);
+  }, [record]);
 
   const hasAnyMonthData =
     Boolean(record) || totalIncomeForMonth > 0 || totalSavingsForMonth !== 0;

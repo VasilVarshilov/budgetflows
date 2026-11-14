@@ -360,7 +360,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       };
     }, [activeMonthsList, periodType, customStartDate, customEndDate]);
 
-  // Income from monthly records (Income tab) + Savings income transactions (deduplicated by ID)
+  // Income from monthly records ONLY (Savings are NOT income)
   const { totalIncome, incomeCount } = useMemo(() => {
     let sum = 0;
     let count = 0;
@@ -383,16 +383,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       }
     });
 
-    filteredSavings.forEach((item) => {
-      if (item && item.type !== "expense" && !seenIds.has(item.id)) {
-        seenIds.add(item.id);
-        sum += Number(item.amount) || 0;
-        count += 1;
-      }
-    });
-
     return { totalIncome: sum, incomeCount: count };
-  }, [activeMonthsList, filteredSavings, periodType, customStartDate, customEndDate]);
+  }, [activeMonthsList, periodType, customStartDate, customEndDate]);
 
   // Savings in period (income - expense in savings ledger)
   const periodSavings = useMemo(() => {
@@ -467,17 +459,6 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         }
       });
 
-      // Add incomes from filtered savings
-      filteredSavings.forEach((tx) => {
-        if (tx.type !== "expense" && !seenIncomeIds.has(tx.id)) {
-          seenIncomeIds.add(tx.id);
-          const mIdx = new Date(tx.date).getMonth();
-          if (monthMap[mIdx]) {
-            monthMap[mIdx].income += tx.amount;
-          }
-        }
-      });
-
       return Object.values(monthMap);
     }
 
@@ -491,7 +472,6 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   }, [
     periodType,
     activeMonthsList,
-    filteredSavings,
     customStartDate,
     customEndDate,
     totalIncome,
@@ -550,18 +530,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       }
     });
 
-    // Fill incomes from savings ledger
-    globalSavings.forEach((tx) => {
-      const d = new Date(tx.date);
-      if (d.getFullYear() === targetYear && tx.type !== "expense" && !seenIncomeIds.has(tx.id)) {
-        seenIncomeIds.add(tx.id);
-        const m = d.getMonth();
-        trend[m].income += tx.amount;
-      }
-    });
-
     return trend;
-  }, [monthlyData, globalSavings, periodType, selectedYear, now]);
+  }, [monthlyData, periodType, selectedYear, now]);
 
   // 6. Chart 4 Data: Savings Trend (Cumulative balance over 12 months)
   const savingsTrendData = useMemo(() => {

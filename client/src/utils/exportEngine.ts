@@ -191,7 +191,7 @@ export function aggregateExportData(params: {
     return true;
   });
 
-  // 4. Compute Income & Savings from filteredSavings + record.incomes
+  // 4. Compute Savings strictly from filteredSavings, and Income strictly from MonthlyRecord.incomes
   let incomeTotal = 0;
   let savingsTotal = 0; // Net added to savings
   const seenIncomeIds = new Set<string>();
@@ -207,20 +207,7 @@ export function aggregateExportData(params: {
     if (tx.type === "expense") {
       savingsTotal -= tx.amount;
     } else {
-      seenIncomeIds.add(tx.id);
-      incomeTotal += tx.amount;
       savingsTotal += tx.amount;
-
-      const catName = tx.categoryName || "Спестявания / Приход";
-      if (!incomeCategoryMap[catName]) {
-        incomeCategoryMap[catName] = {
-          amount: 0,
-          color: tx.categoryColor ? getHexFromTailwindClass(tx.categoryColor) : "#10b981",
-          count: 0,
-        };
-      }
-      incomeCategoryMap[catName].amount += tx.amount;
-      incomeCategoryMap[catName].count += 1;
     }
   });
 
@@ -422,7 +409,7 @@ export function aggregateExportData(params: {
         }
       }
 
-      // Incomes & savings for this month
+      // Incomes & savings for this month (kept strictly separate)
       let mInc = 0;
       let mSav = 0;
       const seenMonthIncIds = new Set<string>();
@@ -432,8 +419,6 @@ export function aggregateExportData(params: {
           if (tx.type === "expense") {
             mSav -= tx.amount;
           } else {
-            seenMonthIncIds.add(tx.id);
-            mInc += tx.amount;
             mSav += tx.amount;
           }
         }
@@ -491,8 +476,6 @@ export function aggregateExportData(params: {
           if (tx.type === "expense") {
             mSav -= tx.amount;
           } else {
-            seenMonthIncIds.add(tx.id);
-            mInc += tx.amount;
             mSav += tx.amount;
           }
         }
