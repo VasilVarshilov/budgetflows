@@ -9,6 +9,12 @@ export interface ParsedReceiptData {
   dateDetected: boolean;
   dateFallbackReason?: string;
   totalAmount: number;
+  itemsTotal: number;
+  totalDifference: number;
+  totalDifferencePercent: number;
+  totalMismatchWarning?: string;
+  expectedItemsCount?: number;
+  discountTotal?: number;
   subtotal?: number;
   tax?: number;
   currency: string;
@@ -343,8 +349,12 @@ export function normalizeBulgarianOcrText(rawText: string): string {
       .replace(/[–—]/g, "-")
       // Normalize spaced EUR / BGN tokens
       .replace(/\bE\s*U\s*R\b/gi, "EUR")
-      // Fix OCR spaces around decimal separators in numbers: "4 . 80" -> "4.80"
-      .replace(/(\d)\s+([.,])\s+(\d{2})(?=$|\s|[^\d])/g, "$1$2$3")
+      // Fix OCR spaces on either/both sides of decimal separators in prices (e.g. "4 . 80", "4. 80", "4 .80")
+      // while protecting calendar dates like "14. 11. 2026" via negative lookbehind/lookahead
+      .replace(
+        /(^|[^\d./-])(\d{1,5})\s*([.,])\s*(\d{2})(?!\s*[./-]\s*\d)(?=$|\s|[^\d])/g,
+        "$1$2$3$4"
+      )
       // Fix OCR letter О/O inside 4-digit years like "2O26" or "2О26" -> "2026"
       .replace(/(^|[^\dа-яА-Яa-zA-Z])2[ОO]([1-3])([ОO\d])(?=$|[^\d])/g, (_m, pre, d3, d4) => {
         const f4 = d4 === "О" || d4 === "O" ? "0" : d4;
@@ -357,6 +367,8 @@ export function normalizeBulgarianOcrText(rawText: string): string {
         const f2 = d2 === "О" || d2 === "O" ? "0" : d2;
         return `${pre}${p1}${f1}${f2}`;
       })
+      // Separate glued currency/tax glyph after decimal price: "1.29Б" -> "1.29 Б", "4.80EUR" -> "4.80 EUR"
+      .replace(/(\d+[.,]\d{2})([АБВГДЕабвгдеA-D€$£]|EUR|BGN|лв\.?)/gi, "$1 $2")
       // Normalize Bulgarian currency OCR variants: "лв .", "лB.", "л8." after digits
       .replace(/(\d)\s*л\s*[вB8]\s*\.?/gi, "$1 лв.")
       .replace(/(^|\s)л\s*в\s*\.?(?=\s|$)/gi, "$1лв.")
@@ -423,7 +435,8 @@ function isNonMerchantMetadataLine(line: string): boolean {
     /(КАСА\s*№?|КАСИЕР|ОПЕРАТОР|БОН\s*№|ЧЕК\s*№|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ\s*№|ОБ\.?\s*№|МАГАЗИН\s*№|ОБ\.?\s*МЯСТО)/,
     /(?:^|\s)(ГР\.|С\.|УЛ\.|БУЛ\.|Ж\.К\.|КВ\.|ПЛ\.|БЛ\.|ВХ\.|ЕТ\.|АП\.|ОБЛ\.|ОБЩ\.|П\.К\.)(?:\s|$)/,
     /(?:^|[^а-яА-Яa-zA-Z])(TEL|PHONE|ТЕЛ|ФАКС|FAX|EMAIL|E-MAIL|WWW\.|HTTP|HTTPS)(?:$|[^а-яА-Яa-zA-Z])/i,
-    /^\d{1,2}[./,-]\d{1,2}[./,-]\d{2,4}/,
+    /^\s*(?:ДАТА|DATE|ЧАС|TIME)\s*[:=]/i,
+    /\d{1,2}\s*[./,-]\s*\d{1,2}\s*[./,-]\s*(?:20\d{2}|\d{2})(?:\s|$)/,
     /^\d+[\s\-/.:]*$/,
     /\d+[.,]\d{2}\s*(?:[АБВГA-D8]|ЛВ\.?|BGN|EUR|€)?\s*$/i,
   ];
@@ -448,12 +461,49 @@ function isStrayFiscalOrAddressName(name: string): boolean {
   );
 }
 
+/**
+ * Checks whether a line in the receipt header/body is store metadata (VAT/EIK/Fiscal/Address/Receipt label)
+ * Safe for use in extractItems(): NEVER treats priced item lines or product weight strings ("500 ГР.") as metadata.
+ */
+function isReceiptHeaderLineForItems(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  const cyr = toCyrillicMatchForm(trimmed);
+  const lat = toLatinMatchForm(trimmed);
+
+  const headerPatterns: RegExp[] = [
+    /^(?:FISCAL\s*RECEIPT|RECEIPT|TAX\s*INVOICE|INVOICE|SALES\s*RECEIPT|CUSTOMER\s*RECEIPT)(?:$|[^a-zA-Z])/i,
+    /(ФИСКАЛЕН\s*БОН|СИСТЕМЕН\s*БОН|СЛУЖЕБЕН\s*БОН|КАСОВА\s*БЕЛЕЖКА|КАСОВ\s*БОН|ФАКТУРА|ОРИГИНАЛ|ДУБЛИКАТ)/,
+    /^(?:WELCOME|THANK\s*YOU|ДОБРЕ\s*ДОШЛИ|БЛАГОДАРИМ|МЕРСИ|ПРИЯТЕН\s*ДЕН)/,
+    /\bBG\s*\d{8,11}\b/i,
+    /(ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ДДС\s*№|ДДС\s*N|VAT\s*№|VAT\s*NO|ИН:|ИД\.?\s*№)/,
+    /(?:^|\s)(?:ФУ|ФП|ЗД|ДТ|УНП|НРА|ТД)(?:$|[\s:№N#\-\d])/,
+    /(КАСА\s*№?|КАСИЕР|ОПЕРАТОР|БОН\s*№|ЧЕК\s*№|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ\s*№|ОБ\.?\s*№|МАГАЗИН\s*№|ОБ\.?\s*МЯСТО)/,
+    /^\s*(?:ГР\.|С\.|УЛ\.|БУЛ\.|Ж\.К\.|КВ\.|ПЛ\.|ОБЛ\.|ОБЩ\.)(?:\s|$)/,
+    /(?:^|\s)(?:УЛ\.|БУЛ\.|Ж\.К\.|П\.К\.)(?:\s|$)/,
+    /(?:^|[^а-яА-Яa-zA-Z])(?:TEL|PHONE|ТЕЛ|ФАКС|FAX|EMAIL|E-MAIL|WWW\.|HTTP|HTTPS)(?:$|[^а-яА-Яa-zA-Z])/i,
+    /^\s*(?:ДАТА|DATE|ЧАС|TIME)\s*[:=]/i,
+    /(?:^|\s)\d{1,2}\s*[./,-]\s*\d{1,2}\s*[./,-]\s*(?:20\d{2}|\d{2})(?:\s|$)/,
+    /^\d{1,2}:\d{2}(?::\d{2})?(?:\s|$)/,
+    /^\d+[\s\-/.:]*$/,
+  ];
+
+  return (
+    headerPatterns.some((re) => re.test(trimmed)) ||
+    headerPatterns.some((re) => re.test(cyr)) ||
+    headerPatterns.some((re) => re.test(lat))
+  );
+}
+
 // Clean legal entity suffixes and decorative chars from store name
 function cleanMerchantName(raw: string): string {
   return raw
     .replace(/[#*=_~•|]/g, " ")
     .replace(/[„“"«»]/g, "")
-    .replace(/\b(ЕООД|ООД|ЕАД|АД|ЕТ|СД|КД|LTD|LLC|GMBH|INC)\b\.?/gi, "")
+    .replace(
+      /(?:^|[^а-яА-Яa-zA-Z])(ЕООД|ООД|ЕАД|АД|ЕТ|СД|КД|LTD|LLC|GMBH|INC)\.?(?=$|[^а-яА-Яa-zA-Z])/gi,
+      " "
+    )
     .replace(/\s+/g, " ")
     .replace(/^[-:.,\s]+|[-:.,\s]+$/g, "")
     .trim();
@@ -902,20 +952,48 @@ export function extractTotal(lines: string[], preferredCurrency: string = "€")
 }
 
 /**
- * Checks if a line is a receipt summary, payment, VAT, discount, or terminal line
- * (never an item row).
+ * Checks if a line marks the end of the item list (Subtotal / Total / VAT / Payment section)
+ * so item parsing continues until that boundary and stops cleanly there.
+ */
+function isTotalsOrPaymentBoundaryLine(line: string): boolean {
+  const cyr = toCyrillicMatchForm(line);
+  const lat = toLatinMatchForm(line);
+
+  const boundaryPatterns: RegExp[] = [
+    /^\s*(?:МЕЖДИННА\s*СУМА|ОБЩА\s*СУМА|КРАЙНА\s*СУМА|СУМА\s*ЗА\s*ПЛАЩАНЕ|ОБЩО\s*ЗА\s*ПЛАЩАНЕ|ДЪЛЖИМА\s*СУМА|ЗА\s*ПЛАЩАНЕ)(?:$|[\s:=€\d])/,
+    /^\s*(?:ОБЩО|ВСИЧКО|ТОТАЛ)(?:\s+(?:EUR|ЕВРО|ЛВ\.?|BGN|СУМА|АРТИКУЛ[АИ]?))?(?:$|[\s:=€\d])/,
+    /^\s*(?:СУМА)(?:$|[\s:=€]|\s+(?:EUR|ЛВ|\d))/,
+    /^\s*(?:SUB\s*TOTAL|SUBTOTAL|GRAND\s*TOTAL|TOTAL\s*DUE|AMOUNT\s*DUE|BALANCE\s*DUE|TOTAL)(?:$|[\s:=€$£\d])/i,
+    /^\s*(?:ДДС|ДАНЪЧНА\s*(?:ГРУПА|ОСНОВА)|ОБЛАГАЕМА|ДАНЪК|VAT|TAX)(?:$|[\s:=(\d%])/i,
+    /^\s*(?:ГРУПА\s*[АБВГA-D]|ДАН\.\s*ГРУПА)(?=$|[^а-яА-Яa-zA-Z0-9])/,
+    /^\s*(?:В\s*БРОЙ|КАРТА|ПЛАТЕНО|ПЛАЩАНЕ|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ|РЕСТО|ВЪРНАТИ|ОДОБРЕНИЕ|CASH|CARD|CHANGE|PAID|VISA|MASTERCARD|AMEX)(?:$|[\s:=\d])/i,
+    /^\s*\d+\s*(?:АРТИКУЛА|АРТИКУЛИ|АРТИКУЛ|ПРОДУКТА|ITEMS?\s*SOLD|ITEMS?)(?=$|[\s:])/i,
+    /^\s*(?:БР\.?\s*АРТИКУЛИ|БРОЙ\s*АРТИКУЛИ|ОБЩО\s*АРТИКУЛИ|ITEMS\s*COUNT)(?=$|[^а-яА-Яa-zA-Z0-9])/i,
+  ];
+
+  return (
+    boundaryPatterns.some((re) => re.test(line)) ||
+    boundaryPatterns.some((re) => re.test(cyr)) ||
+    boundaryPatterns.some((re) => re.test(lat))
+  );
+}
+
+/**
+ * Checks if a line is a receipt summary, payment, VAT, discount, or fiscal header/footer line.
  */
 function isNonItemSummaryOrMetaLine(line: string): boolean {
+  if (isTotalsOrPaymentBoundaryLine(line)) return true;
+
   const cyr = toCyrillicMatchForm(line);
   const lat = toLatinMatchForm(line);
 
   const rejectPatterns = [
-    /(?:^|\s)(?:SUBTOTAL|SUB\s*TOTAL|TOTAL|GRAND\s*TOTAL|TAX|VAT|CASH|CHANGE|BALANCE|CARD|VISA|MASTERCARD|AMEX|DISCOUNT|SAVED)(?:$|[\s:=\d])/i,
-    /(?:^|\s)(?:МЕЖДИННА\s*СУМА|ОБЩА\s*СУМА|КРАЙНА\s*СУМА|ЗА\s*ПЛАЩАНЕ|ОБЩО|СУМА|ВСИЧКО|ТОТАЛ|ДЪЛЖИМА)(?:$|[\s:=€\d])/,
-    /(?:^|\s)(?:ДДС|ДАНЪК|ДАНЪЧНА\s*ГРУПА|ДАНЪЧНА\s*ОСНОВА|НЕТО|ОБЛАГАЕМА|ГРУПА\s*[АБВГA-D])(?:$|[\s:=\d%])/,
-    /(?:^|\s)(?:В\s*БРОЙ|КАРТА|ПЛАТЕНО|ПЛАЩАНЕ|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ|РЕСТО|ВЪРНАТИ|ОДОБРЕНИЕ|ОДОБРЕНА)(?:$|[\s:=\d])/,
-    /(?:^|\s)(?:ОТСТЪПКА|НАМАЛЕНИЕ|СПЕСТЕНИ|ВАУЧЕР|КУПОН|ТОЧКИ)(?:$|[\s:=\d])/,
-    /(?:^|\s)(?:ЕИК|БУЛСТАТ|ДДС\s*№|ИН\s*ПО\s*ДДС|ФУ|ФП|ЗД|УНП|КАСА|КАСИЕР|ОПЕРАТОР|БОН\s*№|АРТИКУЛА)(?:$|[\s:№N#\-\d])/,
+    /(?:^|\s)(?:SUBTOTAL|SUB\s*TOTAL|GRAND\s*TOTAL|BALANCE\s*DUE|CASH|CHANGE|VISA|MASTERCARD|AMEX)(?:$|[\s:=\d])/i,
+    /(?:^|\s)(?:МЕЖДИННА\s*СУМА|ОБЩА\s*СУМА|КРАЙНА\s*СУМА|ЗА\s*ПЛАЩАНЕ|ДЪЛЖИМА\s*СУМА)(?:$|[\s:=€\d])/,
+    /(?:^|\s)(?:ДДС|ДАНЪЧНА\s*ГРУПА|ДАНЪЧНА\s*ОСНОВА|ОБЛАГАЕМА|ГРУПА\s*[АБВГA-D])(?:$|[\s:=\d%])/,
+    /(?:^|\s)(?:В\s*БРОЙ|ПЛАТЕНО|ПЛАЩАНЕ|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ|РЕСТО|ВЪРНАТИ|ОДОБРЕНИЕ|ОДОБРЕНА)(?:$|[\s:=\d])/,
+    /(?:^|\s)(?:ОТСТЪПКА|НАМАЛЕНИЕ|СПЕСТЕНИ|LIDL\s*PLUS\s*ОТСТЪПКА|КАУФЛАНД\s*КАРТ|BILLA\s*CARD|ТОЧКИ|DISCOUNT|SAVED)(?:$|[\s:=\-\d])/,
+    /(?:^|\s)(?:ЕИК|БУЛСТАТ|ДДС\s*№|ИН\s*ПО\s*ДДС|ФУ|ФП|УНП|КАСИЕР|ОПЕРАТОР|БОН\s*№)(?:$|[\s:№N#\-\d])/,
     /(?:^|\s)(?:ТЕЛ|ФАКС|WWW\.|HTTP|БЛАГОДАРИМ|МЕРСИ|ДОБРЕ\s*ДОШЛИ|ФИСКАЛЕН\s*БОН|СЛУЖЕБЕН\s*БОН)(?:$|[\s:!.])/,
     /\b(?:AID|AUTH|PAN|RRN|STAN|TID|MID)\b/i,
     /^\d{1,2}[./,-]\d{1,2}[./,-]\d{2,4}/,
@@ -930,12 +1008,62 @@ function isNonItemSummaryOrMetaLine(line: string): boolean {
 }
 
 /**
+ * Checks whether a text line inside the items section is purely a separator or metadata
+ * rather than a wrapped continuation line of a product name.
+ */
+function isSeparatorOrHeaderNoise(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  if (/^[-=*_.~#|+\\/]{2,}$/.test(trimmed)) return true;
+  const cyr = toCyrillicMatchForm(trimmed);
+  if (
+    /^(?:КАСОВ\s*БОН|ФИСКАЛЕН\s*БОН|СИСТЕМЕН\s*БОН|ЕИК|БУЛСТАТ|ИН\s*ПО\s*ДДС|ДДС\s*№|УНП|ФУ|ФП|КАСА|КАСИЕР|ОПЕРАТОР|БОН\s*№|АРТИКУЛ|СТОКА|НАИМЕНОВАНИЕ|ЦЕНА|К-ВО|КОЛИЧЕСТВО)(?=$|[^а-яА-Яa-zA-Z0-9])/.test(
+      cyr
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Extracts explicit expected item count if printed on the receipt (e.g. "17 АРТИКУЛА", "ITEMS SOLD: 17").
+ */
+export function extractExpectedItemsCount(lines: string[]): number | undefined {
+  for (const line of lines) {
+    const cleanUpper = repairCyrillicWordTokens(line).toUpperCase();
+    const m1 =
+      cleanUpper.match(
+        /(?:^|\s)(\d{1,3})\s*(?:АРТИКУЛА|АРТИКУЛИ|АРТИКУЛ|ПРОДУКТА)(?=$|[^а-яА-Яa-zA-Z0-9])/
+      ) ||
+      cleanUpper.match(
+        /(?:^|\s)(\d{1,3})\s*(?:ITEMS?\s*(?:SOLD)?|ARTICLES?)(?=$|[^a-zA-Z0-9])/i
+      );
+    if (m1) {
+      const n = parseInt(m1[1], 10);
+      if (n >= 1 && n <= 300) return n;
+    }
+    const m2 =
+      cleanUpper.match(
+        /(?:БР\.?\s*АРТИКУЛИ|БРОЙ\s*АРТИКУЛИ|ОБЩО\s*АРТИКУЛИ|АРТИКУЛИ|ПОЗИЦИИ)\s*[:=]?\s*(\d{1,3})(?=$|[^\d])/
+      ) ||
+      cleanUpper.match(/(?:ITEM\s*COUNT|ITEMS\s*COUNT|ITEMS)\s*[:=]\s*(\d{1,3})(?=$|[^\d])/i);
+    if (m2) {
+      const n = parseInt(m2[1], 10);
+      if (n >= 1 && n <= 300) return n;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Formats ALL-CAPS item names into readable Sentence case and repairs Cyrillic OCR homoglyphs.
  */
 function formatReadableItemName(rawName: string): string {
   const repaired = repairCyrillicWordTokens(rawName);
   const cleaned = repaired
-    .replace(/^[•\-*\d.)\s]+(?=[а-яА-Яa-zA-Z])/, "")
+    .replace(/^[•\-*]+\s*/, "")
+    .replace(/^(?:0\d|\d{1,3}[.)]|\d{4,8})\s+(?=[а-яА-Яa-zA-Z0-9])/, "")
     .replace(/[.*_~=|:;\-]+$/, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -943,8 +1071,9 @@ function formatReadableItemName(rawName: string): string {
   if (!cleaned) return cleaned;
 
   const letters = cleaned.replace(/[^а-яА-Яa-zA-Z]/g, "");
+  const upperCount = (letters.match(/[А-ЯA-Z]/g) || []).length;
   const isMostlyUpper =
-    letters.length > 0 && letters === letters.toUpperCase();
+    letters.length > 0 && upperCount / letters.length >= 0.75;
 
   if (!isMostlyUpper) return cleaned;
 
@@ -952,52 +1081,183 @@ function formatReadableItemName(rawName: string): string {
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
-// Extract Item Lines from text (Bulgarian + English + EUR + quantity preservation)
+/**
+ * Extracts the trailing item price from a line, supporting dual-currency displays (EUR + BGN)
+ * and OCR-noisy tax letters (А, Б, В, Г, A-D, 6, 8, 5, *).
+ */
+function extractTrailingItemPrice(
+  line: string,
+  preferredCurrency: string = "€"
+): { price: number; cleanPrefix: string } | null {
+  // 1. Check dual-currency ending first: e.g. "ХЛЯБ БЯЛ  €1.20 / 2.35 лв." or "ХЛЯБ БЯЛ  2.35 лв. 1.20 EUR B"
+  const dualMatch = line.match(
+    /((?:EUR|BGN|€|лв\.?)?\s*\d{1,5}[.,]\d{2}\s*(?:EUR|BGN|€|лв\.?)?)\s*(?:[/*|]|или)?\s*((?:EUR|BGN|€|лв\.?)?\s*\d{1,5}[.,]\d{2}\s*(?:EUR|BGN|€|лв\.?)?)\s*(?:[*#]?\s*[АБВГДЕабвгдеA-D685])?\s*[.,|*\]]*\s*$/i
+  );
+  if (dualMatch && dualMatch.index !== undefined) {
+    const partA = dualMatch[1];
+    const partB = dualMatch[2];
+    const pA = parsePrice(partA);
+    const pB = parsePrice(partB);
+    const hasBothEurAndBgn =
+      (/(?:€|EUR)/i.test(partA) && /(?:лв|BGN)/i.test(partB)) ||
+      (/(?:лв|BGN)/i.test(partA) && /(?:€|EUR)/i.test(partB));
+    const isBgnEurPair =
+      pA &&
+      pB &&
+      (Math.abs(pB / pA - 1.95583) < 0.04 || Math.abs(pA / pB - 1.95583) < 0.04);
+
+    if (pA && pB && (hasBothEurAndBgn || isBgnEurPair)) {
+      let chosen = pB;
+      if (preferredCurrency === "€") {
+        if (/(?:€|EUR)/i.test(partA) && !/(?:€|EUR)/i.test(partB)) chosen = pA;
+        else if (/(?:€|EUR)/i.test(partB) && !/(?:€|EUR)/i.test(partA)) chosen = pB;
+        else if (isBgnEurPair) chosen = Math.min(pA, pB); // EUR is smaller than BGN
+      } else if (preferredCurrency === "лв.") {
+        if (/(?:лв|BGN)/i.test(partA) && !/(?:лв|BGN)/i.test(partB)) chosen = pA;
+        else if (/(?:лв|BGN)/i.test(partB) && !/(?:лв|BGN)/i.test(partA)) chosen = pB;
+        else if (isBgnEurPair) chosen = Math.max(pA, pB);
+      }
+      return {
+        price: chosen,
+        cleanPrefix: line.slice(0, dualMatch.index).trim(),
+      };
+    }
+  }
+
+  // 2. Standard single trailing price with optional currency & Bulgarian tax code
+  const singleMatch = line.match(
+    /(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|USD|GBP|€|\$|£)?\s*(?:[*#]?\s*[АБВГДЕабвгдеA-D685%])?\s*[.,|*\]]*\s*$/i
+  );
+  if (singleMatch && singleMatch.index !== undefined) {
+    // Reject if preceded immediately by a minus sign (discount row handled separately)
+    const beforeChar = singleMatch.index > 0 ? line[singleMatch.index - 1] : "";
+    if (beforeChar === "-") return null;
+    const price = parsePrice(singleMatch[1]);
+    if (price && price > 0 && price < 50000) {
+      return {
+        price,
+        cleanPrefix: line.slice(0, singleMatch.index).trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether a line is a negative discount/rebate row (e.g. "LIDL PLUS -1.50 Б" or "ОТСТЪПКА -0.80").
+ */
+function extractDiscountAmount(line: string): number {
+  const cyr = toCyrillicMatchForm(line);
+  const negMatch = line.match(/-\s*(\d{1,4}[.,]\d{2})\s*(?:€|EUR|лв\.?|BGN)?\s*[АБВГA-D68*]?\s*$/i);
+  if (negMatch) {
+    const val = parsePrice(negMatch[1]);
+    if (val && val > 0) return val;
+  }
+  if (/(?:ОТСТЪПКА|НАМАЛЕНИЕ|СПЕСТЕНИ|DISCOUNT|SAVED|LIDL\s*PLUS)/.test(cyr)) {
+    const posMatch = line.match(/(\d{1,4}[.,]\d{2})\s*(?:€|EUR|лв\.?|BGN)?\s*[АБВГA-D68*]?\s*$/i);
+    if (posMatch) {
+      const val = parsePrice(posMatch[1]);
+      if (val && val > 0) return val;
+    }
+  }
+  return 0;
+}
+
+// Extract Item Lines from text (Bulgarian + English + EUR + multi-line + quantity preservation)
 export function extractItems(
   lines: string[],
-  _totalAmount: number
-): Array<{ name: string; price: number; quantity: number }> {
+  _totalAmount: number,
+  preferredCurrency: string = "€"
+): { items: Array<{ name: string; price: number; quantity: number }>; discountTotal: number } {
   const items: Array<{ name: string; price: number; quantity: number }> = [];
+  let discountTotal = 0;
 
-  // Matches trailing price with optional leading/trailing currency & Bulgarian tax code:
-  // "€4.80", "EUR 4.80", "4.80 EUR", "4.80 €", "4.80 EUR B", "4.80 Б", "4.80 *B", "4.80 8", "4.80 лв."
-  const trailingPriceRegex =
-    /(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|USD|GBP|€|\$|£)?\s*(?:[*#]?\s*[АБВГA-D8])?\s*[.,|*\]]*\s*$/i;
-
-  // Quantity x UnitPrice (+ optional trailing line total)
+  // Quantity x UnitPrice (+ optional trailing line total, single currency)
   // e.g. "2 x 2.40   €4.80", "2.000 бр. x 1.20 = 2.40 Б", "32.15 л x 2.65  85.20 Б"
   const qtyCalculationWithTotalRegex =
-    /^[*#•\s]*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*(\d+[.,]\d{2,3})\s*(?:=|.*?\s)\s*(?:EUR|BGN|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|€|\$|£)?\s*(?:[*#]?\s*[АБВГA-D8])?\s*[.,|*\]]*\s*$/i;
+    /^[*#•\s]*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*(\d+[.,]\d{2,3})\s*(?:=|\s)\s*(?:EUR|BGN|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|USD|GBP|€|\$|£)?\s*(?:[*#]?\s*[АБВГДЕабвгдеA-D685])?\s*[.,|*\]]*\s*$/i;
 
-  // Quantity x UnitPrice WITHOUT total on the same line (used when line i-1 is qty x unit and line i has "NAME  TOTAL")
+  // Quantity x UnitPrice WITHOUT total on the same line
   const qtyCalculationOnlyRegex =
     /^[*#•\s]*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*(\d+[.,]\d{2,3})\s*$/i;
 
+  // Standalone price line (when OCR wrapped a price onto the line below the product name)
+  const standalonePriceLineRegex =
+    /^(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|USD|GBP|€|\$|£)?\s*(?:[*#]?\s*[АБВГДЕабвгдеA-D685])?\s*[.,|*\]]*\s*$/i;
+
   const consumedLineIndices = new Set<number>();
+  let pendingNameBuffer: Array<{ index: number; text: string }> = [];
+  let seenItemsStart = false;
+
+  const flushPendingName = (): string => {
+    const joined = pendingNameBuffer.map((b) => b.text).join(" ").trim();
+    pendingNameBuffer = [];
+    return joined;
+  };
 
   for (let i = 0; i < lines.length; i++) {
     if (consumedLineIndices.has(i)) continue;
     const line = lines[i];
 
-    if (isNonItemSummaryOrMetaLine(line)) continue;
+    // Stop cleanly once we reach Subtotal / Total / VAT / Payment section
+    if (isTotalsOrPaymentBoundaryLine(line)) {
+      if (items.length > 0) {
+        break;
+      }
+      pendingNameBuffer = [];
+      continue;
+    }
 
-    // 1. Two-line pattern A:
-    //    Line i-1: "COCA COLA 2L" (or "ХЛЯБ БЯЛ")
-    //    Line i  : "2 x 2.40            €4.80"
+    // Track negative discount rows without adding them as positive items
+    const disc = extractDiscountAmount(line);
+    if (disc > 0) {
+      discountTotal = parseFloat((discountTotal + disc).toFixed(2));
+      pendingNameBuffer = [];
+      continue;
+    }
+
+    // Skip explicit header/footer noise and clear buffer
+    if (isSeparatorOrHeaderNoise(line) || isNonItemSummaryOrMetaLine(line)) {
+      pendingNameBuffer = [];
+      continue;
+    }
+    if (!seenItemsStart && isReceiptHeaderLineForItems(line)) {
+      pendingNameBuffer = [];
+      continue;
+    }
+
+    // Skip standalone barcode numbers (8-14 digits) without disturbing buffer
+    if (/^\d{8,14}$/.test(line.trim())) {
+      continue;
+    }
+
+    // 1. Two/Three-line Pattern A:
+    //    Line(s) in buffer: "ПИЛЕШКО ФИЛЕ ОХЛАДЕНО" + "ТАРЕЛКА 650Г"
+    //    Line i           : "2 x 2.40            €4.80"
     const qtyLineMatch = line.match(qtyCalculationWithTotalRegex);
-    if (qtyLineMatch && i > 0 && !consumedLineIndices.has(i - 1)) {
-      const prevLine = lines[i - 1];
-      const prevHasPrice = trailingPriceRegex.test(prevLine);
-      const prevHasLetters = /[а-яА-Яa-zA-Z]{2,}/.test(prevLine);
-      if (
-        prevHasLetters &&
-        !prevHasPrice &&
-        !isNonItemSummaryOrMetaLine(prevLine) &&
-        !isNonMerchantMetadataLine(prevLine)
-      ) {
+    if (qtyLineMatch) {
+      let candidateName = "";
+      if (pendingNameBuffer.length > 0) {
+        candidateName = flushPendingName();
+      } else if (i > 0 && !consumedLineIndices.has(i - 1)) {
+        const prevLine = lines[i - 1];
+        if (
+          /[а-яА-Яa-zA-Z]{2,}/.test(prevLine) &&
+          !extractTrailingItemPrice(prevLine, preferredCurrency) &&
+          !isNonItemSummaryOrMetaLine(prevLine) &&
+          !isReceiptHeaderLineForItems(prevLine)
+        ) {
+          candidateName = prevLine;
+          consumedLineIndices.add(i - 1);
+        }
+      }
+
+      if (candidateName) {
         const rawQty = parseFloat(qtyLineMatch[1].replace(",", "."));
         const totalLinePrice = parsePrice(qtyLineMatch[3]);
-        const isWeightOrVolume = /(?:кг|гр|л\.?|kg|g|l)/i.test(line);
+        const isWeightOrVolume =
+          /(?:^|[^а-яА-Яa-zA-Z])(?:кг|гр|г|л|kg|g|l)\.?(?=$|[^а-яА-Яa-zA-Z])/i.test(line);
         const isDiscreteCount =
           !isWeightOrVolume &&
           Number.isInteger(rawQty) &&
@@ -1008,8 +1268,8 @@ export function extractItems(
           /^[*#•\s]*(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|kg|l|g))(?=$|[^а-яА-Яa-zA-Z])/i
         );
         const displayName = unitLabelMatch
-          ? `${formatReadableItemName(prevLine)} (${unitLabelMatch[1].trim()})`
-          : formatReadableItemName(prevLine);
+          ? `${formatReadableItemName(candidateName)} (${unitLabelMatch[1].trim()})`
+          : formatReadableItemName(candidateName);
 
         if (
           totalLinePrice &&
@@ -1023,109 +1283,298 @@ export function extractItems(
             quantity: isDiscreteCount ? rawQty : 1,
           });
           consumedLineIndices.add(i);
-          consumedLineIndices.add(i - 1);
+          seenItemsStart = true;
           continue;
         }
       }
     }
 
-    // 2. Two-line pattern B (some POS printers put qty x unitPrice ABOVE the product line):
+    // 2. Two-line Pattern B (qty x unitPrice ABOVE the product line):
     //    Line i  : "2 x 2.40"
     //    Line i+1: "COCA COLA 2L       €4.80"
     const qtyOnlyMatch = line.match(qtyCalculationOnlyRegex);
     if (qtyOnlyMatch && i + 1 < lines.length) {
       const nextLine = lines[i + 1];
-      const nextPriceMatch = nextLine.match(trailingPriceRegex);
-      if (
-        nextPriceMatch &&
-        nextPriceMatch.index !== undefined &&
-        !isNonItemSummaryOrMetaLine(nextLine)
-      ) {
+      const nextPriceInfo = extractTrailingItemPrice(nextLine, preferredCurrency);
+      if (nextPriceInfo && !isTotalsOrPaymentBoundaryLine(nextLine) && !isNonItemSummaryOrMetaLine(nextLine)) {
         const rawQty = parseFloat(qtyOnlyMatch[1].replace(",", "."));
         const isDiscreteCount =
-          !/(?:кг|гр|л\.?|kg|g|l)/i.test(line) &&
+          !/(?:^|[^а-яА-Яa-zA-Z])(?:кг|гр|г|л|kg|g|l)\.?(?=$|[^а-яА-Яa-zA-Z])/i.test(line) &&
           Number.isInteger(rawQty) &&
           rawQty >= 1 &&
           rawQty <= 999;
-        const price = parsePrice(nextPriceMatch[1]);
-        const rawName = nextLine.slice(0, nextPriceMatch.index).replace(/[.\-_=~*:\s]+$/, "").trim();
+        const bufferedPrefix = flushPendingName();
+        const rawName = `${bufferedPrefix ? bufferedPrefix + " " : ""}${nextPriceInfo.cleanPrefix}`
+          .replace(/[.\-_=~*:\s]+$/, "")
+          .trim();
         const name = formatReadableItemName(rawName);
         if (
-          price &&
-          price > 0 &&
+          nextPriceInfo.price > 0 &&
           name.length >= 2 &&
           /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
           !isStrayFiscalOrAddressName(name)
         ) {
           items.push({
             name,
-            price,
+            price: nextPriceInfo.price,
             quantity: isDiscreteCount ? rawQty : 1,
           });
           consumedLineIndices.add(i);
           consumedLineIndices.add(i + 1);
+          seenItemsStart = true;
           continue;
         }
       }
     }
 
-    // 3. Standard single-line item with trailing price
-    const hasLetters = /[а-яА-Яa-zA-Z]{2,}/.test(line);
-    if (!hasLetters) continue;
-
-    const priceMatch = line.match(trailingPriceRegex);
-    if (priceMatch && priceMatch.index !== undefined) {
-      const price = parsePrice(priceMatch[1]);
-      let rawName = line.slice(0, priceMatch.index).trim();
-      let quantity = 1;
-
-      // 3a. Inline trailing "qty x unitPrice": e.g. "Coca Cola 2 x 2.40" or "Вода 2 бр. x 1.20"
-      const inlineQtyUnitMatch = rawName.match(
-        /^(.+?)\s+(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*\d+[.,]\d{2,3}\s*$/i
+    // 3. Standalone price line wrapped onto line below product name (e.g. "ХЛЯБ БЯЛ" \n "1.29 Б")
+    const standalonePriceMatch = line.match(standalonePriceLineRegex);
+    if (standalonePriceMatch && pendingNameBuffer.length > 0) {
+      const price = parsePrice(standalonePriceMatch[1]);
+      const rawName = flushPendingName().replace(/[.\-_=~*:\s]+$/, "").trim();
+      const parsedPrefix = rawName.match(
+        /^(\d+)\s*(?:(?:бр\.?|pcs)\s*(?:[xхХX]\s+|[*×]\s*)?|(?:[xхХX]\s+|[*×]\s*))(.+)$/i
       );
-      if (inlineQtyUnitMatch) {
-        rawName = inlineQtyUnitMatch[1].trim();
-        const qVal = parseFloat(inlineQtyUnitMatch[2].replace(",", "."));
-        if (
-          !/(?:кг|л|гр|kg|l|g)/i.test(inlineQtyUnitMatch[0]) &&
-          Number.isInteger(qVal) &&
-          qVal >= 1 &&
-          qVal <= 999
-        ) {
-          quantity = qVal;
-        }
-      } else {
-        // 3b. Prefix quantity: "2 x Coca Cola", "2x Coca Cola", "2 х Вода", "2 бр. x Вода", "2 бр Вода", "2 * Бира"
-        const prefixQtyMatch = rawName.match(
-          /^(\d+)\s*(?:(?:бр\.?|pcs)\s*[xхХX*×]?|[xхХX*×])\s*(.+)$/i
+      const quantity = parsedPrefix ? parseInt(parsedPrefix[1], 10) : 1;
+      const name = formatReadableItemName(parsedPrefix ? parsedPrefix[2] : rawName);
+      if (
+        price &&
+        price > 0 &&
+        price < 50000 &&
+        name.length >= 2 &&
+        /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
+        !isStrayFiscalOrAddressName(name)
+      ) {
+        items.push({
+          name,
+          price,
+          quantity: quantity >= 1 && quantity <= 999 ? quantity : 1,
+        });
+        consumedLineIndices.add(i);
+        seenItemsStart = true;
+        continue;
+      }
+    }
+
+    // 4. Standard single-line (or multi-line wrapped + trailing price on final line)
+    // Also handles qty calculation lines ending in dual currency when buffered name exists (e.g. "2 x 2.40  €4.80 / 9.39 лв.")
+    const priceInfo = extractTrailingItemPrice(line, preferredCurrency);
+    const hasLetters = /[а-яА-Яa-zA-Z]{2,}/.test(line);
+    const standaloneQtyCalcPrefixMatch =
+      priceInfo &&
+      priceInfo.cleanPrefix.match(
+        /^[*#•\s]*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*\d+[.,]\d{2,3}\s*$/i
+      );
+
+    if (priceInfo && (hasLetters || (standaloneQtyCalcPrefixMatch && pendingNameBuffer.length > 0))) {
+      const parseItemFromChunk = (
+        rawChunkName: string,
+        linePrice: number,
+        includePendingBuffer: boolean
+      ): { name: string; price: number; quantity: number } | null => {
+        let rawName = rawChunkName.trim();
+        let quantity = 1;
+
+        const pureQtyCalcMatch = rawName.match(
+          /^[*#•\s]*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|гр\.?|г\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*\d+[.,]\d{2,3}\s*$/i
         );
-        if (prefixQtyMatch) {
-          const qVal = parseInt(prefixQtyMatch[1], 10);
-          if (qVal >= 1 && qVal <= 999) {
+        if (pureQtyCalcMatch && includePendingBuffer && pendingNameBuffer.length > 0) {
+          const qVal = parseFloat(pureQtyCalcMatch[1].replace(",", "."));
+          if (
+            !/(?:^|[^а-яА-Яa-zA-Z])(?:кг|гр|г|л|kg|g|l)\.?(?=$|[^а-яА-Яa-zA-Z])/i.test(pureQtyCalcMatch[0]) &&
+            Number.isInteger(qVal) &&
+            qVal >= 1 &&
+            qVal <= 999
+          ) {
             quantity = qVal;
-            rawName = prefixQtyMatch[2].trim();
+          }
+          rawName = flushPendingName();
+        } else {
+          // 4a. Inline trailing "qty x unitPrice": e.g. "Coca Cola 2 x 2.40" or "Вода 2 бр. x 1.20"
+          const inlineQtyUnitMatch = rawName.match(
+            /^(.+?)\s+(\d+(?:[.,]\d+)?)\s*(?:бр\.?|кг\.?|л\.?|kg|g|l|pcs)?\s*[xхХX*×]\s*\d+[.,]\d{2,3}\s*$/i
+          );
+          if (inlineQtyUnitMatch) {
+            rawName = inlineQtyUnitMatch[1].trim();
+            const qVal = parseFloat(inlineQtyUnitMatch[2].replace(",", "."));
+            if (
+              !/(?:^|[^а-яА-Яa-zA-Z])(?:кг|гр|г|л|kg|g|l)\.?(?=$|[^а-яА-Яa-zA-Z])/i.test(inlineQtyUnitMatch[0]) &&
+              Number.isInteger(qVal) &&
+              qVal >= 1 &&
+              qVal <= 999
+            ) {
+              quantity = qVal;
+            }
+          } else {
+            // 4b. Space-separated "qty  unitPrice" verified mathematically: e.g. "ВОДА ДЕВИН  2  0.75" before 1.50
+            const spaceQtyUnitMatch = rawName.match(/^(.+?)\s+(\d{1,3})\s+(\d{1,4}[.,]\d{2})$/);
+            if (spaceQtyUnitMatch) {
+              const qVal = parseInt(spaceQtyUnitMatch[2], 10);
+              const uVal = parsePrice(spaceQtyUnitMatch[3]);
+              if (qVal >= 1 && qVal <= 999 && uVal && Math.abs(qVal * uVal - linePrice) <= 0.03) {
+                rawName = spaceQtyUnitMatch[1].trim();
+                quantity = qVal;
+              }
+            }
+
+            // 4c. Prefix quantity: "2 x Coca Cola", "2x Coca Cola", "2 х Вода", "2 бр. x Вода", "2 * Бира"
+            // Never matches indexed lines like "01 ХЛЯБ" where "Х" starts a word
+            const prefixQtyMatch = rawName.match(
+              /^(\d+)\s*(?:(?:бр\.?|pcs)\s*(?:[xхХX]\s+|[*×]\s*)?|(?:[xхХX]\s+|[*×]\s*))(.+)$/i
+            );
+            if (prefixQtyMatch) {
+              const qVal = parseInt(prefixQtyMatch[1], 10);
+              if (qVal >= 1 && qVal <= 999) {
+                quantity = qVal;
+                rawName = prefixQtyMatch[2].trim();
+              }
+            }
+          }
+
+          if (includePendingBuffer && pendingNameBuffer.length > 0) {
+            const prefix = flushPendingName();
+            const bufQtyMatch = prefix.match(
+              /^(\d+)\s*(?:(?:бр\.?|pcs)\s*(?:[xхХX]\s+|[*×]\s*)?|(?:[xхХX]\s+|[*×]\s*))(.+)$/i
+            );
+            if (bufQtyMatch && quantity === 1) {
+              const qVal = parseInt(bufQtyMatch[1], 10);
+              if (qVal >= 1 && qVal <= 999) {
+                quantity = qVal;
+                rawName = `${bufQtyMatch[2].trim()} ${rawName}`.trim();
+              } else {
+                rawName = `${prefix} ${rawName}`.trim();
+              }
+            } else {
+              rawName = `${prefix} ${rawName}`.trim();
+            }
+          }
+        }
+
+        rawName = rawName.replace(/[.\-_=~*:\s]+$/, "").trim();
+        const name = formatReadableItemName(rawName);
+
+        if (
+          name.length >= 2 &&
+          /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
+          !isNonItemSummaryOrMetaLine(name) &&
+          !isStrayFiscalOrAddressName(name) &&
+          linePrice > 0 &&
+          linePrice < 50000
+        ) {
+          return { name, price: linePrice, quantity };
+        }
+        return null;
+      };
+
+      // Check if OCR accidentally merged two items on one line (e.g. "ХЛЯБ БЯЛ 1.20 Б  МЛЯКО 2.10 Б")
+      const earlierPriceMatch = priceInfo.cleanPrefix.match(
+        /^(.+?[а-яА-Яa-zA-Z]{2,}.*?)\s+(\d{1,4}[.,]\d{2})\s*(?:€|EUR|лв\.?|BGN|[АБВГA-D68*])?\s+([а-яА-Яa-zA-Z]{2,}.*)$/i
+      );
+      if (earlierPriceMatch) {
+        const p1 = parsePrice(earlierPriceMatch[2]);
+        const p2 = priceInfo.price;
+        const looksLikeQtyOrUnit =
+          /\d+\s*(?:[xхХX]\s+\d+|[*×]\s*\d+|бр\.?|кг|л\.?|гр)/i.test(earlierPriceMatch[1]);
+        const looksLikeDualCurrency =
+          p1 && (Math.abs(p2 / p1 - 1.95583) < 0.04 || Math.abs(p1 / p2 - 1.95583) < 0.04);
+
+        if (p1 && p1 > 0 && !looksLikeQtyOrUnit && !looksLikeDualCurrency) {
+          const item1 = parseItemFromChunk(earlierPriceMatch[1], p1, true);
+          const item2 = parseItemFromChunk(earlierPriceMatch[3], p2, false);
+          if (item1 && item2) {
+            items.push(item1, item2);
+            seenItemsStart = true;
+            continue;
           }
         }
       }
 
-      rawName = rawName.replace(/[.\-_=~*:\s]+$/, "").trim();
-      const name = formatReadableItemName(rawName);
-
-      if (
-        name.length >= 2 &&
-        /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
-        !isNonItemSummaryOrMetaLine(name) &&
-        !isStrayFiscalOrAddressName(name) &&
-        price &&
-        price > 0 &&
-        price < 50000
-      ) {
-        items.push({ name, price, quantity });
+      const parsedItem = parseItemFromChunk(priceInfo.cleanPrefix, priceInfo.price, true);
+      if (parsedItem) {
+        items.push(parsedItem);
+        seenItemsStart = true;
+      } else {
+        pendingNameBuffer = [];
       }
+      continue;
+    }
+
+    // 5. Unpriced text line -> potential multi-line wrapped product name!
+    // Buffer only if we've started seeing items OR the line looks like a valid product description (not store header)
+    if (
+      hasLetters &&
+      !isReceiptHeaderLineForItems(line) &&
+      (seenItemsStart || !KNOWN_BG_MERCHANTS.some((m) => m.patterns.some((p) => p.test(line))))
+    ) {
+      pendingNameBuffer.push({ index: i, text: line });
+      // Cap wrapped product name buffer at 2 preceding lines so distant header text cannot bleed into an item
+      if (pendingNameBuffer.length > 2) {
+        pendingNameBuffer.shift();
+      }
+    } else {
+      pendingNameBuffer = [];
     }
   }
 
-  return items;
+  return { items, discountTotal };
+}
+
+/**
+ * Validates extracted Items Total against Receipt Total.
+ * Triggers "Possible missing receipt items detected." whenever difference exceeds 5%.
+ */
+export function validateReceiptTotals(
+  items: Array<{ name: string; price: number; quantity?: number }>,
+  receiptTotal: number,
+  expectedItemsCount?: number
+): {
+  itemsTotal: number;
+  receiptTotal: number;
+  difference: number;
+  differencePercent: number;
+  isMismatch: boolean;
+  warningMessage?: string;
+} {
+  const itemsTotal = parseFloat(
+    items.reduce((sum, it) => sum + (Number(it.price) || 0), 0).toFixed(2)
+  );
+  const cleanReceiptTotal =
+    receiptTotal > 0 ? parseFloat(receiptTotal.toFixed(2)) : itemsTotal;
+
+  const difference = parseFloat(
+    Math.abs(cleanReceiptTotal - itemsTotal).toFixed(2)
+  );
+  const differencePercent =
+    cleanReceiptTotal > 0
+      ? parseFloat(((difference / cleanReceiptTotal) * 100).toFixed(1))
+      : 0;
+
+  const hasCountMismatch =
+    typeof expectedItemsCount === "number" &&
+    expectedItemsCount > 0 &&
+    items.length < expectedItemsCount;
+
+  const isMismatch =
+    cleanReceiptTotal > 0 &&
+    ((items.length > 0 && differencePercent > 5) ||
+      (items.length === 0 && cleanReceiptTotal > 0));
+
+  let warningMessage: string | undefined;
+  if (isMismatch) {
+    warningMessage =
+      expectedItemsCount && hasCountMismatch
+        ? `Possible missing receipt items detected. (Разпознати ${items.length} от ${expectedItemsCount} артикула; разлика €${difference.toFixed(2)} / ${differencePercent.toFixed(1)}%)`
+        : `Possible missing receipt items detected. (Сумата на артикулите €${itemsTotal.toFixed(2)} се различава с ${differencePercent.toFixed(1)}% от общата сума €${cleanReceiptTotal.toFixed(2)})`;
+  }
+
+  return {
+    itemsTotal,
+    receiptTotal: cleanReceiptTotal,
+    difference,
+    differencePercent,
+    isMismatch,
+    warningMessage,
+  };
 }
 
 /**
@@ -1163,7 +1612,8 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
   const dateRes = extractDate(lines);
   const currency = extractCurrency(rawText);
   const totalResult = extractTotal(lines, currency);
-  const items = extractItems(lines, totalResult.total);
+  const expectedItemsCount = extractExpectedItemsCount(lines);
+  const { items, discountTotal } = extractItems(lines, totalResult.total, currency);
 
   let finalTotal = totalResult.total;
   let finalConfidence = totalResult.confidence;
@@ -1177,6 +1627,7 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     finalRule = `Sum of ${items.length} extracted items`;
   }
 
+  const validation = validateReceiptTotals(items, finalTotal, expectedItemsCount);
   const notesFormatted = formatReceiptNotes(items, currency);
 
   const warnings: string[] = [];
@@ -1188,6 +1639,9 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     warnings.push(
       `Сумата (${finalTotal.toFixed(2)} ${currency}) беше избрана автоматично. Моля, проверете дали съвпада.`
     );
+  }
+  if (validation.isMismatch && validation.warningMessage) {
+    warnings.push(validation.warningMessage);
   }
   if (!dateRes.dateDetected && dateRes.fallbackReason) {
     warnings.push(
@@ -1204,11 +1658,16 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     finalDate: dateRes.date,
     dateRule: dateRes.matchedRule,
     dateFallbackReason: dateRes.fallbackReason || null,
-    detectedTotal: finalTotal,
+    receiptTotal: finalTotal,
+    itemsTotal: validation.itemsTotal,
+    difference: validation.difference,
+    differencePercent: `${validation.differencePercent}%`,
+    discountTotal,
+    detectedItemsCount: items.length,
+    expectedItemsCount: expectedItemsCount ?? null,
     totalRule: finalRule,
     confidence: finalConfidence,
     detectedQuantities: items.map((it) => `${it.quantity} x ${it.name}`),
-    detectedItemsCount: items.length,
     detectedItems: items,
   });
 
@@ -1218,6 +1677,12 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     dateDetected: dateRes.dateDetected,
     dateFallbackReason: dateRes.fallbackReason,
     totalAmount: finalTotal,
+    itemsTotal: validation.itemsTotal,
+    totalDifference: validation.difference,
+    totalDifferencePercent: validation.differencePercent,
+    totalMismatchWarning: validation.warningMessage,
+    expectedItemsCount,
+    discountTotal: discountTotal > 0 ? discountTotal : undefined,
     subtotal: totalResult.subtotal,
     tax: totalResult.tax,
     currency,

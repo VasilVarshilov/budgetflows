@@ -32,6 +32,7 @@ import {
   parseReceiptTextLocally,
   ParsedReceiptData,
   formatReceiptNotes,
+  validateReceiptTotals,
   toCyrillicMatchForm,
   toLatinMatchForm,
 } from "@/utils/receiptParser";
@@ -68,10 +69,10 @@ interface ScanReceiptModalProps {
   initialMode?: "camera" | "upload";
 }
 
-// Timeout-safe image preprocessor for mobile and desktop (with OCR contrast enhancement for thermal paper)
+// Timeout-safe image preprocessor optimized for tall 15-30 item supermarket receipts
 async function prepareReceiptImageWithTimeout(
   file: File,
-  maxDimension: number = 2000,
+  maxWidth: number = 1800,
   timeoutMs: number = 8000
 ): Promise<{
   base64: string;
@@ -120,15 +121,21 @@ async function prepareReceiptImageWithTimeout(
           let width = img.width;
           let height = img.height;
           const origDimensions = `${width}x${height}`;
+          const maxHeight = 5600; // Allow tall 15-30 item supermarket receipts without crushing width
 
-          if (width > maxDimension || height > maxDimension) {
-            if (width > height) {
-              height = Math.round((height * maxDimension) / width);
-              width = maxDimension;
-            } else {
-              width = Math.round((width * maxDimension) / height);
-              height = maxDimension;
-            }
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+          // Gentle upscale for narrow phone crops so Cyrillic glyphs remain crisp for Tesseract
+          if (width >= 300 && width < 1050 && height * (1200 / width) <= maxHeight) {
+            const scale = Math.min(1.5, 1200 / width);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
           }
 
           const canvas = document.createElement("canvas");
@@ -155,9 +162,9 @@ async function prepareReceiptImageWithTimeout(
           ctx.drawImage(img, 0, 0, width, height);
 
           const mimeType = "image/jpeg";
-          const base64 = canvas.toDataURL(mimeType, 0.9);
+          const base64 = canvas.toDataURL(mimeType, 0.92);
 
-          // Build high-contrast grayscale variant specifically for Tesseract OCR on faded thermal receipts
+          // Build clean luminance grayscale variant with white-point stretch for faded thermal paper
           let ocrImageUrl = base64;
           try {
             const ocrCanvas = document.createElement("canvas");
@@ -168,17 +175,30 @@ async function prepareReceiptImageWithTimeout(
               ocrCtx.drawImage(canvas, 0, 0);
               const imgData = ocrCtx.getImageData(0, 0, width, height);
               const data = imgData.data;
-              // Gentle luminance grayscale + slight highlight boost preserves faded thermal paper without crushing shadowed areas
-              const contrast = 1.12;
+
+              // Fast 16-pixel stride histogram to normalize brightness on dim receipts
+              let minL = 255;
+              let maxL = 0;
+              for (let p = 0; p < data.length; p += 64) {
+                const l = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+                if (l < minL) minL = l;
+                if (l > maxL) maxL = l;
+              }
+              const span = Math.max(60, maxL - minL);
+              const useStretch = span < 210 && maxL > minL + 40;
+
               for (let p = 0; p < data.length; p += 4) {
-                const gray = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-                const enhanced = Math.min(255, Math.max(0, (gray - 128) * contrast + 136));
+                let gray = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+                if (useStretch) {
+                  gray = ((gray - minL) / span) * 255;
+                }
+                const enhanced = Math.min(255, Math.max(0, (gray - 128) * 1.12 + 136));
                 data[p] = enhanced;
                 data[p + 1] = enhanced;
                 data[p + 2] = enhanced;
               }
               ocrCtx.putImageData(imgData, 0, 0);
-              ocrImageUrl = ocrCanvas.toDataURL("image/jpeg", 0.92);
+              ocrImageUrl = ocrCanvas.toDataURL("image/jpeg", 0.94);
             }
           } catch {
             ocrImageUrl = base64;
@@ -212,6 +232,84 @@ async function prepareReceiptImageWithTimeout(
 
     reader.readAsDataURL(file);
   });
+}
+
+// Pick whichever item list (local OCR vs Gemini) best matches the Receipt Total & Expected Item Count
+function chooseBestItemSet(
+  localItems: ReceiptItemDetail[],
+  geminiItems: ReceiptItemDetail[],
+  receiptTotal: number,
+  expectedCount?: number | null
+): { items: ReceiptItemDetail[]; source: "gemini" | "local" | "none"; reason: string } {
+  if (geminiItems.length === 0 && localItems.length === 0) {
+    return { items: [], source: "none", reason: "No items extracted by either OCR or AI" };
+  }
+  if (geminiItems.length === 0) {
+    return { items: localItems, source: "local", reason: "Using local OCR items (AI returned 0 items)" };
+  }
+  if (localItems.length === 0) {
+    return { items: geminiItems, source: "gemini", reason: "Using AI items (local OCR returned 0 items)" };
+  }
+
+  const localSum = localItems.reduce((s, i) => s + i.price, 0);
+  const geminiSum = geminiItems.reduce((s, i) => s + i.price, 0);
+
+  if (receiptTotal > 0) {
+    const localErr = Math.abs(localSum - receiptTotal) / receiptTotal;
+    const geminiErr = Math.abs(geminiSum - receiptTotal) / receiptTotal;
+
+    // If local OCR matches within 5% and Gemini is truncated (>5% off), keep local OCR items
+    if (localErr <= 0.05 && geminiErr > 0.05 && localItems.length >= geminiItems.length) {
+      return {
+        items: localItems,
+        source: "local",
+        reason: `Kept local OCR (${localItems.length} items, sum €${localSum.toFixed(2)}) over truncated AI (${geminiItems.length} items, sum €${geminiSum.toFixed(2)})`,
+      };
+    }
+
+    // If Gemini matches within 5% and local OCR missed items, pick Gemini
+    if (geminiErr <= 0.05 && localErr > 0.05) {
+      return {
+        items: geminiItems,
+        source: "gemini",
+        reason: `Selected AI items (${geminiItems.length} items, sum €${geminiSum.toFixed(2)}) matching receipt total €${receiptTotal.toFixed(2)}`,
+      };
+    }
+
+    // If expectedCount is known, prefer whichever is closer to expectedCount without overcounting total
+    if (expectedCount && expectedCount > 0) {
+      const localCountDiff = Math.abs(localItems.length - expectedCount);
+      const geminiCountDiff = Math.abs(geminiItems.length - expectedCount);
+      if (localCountDiff < geminiCountDiff && localErr <= geminiErr + 0.05) {
+        return {
+          items: localItems,
+          source: "local",
+          reason: `Kept local OCR (${localItems.length}/${expectedCount} items vs AI ${geminiItems.length}/${expectedCount})`,
+        };
+      }
+      if (geminiCountDiff < localCountDiff && geminiErr <= localErr + 0.05) {
+        return {
+          items: geminiItems,
+          source: "gemini",
+          reason: `Selected AI items (${geminiItems.length}/${expectedCount} items vs local ${localItems.length}/${expectedCount})`,
+        };
+      }
+    }
+
+    if (Math.abs(localErr - geminiErr) <= 0.03) {
+      return localItems.length > geminiItems.length
+        ? { items: localItems, source: "local", reason: `Kept local OCR (${localItems.length} items >= AI ${geminiItems.length})` }
+        : { items: geminiItems, source: "gemini", reason: `Selected AI items (${geminiItems.length} items, cleaner names)` };
+    }
+
+    return localErr < geminiErr
+      ? { items: localItems, source: "local", reason: `Kept local OCR (lower error ${(localErr * 100).toFixed(1)}% vs AI ${(geminiErr * 100).toFixed(1)}%)` }
+      : { items: geminiItems, source: "gemini", reason: `Selected AI items (lower error ${(geminiErr * 100).toFixed(1)}% vs local ${(localErr * 100).toFixed(1)}%)` };
+  }
+
+  return geminiItems.length >= localItems.length
+    ? { items: geminiItems, source: "gemini", reason: `Selected AI items (${geminiItems.length} items)` }
+    : { items: localItems, source: "local", reason: `Kept local OCR (${localItems.length} items)` };
 }
 
 function hasKeywordMatch(haystacks: string[], keyword: string): boolean {
@@ -472,13 +570,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     return categories[0] ? findMatchingBudgetCategoryId(categories[0].id, categories[0].name, loaded) : "";
   });
 
-  // Confidence Check Details & Date Diagnostics
+  // Confidence Check Details & Date/Validation Diagnostics
   const [detectedTotal, setDetectedTotal] = useState<number>(0);
   const [detectedMerchant, setDetectedMerchant] = useState<string>("");
   const [detectedDate, setDetectedDate] = useState<string>("");
   const [ocrDetectedDate, setOcrDetectedDate] = useState<string | null>(null);
   const [dateFallbackReason, setDateFallbackReason] = useState<string | null>(null);
   const [detectedItemsCount, setDetectedItemsCount] = useState<number>(0);
+  const [expectedItemsCount, setExpectedItemsCount] = useState<number | null>(null);
+  const [confirmMismatchOverride, setConfirmMismatchOverride] = useState<boolean>(false);
   const [aiSourceBadge, setAiSourceBadge] = useState<string>("OCR Engine");
 
   // Debug Panel State
@@ -547,6 +647,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setOcrDetectedDate(null);
     setDateFallbackReason(null);
     setDetectedItemsCount(0);
+    setExpectedItemsCount(null);
+    setConfirmMismatchOverride(false);
     setScanElapsedSeconds(0);
     onClose();
   }, [onClose]);
@@ -648,7 +750,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     addDebugLog("ocr_text", `Файл: "${file.name}" (${Math.round(file.size / 1024)} KB)`);
 
     try {
-      const prepared = await prepareReceiptImageWithTimeout(file, 2000, 8000);
+      const prepared = await prepareReceiptImageWithTimeout(file, 1800, 8000);
       setImagePreview(prepared.previewUrl);
       setImageMeta({
         name: file.name,
@@ -722,6 +824,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     const ocrDateValue = localParsed.dateDetected ? localParsed.date : null;
     setOcrDetectedDate(ocrDateValue);
     setDateFallbackReason(localParsed.dateDetected ? null : localParsed.dateFallbackReason || "Не е открита валидна дата в OCR текста.");
+    setExpectedItemsCount(localParsed.expectedItemsCount ?? null);
+    setConfirmMismatchOverride(false);
 
     addDebugLog(
       "parsed_merchant",
@@ -735,7 +839,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     );
     addDebugLog(
       "parsed_total",
-      `OCR detected total: ${localParsed.totalAmount.toFixed(2)} ${localCurrency} (Увереност: ${localParsed.confidence}, Правило: ${localParsed.matchedRule || "—"})`
+      `OCR Validation | Receipt Total: ${localParsed.totalAmount.toFixed(2)} ${localCurrency} | Items Total: ${localParsed.itemsTotal.toFixed(2)} ${localCurrency} | Difference: ${localParsed.totalDifference.toFixed(2)} ${localCurrency} (${localParsed.totalDifferencePercent.toFixed(1)}%) | Detected items: ${localParsed.items.length} | Expected items: ${localParsed.expectedItemsCount ?? "неизвестно"}`
     );
     addDebugLog(
       "parsed_items",
@@ -784,13 +888,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setSelectedBudgetCategoryId(matchingBudgetId);
     }
 
-    // 4. Gemini AI Enrichment (Optional improvement - never overwrites valid OCR date)
+    // 4. Gemini AI Enrichment (Optional improvement - never overwrites valid OCR date or drops items)
     setScanStatusMessage("3/3 Интелигентен AI анализ с Gemini...");
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const timeoutTimer = setTimeout(() => {
       controller.abort();
-    }, 12000); // 12s timeout for Gemini
+    }, 22000); // 22s timeout allows extracting 15-30 item receipts reliably
 
     try {
       const response = await fetch("/api/ocr/receipt", {
@@ -871,28 +975,49 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             );
           }
 
-          // Structured items with normalized quantities >= 1
-          const rawResolvedItems =
-            gData.items && Array.isArray(gData.items) && gData.items.length > 0
-              ? gData.items
-              : localParsed.items && localParsed.items.length > 0
-              ? localParsed.items
-              : [];
+          const resolvedExpectedCount =
+            typeof gData.expectedItemsCount === "number" && gData.expectedItemsCount > 0
+              ? gData.expectedItemsCount
+              : localParsed.expectedItemsCount ?? null;
+          setExpectedItemsCount(resolvedExpectedCount);
 
-          const resolvedItems: ReceiptItemDetail[] = rawResolvedItems
-            .filter((it: any) => it && typeof it.name === "string" && it.name.trim() && Number(it.price) > 0)
-            .map((it: any) => ({
-              name: it.name.trim(),
-              price: Number(it.price),
-              quantity:
-                typeof it.quantity === "number" && Number.isFinite(it.quantity) && it.quantity >= 1
-                  ? Math.round(it.quantity)
-                  : 1,
-            }));
+          // Normalize Gemini items & compare against local OCR items to prevent truncation
+          const geminiNormalizedItems: ReceiptItemDetail[] = Array.isArray(gData.items)
+            ? gData.items
+                .filter((it: any) => it && typeof it.name === "string" && it.name.trim() && Number(it.price) > 0)
+                .map((it: any) => ({
+                  name: it.name.trim(),
+                  price: Number(it.price),
+                  quantity:
+                    typeof it.quantity === "number" && Number.isFinite(it.quantity) && it.quantity >= 1
+                      ? Math.round(it.quantity)
+                      : 1,
+                }))
+            : [];
+
+          const bestChoice = chooseBestItemSet(
+            initialItems,
+            geminiNormalizedItems,
+            finalTotal,
+            resolvedExpectedCount
+          );
+          const resolvedItems = bestChoice.items;
+          const validation = validateReceiptTotals(
+            resolvedItems,
+            finalTotal,
+            resolvedExpectedCount ?? undefined
+          );
 
           setReceiptItems(resolvedItems);
           setSelectedItemIndices(new Set(resolvedItems.map((_, idx) => idx)));
           setDetectedItemsCount(resolvedItems.length);
+          setConfirmMismatchOverride(false);
+
+          addDebugLog(
+            "parsed_total",
+            `Final Validation (${bestChoice.reason}) | Receipt Total: ${validation.receiptTotal.toFixed(2)} ${resolvedCurrency} | Items Total: ${validation.itemsTotal.toFixed(2)} ${resolvedCurrency} | Difference: ${validation.difference.toFixed(2)} ${resolvedCurrency} (${validation.differencePercent.toFixed(1)}%) | Detected items: ${resolvedItems.length} | Expected items: ${resolvedExpectedCount ?? "неизвестно"}`
+          );
+
           addDebugLog(
             "parsed_items",
             `Финални артикули и количества (${resolvedItems.length}): ${resolvedItems
@@ -900,6 +1025,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               .join(" | ")}`,
             resolvedItems
           );
+
+          if (validation.isMismatch && validation.warningMessage) {
+            setWarnings((prev) => {
+              const filtered = prev.filter((w) => !w.includes("Possible missing receipt items"));
+              return [...filtered, validation.warningMessage!];
+            });
+          } else {
+            setWarnings((prev) => prev.filter((w) => !w.includes("Possible missing receipt items")));
+          }
 
           if (resolvedItems.length > 0) {
             setNotes(formatReceiptNotes(resolvedItems, resolvedCurrency));
@@ -928,23 +1062,26 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setSelectedBudgetCategoryId(matchingBudgetId);
           }
 
-          setAiSourceBadge("Gemini + BG OCR");
+          setAiSourceBadge(bestChoice.source === "local" ? "BG+EN OCR + Gemini Total" : "Gemini + BG OCR");
         } else {
           addDebugLog("gemini_res", "Gemini не е активен или върна грешка. Използват се данните от локалния BG OCR.");
-          setWarnings([
+          setWarnings((prev) => [
+            ...prev,
             "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
           ]);
         }
       } else {
         addDebugLog("gemini_res", "Статичен хостинг. Използват се локалните BG OCR данни.");
-        setWarnings([
+        setWarnings((prev) => [
+          ...prev,
           "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
         ]);
       }
     } catch (gErr: any) {
       clearTimeout(timeoutTimer);
       addDebugLog("gemini_res", `Gemini заявката не успя (${gErr?.message}). Използват се локалните BG OCR данни.`);
-      setWarnings([
+      setWarnings((prev) => [
+        ...prev,
         "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
       ]);
     } finally {
@@ -996,17 +1133,40 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       ? `${val.toFixed(2)} лв.`
       : `${receiptCurrency || "€"}${val.toFixed(2)}`;
 
-  // Computed receipt totals & counts
-  const itemsFullSum = receiptItems.reduce((sum, item) => sum + item.price, 0);
+  // Computed receipt totals, Selection Mode total, and >5% consistency validation
+  const itemsFullSum = parseFloat(
+    receiptItems.reduce((sum, item) => sum + item.price, 0).toFixed(2)
+  );
   const receiptTotalDisplay = detectedTotal > 0 ? detectedTotal : itemsFullSum;
   const selectedItemsList = receiptItems.filter((_, idx) => selectedItemIndices.has(idx));
-  const selectedItemsSum = selectedItemsList.reduce((sum, item) => sum + item.price, 0);
+  const isPartialSelection =
+    receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length;
+  const selectedItemsSum = parseFloat(
+    selectedItemsList.reduce((sum, item) => sum + item.price, 0).toFixed(2)
+  );
+  // In Selection Mode (when user deselects items), Selected Total MUST equal ONLY selected items sum
   const includedTotalDisplay =
     receiptItems.length === 0
       ? parseFloat(amount) || 0
-      : selectedItemIndices.size === receiptItems.length && detectedTotal > 0
+      : isPartialSelection
+      ? selectedItemsSum
+      : detectedTotal > 0
       ? detectedTotal
       : selectedItemsSum;
+
+  const liveAmountNum = parseFloat(amount) || 0;
+  const liveValidation = validateReceiptTotals(
+    isPartialSelection ? selectedItemsList : receiptItems,
+    isPartialSelection ? liveAmountNum : receiptTotalDisplay,
+    isPartialSelection ? undefined : expectedItemsCount ?? undefined
+  );
+  // Verify Sum of items ≈ Receipt total (within 5%) when saving full receipt
+  const hasFullReceiptMismatch =
+    !isPartialSelection &&
+    receiptItems.length > 0 &&
+    receiptTotalDisplay > 0 &&
+    liveValidation.isMismatch &&
+    Math.abs(liveAmountNum - itemsFullSum) / Math.max(0.01, liveAmountNum) > 0.05;
 
   // Save confirmed expense
   const handleSaveExpense = () => {
@@ -1018,6 +1178,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       setErrorMessage("Моля, въведете валидна сума, по-голяма от 0.");
+      return;
+    }
+
+    if (hasFullReceiptMismatch && !confirmMismatchOverride) {
+      setErrorMessage(
+        "Possible missing receipt items detected. Проверете или коригирайте артикулите/сумата, или потвърдете записа с отметката."
+      );
       return;
     }
 
@@ -1610,11 +1777,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         })}
                       </div>
 
-                      {/* Live Item Counts & Totals Summary */}
+                      {/* Live Item Counts, Selected/Items Totals & Validation */}
                       <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2 text-xs">
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                           <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                            Избрани артикули
+                            {expectedItemsCount ? `Артикули (очаквани ${expectedItemsCount})` : "Избрани артикули"}
                           </span>
                           <span className="font-bold text-slate-900 dark:text-white">
                             {selectedItemIndices.size} от {receiptItems.length}
@@ -1622,21 +1789,49 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         </div>
                         <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800">
                           <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-semibold">
-                            Включена сума
+                            {isPartialSelection ? "Selected Total" : "Items Total"}
                           </span>
                           <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
-                            {formatDisplayPrice(includedTotalDisplay)}
+                            {formatDisplayPrice(isPartialSelection ? selectedItemsSum : itemsFullSum)}
                           </span>
                         </div>
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                           <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                            Общо по бележка
+                            Receipt Total
                           </span>
                           <span className="font-bold text-slate-900 dark:text-white">
                             {formatDisplayPrice(receiptTotalDisplay)}
                           </span>
                         </div>
                       </div>
+
+                      {hasFullReceiptMismatch && (
+                        <div className="p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-200 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                            <div className="space-y-1">
+                              <span className="font-bold block">
+                                Possible missing receipt items detected.
+                              </span>
+                              <p className="text-[11px] leading-relaxed">
+                                Receipt Total: <strong>{formatDisplayPrice(receiptTotalDisplay)}</strong> | Items Total: <strong>{formatDisplayPrice(itemsFullSum)}</strong> | Разлика: <strong>{formatDisplayPrice(liveValidation.difference)} ({liveValidation.differencePercent.toFixed(1)}%)</strong>
+                                {expectedItemsCount ? ` | Артикули: ${receiptItems.length} от ${expectedItemsCount}` : ""}
+                              </p>
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 pt-1 border-t border-rose-200 dark:border-rose-800/60 cursor-pointer select-none font-semibold text-[11px]">
+                            <input
+                              type="checkbox"
+                              checked={confirmMismatchOverride}
+                              onChange={(e) => setConfirmMismatchOverride(e.target.checked)}
+                              className="w-4 h-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                            />
+                            <span>
+                              Потвърждавам записа въпреки разликата (&gt;5%) между сумата на артикулите и общата сума
+                            </span>
+                          </label>
+                        </div>
+                      )}
 
                       {selectedItemIndices.size === 0 && (
                         <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-2">
@@ -1886,6 +2081,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   onClick={handleSaveExpense}
                   disabled={
                     (receiptItems.length > 0 && selectedItemIndices.size === 0) ||
+                    (hasFullReceiptMismatch && !confirmMismatchOverride) ||
                     !amount ||
                     parseFloat(amount) <= 0
                   }
