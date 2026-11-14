@@ -28,7 +28,13 @@ import {
 import { ExpenseCategory, ExpenseItem, ReceiptItemDetail, BudgetConfig } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { AVAILABLE_ICONS_MAP, getCategoryBadgeClasses } from "@/utils/categoryStorage";
-import { parseReceiptTextLocally, ParsedReceiptData } from "@/utils/receiptParser";
+import {
+  parseReceiptTextLocally,
+  ParsedReceiptData,
+  formatReceiptNotes,
+  toCyrillicMatchForm,
+  toLatinMatchForm,
+} from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
 import { loadBudgets, findMatchingBudgetCategoryId } from "@/utils/budgetStorage";
@@ -48,7 +54,7 @@ export interface OCRReceiptResult {
 
 interface DebugLog {
   timestamp: string;
-  step: "ocr_text" | "parsed_total" | "parsed_merchant" | "parsed_items" | "gemini_res" | "error" | "expense";
+  step: "ocr_text" | "parsed_total" | "parsed_merchant" | "parsed_date" | "parsed_items" | "gemini_res" | "error" | "expense";
   message: string;
   data?: any;
 }
@@ -62,12 +68,20 @@ interface ScanReceiptModalProps {
   initialMode?: "camera" | "upload";
 }
 
-// Timeout-safe image preprocessor for mobile and desktop
+// Timeout-safe image preprocessor for mobile and desktop (with OCR contrast enhancement for thermal paper)
 async function prepareReceiptImageWithTimeout(
   file: File,
-  maxDimension: number = 1600,
-  timeoutMs: number = 7000
-): Promise<{ base64: string; previewUrl: string; mimeType: string; originalSize: number; compressedSize: number; dimensions: string }> {
+  maxDimension: number = 2000,
+  timeoutMs: number = 8000
+): Promise<{
+  base64: string;
+  previewUrl: string;
+  ocrImageUrl: string;
+  mimeType: string;
+  originalSize: number;
+  compressedSize: number;
+  dimensions: string;
+}> {
   return new Promise((resolve, reject) => {
     let hasFinished = false;
     const timer = setTimeout(() => {
@@ -123,9 +137,11 @@ async function prepareReceiptImageWithTimeout(
           const ctx = canvas.getContext("2d");
 
           if (!ctx) {
+            const rawUrl = reader.result as string;
             resolve({
-              base64: reader.result as string,
-              previewUrl: reader.result as string,
+              base64: rawUrl,
+              previewUrl: rawUrl,
+              ocrImageUrl: rawUrl,
               mimeType: file.type || "image/jpeg",
               originalSize: file.size,
               compressedSize: file.size,
@@ -139,20 +155,49 @@ async function prepareReceiptImageWithTimeout(
           ctx.drawImage(img, 0, 0, width, height);
 
           const mimeType = "image/jpeg";
-          const base64 = canvas.toDataURL(mimeType, 0.88);
+          const base64 = canvas.toDataURL(mimeType, 0.9);
+
+          // Build high-contrast grayscale variant specifically for Tesseract OCR on faded thermal receipts
+          let ocrImageUrl = base64;
+          try {
+            const ocrCanvas = document.createElement("canvas");
+            ocrCanvas.width = width;
+            ocrCanvas.height = height;
+            const ocrCtx = ocrCanvas.getContext("2d");
+            if (ocrCtx) {
+              ocrCtx.drawImage(canvas, 0, 0);
+              const imgData = ocrCtx.getImageData(0, 0, width, height);
+              const data = imgData.data;
+              const contrast = 1.35;
+              for (let p = 0; p < data.length; p += 4) {
+                const gray = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+                const enhanced = Math.min(255, Math.max(0, (gray - 128) * contrast + 132));
+                data[p] = enhanced;
+                data[p + 1] = enhanced;
+                data[p + 2] = enhanced;
+              }
+              ocrCtx.putImageData(imgData, 0, 0);
+              ocrImageUrl = ocrCanvas.toDataURL("image/jpeg", 0.92);
+            }
+          } catch {
+            ocrImageUrl = base64;
+          }
 
           resolve({
             base64,
             previewUrl: base64,
+            ocrImageUrl,
             mimeType,
             originalSize: file.size,
             compressedSize: Math.round((base64.length * 3) / 4),
             dimensions: `${width}x${height}`,
           });
-        } catch (canvasErr: any) {
+        } catch {
+          const rawUrl = reader.result as string;
           resolve({
-            base64: reader.result as string,
-            previewUrl: reader.result as string,
+            base64: rawUrl,
+            previewUrl: rawUrl,
+            ocrImageUrl: rawUrl,
             mimeType: file.type || "image/jpeg",
             originalSize: file.size,
             compressedSize: file.size,
@@ -168,35 +213,172 @@ async function prepareReceiptImageWithTimeout(
   });
 }
 
-// Smart category suggestion matching
+function hasKeywordMatch(haystacks: string[], keyword: string): boolean {
+  const kw = keyword.toLowerCase();
+  // Require word boundaries for short 2-4 letter tokens so "dm" or "bar" don't false-match inside unrelated words
+  if (kw.length <= 3) {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(?:^|[^а-яА-Яa-zA-Z0-9])${escaped}(?:$|[^а-яА-Яa-zA-Z0-9])`, "i");
+    return haystacks.some((h) => re.test(h));
+  }
+  return haystacks.some((h) => h.toLowerCase().includes(kw));
+}
+
+// Smart category suggestion matching (Bulgarian-first + OCR homoglyph tolerant)
 function matchCategory(
   result: { merchantName?: string; rawText?: string; suggestedCategory?: string },
   availableCategories: ExpenseCategory[]
 ): ExpenseCategory {
-  const merchant = (result.merchantName || "").toLowerCase();
-  const raw = (result.rawText || "").toLowerCase();
+  const merchantRaw = result.merchantName || "";
+  const rawText = result.rawText || "";
   const suggested = (result.suggestedCategory || "").toLowerCase();
+
+  const haystacks = [
+    merchantRaw.toLowerCase(),
+    toCyrillicMatchForm(merchantRaw).toLowerCase(),
+    toLatinMatchForm(merchantRaw).toLowerCase(),
+    rawText.toLowerCase(),
+    toCyrillicMatchForm(rawText).toLowerCase(),
+    toLatinMatchForm(rawText).toLowerCase(),
+    suggested,
+  ];
 
   const rules: { keywords: string[]; targetIdOrName: string }[] = [
     {
-      keywords: ["ресторант", "restaurant", "mcdonalds", "kfc", "subway", "bar", "cafe", "кафе", "механа", "дюнер", "кухня", "пица", "pizza", "bistro", "бистро", "happy", "grill"],
-      targetIdOrName: "ресторант",
-    },
-    {
-      keywords: ["лидл", "lidl", "билла", "billa", "кауфланд", "kaufland", "фантастико", "fantastico", "храна", "супермаркет", "пекарна", "t-market", "metro", "хляб", "groceries", "market", "market", "walmart", "target"],
-      targetIdOrName: "храна",
-    },
-    {
-      keywords: ["shell", "omv", "лукойл", "lukoil", "ромпетрол", "rompetrol", "петрол", "бензиностанция", "гориво", "дизел", "бензин", "eko", "газпром", "fuel", "gas"],
-      targetIdOrName: "гориво",
-    },
-    {
-      keywords: ["аптека", "pharmacy", "subra", "sopharmacy", "ремедиум", "лекарства", "хапчета", "медикаменти", "health", "cvs", "walgreens"],
+      keywords: [
+        "sopharmacy",
+        "софармаси",
+        "софарма",
+        "subra",
+        "субра",
+        "remedium",
+        "ремедиум",
+        "аптека",
+        "pharmacy",
+        "лекарства",
+        "хапчета",
+        "медикаменти",
+        "cvs",
+        "walgreens",
+      ],
       targetIdOrName: "аптека",
     },
     {
-      keywords: ["кино", "cinema", "арена", "cinema city", "театър", "филм", "movie", "entertainment"],
+      keywords: [
+        "dm",
+        "дм",
+        "dm дрогери",
+        "dm българия",
+        "lilly",
+        "лили",
+        "козметика",
+        "парфюм",
+        "cosmetics",
+      ],
+      targetIdOrName: "козметика",
+    },
+    {
+      keywords: [
+        "cinema city",
+        "синема сити",
+        "kino arena",
+        "кино арена",
+        "кино",
+        "cinema",
+        "арена",
+        "театър",
+        "филм",
+        "movie",
+        "entertainment",
+      ],
       targetIdOrName: "кино",
+    },
+    {
+      keywords: [
+        "shell",
+        "шел",
+        "omv",
+        "омв",
+        "lukoil",
+        "лукойл",
+        "rompetrol",
+        "ромпетрол",
+        "petrol",
+        "петрол",
+        "eko",
+        "еко",
+        "газпром",
+        "бензиностанция",
+        "гориво",
+        "дизел",
+        "бензин",
+        "fuel",
+        "gas",
+      ],
+      targetIdOrName: "гориво",
+    },
+    {
+      keywords: [
+        "happy",
+        "хепи",
+        "raffy",
+        "рафи",
+        "mcdonald",
+        "макдоналдс",
+        "kfc",
+        "кфс",
+        "burger king",
+        "domino",
+        "subway",
+        "ресторант",
+        "restaurant",
+        "механа",
+        "дюнер",
+        "пица",
+        "pizza",
+        "bistro",
+        "бистро",
+        "grill",
+        "кафе",
+        "cafe",
+        "bar",
+        "бар",
+      ],
+      targetIdOrName: "ресторант",
+    },
+    {
+      keywords: [
+        "lidl",
+        "лидл",
+        "лидъл",
+        "billa",
+        "билла",
+        "била",
+        "kaufland",
+        "кауфланд",
+        "fantastico",
+        "фантастико",
+        "t-market",
+        "t market",
+        "т-маркет",
+        "т маркет",
+        "максима българия",
+        "metro",
+        "метро",
+        "promarket",
+        "промаркет",
+        "cba",
+        "цба",
+        "храна",
+        "супермаркет",
+        "пекарна",
+        "хляб",
+        "groceries",
+        "market",
+        "walmart",
+        "target",
+      ],
+      targetIdOrName: "храна",
     },
     {
       keywords: ["автомивка", "гуми", "сервиз", "масла", "авточасти", "кола", "car"],
@@ -209,10 +391,6 @@ function matchCategory(
     {
       keywords: ["zara", "h&m", "lc waikiki", "reserved", "дрехи", "обувки", "clothes", "fashion"],
       targetIdOrName: "дрехи",
-    },
-    {
-      keywords: ["dm", "lilly", "лили", "козметика", "парфюм", "cosmetics"],
-      targetIdOrName: "козметика",
     },
     {
       keywords: ["зоомагазин", "ветеринар", "куче", "котка", "pets", "любимци"],
@@ -234,10 +412,7 @@ function matchCategory(
   }
 
   for (const rule of rules) {
-    const matched = rule.keywords.some(
-      (kw) => merchant.includes(kw) || raw.includes(kw) || suggested.includes(kw)
-    );
-    if (matched) {
+    if (rule.keywords.some((kw) => hasKeywordMatch(haystacks, kw))) {
       const cat = availableCategories.find(
         (c) =>
           c.name.toLowerCase().includes(rule.targetIdOrName) ||
@@ -265,7 +440,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     name: string;
     sizeFormatted: string;
     dimensions: string;
-    prepared?: { base64: string; mimeType: string; previewUrl: string };
+    prepared?: { base64: string; mimeType: string; previewUrl: string; ocrImageUrl?: string };
   } | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -274,6 +449,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   // Review Form State
   const [amount, setAmount] = useState<string>("");
+  const [receiptCurrency, setReceiptCurrency] = useState<string>("лв.");
   const [date, setDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState<string>("");
   const [merchantName, setMerchantName] = useState<string>("");
@@ -352,6 +528,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setIsZoomed(false);
     setErrorMessage(null);
     setAmount("");
+    setReceiptCurrency("лв.");
     setNotes("");
     setMerchantName("");
     setReceiptItems([]);
@@ -419,7 +596,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   // Apply item selection changes: recalculate amount and regenerate notes with ONLY selected items
   const applyItemSelection = useCallback(
-    (nextSelected: Set<number>, itemsList: ReceiptItemDetail[], fullReceiptTotal: number) => {
+    (
+      nextSelected: Set<number>,
+      itemsList: ReceiptItemDetail[],
+      fullReceiptTotal: number,
+      currencyOverride?: string
+    ) => {
       setSelectedItemIndices(nextSelected);
 
       if (itemsList.length === 0) return;
@@ -437,17 +619,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         setAmount(sum.toFixed(2));
       }
 
-      // Regenerate notes using ONLY selected items
-      const generatedNotes = selectedItems
-        .map((it) => {
-          const qtyStr = it.quantity && it.quantity > 1 ? `${it.quantity}x ` : "";
-          return `${qtyStr}${it.name} €${it.price.toFixed(2)}`;
-        })
-        .join("\n");
+      // Regenerate clean multi-line notes using ONLY selected items in detected currency
+      const activeCurrency = currencyOverride || receiptCurrency || "лв.";
+      const generatedNotes = formatReceiptNotes(selectedItems, activeCurrency);
       setNotes(generatedNotes);
       setErrorMessage(null);
     },
-    []
+    [receiptCurrency]
   );
 
   if (!isOpen) return null;
@@ -465,7 +643,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     addDebugLog("ocr_text", `Файл: "${file.name}" (${Math.round(file.size / 1024)} KB)`);
 
     try {
-      const prepared = await prepareReceiptImageWithTimeout(file, 1600, 7000);
+      const prepared = await prepareReceiptImageWithTimeout(file, 2000, 8000);
       setImagePreview(prepared.previewUrl);
       setImageMeta({
         name: file.name,
@@ -475,6 +653,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           base64: prepared.base64,
           mimeType: prepared.mimeType,
           previewUrl: prepared.previewUrl,
+          ocrImageUrl: prepared.ocrImageUrl,
         },
       });
 
@@ -502,38 +681,58 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     runScanWorkflow(imageMeta.prepared);
   };
 
-  // OCR Workflow
-  const runScanWorkflow = async (prepared: { base64: string; mimeType: string; previewUrl: string }) => {
+  // OCR Workflow (Bulgarian-first Tesseract bul+eng -> Deterministic BG Parser -> Optional Gemini Enrichment)
+  const runScanWorkflow = async (prepared: {
+    base64: string;
+    mimeType: string;
+    previewUrl: string;
+    ocrImageUrl?: string;
+  }) => {
     setStep("scanning");
-    setScanStatusMessage("1/3 Оптимизиране на изображението...");
+    setScanStatusMessage("1/3 Оптимизиране на изображението за кирилица...");
     let ocrRawText = "";
     try {
       const ocrResult = await runClientOcr(
-        prepared.previewUrl,
+        prepared.ocrImageUrl || prepared.previewUrl,
         (percent, status) => {
           setScanStatusMessage(`2/3 OCR разпознаване (${percent}%): ${status}`);
         },
-        9000 // 9s timeout for client OCR
+        22000 // 22s timeout allows loading bul+eng traineddata reliably
       );
       ocrRawText = ocrResult.text;
       addDebugLog(
         "ocr_text",
-        `OCR текст (${ocrRawText.length} символа):\n` + ocrRawText.slice(0, 400)
+        `OCR [${ocrResult.languagesUsed}] (${ocrResult.durationMs}ms, точност ${ocrResult.confidence.toFixed(0)}%, ${ocrRawText.length} символа):\n` +
+          ocrRawText.slice(0, 500)
       );
     } catch (ocrErr: any) {
       addDebugLog("error", `Локалното OCR отне твърде много време или се провали: ${ocrErr?.message}`);
     }
 
-    // 3. Deterministic Local Parsing
+    // 3. Deterministic Local Parsing (Bulgarian-first)
     const localParsed: ParsedReceiptData = parseReceiptTextLocally(ocrRawText);
+    const localCurrency = localParsed.currency || "лв.";
+    setReceiptCurrency(localCurrency);
+
+    addDebugLog(
+      "parsed_merchant",
+      `Разпознат търговец: "${localParsed.merchantName}" (${localParsed.merchantRule || "—"})`
+    );
+    addDebugLog(
+      "parsed_date",
+      `Разпозната дата: "${localParsed.date}" (${localParsed.dateRule || "—"})`
+    );
     addDebugLog(
       "parsed_total",
-      `Локално извлечена обща сума: €${localParsed.totalAmount} (Правило: ${localParsed.matchedRule || "—"})`
+      `Разпозната обща сума: ${localParsed.totalAmount.toFixed(2)} ${localCurrency} (Увереност: ${localParsed.confidence}, Правило: ${localParsed.matchedRule || "—"})`
     );
-    addDebugLog("parsed_merchant", `Локално извлечен търговец: "${localParsed.merchantName}"`);
     addDebugLog(
       "parsed_items",
-      `Локално извлечени артикули: ${localParsed.items.length}`,
+      `Разпознати артикули (${localParsed.items.length}): ${
+        localParsed.items.length > 0
+          ? localParsed.items.map((it) => `${it.name} (${it.price.toFixed(2)} ${localCurrency})`).join(", ")
+          : "няма открити редове"
+      }`,
       localParsed.items
     );
 
@@ -553,7 +752,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDetectedDate(localParsed.date);
     setDetectedTotal(localParsed.totalAmount);
     setDetectedItemsCount(initialItems.length);
-    setAiSourceBadge("Вграден OCR модул");
+    setAiSourceBadge("Вграден BG+EN OCR модул");
 
     const baseCat = matchCategory(
       {
@@ -569,7 +768,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
 
     // 4. Gemini AI Enrichment (Optional improvement - never blocks expense creation)
-    setScanStatusMessage("3/3 Интелигентен AI анализ с Gemini 3.8 Flash...");
+    setScanStatusMessage("3/3 Интелигентен AI анализ с Gemini...");
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const timeoutTimer = setTimeout(() => {
@@ -597,21 +796,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
         if (json.success && json.data) {
           const gData = json.data;
+          const resolvedCurrency = gData.currency || localCurrency || "лв.";
+          setReceiptCurrency(resolvedCurrency);
 
-          // ============================================================
-          // CRITICAL FIX FOR 0.24 BUG:
-          // If Gemini returned a tiny total (like 0.24) while local OCR
-          // correctly found the actual total (e.g. 31.39), REJECT 0.24!
-          // ============================================================
           let finalTotal = localParsed.totalAmount;
 
           if (gData.totalAmount && gData.totalAmount > 0) {
             if (localParsed.totalAmount > 0) {
-              // If Gemini total is severely smaller than OCR total (e.g. 0.24 vs 31.39)
               if (gData.totalAmount < localParsed.totalAmount * 0.7) {
                 addDebugLog(
                   "parsed_total",
-                  `⚠️ Отхвърлена подозрителна сума от Gemini (€${gData.totalAmount}). Запазена е правилната обща сума от OCR: €${localParsed.totalAmount}`
+                  `⚠️ Отхвърлена подозрителна сума от Gemini (${gData.totalAmount} ${resolvedCurrency}). Запазена е правилната обща сума от OCR: ${localParsed.totalAmount} ${resolvedCurrency}`
                 );
                 finalTotal = localParsed.totalAmount;
               } else {
@@ -629,12 +824,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           if (gData.merchantName && gData.merchantName !== "Неизвестен търговец") {
             setMerchantName(gData.merchantName);
             setDetectedMerchant(gData.merchantName);
+            addDebugLog("parsed_merchant", `Gemini търговец: "${gData.merchantName}"`);
           }
 
           // Date
           if (gData.date && /^\d{4}-\d{2}-\d{2}$/.test(gData.date)) {
             setDate(gData.date);
             setDetectedDate(gData.date);
+            addDebugLog("parsed_date", `Gemini дата: "${gData.date}"`);
           }
 
           // Formatted Notes & Items count & structured items
@@ -648,18 +845,21 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setReceiptItems(resolvedItems);
           setSelectedItemIndices(new Set(resolvedItems.map((_, idx) => idx)));
           setDetectedItemsCount(resolvedItems.length);
+          addDebugLog(
+            "parsed_items",
+            `Финални артикули (${resolvedItems.length}): ${resolvedItems.map((it) => `${it.name} (${it.price.toFixed(2)})`).join(", ")}`,
+            resolvedItems
+          );
 
-          if (gData.notesFormatted && gData.notesFormatted.trim().length > 3) {
-            setNotes(gData.notesFormatted);
-          } else if (resolvedItems.length > 0) {
-            setNotes(
-              resolvedItems
-                .map((it) => {
-                  const qtyStr = it.quantity && it.quantity > 1 ? `${it.quantity}x ` : "";
-                  return `${qtyStr}${it.name} €${it.price.toFixed(2)}`;
-                })
-                .join("\n")
-            );
+          if (resolvedItems.length > 0) {
+            // Always prefer consistent multi-line format or Gemini formatted notes if multiline
+            if (gData.notesFormatted && gData.notesFormatted.includes("\n")) {
+              setNotes(gData.notesFormatted.trim());
+            } else {
+              setNotes(formatReceiptNotes(resolvedItems, resolvedCurrency));
+            }
+          } else if (gData.notesFormatted && gData.notesFormatted.trim().length > 3) {
+            setNotes(gData.notesFormatted.trim());
           } else if (localParsed.notesFormatted) {
             setNotes(localParsed.notesFormatted);
           }
@@ -668,40 +868,42 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setRawText(gData.rawText);
           }
 
-          // Smart category suggestion from Gemini
-          if (gData.suggestedCategory) {
-            const enrichedCat = matchCategory(gData, categories);
-            setSelectedCategory(enrichedCat);
-            const matchingBudgetId = findMatchingBudgetCategoryId(enrichedCat.id, enrichedCat.name, budgetCategories);
-            if (matchingBudgetId) {
-              setSelectedBudgetCategoryId(matchingBudgetId);
-            }
+          // Smart category suggestion from Gemini + BG dictionary
+          const enrichedCat = matchCategory(
+            {
+              merchantName: gData.merchantName || localParsed.merchantName,
+              rawText: gData.rawText || ocrRawText,
+              suggestedCategory: gData.suggestedCategory,
+            },
+            categories
+          );
+          setSelectedCategory(enrichedCat);
+          const matchingBudgetId = findMatchingBudgetCategoryId(enrichedCat.id, enrichedCat.name, budgetCategories);
+          if (matchingBudgetId) {
+            setSelectedBudgetCategoryId(matchingBudgetId);
           }
 
-          setAiSourceBadge("Gemini 3.8 Flash + OCR");
+          setAiSourceBadge("Gemini + BG OCR");
         } else {
-          // Gemini returned 503 / 429 / fallbackData
-          addDebugLog("gemini_res", "Gemini върна неуспех (503/429/error). Използват се данните от OCR.");
+          addDebugLog("gemini_res", "Gemini не е активен или върна грешка. Използват се данните от локалния BG OCR.");
           setWarnings([
-            "AI анализът временно не е наличен. Бележката е разчетена чрез OCR.",
+            "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
           ]);
         }
       } else {
-        // Static hosting (GitHub Pages)
-        addDebugLog("gemini_res", "Статичен хостинг (GitHub Pages). Използват се локалните OCR данни.");
+        addDebugLog("gemini_res", "Статичен хостинг. Използват се локалните BG OCR данни.");
         setWarnings([
-          "AI анализът временно не е наличен. Бележката е разчетена чрез OCR.",
+          "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
         ]);
       }
     } catch (gErr: any) {
       clearTimeout(timeoutTimer);
-      addDebugLog("gemini_res", `Gemini заявката не успя (${gErr?.message}). Използват се локалните OCR данни.`);
+      addDebugLog("gemini_res", `Gemini заявката не успя (${gErr?.message}). Използват се локалните BG OCR данни.`);
       setWarnings([
-        "AI анализът временно не е наличен. Бележката е разчетена чрез OCR.",
+        "AI анализът временно не е наличен. Бележката е разчетена чрез локалния OCR модул.",
       ]);
     } finally {
       abortControllerRef.current = null;
-      // ALWAYS proceed to review screen - never block the user
       setStep("review");
     }
   };
@@ -743,6 +945,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const handleDeselectAllItems = () => {
     applyItemSelection(new Set(), receiptItems, detectedTotal);
   };
+
+  const formatDisplayPrice = (val: number) =>
+    receiptCurrency === "лв." || receiptCurrency === "BGN"
+      ? `${val.toFixed(2)} лв.`
+      : `${receiptCurrency || "€"}${val.toFixed(2)}`;
 
   // Computed receipt totals & counts
   const itemsFullSum = receiptItems.reduce((sum, item) => sum + item.price, 0);
@@ -1151,13 +1358,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] text-slate-600 dark:text-slate-300 block uppercase font-bold">Общо по бележка</span>
                     <span className="font-bold text-slate-900 dark:text-slate-100 block">
-                      €{receiptTotalDisplay.toFixed(2)}
+                      {formatDisplayPrice(receiptTotalDisplay)}
                     </span>
                   </div>
                   <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl border border-indigo-200 dark:border-indigo-800 col-span-2 sm:col-span-1">
                     <span className="text-[10px] text-indigo-700 dark:text-indigo-300 block uppercase font-bold">Избрана сума</span>
                     <span className="font-black text-indigo-700 dark:text-indigo-200 block">
-                      €{(parseFloat(amount) || 0).toFixed(2)}
+                      {formatDisplayPrice(parseFloat(amount) || 0)}
                     </span>
                   </div>
                 </div>
@@ -1220,7 +1427,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
                     <div className="flex items-center justify-between flex-wrap gap-1.5">
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-                        Крайна сума за запис (€ / EUR) *
+                        Крайна сума за запис ({receiptCurrency || "€"}) *
                       </label>
                       {receiptItems.length > 0 && (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
@@ -1229,8 +1436,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       )}
                     </div>
                     <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-600 dark:text-slate-300">
-                        €
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg sm:text-xl font-black text-slate-600 dark:text-slate-300">
+                        {receiptCurrency === "лв." || receiptCurrency === "BGN" ? "лв." : receiptCurrency || "€"}
                       </span>
                       <input
                         type="number"
@@ -1238,7 +1445,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         placeholder="0.00"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 text-2xl sm:text-3xl font-black text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-400"
+                        className={`w-full pr-4 py-2 text-2xl sm:text-3xl font-black text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-400 ${
+                          receiptCurrency === "лв." || receiptCurrency === "BGN" ? "pl-13" : "pl-9"
+                        }`}
                         required
                         autoFocus
                       />
@@ -1247,11 +1456,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       <span>
                         {receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length
                           ? "Сумата е преизчислена автоматично според избраните артикули"
-                          : "Точно разпозната крайна сума (TOTAL / GRAND TOTAL)"}
+                          : "Точно разпозната крайна сума (ОБЩО / ЗА ПЛАЩАНЕ / TOTAL)"}
                       </span>
                       {receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length && (
                         <span className="text-slate-500 dark:text-slate-400 font-semibold">
-                          Общо по бележка: €{receiptTotalDisplay.toFixed(2)}
+                          Общо по бележка: {formatDisplayPrice(receiptTotalDisplay)}
                         </span>
                       )}
                     </div>
@@ -1330,7 +1539,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                     : "text-slate-500 dark:text-slate-400 line-through"
                                 }`}
                               >
-                                €{item.price.toFixed(2)}
+                                {formatDisplayPrice(item.price)}
                               </span>
                             </label>
                           );
@@ -1352,7 +1561,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             Включена сума
                           </span>
                           <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
-                            €{includedTotalDisplay.toFixed(2)}
+                            {formatDisplayPrice(includedTotalDisplay)}
                           </span>
                         </div>
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -1360,7 +1569,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             Общо по бележка
                           </span>
                           <span className="font-bold text-slate-900 dark:text-white">
-                            €{receiptTotalDisplay.toFixed(2)}
+                            {formatDisplayPrice(receiptTotalDisplay)}
                           </span>
                         </div>
                       </div>
@@ -1483,7 +1692,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         setNotes(e.target.value);
                         adjustNotesHeight();
                       }}
-                      placeholder={"Beer €5.00\nSoup €7.00\nSalad €8.50"}
+                      placeholder={"Хляб бял - 2.39 лв.\nПрясно мляко - 3.49 лв.\nСалата Шопска - 7.90 лв."}
                       className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono leading-relaxed placeholder:text-slate-500 dark:placeholder:text-slate-400 resize-none overflow-hidden transition-[height] shadow-2xs"
                     />
                   </div>

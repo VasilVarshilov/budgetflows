@@ -29,6 +29,7 @@ import {
   formatFirebaseAuthError,
   isUnauthorizedDomainError,
   isAccessDeniedError,
+  isRefererBlockedError,
 } from "@/utils/googleAuth";
 
 interface GoogleAuthCardProps {
@@ -78,7 +79,11 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
   const [accessDeniedError, setAccessDeniedError] = useState(() =>
     Boolean(authError && isAccessDeniedError(authError))
   );
+  const [refererBlockedError, setRefererBlockedError] = useState(() =>
+    Boolean(authError && isRefererBlockedError(authError))
+  );
   const [copiedDomain, setCopiedDomain] = useState(false);
+  const [copiedOrigin, setCopiedOrigin] = useState(false);
 
   const displayUser = user || storedProfile;
 
@@ -100,6 +105,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     setFeedback(null);
     setUnauthorizedDomainError(false);
     setAccessDeniedError(false);
+    setRefererBlockedError(false);
     try {
       await loginWithGoogle();
       setFeedback({
@@ -110,6 +116,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     } catch (e: any) {
       setUnauthorizedDomainError(isUnauthorizedDomainError(e));
       setAccessDeniedError(isAccessDeniedError(e));
+      setRefererBlockedError(isRefererBlockedError(e));
       setFeedback({
         type: "error",
         text: formatFirebaseAuthError(e),
@@ -124,6 +131,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     setFeedback(null);
     setUnauthorizedDomainError(false);
     setAccessDeniedError(false);
+    setRefererBlockedError(false);
     try {
       await switchGoogleAccount();
       setFeedback({
@@ -134,6 +142,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     } catch (e: any) {
       setUnauthorizedDomainError(isUnauthorizedDomainError(e));
       setAccessDeniedError(isAccessDeniedError(e));
+      setRefererBlockedError(isRefererBlockedError(e));
       setFeedback({
         type: "error",
         text: formatFirebaseAuthError(e),
@@ -147,6 +156,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     setIsLoggingIn(true);
     setFeedback(null);
     setAccessDeniedError(false);
+    setRefererBlockedError(false);
     try {
       await reconnectGoogleDrive();
       setFeedback({
@@ -156,6 +166,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
       setAccessDeniedError(isAccessDeniedError(e));
+      setRefererBlockedError(isRefererBlockedError(e));
       setFeedback({
         type: "error",
         text: formatFirebaseAuthError(e),
@@ -430,6 +441,63 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <li>
               Като алтернатива при тестване: в секция <strong>Test users</strong> натиснете <strong>Add users</strong> и добавете имейлите на желаните потребители (до 100 акаунта).
             </li>
+          </ol>
+        </div>
+      )}
+
+      {/* API Key HTTP Referrer Restriction Guide */}
+      {(refererBlockedError || (authError && isRefererBlockedError(authError))) && (
+        <div className="p-4 sm:p-5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-amber-950 dark:text-amber-200 text-xs space-y-3 animate-in fade-in">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-slate-900 dark:text-white text-sm">
+                API ключът на Firebase блокира заявките от текущия адрес (HTTP Referrer Blocked)
+              </p>
+              <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
+                API ключът в Google Cloud има активирано ограничение по уеб адрес (<strong>Website restrictions</strong>), в което липсва текущият адрес.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-amber-200 dark:border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="truncate">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">Шаблон за добавяне в Website restrictions:</span>
+              <code className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm select-all">
+                {typeof window !== "undefined" ? `${window.location.origin}/*` : "https://vasilvarshilov.github.io/*"}
+              </code>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const originPattern = typeof window !== "undefined" ? `${window.location.origin}/*` : "https://vasilvarshilov.github.io/*";
+                navigator.clipboard?.writeText(originPattern);
+                setCopiedOrigin(true);
+                setTimeout(() => setCopiedOrigin(false), 2500);
+              }}
+              className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>{copiedOrigin ? "Копирано!" : "Копирай адреса"}</span>
+            </button>
+          </div>
+
+          <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
+            <li>
+              Отворете{" "}
+              <a
+                href="https://console.cloud.google.com/apis/credentials"
+                target="_blank"
+                rel="noreferrer"
+                className="underline font-semibold text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-0.5"
+              >
+                <span>Google Cloud Console → APIs &amp; Services → Credentials</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              .
+            </li>
+            <li>Отворете вашия <strong>Browser key (auto created by Firebase)</strong> / Web API Key.</li>
+            <li>Под <strong>Website restrictions</strong> добавете горния адрес и <code>https://*.firebaseapp.com/*</code>, след което натиснете <strong>Save</strong>.</li>
           </ol>
         </div>
       )}

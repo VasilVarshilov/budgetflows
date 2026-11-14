@@ -217,14 +217,28 @@ export async function signInWithGoogle(): Promise<{
 }
 
 /**
+ * Detects Google Cloud API key HTTP Referrer restriction errors (403 PERMISSION_DENIED)
+ */
+export function isRefererBlockedError(error: any): boolean {
+  const msg = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
+  return (
+    code.includes("requests-from-referer") ||
+    msg.includes("requests-from-referer") ||
+    msg.includes("api_key_http_referrer_blocked") ||
+    (msg.includes("referer") && msg.includes("blocked"))
+  );
+}
+
+/**
  * Detects 403 access_denied / OAuth Testing mode restriction errors
  */
 export function isAccessDeniedError(error: any): boolean {
+  if (isRefererBlockedError(error)) return false;
   const msg = String(error?.message || "").toLowerCase();
   const code = String(error?.code || "").toLowerCase();
   return (
     msg.includes("access_denied") ||
-    msg.includes("403") ||
     msg.includes("testing") ||
     msg.includes("test user") ||
     msg.includes("developer-approved") ||
@@ -240,8 +254,15 @@ export function formatFirebaseAuthError(error: any): string {
   const code = error?.code || "";
   const msg = String(error?.message || "");
   const currentDomain = typeof window !== "undefined" ? window.location.hostname : "домейна";
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : `https://${currentDomain}`;
   const config = getFirebaseConfig();
 
+  if (isRefererBlockedError(error)) {
+    return (
+      `Достъпът на Firebase API ключа от адрес (${currentOrigin}) е блокиран от Google Cloud (HTTP 403 API_KEY_HTTP_REFERRER_BLOCKED). ` +
+      `Добавете "${currentOrigin}/*" и "https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/*" в Website restrictions на API ключа в Google Cloud Console -> APIs & Services -> Credentials.`
+    );
+  }
   if (isAccessDeniedError(error)) {
     return (
       "Грешка 403 (access_denied): OAuth приложението в Google Cloud все още е в режим 'Testing' (само за одобрени тестови потребители). " +
@@ -265,7 +286,7 @@ export function formatFirebaseAuthError(error: any): string {
     msg.includes("The requested action is invalid") ||
     msg.includes("bad-request")
   ) {
-    return `Грешка при OAuth заявката: В Google Cloud Console проверете ограниченията на API ключа и добавете "https://${currentDomain}/*" и "https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/*".`;
+    return `Грешка при OAuth заявката: В Google Cloud Console проверете ограниченията на API ключа и добавете "${currentOrigin}/*" и "https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/*".`;
   }
   if (code === "auth/popup-closed-by-user") {
     return "Прозорецът за вход с Google беше затворен преди да завърши автентикацията.";

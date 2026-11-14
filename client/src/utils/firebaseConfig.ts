@@ -13,6 +13,99 @@ export interface FirebaseConfig {
 let runtimeConfig: FirebaseConfig | null = null;
 
 /**
+ * Self-heals Firebase configuration in case environment variables or secrets
+ * were entered in shifted slots (e.g. projectId in authDomain, appId in storageBucket).
+ */
+export function normalizeFirebaseConfig(
+  raw: Partial<Record<keyof FirebaseConfig, string | undefined>>
+): FirebaseConfig {
+  const candidates = [
+    raw.apiKey,
+    raw.authDomain,
+    raw.projectId,
+    raw.storageBucket,
+    raw.messagingSenderId,
+    raw.appId,
+    raw.oAuthClientId,
+  ]
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+
+  const apiKey =
+    candidates.find((v) => v.startsWith("AIza")) || raw.apiKey || "";
+  const appId =
+    candidates.find((v) =>
+      /^\d+:\d+:(web|ios|android):[a-zA-Z0-9]+$/.test(v)
+    ) ||
+    raw.appId ||
+    "";
+  const authDomainCandidate =
+    candidates.find(
+      (v) => v.endsWith(".firebaseapp.com") || v.endsWith(".web.app")
+    ) || "";
+  const storageBucketCandidate =
+    candidates.find(
+      (v) => v.endsWith(".firebasestorage.app") || v.endsWith(".appspot.com")
+    ) || "";
+  const messagingSenderId =
+    candidates.find((v) => /^\d{6,20}$/.test(v)) ||
+    raw.messagingSenderId ||
+    "";
+  const oAuthClientId =
+    candidates.find((v) => v.endsWith(".apps.googleusercontent.com")) ||
+    raw.oAuthClientId ||
+    "";
+
+  const knownSpecials = new Set(
+    [
+      apiKey,
+      appId,
+      authDomainCandidate,
+      storageBucketCandidate,
+      messagingSenderId,
+      oAuthClientId,
+    ].filter(Boolean)
+  );
+
+  const projectIdFromDomain = authDomainCandidate
+    ? authDomainCandidate.replace(/\.(firebaseapp\.com|web\.app)$/, "")
+    : "";
+  const projectIdFromBucket = storageBucketCandidate
+    ? storageBucketCandidate.replace(/\.(firebasestorage\.app|appspot\.com)$/, "")
+    : "";
+
+  const projectId =
+    candidates.find((v) => !knownSpecials.has(v) && !v.includes(".")) ||
+    projectIdFromDomain ||
+    projectIdFromBucket ||
+    raw.projectId ||
+    "";
+
+  const authDomain =
+    authDomainCandidate ||
+    (raw.authDomain && raw.authDomain.includes(".") ? raw.authDomain : "") ||
+    (projectId ? `${projectId}.firebaseapp.com` : "");
+
+  const storageBucket =
+    storageBucketCandidate ||
+    (raw.storageBucket && raw.storageBucket.includes(".")
+      ? raw.storageBucket
+      : "") ||
+    (projectId ? `${projectId}.firebasestorage.app` : "");
+
+  return {
+    apiKey,
+    authDomain,
+    projectId,
+    storageBucket,
+    messagingSenderId,
+    appId,
+    oAuthClientId,
+    measurementId: raw.measurementId,
+  };
+}
+
+/**
  * Resolves Firebase configuration safely from Vite environment variables.
  * None of the keys are committed into repository source control.
  */
@@ -22,24 +115,18 @@ export function getFirebaseConfig(): FirebaseConfig {
   }
 
   // Check Vite environment variables (populated from .env or CI/CD secrets)
-  const envApiKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || "";
-  const envProjectId = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "";
-  const envAuthDomain = (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "";
-  const envStorageBucket = (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || "";
-  const envMessagingSenderId = (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "";
-  const envAppId = (import.meta as any).env?.VITE_FIREBASE_APP_ID || "";
-  const envOAuthClientId = (import.meta as any).env?.VITE_FIREBASE_OAUTH_CLIENT_ID || "";
-
-  runtimeConfig = {
-    apiKey: envApiKey,
-    authDomain: envAuthDomain || (envProjectId ? `${envProjectId}.firebaseapp.com` : ""),
-    projectId: envProjectId,
-    storageBucket: envStorageBucket || (envProjectId ? `${envProjectId}.firebasestorage.app` : ""),
-    messagingSenderId: envMessagingSenderId,
-    appId: envAppId,
-    oAuthClientId: envOAuthClientId,
+  const raw: Partial<Record<keyof FirebaseConfig, string>> = {
+    apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || "",
+    projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "",
+    authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "",
+    storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || "",
+    messagingSenderId:
+      (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+    appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || "",
+    oAuthClientId: (import.meta as any).env?.VITE_FIREBASE_OAUTH_CLIENT_ID || "",
   };
 
+  runtimeConfig = normalizeFirebaseConfig(raw);
   return runtimeConfig;
 }
 
@@ -55,7 +142,7 @@ export function isFirebaseConfigured(): boolean {
  * Allows dynamic injection of config (e.g. from /api/firebase-config in dev)
  */
 export function setRuntimeFirebaseConfig(config: FirebaseConfig): void {
-  runtimeConfig = { ...config };
+  runtimeConfig = normalizeFirebaseConfig(config);
 }
 
 /**
@@ -73,7 +160,7 @@ export async function loadFirebaseConfigAsync(): Promise<FirebaseConfig> {
       const data = await res.json();
       if (data && data.apiKey) {
         setRuntimeFirebaseConfig(data);
-        return data;
+        return getFirebaseConfig();
       }
     }
   } catch {
