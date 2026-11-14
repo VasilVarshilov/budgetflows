@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Search,
   Plus,
@@ -8,10 +8,7 @@ import {
   Check,
   Sparkles,
   RotateCcw,
-  AlertTriangle,
-  FolderCog,
-  ChevronRight,
-  Info,
+  MoreVertical,
 } from "lucide-react";
 import { ExpenseCategory } from "@/types";
 import {
@@ -57,7 +54,13 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   });
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [isManageMode, setIsManageMode] = useState(false);
+  const [openMenu, setOpenMenu] = useState<{
+    category: ExpenseCategory;
+    top: number;
+    left: number;
+  } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   // --- Add Category State ---
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -147,14 +150,87 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
     setShowIconSelector(false);
   };
 
-  // --- Start Editing Category ---
-  const handleStartEdit = (e: React.MouseEvent, category: ExpenseCategory) => {
+  // Close overflow menu on outside pointerdown, Escape key, or scroll
+  useEffect(() => {
+    if (!openMenu) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (menuRef.current && target && menuRef.current.contains(target)) {
+        return;
+      }
+      if (target?.closest("[data-category-menu-trigger='true']")) {
+        return;
+      }
+      setOpenMenu(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenMenu(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setOpenMenu(null);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    const scrollEl = scrollContainerRef.current;
+    scrollEl?.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      scrollEl?.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [openMenu]);
+
+  // --- Toggle 3-Dot Overflow Menu ---
+  const handleToggleMenu = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    category: ExpenseCategory
+  ) => {
     e.stopPropagation();
+    if (openMenu && openMenu.category.id === category.id) {
+      setOpenMenu(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 196;
+    const menuHeight = 104;
+    const viewportPadding = 12;
+
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - menuWidth),
+      window.innerWidth - menuWidth - viewportPadding
+    );
+    const openUpward = rect.bottom + 4 + menuHeight > window.innerHeight - viewportPadding;
+    const top = openUpward
+      ? Math.max(viewportPadding, rect.top - menuHeight - 4)
+      : rect.bottom + 4;
+
+    setOpenMenu({ category, top, left });
+  };
+
+  // --- Start Editing Category ---
+  const handleStartEdit = (category: ExpenseCategory) => {
+    setOpenMenu(null);
     setEditingCategory(category);
     setEditName(category.name);
     setEditIcon(category.iconName);
     setEditColor(category.colorClass);
     setShowEditIconSelector(false);
+  };
+
+  // --- Request Delete Confirmation ---
+  const handleRequestDelete = (category: ExpenseCategory) => {
+    setOpenMenu(null);
+    setCategoryToDelete(category);
   };
 
   // --- Save Edited Category ---
@@ -212,23 +288,11 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Manage Mode Toggle Button */}
             <button
-              onClick={() => setIsManageMode((prev) => !prev)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                isManageMode
-                  ? "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200/80 dark:hover:bg-slate-700"
-              }`}
-              title={isManageMode ? "Изход от режим редакция" : "Редактиране или изтриване на категории"}
-            >
-              <FolderCog className="w-3.5 h-3.5" />
-              <span>{isManageMode ? "Готово" : "Управление"}</span>
-            </button>
-
-            <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+              className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
+              aria-label="Затвори"
             >
               <X className="w-5 h-5" />
             </button>
@@ -273,7 +337,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         </div>
 
         {/* Scrollable Body */}
-        <div className="overflow-y-auto p-4 bg-slate-50/40 dark:bg-slate-950/40 space-y-4 flex-1">
+        <div
+          ref={scrollContainerRef}
+          className="overflow-y-auto p-4 bg-slate-50/40 dark:bg-slate-950/40 space-y-4 flex-1"
+        >
           {/* Add New Category Panel */}
           {isAddingNew && (
             <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border-2 border-indigo-200 dark:border-indigo-800 animate-in fade-in slide-in-from-top-3 relative space-y-4">
@@ -467,89 +534,91 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             </div>
           )}
 
-          {/* Manage Mode Info Banner */}
-          {isManageMode && (
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl flex items-center gap-2.5 text-amber-800 dark:text-amber-200 text-xs animate-in fade-in duration-200">
-              <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>
-                <strong>Режим на управление:</strong> Можете да редактирате имената и иконките на категориите или да ги изтривате чрез бутона за кошче.
-              </span>
-            </div>
-          )}
-
           {/* Categories Grid */}
           <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 gap-2.5">
             {filteredCategories.map((category) => {
               const IconComp = AVAILABLE_ICONS_MAP[category.iconName] || AVAILABLE_ICONS_MAP.Tag;
+              const isMenuOpen = openMenu?.category.id === category.id;
 
               return (
                 <div
                   key={category.id}
                   className={`
-                    group relative bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center gap-2
-                    border border-slate-200/90 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-500 transition-all cursor-pointer select-none
-                    ${isManageMode ? "ring-1 ring-amber-200 dark:ring-amber-700" : "active:scale-95"}
-                  `}
-                  onClick={() => {
-                    if (!isManageMode) {
-                      onSelect(category);
+                    group relative bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 rounded-2xl flex flex-col
+                    border shadow-sm hover:shadow-md transition-all select-none overflow-hidden
+                    ${
+                      isMenuOpen
+                        ? "border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-500/20"
+                        : "border-slate-200/90 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-500"
                     }
-                  }}
+                  `}
                 >
-                  {/* Edit & Delete Action Buttons (visible on hover, or always in manage mode) */}
-                  <div
-                    className={`
-                      absolute top-1.5 right-1.5 flex items-center gap-1 z-20
-                      ${
-                        isManageMode
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100 transition-opacity"
-                      }
-                    `}
-                  >
+                  {/* Top Row: Separated Icon Selection Area (left) + 44x44px 3-Dot Action Trigger (upper-right) */}
+                  <div className="flex items-start justify-between w-full">
                     <button
                       type="button"
-                      onClick={(e) => handleStartEdit(e, category)}
-                      className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
-                      title="Редактирай категория и иконка"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCategoryToDelete(category);
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      onClick={() => {
+                        setOpenMenu(null);
+                        onSelect(category);
                       }}
-                      className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md bg-white/95 dark:bg-slate-800/95 text-slate-500 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
-                      title="Изтрий категория"
+                      className="flex-1 pt-3 pl-3 pb-1 flex items-center justify-start cursor-pointer focus:outline-none"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <div
+                        className={`
+                          w-11 h-11 rounded-2xl flex items-center justify-center shadow-xs
+                          ${getCategoryBadgeClasses(category.colorClass)}
+                          group-hover:scale-105 transition-transform duration-200
+                        `}
+                      >
+                        <IconComp className="w-5 h-5" />
+                      </div>
+                    </button>
+
+                    {/* Always-visible 44x44px 3-Dot Overflow Menu Button (Desktop, Tablet, Mobile) */}
+                    <button
+                      type="button"
+                      data-category-menu-trigger="true"
+                      onClick={(e) => handleToggleMenu(e, category)}
+                      className={`
+                        w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 flex items-center justify-center rounded-bl-xl transition-colors cursor-pointer
+                        focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500
+                        ${
+                          isMenuOpen
+                            ? "bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-300"
+                            : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700/80"
+                        }
+                      `}
+                      title="Действия с категорията"
+                      aria-label={`Опции за категория ${category.name}`}
+                      aria-haspopup="menu"
+                      aria-expanded={isMenuOpen}
+                    >
+                      <MoreVertical className="w-4 h-4" />
                     </button>
                   </div>
 
-                  {/* Category Icon Badge */}
-                  <div
-                    className={`
-                      w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shadow-xs 
-                      ${getCategoryBadgeClasses(category.colorClass)} 
-                      group-hover:scale-105 transition-transform duration-200
-                    `}
+                  {/* Bottom Selection Area: Category Title & Custom Label (zero overlap with 44x44px 3-dot button) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenMenu(null);
+                      onSelect(category);
+                    }}
+                    aria-label={`Избери категория ${category.name}`}
+                    className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
                   >
-                    <IconComp className="w-5 h-5 sm:w-6 sm:h-6" />
-                  </div>
-
-                  {/* Category Name */}
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-100 text-center leading-tight line-clamp-2 px-1">
-                    {category.name}
-                  </span>
-
-                  {/* Custom category pill if created by user */}
-                  {category.isCustom && (
-                    <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-300 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.2 rounded border border-indigo-200 dark:border-indigo-800">
-                      Потребителска
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
+                      {category.name}
                     </span>
-                  )}
+
+                    {category.isCustom && (
+                      <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-300 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                        Потребителска
+                      </span>
+                    )}
+                  </button>
                 </div>
               );
             })}
@@ -732,36 +801,75 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         </div>
       )}
 
+      {/* --- Unified 3-Dot Overflow Action Menu --- */}
+      {openMenu && (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={`Действия за ${openMenu.category.name}`}
+          style={{ top: openMenu.top, left: openMenu.left }}
+          className="fixed z-[70] w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 animate-in fade-in zoom-in-95 duration-150"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => handleStartEdit(openMenu.category)}
+            className="w-full min-h-[44px] px-3.5 py-2 flex items-center gap-2.5 text-left text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-100 hover:bg-indigo-50 dark:hover:bg-indigo-950/70 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors cursor-pointer"
+          >
+            <Pencil className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+            <span>Редактирай</span>
+          </button>
+          <div className="my-1 border-t border-slate-100 dark:border-slate-700/80" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => handleRequestDelete(openMenu.category)}
+            className="w-full min-h-[44px] px-3.5 py-2 flex items-center gap-2.5 text-left text-xs sm:text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4 shrink-0" />
+            <span>Изтрий</span>
+          </button>
+        </div>
+      )}
+
       {/* --- Delete Confirmation Modal --- */}
       {categoryToDelete && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 space-y-4 animate-in zoom-in-95 duration-200 transition-colors">
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 space-y-4 animate-in zoom-in-95 duration-200 transition-colors"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-category-title"
+          >
             <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>
 
-            <div className="text-center space-y-1">
-              <h4 className="font-bold text-slate-800 dark:text-white text-base">
-                Изтриване на категория?
+            <div className="text-center space-y-1.5">
+              <h4
+                id="delete-category-title"
+                className="font-bold text-slate-900 dark:text-white text-base"
+              >
+                Изтриване на категория &quot;{categoryToDelete.name}&quot;?
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                 Сигурни ли сте, че искате да изтриете категорията &quot;<strong>{categoryToDelete.name}</strong>&quot;?
-                Тя няма да бъде налична за избор при бъдещи разходи.
+                Тя няма да бъде налична за избор при бъдещи записи.
               </p>
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setCategoryToDelete(null)}
-                className="flex-1 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                className="flex-1 min-h-[44px] py-2.5 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
               >
                 Отказ
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                className="flex-1 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm active:scale-95"
+                className="flex-1 min-h-[44px] py-2.5 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm active:scale-95 cursor-pointer"
               >
                 Изтрий
               </button>
