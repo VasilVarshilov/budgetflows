@@ -23,6 +23,7 @@ import {
   STORAGE_BASE_SETTINGS,
   STORAGE_BASE_RECURRING_INCOMES,
 } from "./userStorage";
+import { migrateAndSyncBudgets } from "./budgetStorage";
 
 // Legacy Storage Key Constants (kept exported for reference compatibility)
 export const STORAGE_KEY_MONTHLY = "HomeBudget_Data";
@@ -80,10 +81,10 @@ export const DEFAULT_INCOME_CATEGORIES: ExpenseCategory[] = [
 
 export const DEFAULT_BUDGETS: BudgetConfig[] = [
   { id: "b_food", categoryName: "Храна", categoryId: "food", monthlyLimit: 350 },
-  { id: "b_bills", categoryName: "Сметки и битови", categoryId: "electricity", monthlyLimit: 150 },
-  { id: "b_transport", categoryName: "Гориво и транспорт", categoryId: "fuel", monthlyLimit: 120 },
-  { id: "b_rest", categoryName: "Ресторанти и забавления", categoryId: "restaurant", monthlyLimit: 100 },
-  { id: "b_other", categoryName: "Други разходи", categoryId: "other", monthlyLimit: 80 },
+  { id: "b_bills", categoryName: "Сметки и битови", monthlyLimit: 150 },
+  { id: "b_transport", categoryName: "Гориво и транспорт", monthlyLimit: 120 },
+  { id: "b_rest", categoryName: "Ресторанти и забавления", monthlyLimit: 100 },
+  { id: "b_other", categoryName: "Други разходи", monthlyLimit: 80 },
 ];
 
 /**
@@ -617,6 +618,9 @@ export function applyBackup(
       incoming.recurringIncomes || []
     );
 
+    // Reconcile restored budgets with restored categories immediately
+    migrateAndSyncBudgets();
+
     const monthCount = Object.keys(incoming.expenses.monthlyRecords || {}).length;
 
     return {
@@ -834,6 +838,9 @@ export function applyBackup(
     STORAGE_BASE_RECURRING_INCOMES,
     Array.from(recurringMap.values())
   );
+
+  // Reconcile merged budgets with merged categories immediately
+  migrateAndSyncBudgets();
 
   const totalMonths = Object.keys(mergedMonthly).length;
 

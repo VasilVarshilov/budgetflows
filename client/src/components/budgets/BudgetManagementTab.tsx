@@ -29,6 +29,7 @@ import {
   updateCategoryBudget,
   deleteCategoryBudget,
   calculateAllBudgetsStatus,
+  resolveCategoryForBudget,
   BudgetStatus,
   DEFAULT_TOTAL_MONTHLY_BUDGET,
 } from "@/utils/budgetStorage";
@@ -115,6 +116,17 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
   useEffect(() => {
     refreshBudgets();
+    const handleSync = () => refreshBudgets();
+    window.addEventListener("homebudget:budgets-updated", handleSync);
+    window.addEventListener("homebudget:categories-updated", handleSync);
+    window.addEventListener("homebudget:data-restored", handleSync);
+    window.addEventListener("storage", handleSync);
+    return () => {
+      window.removeEventListener("homebudget:budgets-updated", handleSync);
+      window.removeEventListener("homebudget:categories-updated", handleSync);
+      window.removeEventListener("homebudget:data-restored", handleSync);
+      window.removeEventListener("storage", handleSync);
+    };
   }, []);
 
   // Compute available months in data or current year
@@ -150,22 +162,28 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
   // Open modal for Create
   const handleOpenAddModal = () => {
+    const latestCategories = loadStoredCategories();
+    setAvailableCategories(latestCategories);
     setEditingBudgetId(null);
     setFormData({
-      categoryName: availableCategories[0]?.name || "Храна",
-      categoryId: availableCategories[0]?.id || "food",
+      categoryName: latestCategories[0]?.name || "Храна",
+      categoryId: latestCategories[0]?.id || "food",
       monthlyLimit: "300",
     });
     setFormError("");
     setIsModalOpen(true);
   };
 
-  // Open modal for Edit
+  // Open modal for Edit — always guarantee Displayed Category === Edited Category
   const handleOpenEditModal = (budget: BudgetConfig) => {
+    const latestCategories = loadStoredCategories();
+    setAvailableCategories(latestCategories);
+    const matchedCategory = resolveCategoryForBudget(budget, latestCategories);
+
     setEditingBudgetId(budget.id);
     setFormData({
-      categoryName: budget.categoryName,
-      categoryId: budget.categoryId || "",
+      categoryName: matchedCategory ? matchedCategory.name : budget.categoryName,
+      categoryId: matchedCategory ? matchedCategory.id : "",
       monthlyLimit: budget.monthlyLimit.toString(),
     });
     setFormError("");
@@ -174,6 +192,13 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
   // Handle Form Category Selection Change
   const handleCategorySelect = (categoryId: string) => {
+    if (categoryId === "__custom_current__") {
+      setFormData((prev) => ({
+        ...prev,
+        categoryId: "",
+      }));
+      return;
+    }
     if (categoryId === "custom") {
       setFormData((prev) => ({
         ...prev,
@@ -195,7 +220,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
   // Submit Modal Form
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.categoryName.trim()) {
+    const trimmedName = formData.categoryName.trim();
+    if (!trimmedName) {
       setFormError("Моля, посочете име на категорията.");
       return;
     }
@@ -205,17 +231,22 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       return;
     }
 
+    const matchedCat = resolveCategoryForBudget(
+      { categoryId: formData.categoryId || undefined, categoryName: trimmedName },
+      availableCategories
+    );
+
     if (editingBudgetId) {
       const updated = updateCategoryBudget(editingBudgetId, {
-        categoryName: formData.categoryName.trim(),
-        categoryId: formData.categoryId || undefined,
+        categoryName: matchedCat ? matchedCat.name : trimmedName,
+        categoryId: matchedCat ? matchedCat.id : undefined,
         monthlyLimit: limit,
       });
       setCategoryBudgets(updated);
     } else {
       const updated = addCategoryBudget({
-        categoryName: formData.categoryName.trim(),
-        categoryId: formData.categoryId || undefined,
+        categoryName: matchedCat ? matchedCat.name : trimmedName,
+        categoryId: matchedCat ? matchedCat.id : undefined,
         monthlyLimit: limit,
       });
       setCategoryBudgets(updated);
@@ -866,18 +897,44 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Изберете категория
                 </label>
-                <select
-                  value={formData.categoryId || "custom"}
-                  onChange={(e) => handleCategorySelect(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
-                >
-                  {availableCategories.map((cat) => (
-                    <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
-                      {cat.name}
-                    </option>
-                  ))}
-                  <option value="custom" className="dark:bg-slate-800 dark:text-white">+ Друга персонализирана категория</option>
-                </select>
+                {(() => {
+                  const hasMatchingOption = Boolean(
+                    formData.categoryId &&
+                      availableCategories.some((c) => c.id === formData.categoryId)
+                  );
+                  const isEditingCustomName = Boolean(
+                    !hasMatchingOption &&
+                      editingBudgetId &&
+                      formData.categoryName.trim()
+                  );
+                  const selectValue = hasMatchingOption
+                    ? formData.categoryId
+                    : isEditingCustomName
+                    ? "__custom_current__"
+                    : "custom";
+
+                  return (
+                    <select
+                      value={selectValue}
+                      onChange={(e) => handleCategorySelect(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                    >
+                      {availableCategories.map((cat) => (
+                        <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
+                          {cat.name}
+                        </option>
+                      ))}
+                      {isEditingCustomName && (
+                        <option value="__custom_current__" className="dark:bg-slate-800 dark:text-white">
+                          {formData.categoryName.trim()}
+                        </option>
+                      )}
+                      <option value="custom" className="dark:bg-slate-800 dark:text-white">
+                        + Друга персонализирана категория
+                      </option>
+                    </select>
+                  );
+                })()}
               </div>
 
               {/* If custom or editing name */}

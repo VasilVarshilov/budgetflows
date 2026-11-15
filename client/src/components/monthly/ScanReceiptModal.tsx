@@ -39,6 +39,7 @@ import {
   validateReceiptTotals,
   toCyrillicMatchForm,
   toLatinMatchForm,
+  isValidCalendarDate,
 } from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
@@ -180,23 +181,45 @@ async function prepareReceiptImageWithTimeout(
               const imgData = ocrCtx.getImageData(0, 0, width, height);
               const data = imgData.data;
 
-              // Fast 16-pixel stride histogram to normalize brightness on dim receipts
-              let minL = 255;
-              let maxL = 0;
-              for (let p = 0; p < data.length; p += 64) {
-                const l = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-                if (l < minL) minL = l;
-                if (l > maxL) maxL = l;
+              // Sampled percentile histogram (p5..p95) handles uneven shadows on thermal receipts
+              const hist = new Uint32Array(256);
+              let sampleCount = 0;
+              for (let p = 0; p < data.length; p += 16) {
+                const l = Math.min(255, Math.max(0, Math.round(0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2])));
+                hist[l]++;
+                sampleCount++;
               }
-              const span = Math.max(60, maxL - minL);
-              const useStretch = span < 210 && maxL > minL + 40;
+              let p5 = 0;
+              let p95 = 255;
+              if (sampleCount > 0) {
+                const lowTarget = sampleCount * 0.05;
+                const highTarget = sampleCount * 0.95;
+                let acc = 0;
+                for (let b = 0; b < 256; b++) {
+                  acc += hist[b];
+                  if (acc >= lowTarget) {
+                    p5 = b;
+                    break;
+                  }
+                }
+                acc = 0;
+                for (let b = 0; b < 256; b++) {
+                  acc += hist[b];
+                  if (acc >= highTarget) {
+                    p95 = b;
+                    break;
+                  }
+                }
+              }
+              const span = Math.max(64, p95 - p5);
+              const useStretch = span < 235 && p95 > p5 + 35;
 
               for (let p = 0; p < data.length; p += 4) {
                 let gray = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
                 if (useStretch) {
-                  gray = ((gray - minL) / span) * 255;
+                  gray = Math.min(255, Math.max(0, ((gray - p5) / span) * 255));
                 }
-                const enhanced = Math.min(255, Math.max(0, (gray - 128) * 1.12 + 136));
+                const enhanced = Math.min(255, Math.max(0, (gray - 128) * 1.18 + 134));
                 data[p] = enhanced;
                 data[p + 1] = enhanced;
                 data[p + 2] = enhanced;
@@ -587,6 +610,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [confirmMismatchOverride, setConfirmMismatchOverride] = useState<boolean>(false);
   const [aiSourceBadge, setAiSourceBadge] = useState<string>("OCR анализ");
   const [aiUnavailable, setAiUnavailable] = useState<boolean>(false);
+  const [aiFallbackReason, setAiFallbackReason] = useState<string | null>(null);
   const [aiSucceeded, setAiSucceeded] = useState<boolean>(false);
   const [processingWarning, setProcessingWarning] = useState<string | null>(null);
   const [ocrLanguageInfo, setOcrLanguageInfo] = useState<{
@@ -678,6 +702,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setConfirmMismatchOverride(false);
     setAiSourceBadge("OCR анализ");
     setAiUnavailable(false);
+    setAiFallbackReason(null);
     setAiSucceeded(false);
     setProcessingWarning(null);
     setOcrLanguageInfo(null);
@@ -832,6 +857,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   }) => {
     setStep("scanning");
     setAiUnavailable(false);
+    setAiFallbackReason(null);
     setAiSucceeded(false);
     setProcessingWarning(null);
     setDateEditedByUser(false);
@@ -942,7 +968,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     abortControllerRef.current = controller;
     const timeoutTimer = setTimeout(() => {
       controller.abort();
-    }, 22000); // 22s timeout allows extracting 15-30 item receipts reliably
+    }, 32000); // 32s client timeout (>28s server timeout) so server error diagnostics aren't cut short
+
+    const geminiStart = Date.now();
+    addDebugLog(
+      "gemini_res",
+      `Gemini request sent -> POST /api/ocr/receipt (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
+    );
 
     try {
       const response = await fetch("/api/ocr/receipt", {
@@ -958,10 +990,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
       clearTimeout(timeoutTimer);
       const contentType = response.headers.get("content-type") || "";
+      const geminiElapsed = Date.now() - geminiStart;
 
       if (contentType.includes("application/json")) {
         const json = await response.json();
-        addDebugLog("gemini_res", "Gemini API отговор получен", json);
+        addDebugLog(
+          "gemini_res",
+          `Gemini response received <- HTTP ${response.status} in ${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"} | errorCode=${json.errorCode || json.error || "none"}`,
+          json
+        );
 
         if (json.success && json.data) {
           const gData = json.data;
@@ -1001,21 +1038,28 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             addDebugLog("parsed_merchant", `Gemini търговец: "${gData.merchantName}"`);
           }
 
-          // Date Priority: 1. OCR detected date -> 2. AI analysis date -> 3. User correction -> 4. Today fallback
-          const isValidGeminiDate =
-            typeof gData.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(gData.date.trim());
+          // Date Priority: 1. OCR detected date -> 2. AI calendar-valid date -> 3. User correction -> 4. Today fallback
+          const rawAiDate = typeof gData.date === "string" ? gData.date.trim() : "";
+          const aiDateParts = rawAiDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          const isValidGeminiDate = Boolean(
+            aiDateParts &&
+              isValidCalendarDate(
+                parseInt(aiDateParts[1], 10),
+                parseInt(aiDateParts[2], 10),
+                parseInt(aiDateParts[3], 10)
+              )
+          );
           if (localParsed.dateDetected) {
             addDebugLog(
               "parsed_date",
-              `Запазена дата от OCR: "${localParsed.date}" (Приоритет 1: OCR датата не се презаписва от AI${isValidGeminiDate && gData.date !== localParsed.date ? `, AI предложи "${gData.date}"` : ""})`
+              `Запазена дата от OCR: "${localParsed.date}" (Приоритет 1: OCR датата не се презаписва от AI${isValidGeminiDate && rawAiDate !== localParsed.date ? `, AI предложи "${rawAiDate}"` : ""})`
             );
           } else if (isValidGeminiDate) {
-            const aiDate = gData.date.trim();
-            setDate(aiDate);
-            setDetectedDate(aiDate);
+            setDate(rawAiDate);
+            setDetectedDate(rawAiDate);
             setDateFallbackReason(null);
             setWarnings((prev) => prev.filter((w) => !w.includes("Датата") && !w.includes("Не е открита дата")));
-            addDebugLog("parsed_date", `AI (Gemini) detected date: "${aiDate}" | Final date: "${aiDate}"`);
+            addDebugLog("parsed_date", `AI (Gemini) detected date: "${rawAiDate}" | Final date: "${rawAiDate}"`);
           } else {
             addDebugLog(
               "parsed_date",
@@ -1049,12 +1093,27 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             finalTotal,
             resolvedExpectedCount
           );
-          const resolvedItems = bestChoice.items;
+          const resolvedItems =
+            bestChoice.source === "gemini" && initialItems.length === bestChoice.items.length
+              ? bestChoice.items.map((gItem, idx) => {
+                  const localMatch = initialItems[idx];
+                  if (
+                    localMatch &&
+                    (localMatch.quantity || 1) > 1 &&
+                    (gItem.quantity || 1) === 1 &&
+                    Math.abs(localMatch.price - gItem.price) <= 0.02
+                  ) {
+                    return { ...gItem, quantity: localMatch.quantity };
+                  }
+                  return gItem;
+                })
+              : bestChoice.items;
           const validation = validateReceiptTotals(
             resolvedItems,
             finalTotal,
             resolvedExpectedCount ?? undefined,
-            localParsed.discountTotal || 0
+            localParsed.discountTotal || 0,
+            resolvedCurrency
           );
 
           setReceiptItems(resolvedItems);
@@ -1113,23 +1172,36 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
           setAiSucceeded(true);
           setAiUnavailable(false);
-          setAiSourceBadge("AI + OCR анализ");
+          setAiFallbackReason(null);
+          setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : "AI + OCR анализ");
         } else {
-          addDebugLog("gemini_res", "Gemini не е активен или върна грешка. Използват се данните от локалния BG+EN OCR.");
+          const reasonText =
+            json.fallbackReason ||
+            json.message ||
+            `Error ${json.errorCode || json.error || "UNKNOWN"}`;
+          addDebugLog(
+            "gemini_res",
+            `Gemini fallback -> code=${json.errorCode || json.error || "UNKNOWN"} | reason=${reasonText}`
+          );
           setAiUnavailable(true);
+          setAiFallbackReason(`${json.errorCode || json.error || "API_ERROR"}${json.httpStatus ? ` (HTTP ${json.httpStatus})` : ""}`);
           setAiSucceeded(false);
           setAiSourceBadge("OCR анализ");
         }
       } else {
-        addDebugLog("gemini_res", "Статичен хостинг. Използват се локалните BG+EN OCR данни.");
+        const nonJsonReason = `Non-JSON response (HTTP ${response.status}, content-type=${contentType || "unknown"})`;
+        addDebugLog("gemini_res", `Gemini fallback -> ${nonJsonReason}`);
         setAiUnavailable(true);
+        setAiFallbackReason(`HTTP ${response.status} (static/non-JSON)`);
         setAiSucceeded(false);
         setAiSourceBadge("OCR анализ");
       }
     } catch (gErr: any) {
       clearTimeout(timeoutTimer);
-      addDebugLog("gemini_res", `Gemini заявката не успя (${gErr?.message}). Използват се локалните BG+EN OCR данни.`);
+      const errReason = gErr?.name === "AbortError" ? "Client fetch timeout (>32s)" : gErr?.message || "Network error";
+      addDebugLog("gemini_res", `Gemini fallback -> ${errReason}`);
       setAiUnavailable(true);
+      setAiFallbackReason(errReason);
       setAiSucceeded(false);
       setAiSourceBadge("OCR анализ");
     } finally {
@@ -1308,7 +1380,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     isPartialSelection ? selectedItemsList : receiptItems,
     isPartialSelection ? liveAmountNum : (liveAmountNum > 0 ? liveAmountNum : receiptTotalDisplay),
     isPartialSelection ? undefined : expectedItemsCount ?? undefined,
-    isPartialSelection ? 0 : detectedDiscount
+    isPartialSelection ? 0 : detectedDiscount,
+    receiptCurrency || "€"
   );
   // Verify Sum of items ≈ Receipt total (within 5% or expected item count deficit) when saving full receipt
   const hasFullReceiptMismatch =
@@ -1738,14 +1811,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 </div>
               )}
 
-              {/* Neutral AI Fallback Notice (never styled as warning when OCR succeeded) */}
+              {/* Neutral AI Fallback Notice (with diagnostic reason when fallback occurs) */}
               {aiUnavailable && (
                 <div className="px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
                   <div className="flex items-center gap-2">
                     <Info className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
                     <span>
                       <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
-                      AI подобренията временно не са налични.
+                      AI подобренията временно не са налични{aiFallbackReason ? ` (${aiFallbackReason})` : "."}
                     </span>
                   </div>
                   {ocrLanguageInfo && (

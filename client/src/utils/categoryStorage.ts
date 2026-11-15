@@ -1,4 +1,4 @@
-import { ExpenseCategory, CategoriesStore } from "@/types";
+import { ExpenseCategory, CategoriesStore, BudgetConfig, MonthlyRecord } from "@/types";
 import {
   Droplets,
   Zap,
@@ -62,7 +62,12 @@ import {
   Layers,
   RotateCcw,
 } from "lucide-react";
-import { userStorage, STORAGE_BASE_CATEGORIES } from "./userStorage";
+import {
+  userStorage,
+  STORAGE_BASE_CATEGORIES,
+  STORAGE_BASE_BUDGETS,
+  STORAGE_BASE_MONTHLY,
+} from "./userStorage";
 
 export const STORAGE_KEY_CATEGORIES = "HomeBudget_Categories";
 
@@ -327,6 +332,12 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
       iconName: "Film",
       colorClass: "bg-indigo-100 text-indigo-600",
     },
+    // Entertainment & Leisure
+    {
+      keywords: ["забавления", "развлечения", "увеселения", "entertainment", "leisure", "fun"],
+      iconName: "Sparkles",
+      colorClass: "bg-purple-100 text-purple-600",
+    },
     // Music & Concerts
     {
       keywords: ["музика", "spotify", "apple music", "концерт", "фестивал", "music", "песен"],
@@ -434,6 +445,12 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
       keywords: ["застраховка", "каско", "гражданска", "булинс", "дзи", "армеец", "алианц", "живот", "insurance"],
       iconName: "Shield",
       colorClass: "bg-red-100 text-red-600",
+    },
+    // Utilities & General Bills
+    {
+      keywords: ["сметки", "битови", "комунални", "сметка", "bills", "utilities"],
+      iconName: "Receipt",
+      colorClass: "bg-indigo-100 text-indigo-600",
     },
     // Taxes & Government
     {
@@ -625,6 +642,121 @@ export function saveStoredCategories(categories: ExpenseCategory[]): void {
   }
 }
 
+function dispatchCategoryBudgetEvents(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("homebudget:categories-updated"));
+    window.dispatchEvent(new CustomEvent("homebudget:budgets-updated"));
+  } catch {
+    // ignore in non-DOM environments
+  }
+}
+
+function syncLinkedBudgetsOnCategoryRename(
+  categoryId: string,
+  oldName: string,
+  newName: string
+): void {
+  try {
+    const rawBudgets = userStorage.getItem(STORAGE_BASE_BUDGETS);
+    if (!rawBudgets) return;
+    const parsed = JSON.parse(rawBudgets);
+    if (!Array.isArray(parsed)) return;
+
+    const oldNorm = oldName.trim().toLowerCase();
+    const updatedBudgetIds = new Set<string>();
+    let budgetsChanged = false;
+
+    const updatedBudgets: BudgetConfig[] = parsed.map((b: BudgetConfig) => {
+      if (!b || b.id === "total_monthly" || b.categoryName === "__TOTAL_MONTHLY__") {
+        return b;
+      }
+      const isLinkedById = b.categoryId === categoryId;
+      const isUnlinkedByOldName =
+        !b.categoryId && b.categoryName.trim().toLowerCase() === oldNorm;
+
+      if (isLinkedById || isUnlinkedByOldName) {
+        updatedBudgetIds.add(b.id);
+        if (b.categoryName !== newName || b.categoryId !== categoryId) {
+          budgetsChanged = true;
+          return {
+            ...b,
+            categoryId,
+            categoryName: newName,
+          };
+        }
+      }
+      return b;
+    });
+
+    if (budgetsChanged) {
+      userStorage.setItem(STORAGE_BASE_BUDGETS, JSON.stringify(updatedBudgets));
+    }
+
+    // Keep cached budgetCategoryName synchronized on linked expenses
+    if (updatedBudgetIds.size > 0) {
+      const rawMonthly = userStorage.getItem(STORAGE_BASE_MONTHLY);
+      if (rawMonthly) {
+        const monthlyMap = JSON.parse(rawMonthly) as Record<string, MonthlyRecord>;
+        let monthlyChanged = false;
+
+        Object.values(monthlyMap).forEach((rec) => {
+          if (!rec?.expenses) return;
+          if (Array.isArray(rec.expenses.fixed_expenses)) {
+            rec.expenses.fixed_expenses = rec.expenses.fixed_expenses.map((item) => {
+              if (item.budgetCategoryId && updatedBudgetIds.has(item.budgetCategoryId) && item.budgetCategoryName !== newName) {
+                monthlyChanged = true;
+                return { ...item, budgetCategoryName: newName };
+              }
+              return item;
+            });
+          }
+          if (Array.isArray(rec.expenses.additional_expenses)) {
+            rec.expenses.additional_expenses = rec.expenses.additional_expenses.map((item) => {
+              if (item.budgetCategoryId && updatedBudgetIds.has(item.budgetCategoryId) && item.budgetCategoryName !== newName) {
+                monthlyChanged = true;
+                return { ...item, budgetCategoryName: newName };
+              }
+              return item;
+            });
+          }
+        });
+
+        if (monthlyChanged) {
+          userStorage.setItem(STORAGE_BASE_MONTHLY, JSON.stringify(monthlyMap));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed syncing budgets after category rename:", err);
+  }
+}
+
+function detachDeletedCategoryFromBudgets(categoryId: string): void {
+  try {
+    const rawBudgets = userStorage.getItem(STORAGE_BASE_BUDGETS);
+    if (!rawBudgets) return;
+    const parsed = JSON.parse(rawBudgets);
+    if (!Array.isArray(parsed)) return;
+
+    let changed = false;
+    const updatedBudgets: BudgetConfig[] = parsed.map((b: BudgetConfig) => {
+      if (b && b.categoryId === categoryId) {
+        changed = true;
+        const { categoryId: _removed, ...rest } = b;
+        return rest;
+      }
+      return b;
+    });
+
+    if (changed) {
+      userStorage.setItem(STORAGE_BASE_BUDGETS, JSON.stringify(updatedBudgets));
+    }
+  } catch (err) {
+    console.warn("Failed detaching deleted category from budgets:", err);
+  }
+}
+
 /**
  * Add a new category (creates unique id, uses smart AI defaults if not provided)
  */
@@ -644,39 +776,51 @@ export function addCategoryToStorage(category: Partial<ExpenseCategory> & { name
 
   const updated = [...current, newCategory];
   saveStoredCategories(updated);
+  dispatchCategoryBudgetEvents();
   return updated;
 }
 
 /**
- * Update an existing category by ID
+ * Update an existing category by ID and automatically propagate renames to linked budgets
  */
 export function updateCategoryInStorage(
   categoryId: string,
   updates: Partial<Pick<ExpenseCategory, "name" | "iconName" | "colorClass">>
 ): ExpenseCategory[] {
   const current = loadStoredCategories();
+  const previousCat = current.find((cat) => cat.id === categoryId);
+  const newName = updates.name ? updates.name.trim() : previousCat?.name;
+
   const updated = current.map((cat) => {
     if (cat.id === categoryId) {
       return {
         ...cat,
         ...updates,
-        name: updates.name ? updates.name.trim() : cat.name,
+        name: newName || cat.name,
       };
     }
     return cat;
   });
 
   saveStoredCategories(updated);
+
+  if (previousCat && newName && previousCat.name.trim() !== newName) {
+    syncLinkedBudgetsOnCategoryRename(categoryId, previousCat.name, newName);
+  }
+
+  dispatchCategoryBudgetEvents();
   return updated;
 }
 
 /**
- * Delete a category by ID from storage
+ * Delete a category by ID from storage and detach stale categoryId from linked budgets
  */
 export function deleteCategoryFromStorage(categoryId: string): ExpenseCategory[] {
   const current = loadStoredCategories();
   const updated = current.filter((cat) => cat.id !== categoryId);
   saveStoredCategories(updated);
+  detachDeletedCategoryFromBudgets(categoryId);
+  dispatchCategoryBudgetEvents();
   return updated;
 }
 

@@ -98,9 +98,15 @@ export async function runClientOcr(
 
       let text: string = ret.data?.text || "";
       let confidence: number = ret.data?.confidence || 0;
+      const countPriceLines = (src: string) =>
+        src
+          .split(/\r?\n/)
+          .filter((l) => /\d+[.,]\d{2}/.test(l)).length;
+      let priceLinesCount = countPriceLines(text);
 
-      // If SINGLE_BLOCK returns sparse text on a tall receipt, retry once with SINGLE_COLUMN
-      if (!timedOut && text.trim().length < 25) {
+      // Retry once with SINGLE_COLUMN if SINGLE_BLOCK returned sparse text OR missed price rows (with >=8s budget remaining)
+      const remainingMs = timeoutMs - (Date.now() - startTime);
+      if (!timedOut && remainingMs > 8000 && (text.trim().length < 25 || priceLinesCount < 2)) {
         try {
           onProgress?.(78, "Повторно разчитане в колонен режим (SINGLE_COLUMN)...");
           await activeWorker.setParameters({
@@ -110,9 +116,15 @@ export async function runClientOcr(
           const retryRet = await activeWorker.recognize(imageSource);
           const retryText: string = retryRet.data?.text || "";
           const retryConfidence: number = retryRet.data?.confidence || 0;
-          if (retryText.trim().length > text.trim().length) {
+          const retryPriceLines = countPriceLines(retryText);
+
+          if (
+            retryPriceLines > priceLinesCount ||
+            (retryPriceLines === priceLinesCount && retryText.trim().length > text.trim().length)
+          ) {
             text = retryText;
             confidence = retryConfidence;
+            priceLinesCount = retryPriceLines;
             psmMode = "SINGLE_COLUMN";
           }
         } catch {
@@ -123,7 +135,7 @@ export async function runClientOcr(
       onProgress?.(95, "Финализиране на разчетения текст...");
 
       console.log(
-        `[Receipt OCR] Completed | requestedLanguages="${requestedLanguages}" | languagesUsed="${languagesUsed}" | fallback=${fallbackOccurred} | PSM=${psmMode} | Duration=${Date.now() - startTime}ms | Confidence=${confidence.toFixed(1)}% | Chars=${text.length}`
+        `[Receipt OCR] Completed | requestedLanguages="${requestedLanguages}" | languagesUsed="${languagesUsed}" | fallback=${fallbackOccurred} | PSM=${psmMode} | Duration=${Date.now() - startTime}ms | Confidence=${confidence.toFixed(1)}% | Chars=${text.length} | PriceLines=${priceLinesCount}`
       );
 
       return {

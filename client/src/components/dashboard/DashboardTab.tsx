@@ -152,12 +152,26 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     return loadAppSettings().savingsTargetPercent ?? 20;
   });
 
+  const [budgetsRevision, setBudgetsRevision] = React.useState(0);
+
   React.useEffect(() => {
     const handleRestored = () => {
       setSavingsTargetPercent(loadAppSettings().savingsTargetPercent ?? 20);
+      setBudgetsRevision((v) => v + 1);
+    };
+    const handleBudgetOrCatUpdate = () => {
+      setBudgetsRevision((v) => v + 1);
     };
     window.addEventListener("homebudget:data-restored", handleRestored);
-    return () => window.removeEventListener("homebudget:data-restored", handleRestored);
+    window.addEventListener("homebudget:budgets-updated", handleBudgetOrCatUpdate);
+    window.addEventListener("homebudget:categories-updated", handleBudgetOrCatUpdate);
+    window.addEventListener("storage", handleBudgetOrCatUpdate);
+    return () => {
+      window.removeEventListener("homebudget:data-restored", handleRestored);
+      window.removeEventListener("homebudget:budgets-updated", handleBudgetOrCatUpdate);
+      window.removeEventListener("homebudget:categories-updated", handleBudgetOrCatUpdate);
+      window.removeEventListener("storage", handleBudgetOrCatUpdate);
+    };
   }, []);
 
   const handleSavingsTargetChange = (rawValue: string) => {
@@ -609,7 +623,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       totalMonthlyBudget,
       categoryBudgets
     );
-  }, [activeRecordForBudget]);
+  }, [activeRecordForBudget, budgetsRevision]);
 
   // Month-to-Month comparison data (Current Month vs Previous Month)
   const monthComparisonData = useMemo(() => {
@@ -641,7 +655,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   // AI Financial Analysis for top recommendations
   const aiAnalysis = useMemo(() => {
     return generateLocalFinancialAnalysis(monthlyData, globalSavings);
-  }, [monthlyData, globalSavings]);
+  }, [monthlyData, globalSavings, budgetsRevision]);
 
   const { isDark } = useTheme();
 

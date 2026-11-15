@@ -1,9 +1,14 @@
-import { BudgetConfig, MonthlyRecord, ExpenseItem } from "@/types";
-import { loadStoredCategories, AVAILABLE_ICONS_MAP } from "./categoryStorage";
+import { BudgetConfig, MonthlyRecord, ExpenseItem, ExpenseCategory } from "@/types";
+import {
+  loadStoredCategories,
+  DEFAULT_CATEGORIES,
+  getAiSuggestedIconAndColor,
+} from "./categoryStorage";
 import {
   userStorage,
   STORAGE_BASE_BUDGETS,
   STORAGE_BASE_TOTAL_BUDGET,
+  STORAGE_BASE_MONTHLY,
 } from "./userStorage";
 
 export const STORAGE_KEY_BUDGETS = "HomeBudget_Budgets";
@@ -27,13 +32,11 @@ export const DEFAULT_CATEGORY_BUDGETS: BudgetConfig[] = [
   {
     id: "b_entertainment",
     categoryName: "Забавления",
-    categoryId: "restaurant",
     monthlyLimit: 150,
   },
   {
     id: "b_bills",
     categoryName: "Сметки и битови",
-    categoryId: "electricity",
     monthlyLimit: 200,
   },
   {
@@ -71,8 +74,151 @@ export interface OverallBudgetCalculation {
   activeWarnings: string[];
 }
 
+const DEFAULT_CAT_NAME_BY_ID = new Map(
+  DEFAULT_CATEGORIES.map((c) => [c.id, c.name.trim().toLowerCase()])
+);
+
+function dispatchBudgetsUpdated(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("homebudget:budgets-updated"));
+  } catch {
+    // ignore in non-DOM environments
+  }
+}
+
 /**
- * Loads budgets from account-isolated userStorage with robust fallback
+ * Resolves the canonical ExpenseCategory for a BudgetConfig only when the
+ * category name actually matches (never returning a mismatched category name).
+ */
+export function resolveCategoryForBudget(
+  budget: Pick<BudgetConfig, "categoryId" | "categoryName">,
+  categories: ExpenseCategory[]
+): ExpenseCategory | undefined {
+  const budgetNameNorm = (budget.categoryName || "").trim().toLowerCase();
+  if (!budgetNameNorm) {
+    return budget.categoryId
+      ? categories.find((c) => c.id === budget.categoryId)
+      : undefined;
+  }
+
+  if (budget.categoryId) {
+    const byId = categories.find((c) => c.id === budget.categoryId);
+    if (byId && byId.name.trim().toLowerCase() === budgetNameNorm) {
+      return byId;
+    }
+  }
+
+  return categories.find((c) => c.name.trim().toLowerCase() === budgetNameNorm);
+}
+
+/**
+ * Reconciles BudgetConfig entries with stored ExpenseCategory entries so that:
+ * - Displayed categoryName and linked categoryId never conflict.
+ * - Stale/mismatched categoryIds (e.g. legacy "b_bills" pointing to "electricity"/"Ток"
+ *   while displaying "Сметки и битови") are repaired without losing limits or linked expenses.
+ * - Renamed default categories propagate cleanly even when budgets hadn't been persisted yet.
+ */
+export function reconcileBudgetsWithCategories(
+  budgets: BudgetConfig[],
+  categories: ExpenseCategory[]
+): { budgets: BudgetConfig[]; changed: boolean } {
+  const catById = new Map(categories.map((c) => [c.id, c]));
+  const catByNameNorm = new Map(
+    categories.map((c) => [c.name.trim().toLowerCase(), c])
+  );
+
+  let changed = false;
+
+  const reconciled = budgets.map((b) => {
+    if (!b || b.id === "total_monthly" || b.categoryName === "__TOTAL_MONTHLY__") {
+      return b;
+    }
+
+    const trimmedName = (b.categoryName || "").trim();
+    const normName = trimmedName.toLowerCase();
+    const linkedCat = b.categoryId ? catById.get(b.categoryId) : undefined;
+    const exactNameCat = normName ? catByNameNorm.get(normName) : undefined;
+
+    // 1. Linked by categoryId and found in category store
+    if (linkedCat) {
+      const linkedNorm = linkedCat.name.trim().toLowerCase();
+      if (linkedNorm === normName) {
+        if (b.categoryName !== linkedCat.name.trim()) {
+          changed = true;
+          return { ...b, categoryName: linkedCat.name.trim() };
+        }
+        return b;
+      }
+
+      // If another category in the store matches budget.categoryName exactly, link to that one
+      if (exactNameCat) {
+        changed = true;
+        return {
+          ...b,
+          categoryId: exactNameCat.id,
+          categoryName: exactNameCat.name.trim(),
+        };
+      }
+
+      // Check if budget.categoryName matches the category's historical default name
+      // (meaning the user renamed that default category before budgets were synced)
+      const originalDefaultName = DEFAULT_CAT_NAME_BY_ID.get(linkedCat.id);
+      if (originalDefaultName && normName === originalDefaultName) {
+        changed = true;
+        return {
+          ...b,
+          categoryId: linkedCat.id,
+          categoryName: linkedCat.name.trim(),
+        };
+      }
+
+      // Otherwise it is a mismatched preset/custom label (e.g. "Сметки и битови" -> "electricity"/"Ток").
+      // Preserve the budget's display name & limit, and clear the conflicting categoryId.
+      changed = true;
+      const { categoryId: _removed, ...rest } = b;
+      return {
+        ...rest,
+        categoryName: trimmedName || linkedCat.name.trim(),
+      };
+    }
+
+    // 2. No valid categoryId (either undefined or references a deleted/missing category)
+    if (exactNameCat) {
+      if (b.categoryId !== exactNameCat.id || b.categoryName !== exactNameCat.name.trim()) {
+        changed = true;
+        return {
+          ...b,
+          categoryId: exactNameCat.id,
+          categoryName: exactNameCat.name.trim(),
+        };
+      }
+      return b;
+    }
+
+    if (b.categoryId) {
+      // Stale/deleted categoryId — clear it so dropdown never falls back to an unrelated category
+      changed = true;
+      const { categoryId: _removed, ...rest } = b;
+      return {
+        ...rest,
+        categoryName: trimmedName,
+      };
+    }
+
+    if (b.categoryName !== trimmedName) {
+      changed = true;
+      return { ...b, categoryName: trimmedName };
+    }
+
+    return b;
+  });
+
+  return { budgets: reconciled, changed };
+}
+
+/**
+ * Loads budgets from account-isolated userStorage with automatic schema/category migration
  */
 export function loadBudgets(): {
   totalMonthlyBudget: number;
@@ -95,17 +241,20 @@ export function loadBudgets(): {
 
   // Load category budgets
   let categoryBudgets: BudgetConfig[] = [];
+  let hasPersistedBudgets = false;
+  let totalItemFromList: BudgetConfig | undefined;
+
   try {
     const rawBudgets = userStorage.getItem(STORAGE_BASE_BUDGETS);
     if (rawBudgets) {
       const parsed = JSON.parse(rawBudgets);
       if (Array.isArray(parsed)) {
-        // If an item represents the total monthly budget, extract it
-        const totalItem = parsed.find(
+        hasPersistedBudgets = true;
+        totalItemFromList = parsed.find(
           (b) => b.id === "total_monthly" || b.categoryName === "__TOTAL_MONTHLY__"
         );
-        if (totalItem && totalItem.monthlyLimit > 0) {
-          totalMonthlyBudget = totalItem.monthlyLimit;
+        if (totalItemFromList && totalItemFromList.monthlyLimit > 0) {
+          totalMonthlyBudget = totalItemFromList.monthlyLimit;
         }
 
         // Filter out total_monthly from category list
@@ -120,10 +269,45 @@ export function loadBudgets(): {
 
   // If no category budgets configured yet, return default presets without dirtying empty storage
   if (categoryBudgets.length === 0) {
-    categoryBudgets = DEFAULT_CATEGORY_BUDGETS;
+    categoryBudgets = DEFAULT_CATEGORY_BUDGETS.map((b) => ({ ...b }));
   }
 
-  return { totalMonthlyBudget, categoryBudgets };
+  // Run idempotent reconciliation against current categories
+  const categories = loadStoredCategories();
+  const { budgets: reconciledBudgets, changed } = reconcileBudgetsWithCategories(
+    categoryBudgets,
+    categories
+  );
+
+  // Persist migrated budgets only when budgets were already stored
+  if (changed && hasPersistedBudgets) {
+    try {
+      const totalConfigItem: BudgetConfig = totalItemFromList || {
+        id: "total_monthly",
+        categoryName: "__TOTAL_MONTHLY__",
+        monthlyLimit: totalMonthlyBudget,
+        period: "monthly",
+      };
+      userStorage.setItem(
+        STORAGE_BASE_BUDGETS,
+        JSON.stringify([totalConfigItem, ...reconciledBudgets])
+      );
+    } catch (e) {
+      console.warn("Failed persisting migrated budgets:", e);
+    }
+  }
+
+  return { totalMonthlyBudget, categoryBudgets: reconciledBudgets };
+}
+
+/**
+ * Runs budget-category consistency migration explicitly (e.g. after backup restore)
+ */
+export function migrateAndSyncBudgets(): {
+  totalMonthlyBudget: number;
+  categoryBudgets: BudgetConfig[];
+} {
+  return loadBudgets();
 }
 
 /**
@@ -155,6 +339,7 @@ export function saveBudgets(
     ];
 
     userStorage.setItem(STORAGE_BASE_BUDGETS, JSON.stringify(combined));
+    dispatchBudgetsUpdated();
   } catch (e) {
     console.error("Failed saving budgets to storage:", e);
   }
@@ -175,8 +360,16 @@ export function addCategoryBudget(
   newBudget: Omit<BudgetConfig, "id">
 ): BudgetConfig[] {
   const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
+  const categories = loadStoredCategories();
+  const matchedCat = resolveCategoryForBudget(
+    { categoryId: newBudget.categoryId, categoryName: newBudget.categoryName },
+    categories
+  );
+
   const created: BudgetConfig = {
     ...newBudget,
+    categoryName: matchedCat ? matchedCat.name.trim() : newBudget.categoryName.trim(),
+    categoryId: matchedCat ? matchedCat.id : undefined,
     id: `b_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     monthlyLimit: Number(newBudget.monthlyLimit) || 0,
   };
@@ -184,6 +377,43 @@ export function addCategoryBudget(
   const updated = [...categoryBudgets, created];
   saveBudgets(totalMonthlyBudget, updated);
   return updated;
+}
+
+function syncExpenseBudgetNameCache(budgetId: string, newBudgetName: string): void {
+  try {
+    const rawMonthly = userStorage.getItem(STORAGE_BASE_MONTHLY);
+    if (!rawMonthly) return;
+    const monthlyMap = JSON.parse(rawMonthly) as Record<string, MonthlyRecord>;
+    let changed = false;
+
+    Object.values(monthlyMap).forEach((rec) => {
+      if (!rec?.expenses) return;
+      if (Array.isArray(rec.expenses.fixed_expenses)) {
+        rec.expenses.fixed_expenses = rec.expenses.fixed_expenses.map((item) => {
+          if (item.budgetCategoryId === budgetId && item.budgetCategoryName !== newBudgetName) {
+            changed = true;
+            return { ...item, budgetCategoryName: newBudgetName };
+          }
+          return item;
+        });
+      }
+      if (Array.isArray(rec.expenses.additional_expenses)) {
+        rec.expenses.additional_expenses = rec.expenses.additional_expenses.map((item) => {
+          if (item.budgetCategoryId === budgetId && item.budgetCategoryName !== newBudgetName) {
+            changed = true;
+            return { ...item, budgetCategoryName: newBudgetName };
+          }
+          return item;
+        });
+      }
+    });
+
+    if (changed) {
+      userStorage.setItem(STORAGE_BASE_MONTHLY, JSON.stringify(monthlyMap));
+    }
+  } catch (e) {
+    console.warn("Failed syncing expense budgetCategoryName cache:", e);
+  }
 }
 
 /**
@@ -194,21 +424,48 @@ export function updateCategoryBudget(
   updates: Partial<BudgetConfig>
 ): BudgetConfig[] {
   const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
+  const categories = loadStoredCategories();
+  let renamedTo: string | null = null;
+
   const updated = categoryBudgets.map((b) => {
     if (b.id === id) {
-      return {
+      const nextName = (updates.categoryName !== undefined ? updates.categoryName : b.categoryName).trim();
+      const candidateCatId = "categoryId" in updates ? updates.categoryId : b.categoryId;
+      const matchedCat = resolveCategoryForBudget(
+        { categoryId: candidateCatId, categoryName: nextName },
+        categories
+      );
+
+      const finalName = matchedCat ? matchedCat.name.trim() : nextName;
+      if (finalName !== b.categoryName) {
+        renamedTo = finalName;
+      }
+
+      const nextBudget: BudgetConfig = {
         ...b,
         ...updates,
+        categoryName: finalName,
         monthlyLimit:
           updates.monthlyLimit !== undefined
             ? Number(updates.monthlyLimit)
             : b.monthlyLimit,
       };
+
+      if (matchedCat) {
+        nextBudget.categoryId = matchedCat.id;
+      } else {
+        delete nextBudget.categoryId;
+      }
+
+      return nextBudget;
     }
     return b;
   });
 
   saveBudgets(totalMonthlyBudget, updated);
+  if (renamedTo) {
+    syncExpenseBudgetNameCache(id, renamedTo);
+  }
   return updated;
 }
 
@@ -223,18 +480,15 @@ export function deleteCategoryBudget(id: string): BudgetConfig[] {
 }
 
 /**
- * Computes how much was spent in a given monthly record for a specific category budget.
- */
-/**
  * Determines whether an ExpenseItem matches a specific BudgetConfig.
- * 
+ *
  * Rules:
  * 1. If item has an explicit `budgetCategoryId`:
- *    - If 'none' or empty, returns false (explicitly not mapped to any budget category).
+ *    - If 'none' or 'no_budget', returns false.
  *    - If matches budget.id or budget.categoryId, returns true.
  *    - Otherwise returns false (assigned to a different budget category).
  * 2. If item does NOT have `budgetCategoryId` (legacy/backward compatibility):
- *    - Matches by categoryId, categoryName, or default semantic groups.
+ *    - Matches by categoryId, categoryName, or semantic category groups.
  */
 export function isExpenseMatchingBudget(
   item: ExpenseItem,
@@ -251,7 +505,6 @@ export function isExpenseMatchingBudget(
     if (item.budgetCategoryId === "none" || item.budgetCategoryId === "no_budget") {
       return false;
     }
-    // Match either budget ID or categoryId
     if (item.budgetCategoryId === budget.id) {
       return true;
     }
@@ -274,6 +527,26 @@ export function isExpenseMatchingBudget(
 
   // Exact name match
   if (itemCatNameNorm === budgetCatNameNorm) {
+    return true;
+  }
+
+  // Utilities & Bills grouped budget ("Сметки и битови")
+  if (
+    !budgetCatIdNorm &&
+    (budgetCatNameNorm.includes("сметк") || budgetCatNameNorm.includes("битов")) &&
+    (itemCatNameNorm.includes("сметк") ||
+      itemCatNameNorm.includes("ток") ||
+      itemCatNameNorm.includes("вода") ||
+      itemCatNameNorm.includes("интернет") ||
+      itemCatNameNorm.includes("телефон") ||
+      itemCatNameNorm.includes("парно") ||
+      itemCatNameNorm.includes("отопление") ||
+      itemCatIdNorm === "electricity" ||
+      itemCatIdNorm === "water" ||
+      itemCatIdNorm === "internet" ||
+      itemCatIdNorm === "phone" ||
+      itemCatIdNorm === "heating")
+  ) {
     return true;
   }
 
@@ -305,6 +578,7 @@ export function isExpenseMatchingBudget(
       budgetCatNameNorm.includes("кино")) &&
     (itemCatNameNorm.includes("кино") ||
       itemCatNameNorm.includes("забавления") ||
+      itemCatNameNorm.includes("ресторант") ||
       itemCatIdNorm === "cinema" ||
       itemCatIdNorm === "entertainment")
   ) {
@@ -349,7 +623,26 @@ export function findMatchingBudgetCategoryId(
   );
   if (matchName) return matchName.id;
 
-  // 3. Substring matching
+  // 3. Semantic group matching (e.g. utilities -> "Сметки и битови", cinema -> "Забавления")
+  const utilityIds = new Set(["electricity", "water", "internet", "phone", "heating"]);
+  const utilityWords = ["ток", "вода", "парно", "интернет", "телефон", "сметк"];
+  if (utilityIds.has(normId) || utilityWords.some((w) => normName.includes(w))) {
+    const billsBudget = categoryBudgets.find((b) => {
+      const bn = b.categoryName.trim().toLowerCase();
+      return bn.includes("сметк") || bn.includes("битов");
+    });
+    if (billsBudget) return billsBudget.id;
+  }
+
+  if (normId === "cinema" || normId === "entertainment" || normName.includes("кино") || normName.includes("ресторант")) {
+    const entBudget = categoryBudgets.find((b) => {
+      const bn = b.categoryName.trim().toLowerCase();
+      return bn.includes("забавлен") || bn.includes("развлечен");
+    });
+    if (entBudget) return entBudget.id;
+  }
+
+  // 4. Substring matching
   const matchSub = categoryBudgets.find((b) => {
     const bName = b.categoryName.trim().toLowerCase();
     return bName.includes(normName) || normName.includes(bName);
@@ -483,9 +776,14 @@ export function calculateAllBudgetsStatus(
   const totalStatus = getBudgetStatusLevel(totalPercentage);
 
   const categories = loadStoredCategories();
-  const categoryMap = new Map(categories.map((c) => [c.id, c]));
   const categoryByNameMap = new Map(
     categories.map((c) => [c.name.toLowerCase().trim(), c])
+  );
+
+  // Also ensure budgets are reconciled defensively against current categories
+  const { budgets: safeBudgets } = reconcileBudgetsWithCategories(
+    categoryBudgets,
+    categories
   );
 
   const activeWarnings: string[] = [];
@@ -498,7 +796,7 @@ export function calculateAllBudgetsStatus(
   }
 
   // Calculate each category budget
-  const categoryStatuses: BudgetStatus[] = categoryBudgets.map((b) => {
+  const categoryStatuses: BudgetStatus[] = safeBudgets.map((b) => {
     const expenses = getCategoryExpenses(monthlyRecord, b);
     const spent = calculateCategorySpent(monthlyRecord, b);
     const limit = b.monthlyLimit;
@@ -517,18 +815,21 @@ export function calculateAllBudgetsStatus(
       activeWarnings.push(warningMessage);
     }
 
-    // Determine icon and color
+    // Determine icon and color strictly consistent with budget category name/ID
+    const resolvedCat =
+      resolveCategoryForBudget(b, categories) ||
+      categoryByNameMap.get(b.categoryName.toLowerCase().trim());
+
     let iconName = "Tag";
     let colorClass = "bg-slate-100 text-slate-700";
 
-    if (b.categoryId && categoryMap.has(b.categoryId)) {
-      const found = categoryMap.get(b.categoryId)!;
-      iconName = found.iconName;
-      colorClass = found.colorClass;
-    } else if (categoryByNameMap.has(b.categoryName.toLowerCase().trim())) {
-      const found = categoryByNameMap.get(b.categoryName.toLowerCase().trim())!;
-      iconName = found.iconName;
-      colorClass = found.colorClass;
+    if (resolvedCat) {
+      iconName = resolvedCat.iconName;
+      colorClass = resolvedCat.colorClass;
+    } else if (b.categoryName.trim()) {
+      const smart = getAiSuggestedIconAndColor(b.categoryName);
+      iconName = smart.iconName;
+      colorClass = smart.colorClass;
     }
 
     return {

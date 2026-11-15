@@ -393,10 +393,17 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   useEffect(() => {
     const refreshBudgets = () => {
       setBudgetCategories(loadBudgets().categoryBudgets);
+      setCategories(loadStoredCategories());
     };
     refreshBudgets();
     window.addEventListener("storage", refreshBudgets);
-    return () => window.removeEventListener("storage", refreshBudgets);
+    window.addEventListener("homebudget:budgets-updated", refreshBudgets);
+    window.addEventListener("homebudget:categories-updated", refreshBudgets);
+    return () => {
+      window.removeEventListener("storage", refreshBudgets);
+      window.removeEventListener("homebudget:budgets-updated", refreshBudgets);
+      window.removeEventListener("homebudget:categories-updated", refreshBudgets);
+    };
   }, []);
 
   // Add Variable Expense Form State
