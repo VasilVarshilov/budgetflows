@@ -148,6 +148,7 @@ export function saveElectricityHistory(
       STORAGE_BASE_ELECTRICITY_HISTORY,
       JSON.stringify(records)
     );
+    userStorage.markLocalModified();
   } catch (err) {
     console.error("Failed to save electricity history:", err);
   }

@@ -32,7 +32,12 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { user, downloadAndParseCloudBackup, restoreCloudBackup } = useCloudSync();
+  const {
+    user,
+    localUpdatedAt,
+    downloadAndParseCloudBackup,
+    restoreCloudBackup,
+  } = useCloudSync();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +90,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
 
     setIsRestoring(true);
     try {
-      const res = restoreCloudBackup(backup, importMode);
+      const res = restoreCloudBackup(backup, importMode, fileInfo?.modifiedTime);
       if (res.success) {
         onSuccess();
         onClose();
@@ -166,13 +171,22 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                   <span>Намерен е съхранен архив (Backup Found)</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs pt-1">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
                   <div>
                     <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
-                      Последно обновен
+                      Облачна версия (Drive)
                     </div>
                     <div className="font-bold text-slate-900 dark:text-white">
-                      {formatIsoDate(fileInfo.modifiedTime || backup.exportDate)}
+                      {formatIsoDate(fileInfo.modifiedTime || backup.dataUpdatedAt || backup.exportDate)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
+                      Локална версия (Device)
+                    </div>
+                    <div className="font-bold text-slate-900 dark:text-white">
+                      {formatIsoDate(localUpdatedAt || undefined)}
                     </div>
                   </div>
 

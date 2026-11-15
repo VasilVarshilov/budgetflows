@@ -59,6 +59,7 @@ export function saveRecurringIncomes(templates: RecurringIncomeTemplate[]): void
       STORAGE_BASE_RECURRING_INCOMES,
       JSON.stringify(templates)
     );
+    userStorage.markLocalModified();
   } catch (err) {
     console.error("Failed saving recurring incomes:", err);
   }
@@ -102,6 +103,7 @@ export function saveAppSettings(updates: Partial<AppSettings>): AppSettings {
   };
   try {
     userStorage.setItem(STORAGE_BASE_SETTINGS, JSON.stringify(next));
+    userStorage.markLocalModified();
   } catch (err) {
     console.error("Failed saving app settings:", err);
   }

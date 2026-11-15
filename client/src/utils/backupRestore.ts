@@ -233,6 +233,7 @@ export function gatherApplicationData(owner?: {
   const monthsCovered = Object.keys(monthlyRecords);
 
   const nowIso = new Date().toISOString();
+  const localDataUpdatedAt = userStorage.getLocalUpdatedAt(effectiveOwnerUid);
 
   // Update last backup date in settings
   const updatedSettings: AppSettings = {
@@ -244,6 +245,7 @@ export function gatherApplicationData(owner?: {
     version: "1.0",
     appName: "BudgetFlows",
     exportDate: nowIso,
+    dataUpdatedAt: localDataUpdatedAt || nowIso,
     ...(effectiveOwnerUid ? { ownerUid: effectiveOwnerUid } : {}),
     ...(owner?.email ? { ownerEmail: owner.email } : {}),
     summary: {
@@ -431,6 +433,9 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
       version: parsed.version || "1.0",
       appName: parsed.appName || "BudgetFlows",
       exportDate: parsed.exportDate || new Date().toISOString(),
+      ...(typeof parsed.dataUpdatedAt === "string"
+        ? { dataUpdatedAt: parsed.dataUpdatedAt }
+        : {}),
       ...(typeof parsed.ownerUid === "string" ? { ownerUid: parsed.ownerUid } : {}),
       ...(typeof parsed.ownerEmail === "string" ? { ownerEmail: parsed.ownerEmail } : {}),
       summary: {

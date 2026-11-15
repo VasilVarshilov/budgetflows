@@ -339,6 +339,7 @@ export function saveBudgets(
     ];
 
     userStorage.setItem(STORAGE_BASE_BUDGETS, JSON.stringify(combined));
+    userStorage.markLocalModified();
     dispatchBudgetsUpdated();
   } catch (e) {
     console.error("Failed saving budgets to storage:", e);

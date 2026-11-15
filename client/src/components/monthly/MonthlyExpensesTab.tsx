@@ -269,11 +269,35 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     };
   }
 
-  // Initialize Fixed Expenses
-  const [fixedExpenses, setFixedExpenses] = useState<ExpenseItem[]>(() => {
-    const savedFixed = initialData?.expenses?.fixed_expenses;
+  function getDefaultFixedExpenses(): ExpenseItem[] {
+    return [
+      createFixedItem(
+        "Кредит",
+        DEFAULT_CREDIT_EUR,
+        "CreditCard",
+        "bg-blue-100 text-blue-600",
+        true,
+      ),
+      createFixedItem(
+        "Телефон",
+        DEFAULT_PHONE_EUR,
+        "Phone",
+        "bg-indigo-100 text-indigo-600",
+        true,
+      ),
+      createFixedItem(
+        "Интернет",
+        DEFAULT_INTERNET_EUR,
+        "Wifi",
+        "bg-cyan-100 text-cyan-600",
+        true,
+      ),
+    ];
+  }
 
-    // 1. If it's an array (new format), use it
+  function resolveFixedExpensesFromData(sourceData?: any): ExpenseItem[] {
+    const savedFixed = sourceData?.expenses?.fixed_expenses;
+
     if (Array.isArray(savedFixed) && savedFixed.length > 0) {
       return savedFixed.map((item) => {
         let amount = item.amount;
@@ -288,7 +312,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       });
     }
 
-    // 2. If it's legacy object format, convert it
     if (savedFixed && !Array.isArray(savedFixed)) {
       const legacy: ExpenseItem[] = [];
       const creditAmount =
@@ -327,53 +350,43 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       return legacy;
     }
 
-    // 3. Defaults if empty
-    return [
-      createFixedItem(
-        "Кредит",
-        DEFAULT_CREDIT_EUR,
-        "CreditCard",
-        "bg-blue-100 text-blue-600",
-        true,
-      ),
-      createFixedItem(
-        "Телефон",
-        DEFAULT_PHONE_EUR,
-        "Phone",
-        "bg-indigo-100 text-indigo-600",
-        true,
-      ),
-      createFixedItem(
-        "Интернет",
-        DEFAULT_INTERNET_EUR,
-        "Wifi",
-        "bg-cyan-100 text-cyan-600",
-        true,
-      ),
-    ];
-  });
+    return getDefaultFixedExpenses();
+  }
+
+  // Initialize Fixed Expenses
+  const [fixedExpenses, setFixedExpenses] = useState<ExpenseItem[]>(() =>
+    resolveFixedExpensesFromData(initialData),
+  );
 
   // Initialize Variable Expenses
   const [expenses, setExpenses] = useState<ExpenseItem[]>(
     () => initialData?.expenses?.additional_expenses || [],
   );
 
-  // Sync state if initialData or month changes
+  // Refs to prevent phantom saves on initial mount or month switching
+  const hasInitializedSaveRef = useRef<boolean>(false);
+  const lastMonthRef = useRef<string>(currentMonth);
+  const syncingMonthSnapshotRef = useRef<string | null>(null);
+  const prevDataRef = useRef<string>("");
+
+  // Sync state if month changes (without triggering a phantom auto-save)
   useEffect(() => {
-    if (initialData?.expenses) {
-      if (Array.isArray(initialData.expenses.fixed_expenses)) {
-        setFixedExpenses(
-          initialData.expenses.fixed_expenses.map((item: ExpenseItem) => ({
-            ...item,
-            isRecurring: item.isRecurring !== undefined ? item.isRecurring : true,
-          })),
-        );
-      }
-      if (Array.isArray(initialData.expenses.additional_expenses)) {
-        setExpenses(initialData.expenses.additional_expenses);
-      }
-    }
-  }, [currentMonth]);
+    if (lastMonthRef.current === currentMonth) return;
+
+    const nextFixed = resolveFixedExpensesFromData(initialData);
+    const nextAdditional = Array.isArray(initialData?.expenses?.additional_expenses)
+      ? initialData.expenses.additional_expenses
+      : [];
+
+    syncingMonthSnapshotRef.current = JSON.stringify({
+      saved_em2_eur: initialData?.expenses?.saved_em2_eur || 0,
+      fixed_expenses: nextFixed,
+      additional_expenses: nextAdditional,
+    });
+
+    setFixedExpenses(nextFixed);
+    setExpenses(nextAdditional);
+  }, [currentMonth, initialData]);
 
   // UI State - initialized from persistent storage
   const [categories, setCategories] = useState<ExpenseCategory[]>(() =>
@@ -479,10 +492,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     }, 5000);
   };
 
-  // Refs to track previous values to avoid infinite save loops
-  const prevDataRef = useRef<string>("");
-
-  // Persist data when local state changes
+  // Persist data only when user actually modifies local expenses
   useEffect(() => {
     const dataToSave = {
       saved_em2_eur: initialData?.expenses?.saved_em2_eur || 0,
@@ -492,7 +502,33 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const dataString = JSON.stringify(dataToSave);
 
-    // Only trigger save if data actually changed
+    // Never persist on initial mount
+    if (!hasInitializedSaveRef.current) {
+      hasInitializedSaveRef.current = true;
+      lastMonthRef.current = currentMonth;
+      prevDataRef.current = dataString;
+      return;
+    }
+
+    // Wait until month transition state has finished syncing before saving again
+    if (lastMonthRef.current !== currentMonth) {
+      lastMonthRef.current = currentMonth;
+      if (syncingMonthSnapshotRef.current === dataString) {
+        prevDataRef.current = dataString;
+        syncingMonthSnapshotRef.current = null;
+      }
+      return;
+    }
+
+    if (syncingMonthSnapshotRef.current !== null) {
+      if (syncingMonthSnapshotRef.current === dataString) {
+        prevDataRef.current = dataString;
+        syncingMonthSnapshotRef.current = null;
+      }
+      return;
+    }
+
+    // Only trigger save if user actually changed expense data
     if (prevDataRef.current !== dataString) {
       prevDataRef.current = dataString;
       onSaveExpenses(dataToSave, currentMonth);

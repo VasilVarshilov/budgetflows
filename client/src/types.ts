@@ -173,6 +173,7 @@ export interface BackupData {
   version: string;
   appName: string;
   exportDate: string;
+  dataUpdatedAt?: string;
   ownerUid?: string;
   ownerEmail?: string | null;
   summary: {

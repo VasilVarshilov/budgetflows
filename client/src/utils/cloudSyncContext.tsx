@@ -12,6 +12,9 @@ import {
   signInWithGoogle,
   signOutGoogle,
   getGoogleAccessToken,
+  getStoredOAuthToken,
+  getGoogleTokenExpiresAt,
+  trySilentDriveTokenRestore,
   ensureGoogleAccessToken,
   clearStoredOAuthToken,
   formatFirebaseAuthError,
@@ -23,6 +26,8 @@ import {
   uploadDriveBackup,
   downloadDriveBackup,
   deleteDriveBackup,
+  formatDriveFileSize,
+  DRIVE_BACKUP_FILENAME,
   DriveFileInfo,
 } from "./googleDriveBackup";
 import {
@@ -35,15 +40,127 @@ import {
   userStorage,
   STORAGE_BASE_AUTO_BACKUP,
   STORAGE_BASE_LAST_SYNC,
+  STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+  STORAGE_BASE_DRIVE_CONNECTED,
   STORAGE_BASE_DISMISSED_RESTORE_PROMPT,
 } from "./userStorage";
 import { BackupData } from "@/types";
 
 export type SyncStatus = "idle" | "syncing" | "synced" | "failed" | "offline";
 
+export type DriveSessionStatus =
+  | "disconnected"
+  | "restoring"
+  | "connected"
+  | "needs_reauth";
+
 export interface PendingRestoreOffer {
   fileInfo: DriveFileInfo;
   uid: string;
+}
+
+export interface SyncConflictInfo {
+  uid: string;
+  reason: "cloud_newer" | "both_modified" | "fresh_device";
+  localUpdatedAt: string | null;
+  cloudUpdatedAt: string | null;
+  localSummary: BackupData["summary"];
+  cloudBackup: BackupData | null;
+  fileInfo: DriveFileInfo;
+}
+
+export type SyncDecision =
+  | { action: "idle" }
+  | { action: "in_sync" }
+  | { action: "upload_local" }
+  | { action: "prompt_fresh_device" }
+  | { action: "prompt_conflict"; reason: "cloud_newer" | "both_modified" };
+
+function parseTimestampMs(iso?: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Pure synchronization decision engine comparing Local vs Cloud version timestamps.
+ * Never allows silent overwrite of existing local data OR silent overwrite of newer cloud data.
+ */
+export function decideDriveSyncAction(params: {
+  isLocalEmpty: boolean;
+  localUpdatedAt: string | null;
+  lastSyncTime: string | null;
+  lastKnownCloudModifiedTime: string | null;
+  cloudInfo: DriveFileInfo | null;
+  hasPendingSync: boolean;
+  autoBackupEnabled: boolean;
+}): SyncDecision {
+  const {
+    isLocalEmpty,
+    localUpdatedAt,
+    lastSyncTime,
+    lastKnownCloudModifiedTime,
+    cloudInfo,
+    hasPendingSync,
+    autoBackupEnabled,
+  } = params;
+
+  // 1. No backup exists in Google Drive yet
+  if (!cloudInfo) {
+    if (!isLocalEmpty && autoBackupEnabled) {
+      return { action: "upload_local" };
+    }
+    return { action: "idle" };
+  }
+
+  // 2. Fresh device / empty local storage while Cloud backup exists
+  if (isLocalEmpty) {
+    return { action: "prompt_fresh_device" };
+  }
+
+  // 3. Both local data and cloud backup exist -> compare version timestamps
+  const localTs = parseTimestampMs(localUpdatedAt);
+  const cloudTs = parseTimestampMs(cloudInfo.modifiedTime);
+  const lastSyncTs = parseTimestampMs(lastSyncTime);
+  const lastKnownCloudTs = parseTimestampMs(lastKnownCloudModifiedTime);
+
+  const hasSyncLineage = lastSyncTs !== null || lastKnownCloudTs !== null;
+
+  if (hasSyncLineage) {
+    const cloudChanged =
+      cloudTs !== null &&
+      (lastKnownCloudTs !== null
+        ? cloudTs > lastKnownCloudTs + 1500
+        : lastSyncTs !== null
+        ? cloudTs > lastSyncTs + 2000
+        : true);
+
+    const localChanged =
+      hasPendingSync ||
+      (localTs !== null && lastSyncTs !== null ? localTs > lastSyncTs + 1500 : false);
+
+    if (localChanged && !cloudChanged) {
+      return autoBackupEnabled ? { action: "upload_local" } : { action: "idle" };
+    }
+
+    if (cloudChanged && !localChanged) {
+      return { action: "prompt_conflict", reason: "cloud_newer" };
+    }
+
+    if (cloudChanged && localChanged) {
+      return { action: "prompt_conflict", reason: "both_modified" };
+    }
+
+    return { action: "in_sync" };
+  }
+
+  // Browser has no prior sync history with Drive, yet both local & cloud have data.
+  // Never auto-overwrite in either direction; prompt the user safely.
+  if (cloudTs !== null && localTs !== null && cloudTs > localTs + 2000) {
+    return { action: "prompt_conflict", reason: "cloud_newer" };
+  }
+
+  return { action: "prompt_conflict", reason: "both_modified" };
 }
 
 interface CloudSyncContextType {
@@ -54,17 +171,28 @@ interface CloudSyncContextType {
   isAuthLoading: boolean;
   isSwitchingAccount: boolean;
   hasDriveAccessToken: boolean;
+  driveSessionStatus: DriveSessionStatus;
+  isRestoringDriveSession: boolean;
   authError: any | null;
   isOnline: boolean;
   autoBackupEnabled: boolean;
   setAutoBackupEnabled: (enabled: boolean) => void;
   syncStatus: SyncStatus;
   lastSyncTime: string | null;
+  localUpdatedAt: string | null;
+  cloudUpdatedAt: string | null;
   lastSyncError: string | null;
   cloudBackupInfo: DriveFileInfo | null;
   isLoadingCloudInfo: boolean;
   pendingRestoreOffer: PendingRestoreOffer | null;
+  syncConflict: SyncConflictInfo | null;
   dismissRestoreOffer: () => void;
+  dismissSyncConflict: () => void;
+  resolveConflictUseLocal: () => Promise<{ success: boolean; message: string }>;
+  resolveConflictRestoreCloud: (
+    mode: "merge" | "replace"
+  ) => { success: boolean; message: string };
+  refreshLocalUpdatedAt: () => void;
   loginWithGoogle: () => Promise<void>;
   switchGoogleAccount: () => Promise<void>;
   reconnectGoogleDrive: () => Promise<void>;
@@ -82,7 +210,8 @@ interface CloudSyncContextType {
   }>;
   restoreCloudBackup: (
     backup: BackupData,
-    mode: "merge" | "replace"
+    mode: "merge" | "replace",
+    cloudModifiedTime?: string
   ) => { success: boolean; message: string };
   triggerAutoSync: () => void;
 }
@@ -100,6 +229,10 @@ export const CloudSyncProvider: React.FC<{
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [isSwitchingAccount, setIsSwitchingAccount] = useState<boolean>(false);
   const [hasDriveAccessToken, setHasDriveAccessToken] = useState<boolean>(false);
+  const [driveSessionStatus, setDriveSessionStatus] =
+    useState<DriveSessionStatus>("disconnected");
+  const [isRestoringDriveSession, setIsRestoringDriveSession] =
+    useState<boolean>(false);
   const [authError, setAuthError] = useState<any | null>(null);
 
   const [isOnline, setIsOnline] = useState<boolean>(() =>
@@ -108,6 +241,7 @@ export const CloudSyncProvider: React.FC<{
   const [autoBackupEnabled, setAutoBackupEnabledState] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [localUpdatedAt, setLocalUpdatedAt] = useState<string | null>(null);
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
   const [cloudBackupInfo, setCloudBackupInfo] = useState<DriveFileInfo | null>(
     null
@@ -115,12 +249,18 @@ export const CloudSyncProvider: React.FC<{
   const [isLoadingCloudInfo, setIsLoadingCloudInfo] = useState(false);
   const [pendingRestoreOffer, setPendingRestoreOffer] =
     useState<PendingRestoreOffer | null>(null);
+  const [syncConflict, setSyncConflict] = useState<SyncConflictInfo | null>(
+    null
+  );
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPendingSyncRef = useRef<boolean>(false);
   const authUidRef = useRef<string>("guest");
   const userRef = useRef<User | null>(null);
+  const autoBackupRef = useRef<boolean>(true);
   const checkedRestoreOfferForUidRef = useRef<string | null>(null);
+  const lastSilentAttemptMsRef = useRef<number>(0);
 
   const clearPendingAutoSync = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -130,15 +270,80 @@ export const CloudSyncProvider: React.FC<{
     hasPendingSyncRef.current = false;
   }, []);
 
-  const readUserSyncPreferences = useCallback((uid: string) => {
-    const autoRaw = userStorage.getItem(STORAGE_BASE_AUTO_BACKUP, uid);
-    setAutoBackupEnabledState(autoRaw === null ? true : autoRaw === "true");
-    const lastSync = userStorage.getItem(STORAGE_BASE_LAST_SYNC, uid);
-    setLastSyncTime(lastSync);
+  const clearRefreshTimer = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
   }, []);
 
-  const refreshDriveBackupCheck = useCallback(
-    async (targetUser: User, tokenOverride?: string | null): Promise<DriveFileInfo | null> => {
+  const readUserSyncPreferences = useCallback((uid: string) => {
+    const autoRaw = userStorage.getItem(STORAGE_BASE_AUTO_BACKUP, uid);
+    const enabled = autoRaw === null ? true : autoRaw === "true";
+    autoBackupRef.current = enabled;
+    setAutoBackupEnabledState(enabled);
+
+    const lastSync = userStorage.getItem(STORAGE_BASE_LAST_SYNC, uid);
+    setLastSyncTime(lastSync);
+
+    const localTs = userStorage.getLocalUpdatedAt(uid);
+    setLocalUpdatedAt(localTs);
+  }, []);
+
+  const refreshLocalUpdatedAt = useCallback(() => {
+    const uid = authUidRef.current;
+    setLocalUpdatedAt(userStorage.getLocalUpdatedAt(uid));
+  }, []);
+
+  // Keep localUpdatedAt synchronized whenever any storage module writes user changes
+  useEffect(() => {
+    const handleLocalUpdate = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ timestamp?: string }>)?.detail;
+      if (detail?.timestamp) {
+        setLocalUpdatedAt(detail.timestamp);
+      } else {
+        setLocalUpdatedAt(userStorage.getLocalUpdatedAt(authUidRef.current));
+      }
+    };
+    window.addEventListener("budgetflows:local-data-updated", handleLocalUpdate);
+    return () => {
+      window.removeEventListener(
+        "budgetflows:local-data-updated",
+        handleLocalUpdate
+      );
+    };
+  }, []);
+
+  // Schedule proactive background refresh ~3 minutes before in-memory token expires
+  const scheduleProactiveTokenRefresh = useCallback(
+    (targetUser: User) => {
+      clearRefreshTimer();
+      const expiresAt = getGoogleTokenExpiresAt(targetUser.uid);
+      if (!expiresAt) return;
+
+      const msUntilRefresh = Math.max(20_000, expiresAt - Date.now() - 180_000);
+      refreshTimerRef.current = setTimeout(async () => {
+        if (authUidRef.current !== targetUser.uid) return;
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+        const refreshed = await trySilentDriveTokenRestore(targetUser, true);
+        if (authUidRef.current !== targetUser.uid) return;
+        if (refreshed?.accessToken) {
+          setHasDriveAccessToken(true);
+          setDriveSessionStatus("connected");
+          scheduleProactiveTokenRefresh(targetUser);
+        }
+      }, msUntilRefresh);
+    },
+    [clearRefreshTimer]
+  );
+
+  // Refreshes only the Drive file metadata without evaluating sync conflicts
+  const refreshDriveMetadataOnly = useCallback(
+    async (
+      targetUser: User,
+      tokenOverride?: string | null
+    ): Promise<DriveFileInfo | null> => {
       const expectedUid = targetUser.uid;
       const token =
         tokenOverride || (await getGoogleAccessToken(expectedUid));
@@ -154,25 +359,7 @@ export const CloudSyncProvider: React.FC<{
         setIsLoadingCloudInfo(true);
         const info = await findDriveBackup(token);
         if (authUidRef.current !== expectedUid) return null;
-
         setCloudBackupInfo(info);
-
-        // Fresh-device / multi-device restore detection:
-        // If this account has a backup in Google Drive and local storage for this UID is empty,
-        // offer immediate restore unless dismissed for this user.
-        if (
-          info &&
-          userStorage.isEmpty(expectedUid) &&
-          !userStorage.getItem(STORAGE_BASE_DISMISSED_RESTORE_PROMPT, expectedUid) &&
-          checkedRestoreOfferForUidRef.current !== expectedUid
-        ) {
-          checkedRestoreOfferForUidRef.current = expectedUid;
-          setPendingRestoreOffer({
-            fileInfo: info,
-            uid: expectedUid,
-          });
-        }
-
         return info;
       } catch (e: any) {
         const errMsg = e?.message || "";
@@ -180,9 +367,10 @@ export const CloudSyncProvider: React.FC<{
           clearStoredOAuthToken();
           if (authUidRef.current === expectedUid) {
             setHasDriveAccessToken(false);
+            setDriveSessionStatus("needs_reauth");
           }
         }
-        console.warn("Could not fetch cloud backup info:", e);
+        console.warn("Could not fetch cloud backup metadata:", e);
         return null;
       } finally {
         if (authUidRef.current === expectedUid) {
@@ -193,7 +381,255 @@ export const CloudSyncProvider: React.FC<{
     []
   );
 
+  // Evaluates Local vs Cloud timestamps, auto-uploads newer local data, or prompts safely on conflict
+  const evaluateDriveSyncState = useCallback(
+    async (
+      targetUser: User,
+      tokenOverride?: string | null
+    ): Promise<DriveFileInfo | null> => {
+      const expectedUid = targetUser.uid;
+      const token =
+        tokenOverride || (await getGoogleAccessToken(expectedUid));
+      if (authUidRef.current !== expectedUid) return null;
+
+      setHasDriveAccessToken(Boolean(token));
+      if (!token) {
+        setCloudBackupInfo(null);
+        return null;
+      }
+
+      setDriveSessionStatus("connected");
+      scheduleProactiveTokenRefresh(targetUser);
+
+      try {
+        setIsLoadingCloudInfo(true);
+        const info = await findDriveBackup(token);
+        if (authUidRef.current !== expectedUid) return null;
+        setCloudBackupInfo(info);
+
+        const isEmpty = userStorage.isEmpty(expectedUid);
+        const currentLocalUpdatedAt = userStorage.getLocalUpdatedAt(expectedUid);
+        const currentLastSync = userStorage.getItem(
+          STORAGE_BASE_LAST_SYNC,
+          expectedUid
+        );
+        const lastKnownCloudMod = userStorage.getItem(
+          STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+          expectedUid
+        );
+
+        const decision = decideDriveSyncAction({
+          isLocalEmpty: isEmpty,
+          localUpdatedAt: currentLocalUpdatedAt,
+          lastSyncTime: currentLastSync,
+          lastKnownCloudModifiedTime: lastKnownCloudMod,
+          cloudInfo: info,
+          hasPendingSync: hasPendingSyncRef.current,
+          autoBackupEnabled: autoBackupRef.current,
+        });
+
+        if (decision.action === "upload_local") {
+          setSyncStatus("syncing");
+          setLastSyncError(null);
+
+          const currentData = gatherApplicationData({
+            uid: targetUser.uid,
+            email: targetUser.email,
+          });
+          const uploadRes = await uploadDriveBackup(token, currentData);
+          if (authUidRef.current !== expectedUid) return info;
+
+          const nowIso = new Date().toISOString();
+          const cloudModTime = uploadRes.modifiedTime || nowIso;
+
+          userStorage.setItem(STORAGE_BASE_LAST_SYNC, nowIso, expectedUid);
+          userStorage.setItem(
+            STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+            cloudModTime,
+            expectedUid
+          );
+          if (!currentLocalUpdatedAt) {
+            const stamped = currentData.dataUpdatedAt || nowIso;
+            userStorage.setLocalUpdatedAt(stamped, expectedUid);
+            setLocalUpdatedAt(stamped);
+          }
+
+          hasPendingSyncRef.current = false;
+          setLastSyncTime(nowIso);
+          setSyncStatus("synced");
+          setSyncConflict(null);
+
+          const updatedInfo: DriveFileInfo = {
+            id: uploadRes.fileId || info?.id || "",
+            name: DRIVE_BACKUP_FILENAME,
+            modifiedTime: cloudModTime,
+            sizeBytes: uploadRes.sizeBytes,
+            size: formatDriveFileSize(uploadRes.sizeBytes),
+            createdTime: info?.createdTime || cloudModTime,
+          };
+          setCloudBackupInfo(updatedInfo);
+          return updatedInfo;
+        }
+
+        if (decision.action === "in_sync") {
+          if (info?.modifiedTime) {
+            userStorage.setItem(
+              STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+              info.modifiedTime,
+              expectedUid
+            );
+          }
+          setSyncConflict(null);
+          setSyncStatus("synced");
+          return info;
+        }
+
+        if (
+          (decision.action === "prompt_fresh_device" ||
+            decision.action === "prompt_conflict") &&
+          info
+        ) {
+          // Download & verify ownership so the user gets full comparison + safe Merge/Replace options
+          let validatedCloudBackup: BackupData | null = null;
+          try {
+            const rawText = await downloadDriveBackup(token, info.id);
+            if (authUidRef.current !== expectedUid) return info;
+            const parsed = validateAndParseBackupFile(rawText);
+            if (parsed.isValid && parsed.backup) {
+              const ownership = validateBackupOwnership(parsed.backup, {
+                uid: targetUser.uid,
+                email: targetUser.email,
+              });
+              if (ownership.allowed) {
+                validatedCloudBackup = parsed.backup;
+              }
+            }
+          } catch (dlErr) {
+            console.warn("Could not preview cloud backup for conflict check:", dlErr);
+          }
+
+          if (authUidRef.current !== expectedUid) return info;
+
+          if (decision.action === "prompt_fresh_device") {
+            const dismissed = userStorage.getItem(
+              STORAGE_BASE_DISMISSED_RESTORE_PROMPT,
+              expectedUid
+            );
+            if (
+              !dismissed &&
+              checkedRestoreOfferForUidRef.current !== expectedUid
+            ) {
+              checkedRestoreOfferForUidRef.current = expectedUid;
+              setPendingRestoreOffer({
+                fileInfo: info,
+                uid: expectedUid,
+              });
+              if (validatedCloudBackup) {
+                const localSnapshot = gatherApplicationData({
+                  uid: targetUser.uid,
+                  email: targetUser.email,
+                });
+                setSyncConflict({
+                  uid: expectedUid,
+                  reason: "fresh_device",
+                  localUpdatedAt: currentLocalUpdatedAt,
+                  cloudUpdatedAt:
+                    info.modifiedTime ||
+                    validatedCloudBackup.dataUpdatedAt ||
+                    validatedCloudBackup.exportDate ||
+                    null,
+                  localSummary: localSnapshot.summary,
+                  cloudBackup: validatedCloudBackup,
+                  fileInfo: info,
+                });
+              }
+            }
+          } else if (validatedCloudBackup) {
+            const localSnapshot = gatherApplicationData({
+              uid: targetUser.uid,
+              email: targetUser.email,
+            });
+            setSyncConflict({
+              uid: expectedUid,
+              reason: decision.reason,
+              localUpdatedAt: currentLocalUpdatedAt,
+              cloudUpdatedAt:
+                info.modifiedTime ||
+                validatedCloudBackup.dataUpdatedAt ||
+                validatedCloudBackup.exportDate ||
+                null,
+              localSummary: localSnapshot.summary,
+              cloudBackup: validatedCloudBackup,
+              fileInfo: info,
+            });
+          }
+
+          return info;
+        }
+
+        return info;
+      } catch (e: any) {
+        const errMsg = e?.message || "";
+        if (errMsg.includes("Сесията с Google изтече") || errMsg.includes("401")) {
+          clearStoredOAuthToken();
+          if (authUidRef.current === expectedUid) {
+            setHasDriveAccessToken(false);
+            setDriveSessionStatus("needs_reauth");
+          }
+        }
+        console.warn("Could not evaluate Drive sync state:", e);
+        return null;
+      } finally {
+        if (authUidRef.current === expectedUid) {
+          setIsLoadingCloudInfo(false);
+        }
+      }
+    },
+    [scheduleProactiveTokenRefresh]
+  );
+
+  // Silent session restoration helper invoked automatically on startup & focus recovery
+  const attemptAutomaticDriveRestore = useCallback(
+    async (targetUser: User) => {
+      const expectedUid = targetUser.uid;
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setDriveSessionStatus("needs_reauth");
+        return;
+      }
+
+      lastSilentAttemptMsRef.current = Date.now();
+      setIsRestoringDriveSession(true);
+      setDriveSessionStatus("restoring");
+
+      try {
+        const silentRes = await trySilentDriveTokenRestore(targetUser);
+        if (authUidRef.current !== expectedUid) return;
+
+        if (silentRes?.accessToken) {
+          setHasDriveAccessToken(true);
+          setDriveSessionStatus("connected");
+          userStorage.setItem(STORAGE_BASE_DRIVE_CONNECTED, "true", expectedUid);
+          await evaluateDriveSyncState(targetUser, silentRes.accessToken);
+        } else {
+          setHasDriveAccessToken(false);
+          setDriveSessionStatus("needs_reauth");
+        }
+      } catch {
+        if (authUidRef.current === expectedUid) {
+          setHasDriveAccessToken(false);
+          setDriveSessionStatus("needs_reauth");
+        }
+      } finally {
+        if (authUidRef.current === expectedUid) {
+          setIsRestoringDriveSession(false);
+        }
+      }
+    },
+    [evaluateDriveSyncState]
+  );
+
   // Auth observer: synchronizes userStorage namespace strictly with Firebase UID
+  // and automatically attempts silent Drive session restoration on login/reload.
   useEffect(() => {
     const unsubscribe = initGoogleAuth(
       (currentUser, token) => {
@@ -202,9 +638,11 @@ export const CloudSyncProvider: React.FC<{
 
         if (accountChanged) {
           clearPendingAutoSync();
+          clearRefreshTimer();
           setCloudBackupInfo(null);
           setLastSyncError(null);
           setPendingRestoreOffer(null);
+          setSyncConflict(null);
           setSyncStatus("idle");
           checkedRestoreOfferForUidRef.current = null;
         }
@@ -220,8 +658,31 @@ export const CloudSyncProvider: React.FC<{
         readUserSyncPreferences(nextUid);
         setIsAuthLoading(false);
 
-        if (currentUser && token && (typeof navigator === "undefined" || navigator.onLine)) {
-          refreshDriveBackupCheck(currentUser, token);
+        if (!currentUser) {
+          setDriveSessionStatus("disconnected");
+          setIsRestoringDriveSession(false);
+          return;
+        }
+
+        if (token) {
+          setDriveSessionStatus("connected");
+          setIsRestoringDriveSession(false);
+          userStorage.setItem(STORAGE_BASE_DRIVE_CONNECTED, "true", nextUid);
+          if (typeof navigator === "undefined" || navigator.onLine) {
+            evaluateDriveSyncState(currentUser, token);
+          }
+        } else {
+          const autoRaw = userStorage.getItem(STORAGE_BASE_AUTO_BACKUP, nextUid);
+          const autoEnabled = autoRaw === null ? true : autoRaw === "true";
+          const drivePref =
+            userStorage.getItem(STORAGE_BASE_DRIVE_CONNECTED, nextUid) === "true";
+
+          if (autoEnabled || drivePref) {
+            attemptAutomaticDriveRestore(currentUser);
+          } else {
+            setDriveSessionStatus("needs_reauth");
+            setIsRestoringDriveSession(false);
+          }
         }
       },
       (err) => {
@@ -232,13 +693,59 @@ export const CloudSyncProvider: React.FC<{
 
     return () => {
       clearPendingAutoSync();
+      clearRefreshTimer();
       unsubscribe();
     };
-  }, [clearPendingAutoSync, readUserSyncPreferences, refreshDriveBackupCheck]);
+  }, [
+    clearPendingAutoSync,
+    clearRefreshTimer,
+    readUserSyncPreferences,
+    evaluateDriveSyncState,
+    attemptAutomaticDriveRestore,
+  ]);
+
+  // Recover Drive token silently on tab focus / visibility return if token expired
+  useEffect(() => {
+    const checkFocusRecovery = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      const activeUser = userRef.current;
+      if (!activeUser) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (getStoredOAuthToken(activeUser.uid)) return;
+
+      const autoRaw = userStorage.getItem(
+        STORAGE_BASE_AUTO_BACKUP,
+        activeUser.uid
+      );
+      const autoEnabled = autoRaw === null ? true : autoRaw === "true";
+      const drivePref =
+        userStorage.getItem(STORAGE_BASE_DRIVE_CONNECTED, activeUser.uid) ===
+        "true";
+      if (!autoEnabled && !drivePref) return;
+
+      // Throttle silent focus attempts (at most once per 60 seconds)
+      if (Date.now() - lastSilentAttemptMsRef.current < 60_000) return;
+      attemptAutomaticDriveRestore(activeUser);
+    };
+
+    window.addEventListener("focus", checkFocusRecovery);
+    document.addEventListener("visibilitychange", checkFocusRecovery);
+    return () => {
+      window.removeEventListener("focus", checkFocusRecovery);
+      document.removeEventListener("visibilitychange", checkFocusRecovery);
+    };
+  }, [attemptAutomaticDriveRestore]);
 
   const setAutoBackupEnabled = useCallback((enabled: boolean) => {
+    autoBackupRef.current = enabled;
     setAutoBackupEnabledState(enabled);
-    userStorage.setItem(STORAGE_BASE_AUTO_BACKUP, String(enabled), authUidRef.current);
+    userStorage.setItem(
+      STORAGE_BASE_AUTO_BACKUP,
+      String(enabled),
+      authUidRef.current
+    );
   }, []);
 
   const fetchCloudBackupDetails = useCallback(async (): Promise<DriveFileInfo | null> => {
@@ -247,27 +754,43 @@ export const CloudSyncProvider: React.FC<{
       setCloudBackupInfo(null);
       return null;
     }
-    return refreshDriveBackupCheck(currentUser);
-  }, [refreshDriveBackupCheck]);
+    return refreshDriveMetadataOnly(currentUser);
+  }, [refreshDriveMetadataOnly]);
 
   // Core backup execution
   const executeBackup = useCallback(
-    async (isAutomatic = false): Promise<{ success: boolean; message: string }> => {
+    async (
+      isAutomatic = false,
+      allowOverwriteConflict = false
+    ): Promise<{ success: boolean; message: string }> => {
       let activeUser = userRef.current;
       let expectedUid = activeUser?.uid;
       let token = expectedUid ? await getGoogleAccessToken(expectedUid) : null;
 
-      // If token is missing and this is a manual backup, acquire interactively
+      // Try silent refresh before giving up or prompting
+      if (!token && activeUser && expectedUid) {
+        const silentRes = await trySilentDriveTokenRestore(activeUser);
+        if (silentRes?.accessToken && authUidRef.current === expectedUid) {
+          token = silentRes.accessToken;
+          setHasDriveAccessToken(true);
+          setDriveSessionStatus("connected");
+          scheduleProactiveTokenRefresh(activeUser);
+        }
+      }
+
+      // If token is still missing and this is a manual backup, acquire interactively
       if (!token && !isAutomatic) {
         try {
           token = await ensureGoogleAccessToken(true, expectedUid);
-          // Re-read current auth user in case interactive login switched/signed in a user
           const latestClientUser = userRef.current;
           if (latestClientUser) {
             activeUser = latestClientUser;
             expectedUid = latestClientUser.uid;
           }
           setHasDriveAccessToken(Boolean(token));
+          if (token) {
+            setDriveSessionStatus("connected");
+          }
         } catch (authErr: any) {
           console.warn("Could not obtain Google token interactively:", authErr);
           const formatted = formatFirebaseAuthError(authErr);
@@ -284,11 +807,18 @@ export const CloudSyncProvider: React.FC<{
       if (!token || !activeUser || !expectedUid) {
         if (!isAutomatic) {
           setSyncStatus("failed");
-          setLastSyncError("Няма активна Google сесия или изтекъл токен. Моля, влезте отново.");
+          setLastSyncError(
+            "Няма активна Google сесия или изтекъл токен. Моля, подновете достъпа."
+          );
+        } else {
+          // Keep pending sync queued so reconnect uploads it automatically
+          hasPendingSyncRef.current = true;
+          setDriveSessionStatus("needs_reauth");
         }
         return {
           success: false,
-          message: "Няма активна сесия за Google Drive. Натиснете вход/поднови достъпа.",
+          message:
+            "Няма активна сесия за Google Drive. Натиснете вход/поднови достъпа.",
         };
       }
 
@@ -296,7 +826,23 @@ export const CloudSyncProvider: React.FC<{
       if (isAutomatic && userStorage.isEmpty(expectedUid) && cloudBackupInfo) {
         return {
           success: false,
-          message: "Автоматичното архивиране е отложено, докато не възстановите наличния облачен архив.",
+          message:
+            "Автоматичното архивиране е отложено, докато не възстановите наличния облачен архив.",
+        };
+      }
+
+      // Guard: Never silently auto-overwrite when an unresolved conflict is active
+      if (
+        isAutomatic &&
+        !allowOverwriteConflict &&
+        syncConflict &&
+        syncConflict.uid === expectedUid
+      ) {
+        hasPendingSyncRef.current = true;
+        return {
+          success: false,
+          message:
+            "Автоматичното качване е спряно до избор на действие при конфликт на версиите.",
         };
       }
 
@@ -305,7 +851,8 @@ export const CloudSyncProvider: React.FC<{
         setSyncStatus("offline");
         return {
           success: false,
-          message: "Няма интернет връзка. Промените ще се синхронизират автоматично при връщане онлайн.",
+          message:
+            "Няма интернет връзка. Промените ще се синхронизират автоматично при връщане онлайн.",
         };
       }
 
@@ -327,15 +874,43 @@ export const CloudSyncProvider: React.FC<{
         }
 
         const nowIso = new Date().toISOString();
+        const cloudModTime = result.modifiedTime || nowIso;
+
+        hasPendingSyncRef.current = false;
         setSyncStatus("synced");
         setLastSyncTime(nowIso);
-        userStorage.setItem(STORAGE_BASE_LAST_SYNC, nowIso, expectedUid);
+        setSyncConflict(null);
+        setPendingRestoreOffer(null);
 
-        await refreshDriveBackupCheck(activeUser, token);
+        userStorage.setItem(STORAGE_BASE_LAST_SYNC, nowIso, expectedUid);
+        userStorage.setItem(
+          STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+          cloudModTime,
+          expectedUid
+        );
+        userStorage.setItem(STORAGE_BASE_DRIVE_CONNECTED, "true", expectedUid);
+
+        if (!userStorage.getLocalUpdatedAt(expectedUid)) {
+          const stamped = currentData.dataUpdatedAt || nowIso;
+          userStorage.setLocalUpdatedAt(stamped, expectedUid);
+          setLocalUpdatedAt(stamped);
+        }
+
+        setCloudBackupInfo((prev) => ({
+          id: result.fileId || prev?.id || "",
+          name: DRIVE_BACKUP_FILENAME,
+          modifiedTime: cloudModTime,
+          sizeBytes: result.sizeBytes,
+          size: formatDriveFileSize(result.sizeBytes),
+          createdTime: prev?.createdTime || cloudModTime,
+        }));
+
+        await refreshDriveMetadataOnly(activeUser, token);
 
         return {
           success: true,
-          message: result.message || "Архивът бе записан успешно в Google Drive.",
+          message:
+            result.message || "Архивът бе записан успешно в Google Drive.",
         };
       } catch (err: any) {
         console.error("Backup to Google Drive failed:", err);
@@ -349,6 +924,7 @@ export const CloudSyncProvider: React.FC<{
           clearStoredOAuthToken();
           if (authUidRef.current === expectedUid) {
             setHasDriveAccessToken(false);
+            setDriveSessionStatus("needs_reauth");
           }
 
           if (!isAutomatic) {
@@ -357,26 +933,46 @@ export const CloudSyncProvider: React.FC<{
               const refreshedUser = userRef.current;
               if (freshToken && refreshedUser && refreshedUser.uid === expectedUid) {
                 setHasDriveAccessToken(true);
+                setDriveSessionStatus("connected");
                 const currentData = gatherApplicationData({
                   uid: refreshedUser.uid,
                   email: refreshedUser.email,
                 });
-                const retryResult = await uploadDriveBackup(freshToken, currentData);
+                const retryResult = await uploadDriveBackup(
+                  freshToken,
+                  currentData
+                );
                 if (authUidRef.current === expectedUid) {
                   const nowIso = new Date().toISOString();
+                  const cloudModTime = retryResult.modifiedTime || nowIso;
+                  hasPendingSyncRef.current = false;
                   setSyncStatus("synced");
                   setLastSyncTime(nowIso);
-                  userStorage.setItem(STORAGE_BASE_LAST_SYNC, nowIso, expectedUid);
-                  await refreshDriveBackupCheck(refreshedUser, freshToken);
+                  setSyncConflict(null);
+                  userStorage.setItem(
+                    STORAGE_BASE_LAST_SYNC,
+                    nowIso,
+                    expectedUid
+                  );
+                  userStorage.setItem(
+                    STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+                    cloudModTime,
+                    expectedUid
+                  );
+                  await refreshDriveMetadataOnly(refreshedUser, freshToken);
                 }
                 return {
                   success: true,
-                  message: retryResult.message || "Архивът бе записан успешно в Google Drive.",
+                  message:
+                    retryResult.message ||
+                    "Архивът бе записан успешно в Google Drive.",
                 };
               }
             } catch (retryErr: any) {
               console.warn("Retry after token refresh failed:", retryErr);
             }
+          } else {
+            hasPendingSyncRef.current = true;
           }
         }
 
@@ -390,23 +986,45 @@ export const CloudSyncProvider: React.FC<{
         };
       }
     },
-    [cloudBackupInfo, refreshDriveBackupCheck]
+    [
+      cloudBackupInfo,
+      syncConflict,
+      refreshDriveMetadataOnly,
+      scheduleProactiveTokenRefresh,
+    ]
   );
 
   // Trigger manual backup
   const backupNow = useCallback(async () => {
-    return executeBackup(false);
+    return executeBackup(false, true);
   }, [executeBackup]);
 
-  // Trigger debounced auto sync
+  // Trigger debounced auto sync — ALWAYS tracks pending sync even while disconnected/offline
+  // so local edits made before Drive reconnection are never lost or overwritten.
   const triggerAutoSync = useCallback(() => {
     const currentUser = userRef.current;
-    if (!autoBackupEnabled || !currentUser) return;
-    if (!hasDriveAccessToken) return;
+    const uid = authUidRef.current;
+
+    if (uid && !userStorage.getLocalUpdatedAt(uid)) {
+      const ts = userStorage.markLocalModified(uid);
+      setLocalUpdatedAt(ts);
+    }
+
+    hasPendingSyncRef.current = true;
+
+    if (!autoBackupRef.current || !currentUser) return;
 
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      hasPendingSyncRef.current = true;
       setSyncStatus("offline");
+      return;
+    }
+
+    // If token isn't in memory right now, keep hasPendingSyncRef = true and try silent recovery;
+    // when token is restored (silently or via reconnect), evaluateDriveSyncState uploads local changes.
+    if (!getStoredOAuthToken(currentUser.uid)) {
+      if (Date.now() - lastSilentAttemptMsRef.current > 30_000) {
+        attemptAutomaticDriveRestore(currentUser);
+      }
       return;
     }
 
@@ -421,14 +1039,18 @@ export const CloudSyncProvider: React.FC<{
       if (authUidRef.current !== scheduledForUid) return;
       executeBackup(true);
     }, 3500);
-  }, [autoBackupEnabled, hasDriveAccessToken, executeBackup]);
+  }, [executeBackup, attemptAutomaticDriveRestore]);
 
   // Online / Offline listeners
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      if (hasPendingSyncRef.current && autoBackupEnabled && userRef.current) {
-        hasPendingSyncRef.current = false;
+      const currentUser = userRef.current;
+      if (currentUser && !getStoredOAuthToken(currentUser.uid)) {
+        attemptAutomaticDriveRestore(currentUser);
+        return;
+      }
+      if (hasPendingSyncRef.current && autoBackupRef.current && currentUser) {
         triggerAutoSync();
       }
     };
@@ -444,24 +1066,36 @@ export const CloudSyncProvider: React.FC<{
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [autoBackupEnabled, triggerAutoSync]);
+  }, [triggerAutoSync, attemptAutomaticDriveRestore]);
 
   // Download and parse cloud backup for preview modal (with strict ownership validation)
   const downloadAndParseCloudBackup = useCallback(async () => {
     let activeUser = userRef.current;
     let token = activeUser ? await getGoogleAccessToken(activeUser.uid) : null;
 
+    if (!token && activeUser) {
+      const silentRes = await trySilentDriveTokenRestore(activeUser);
+      if (silentRes?.accessToken) {
+        token = silentRes.accessToken;
+        setHasDriveAccessToken(true);
+        setDriveSessionStatus("connected");
+      }
+    }
+
     if (!token) {
       try {
         token = await ensureGoogleAccessToken(true, activeUser?.uid);
         activeUser = userRef.current;
         setHasDriveAccessToken(Boolean(token));
+        if (token) setDriveSessionStatus("connected");
       } catch (authErr: any) {
         return {
           backup: null,
           rawText: null,
           fileInfo: null,
-          error: formatFirebaseAuthError(authErr) || "Няма активна Google сесия. Влезте с Google профила си.",
+          error:
+            formatFirebaseAuthError(authErr) ||
+            "Няма активна Google сесия. Влезте с Google профила си.",
         };
       }
     }
@@ -493,7 +1127,8 @@ export const CloudSyncProvider: React.FC<{
           backup: null,
           rawText: null,
           fileInfo: null,
-          error: "В Google Drive не бе намерен съхранен архив (budgetflows-backup.json).",
+          error:
+            "В Google Drive не бе намерен съхранен архив (budgetflows-backup.json).",
         };
       }
 
@@ -513,7 +1148,9 @@ export const CloudSyncProvider: React.FC<{
           backup: null,
           rawText,
           fileInfo,
-          error: validation.errorMessage || "Архивният файл е повреден или невалиден.",
+          error:
+            validation.errorMessage ||
+            "Архивният файл е повреден или невалиден.",
         };
       }
 
@@ -541,6 +1178,7 @@ export const CloudSyncProvider: React.FC<{
       if (errMsg.includes("Сесията с Google изтече") || errMsg.includes("401")) {
         clearStoredOAuthToken();
         setHasDriveAccessToken(false);
+        setDriveSessionStatus("needs_reauth");
       }
       return {
         backup: null,
@@ -555,10 +1193,12 @@ export const CloudSyncProvider: React.FC<{
   const restoreCloudBackup = useCallback(
     (
       backup: BackupData,
-      mode: "merge" | "replace"
+      mode: "merge" | "replace",
+      cloudModifiedTime?: string
     ): { success: boolean; message: string } => {
       try {
         const currentUser = userRef.current;
+        const targetUid = currentUser?.uid || authUidRef.current;
         const ownership = validateBackupOwnership(
           backup,
           currentUser ? { uid: currentUser.uid, email: currentUser.email } : null
@@ -573,7 +1213,9 @@ export const CloudSyncProvider: React.FC<{
         // Data safety: create an account-isolated emergency pre-restore snapshot
         try {
           const preRestoreSnapshot = gatherApplicationData(
-            currentUser ? { uid: currentUser.uid, email: currentUser.email } : undefined
+            currentUser
+              ? { uid: currentUser.uid, email: currentUser.email }
+              : undefined
           );
           userStorage.savePreRestoreSnapshot(preRestoreSnapshot, currentUser?.uid);
         } catch (e) {
@@ -582,12 +1224,59 @@ export const CloudSyncProvider: React.FC<{
 
         const res = applyBackup(backup, mode);
 
+        const nowIso = new Date().toISOString();
+        const effectiveCloudTime =
+          cloudModifiedTime ||
+          cloudBackupInfo?.modifiedTime ||
+          backup.dataUpdatedAt ||
+          backup.exportDate;
+
         setPendingRestoreOffer(null);
-        if (currentUser?.uid) {
+        setSyncConflict(null);
+
+        if (targetUid && targetUid !== "guest") {
           userStorage.removeItem(
             STORAGE_BASE_DISMISSED_RESTORE_PROMPT,
-            currentUser.uid
+            targetUid
           );
+        }
+
+        if (mode === "replace") {
+          const alignedLocalTs = effectiveCloudTime || nowIso;
+          userStorage.setLocalUpdatedAt(alignedLocalTs, targetUid);
+          setLocalUpdatedAt(alignedLocalTs);
+          userStorage.setItem(STORAGE_BASE_LAST_SYNC, nowIso, targetUid);
+          setLastSyncTime(nowIso);
+          if (effectiveCloudTime) {
+            userStorage.setItem(
+              STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+              effectiveCloudTime,
+              targetUid
+            );
+          }
+          clearPendingAutoSync();
+          setSyncStatus("synced");
+        } else {
+          // Merge mode preserves existing local items + adds missing cloud items,
+          // then queues an upload so Google Drive receives the merged superset.
+          const mergedTs = userStorage.markLocalModified(targetUid);
+          setLocalUpdatedAt(mergedTs);
+          if (effectiveCloudTime) {
+            userStorage.setItem(
+              STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+              effectiveCloudTime,
+              targetUid
+            );
+          }
+          hasPendingSyncRef.current = true;
+          if (autoBackupRef.current && currentUser && getStoredOAuthToken(currentUser.uid)) {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = setTimeout(() => {
+              if (authUidRef.current === currentUser.uid) {
+                executeBackup(true, true);
+              }
+            }, 1500);
+          }
         }
 
         if (onDataRestored) {
@@ -602,63 +1291,126 @@ export const CloudSyncProvider: React.FC<{
       } catch (err: any) {
         return {
           success: false,
-          message: err?.message || "Възникна грешка при възстановяване на данните.",
+          message:
+            err?.message || "Възникна грешка при възстановяване на данните.",
         };
       }
     },
-    [onDataRestored]
+    [onDataRestored, cloudBackupInfo, clearPendingAutoSync, executeBackup]
   );
 
-  const performInteractiveGoogleLogin = useCallback(async () => {
-    clearPendingAutoSync();
-    setIsSwitchingAccount(true);
-    setAuthError(null);
-    setSyncStatus("idle");
-    setLastSyncError(null);
-
-    try {
-      const res = await signInWithGoogle();
-      const nextUid = res.user.uid;
-
-      if (authUidRef.current !== nextUid) {
-        setCloudBackupInfo(null);
-        setPendingRestoreOffer(null);
-        checkedRestoreOfferForUidRef.current = null;
-      }
-
-      authUidRef.current = nextUid;
-      userRef.current = res.user;
-      userStorage.setActiveUid(nextUid);
-      setActiveUid(nextUid);
-      setUser(res.user);
-      setHasDriveAccessToken(true);
-      readUserSyncPreferences(nextUid);
-
-      await refreshDriveBackupCheck(res.user, res.accessToken);
-    } catch (err: any) {
-      console.error("Login failed:", err);
-      setAuthError(err);
-      throw err;
-    } finally {
-      setIsSwitchingAccount(false);
+  // Explicit conflict resolution: keep local data and push to Drive
+  const resolveConflictUseLocal = useCallback(async () => {
+    const uid = authUidRef.current;
+    if (!userStorage.getLocalUpdatedAt(uid)) {
+      const ts = userStorage.markLocalModified(uid);
+      setLocalUpdatedAt(ts);
     }
-  }, [clearPendingAutoSync, readUserSyncPreferences, refreshDriveBackupCheck]);
+    setSyncConflict(null);
+    setPendingRestoreOffer(null);
+    return executeBackup(false, true);
+  }, [executeBackup]);
+
+  // Explicit conflict resolution: merge or replace from Cloud backup
+  const resolveConflictRestoreCloud = useCallback(
+    (mode: "merge" | "replace") => {
+      if (!syncConflict?.cloudBackup) {
+        return {
+          success: false,
+          message:
+            "Облачният архив не е зареден. Използвайте бутона 'Възстанови от Drive'.",
+        };
+      }
+      return restoreCloudBackup(
+        syncConflict.cloudBackup,
+        mode,
+        syncConflict.fileInfo.modifiedTime
+      );
+    },
+    [syncConflict, restoreCloudBackup]
+  );
+
+  const dismissSyncConflict = useCallback(() => {
+    const uid = authUidRef.current;
+    if (syncConflict?.reason === "fresh_device" && uid && uid !== "guest") {
+      userStorage.setItem(STORAGE_BASE_DISMISSED_RESTORE_PROMPT, "true", uid);
+    }
+    setSyncConflict(null);
+    setPendingRestoreOffer(null);
+  }, [syncConflict]);
+
+  const performGoogleSignInFlow = useCallback(
+    async (mode: "login" | "switch" | "reconnect") => {
+      const activeUser = userRef.current;
+      // Preserve pending local edits when reconnecting the SAME account!
+      if (mode === "switch") {
+        clearPendingAutoSync();
+        clearRefreshTimer();
+      }
+      setIsSwitchingAccount(mode === "switch");
+      setAuthError(null);
+      setLastSyncError(null);
+
+      try {
+        const res = await signInWithGoogle({
+          mode,
+          expectedUid: mode === "reconnect" ? activeUser?.uid : undefined,
+          loginHint: mode === "reconnect" ? activeUser?.email : undefined,
+        });
+        const nextUid = res.user.uid;
+        const accountChanged = authUidRef.current !== nextUid;
+
+        if (accountChanged) {
+          clearPendingAutoSync();
+          clearRefreshTimer();
+          setCloudBackupInfo(null);
+          setPendingRestoreOffer(null);
+          setSyncConflict(null);
+          checkedRestoreOfferForUidRef.current = null;
+        }
+
+        authUidRef.current = nextUid;
+        userRef.current = res.user;
+        userStorage.setActiveUid(nextUid);
+        userStorage.setItem(STORAGE_BASE_DRIVE_CONNECTED, "true", nextUid);
+        setActiveUid(nextUid);
+        setUser(res.user);
+        setHasDriveAccessToken(true);
+        setDriveSessionStatus("connected");
+        readUserSyncPreferences(nextUid);
+
+        await evaluateDriveSyncState(res.user, res.accessToken);
+      } catch (err: any) {
+        console.error(`Google ${mode} failed:`, err);
+        setAuthError(err);
+        throw err;
+      } finally {
+        setIsSwitchingAccount(false);
+      }
+    },
+    [
+      clearPendingAutoSync,
+      clearRefreshTimer,
+      readUserSyncPreferences,
+      evaluateDriveSyncState,
+    ]
+  );
 
   const loginWithGoogle = useCallback(async () => {
-    return performInteractiveGoogleLogin();
-  }, [performInteractiveGoogleLogin]);
+    return performGoogleSignInFlow("login");
+  }, [performGoogleSignInFlow]);
 
   const switchGoogleAccount = useCallback(async () => {
-    // Sign in with prompt=select_account; clears pending syncs and transitions cleanly to new UID
-    return performInteractiveGoogleLogin();
-  }, [performInteractiveGoogleLogin]);
+    return performGoogleSignInFlow("switch");
+  }, [performGoogleSignInFlow]);
 
   const reconnectGoogleDrive = useCallback(async () => {
-    return performInteractiveGoogleLogin();
-  }, [performInteractiveGoogleLogin]);
+    return performGoogleSignInFlow("reconnect");
+  }, [performGoogleSignInFlow]);
 
   const logoutGoogle = useCallback(async () => {
     clearPendingAutoSync();
+    clearRefreshTimer();
     setIsSwitchingAccount(true);
     try {
       await signOutGoogle();
@@ -670,8 +1422,11 @@ export const CloudSyncProvider: React.FC<{
       setActiveUid("guest");
       setUser(null);
       setHasDriveAccessToken(false);
+      setDriveSessionStatus("disconnected");
+      setIsRestoringDriveSession(false);
       setCloudBackupInfo(null);
       setPendingRestoreOffer(null);
+      setSyncConflict(null);
       setSyncStatus("idle");
       setLastSyncError(null);
       setAuthError(null);
@@ -679,7 +1434,7 @@ export const CloudSyncProvider: React.FC<{
     } finally {
       setIsSwitchingAccount(false);
     }
-  }, [clearPendingAutoSync, readUserSyncPreferences]);
+  }, [clearPendingAutoSync, clearRefreshTimer, readUserSyncPreferences]);
 
   const dismissRestoreOffer = useCallback(() => {
     const uid = authUidRef.current;
@@ -687,6 +1442,9 @@ export const CloudSyncProvider: React.FC<{
       userStorage.setItem(STORAGE_BASE_DISMISSED_RESTORE_PROMPT, "true", uid);
     }
     setPendingRestoreOffer(null);
+    setSyncConflict((prev) =>
+      prev?.reason === "fresh_device" ? null : prev
+    );
   }, []);
 
   const clearAccountLocalData = useCallback(() => {
@@ -695,7 +1453,9 @@ export const CloudSyncProvider: React.FC<{
     userStorage.clear(uid);
     checkedRestoreOfferForUidRef.current = null;
     setLastSyncTime(null);
+    setLocalUpdatedAt(null);
     setPendingRestoreOffer(null);
+    setSyncConflict(null);
     if (onDataRestored) {
       onDataRestored();
     }
@@ -713,10 +1473,13 @@ export const CloudSyncProvider: React.FC<{
         token = await ensureGoogleAccessToken(true, activeUser?.uid);
         activeUser = userRef.current;
         setHasDriveAccessToken(Boolean(token));
+        if (token) setDriveSessionStatus("connected");
       } catch (authErr: any) {
         return {
           success: false,
-          message: formatFirebaseAuthError(authErr) || "Няма активна Google сесия. Влезте с Google профила си.",
+          message:
+            formatFirebaseAuthError(authErr) ||
+            "Няма активна Google сесия. Влезте с Google профила си.",
         };
       }
     }
@@ -745,17 +1508,20 @@ export const CloudSyncProvider: React.FC<{
         setSyncStatus("idle");
         return {
           success: false,
-          message: "В Google Drive не бе намерен съхранен архив (budgetflows-backup.json).",
+          message:
+            "В Google Drive не бе намерен съхранен архив (budgetflows-backup.json).",
         };
       }
 
       await deleteDriveBackup(token, existing.id);
       if (authUidRef.current === expectedUid) {
+        userStorage.removeItem(STORAGE_BASE_LAST_CLOUD_MODIFIED_AT, expectedUid);
         setCloudBackupInfo(null);
         setPendingRestoreOffer(null);
+        setSyncConflict(null);
         setSyncStatus("idle");
         setLastSyncError(null);
-        await refreshDriveBackupCheck(activeUser, token);
+        await refreshDriveMetadataOnly(activeUser, token);
       }
 
       return {
@@ -764,10 +1530,12 @@ export const CloudSyncProvider: React.FC<{
       };
     } catch (err: any) {
       console.error("Delete cloud backup failed:", err);
-      const errMsg = err?.message || "Грешка при изтриване на архива от Google Drive.";
+      const errMsg =
+        err?.message || "Грешка при изтриване на архива от Google Drive.";
       if (errMsg.includes("Сесията с Google изтече") || errMsg.includes("401")) {
         clearStoredOAuthToken();
         setHasDriveAccessToken(false);
+        setDriveSessionStatus("needs_reauth");
       }
       setSyncStatus("failed");
       setLastSyncError(errMsg);
@@ -776,13 +1544,18 @@ export const CloudSyncProvider: React.FC<{
         message: errMsg,
       };
     }
-  }, [refreshDriveBackupCheck]);
+  }, [refreshDriveMetadataOnly]);
 
   const disconnectGoogleDrive = useCallback(async () => {
     clearPendingAutoSync();
+    clearRefreshTimer();
+    const uid = authUidRef.current;
     setIsSwitchingAccount(true);
     try {
       setAutoBackupEnabled(false);
+      if (uid && uid !== "guest") {
+        userStorage.setItem(STORAGE_BASE_DRIVE_CONNECTED, "false", uid);
+      }
       await signOutGoogle();
       authUidRef.current = "guest";
       userRef.current = null;
@@ -792,8 +1565,11 @@ export const CloudSyncProvider: React.FC<{
       setActiveUid("guest");
       setUser(null);
       setHasDriveAccessToken(false);
+      setDriveSessionStatus("disconnected");
+      setIsRestoringDriveSession(false);
       setCloudBackupInfo(null);
       setPendingRestoreOffer(null);
+      setSyncConflict(null);
       setSyncStatus("idle");
       setLastSyncError(null);
       setAuthError(null);
@@ -803,10 +1579,16 @@ export const CloudSyncProvider: React.FC<{
     } finally {
       setIsSwitchingAccount(false);
     }
-  }, [clearPendingAutoSync, readUserSyncPreferences, setAutoBackupEnabled]);
+  }, [
+    clearPendingAutoSync,
+    clearRefreshTimer,
+    readUserSyncPreferences,
+    setAutoBackupEnabled,
+  ]);
 
   const isAuthenticated = Boolean(user);
   const storedProfile = user ? toUserProfile(user) : null;
+  const cloudUpdatedAt = cloudBackupInfo?.modifiedTime || null;
 
   return (
     <CloudSyncContext.Provider
@@ -818,17 +1600,26 @@ export const CloudSyncProvider: React.FC<{
         isAuthLoading,
         isSwitchingAccount,
         hasDriveAccessToken,
+        driveSessionStatus,
+        isRestoringDriveSession,
         authError,
         isOnline,
         autoBackupEnabled,
         setAutoBackupEnabled,
         syncStatus,
         lastSyncTime,
+        localUpdatedAt,
+        cloudUpdatedAt,
         lastSyncError,
         cloudBackupInfo,
         isLoadingCloudInfo,
         pendingRestoreOffer,
+        syncConflict,
         dismissRestoreOffer,
+        dismissSyncConflict,
+        resolveConflictUseLocal,
+        resolveConflictRestoreCloud,
+        refreshLocalUpdatedAt,
         loginWithGoogle,
         switchGoogleAccount,
         reconnectGoogleDrive,

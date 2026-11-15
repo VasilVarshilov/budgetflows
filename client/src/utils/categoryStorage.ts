@@ -637,6 +637,7 @@ export function saveStoredCategories(categories: ExpenseCategory[]): void {
     };
 
     userStorage.setItem(STORAGE_BASE_CATEGORIES, JSON.stringify(store));
+    userStorage.markLocalModified();
   } catch (err) {
     console.error("Failed saving categories to storage:", err);
   }
@@ -888,6 +889,7 @@ export function saveStoredIncomeCategories(incomeCategories: ExpenseCategory[]):
     };
 
     userStorage.setItem(STORAGE_BASE_CATEGORIES, JSON.stringify(store));
+    userStorage.markLocalModified();
   } catch (err) {
     console.error("Failed saving income categories to storage:", err);
   }

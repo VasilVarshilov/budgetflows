@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp as getSdkApp, type FirebaseApp } from "f
 import {
   getAuth,
   signInWithPopup,
+  reauthenticateWithPopup,
   signInWithRedirect,
   getRedirectResult,
   browserPopupRedirectResolver,
@@ -17,6 +18,8 @@ import {
   loadFirebaseConfigAsync,
 } from "./firebaseConfig";
 import { purgeLegacySharedKeys } from "./userStorage";
+
+const DRIVE_APPDATA_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 
 // Safe singleton Firebase initialization
 let appInstance: FirebaseApp | null = null;
@@ -59,15 +62,25 @@ export function getAuthClient(): Auth | null {
 export const auth: Auth | null = getAuthClient();
 
 /**
- * Creates a configured GoogleAuthProvider with least-privilege appDataFolder scope
- * and prompt=select_account so multiple Google accounts can sign in or switch seamlessly.
+ * Creates a configured GoogleAuthProvider with least-privilege appDataFolder scope.
+ * Avoids forcing prompt=select_account during Drive reconnect so the active user isn't disrupted.
  */
-function createGoogleProvider(): GoogleAuthProvider {
+function createGoogleProvider(options?: {
+  prompt?: string;
+  loginHint?: string | null;
+}): GoogleAuthProvider {
   const provider = new GoogleAuthProvider();
-  provider.addScope("https://www.googleapis.com/auth/drive.appdata");
-  provider.setCustomParameters({
-    prompt: "select_account",
-  });
+  provider.addScope(DRIVE_APPDATA_SCOPE);
+  const customParams: Record<string, string> = {};
+  if (options?.prompt) {
+    customParams.prompt = options.prompt;
+  }
+  if (options?.loginHint) {
+    customParams.login_hint = options.loginHint;
+  }
+  if (Object.keys(customParams).length > 0) {
+    provider.setCustomParameters(customParams);
+  }
   return provider;
 }
 
@@ -136,6 +149,13 @@ export function getStoredOAuthToken(expectedUid?: string): string | null {
   return cachedAccessToken.token;
 }
 
+export function getGoogleTokenExpiresAt(expectedUid?: string): number | null {
+  if (!cachedAccessToken) return null;
+  if (expectedUid && cachedAccessToken.uid !== expectedUid) return null;
+  if (Date.now() >= cachedAccessToken.expiresAt) return null;
+  return cachedAccessToken.expiresAt;
+}
+
 export function clearStoredOAuthToken(): void {
   cachedAccessToken = null;
   purgeLegacySharedKeys();
@@ -155,17 +175,207 @@ export function toUserProfile(user: User): StoredUserProfile {
   };
 }
 
+let gisLoadPromise: Promise<boolean> | null = null;
+let discoveredOAuthClientId: string | null = null;
+let discoveryAttempted = false;
+let silentRestoreInFlight: Promise<{ accessToken: string; expiresIn: number } | null> | null = null;
+
+async function loadGisClientScript(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  if ((window as any).google?.accounts?.oauth2) return true;
+  if (gisLoadPromise) return gisLoadPromise;
+
+  gisLoadPromise = new Promise<boolean>((resolve) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://accounts.google.com/gsi/client"]'
+    );
+    if (existing) {
+      if ((window as any).google?.accounts?.oauth2) {
+        resolve(true);
+        return;
+      }
+      const timer = setTimeout(() => resolve(false), 4500);
+      existing.addEventListener("load", () => {
+        clearTimeout(timer);
+        resolve(Boolean((window as any).google?.accounts?.oauth2));
+      });
+      existing.addEventListener("error", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+
+    const timer = setTimeout(() => {
+      resolve(Boolean((window as any).google?.accounts?.oauth2));
+    }, 4500);
+
+    script.onload = () => {
+      clearTimeout(timer);
+      resolve(Boolean((window as any).google?.accounts?.oauth2));
+    };
+    script.onerror = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    document.head.appendChild(script);
+  });
+
+  return gisLoadPromise;
+}
+
+async function resolveGoogleOAuthClientId(): Promise<string | null> {
+  if (!isFirebaseConfigured()) {
+    await loadFirebaseConfigAsync();
+  }
+  const config = getFirebaseConfig();
+  if (config.oAuthClientId && config.oAuthClientId.includes(".apps.googleusercontent.com")) {
+    return config.oAuthClientId;
+  }
+  if (discoveredOAuthClientId) return discoveredOAuthClientId;
+  if (discoveryAttempted || !config.apiKey || typeof window === "undefined") return null;
+
+  discoveryAttempted = true;
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${encodeURIComponent(config.apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId: "google.com",
+          continueUri: window.location.origin,
+        }),
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const authUri = typeof data?.authUri === "string" ? data.authUri : "";
+    if (authUri) {
+      const parsedUrl = new URL(authUri);
+      const clientId = parsedUrl.searchParams.get("client_id");
+      if (clientId && clientId.includes(".apps.googleusercontent.com")) {
+        discoveredOAuthClientId = clientId;
+        return discoveredOAuthClientId;
+      }
+    }
+  } catch {
+    // Non-fatal: GIS silent renewal simply skips when client_id is unavailable
+  }
+  return null;
+}
+
 /**
- * Initiates Google OAuth Sign-in with Drive appDataFolder scope.
- * Uses prompt=select_account to support multiple accounts & switching.
+ * Attempts to silently acquire or renew a Google Drive OAuth access token via
+ * Google Identity Services (prompt="") without disturbing the user with popups.
  */
-export async function signInWithGoogle(): Promise<{
+export async function trySilentDriveTokenRestore(
+  targetUser?: User | null,
+  forceRefresh = false
+): Promise<{ accessToken: string; expiresIn: number } | null> {
+  if (typeof window === "undefined") return null;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return null;
+
+  const client = getAuthClient() || auth;
+  const activeUser = targetUser || client?.currentUser;
+  if (!activeUser) return null;
+
+  if (!forceRefresh) {
+    const existing = getStoredOAuthToken(activeUser.uid);
+    if (existing) {
+      return { accessToken: existing, expiresIn: 3600 };
+    }
+  }
+
+  if (silentRestoreInFlight) {
+    return silentRestoreInFlight;
+  }
+
+  silentRestoreInFlight = (async () => {
+    try {
+      const clientId = await resolveGoogleOAuthClientId();
+      if (!clientId) return null;
+
+      const scriptReady = await loadGisClientScript();
+      const oauth2 = (window as any).google?.accounts?.oauth2;
+      if (!scriptReady || !oauth2?.initTokenClient) {
+        return null;
+      }
+
+      return await new Promise<{ accessToken: string; expiresIn: number } | null>(
+        (resolve) => {
+          let settled = false;
+          const finish = (val: { accessToken: string; expiresIn: number } | null) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timeoutId);
+              resolve(val);
+            }
+          };
+
+          const timeoutId = setTimeout(() => finish(null), 5500);
+
+          try {
+            const tokenClient = oauth2.initTokenClient({
+              client_id: clientId,
+              scope: DRIVE_APPDATA_SCOPE,
+              hint: activeUser.email || undefined,
+              prompt: "",
+              callback: (resp: any) => {
+                if (resp?.access_token && !resp?.error) {
+                  const expiresIn = Number(resp.expires_in) || 3600;
+                  saveStoredOAuthToken(resp.access_token, expiresIn, activeUser.uid);
+                  finish({ accessToken: resp.access_token, expiresIn });
+                } else {
+                  finish(null);
+                }
+              },
+              error_callback: () => finish(null),
+            });
+
+            tokenClient.requestAccessToken({ prompt: "" });
+          } catch {
+            finish(null);
+          }
+        }
+      );
+    } catch {
+      return null;
+    } finally {
+      silentRestoreInFlight = null;
+    }
+  })();
+
+  return silentRestoreInFlight;
+}
+
+export interface GoogleSignInOptions {
+  mode?: "login" | "switch" | "reconnect";
+  expectedUid?: string;
+  loginHint?: string | null;
+}
+
+/**
+ * Initiates Google OAuth Sign-in or Drive Reconnection with appDataFolder scope.
+ * - mode="switch": forces account chooser (prompt="select_account").
+ * - mode="reconnect": reauthenticates the active user seamlessly via login_hint without forcing account switch.
+ */
+export async function signInWithGoogle(
+  options: GoogleSignInOptions = {}
+): Promise<{
   user: User;
   accessToken: string;
 }> {
   if (isSigningIn) {
     throw new Error("В момента тече вход в Google. Моля изчакайте.");
   }
+
+  const mode = options.mode || "login";
 
   try {
     isSigningIn = true;
@@ -182,12 +392,43 @@ export async function signInWithGoogle(): Promise<{
       );
     }
 
-    const provider = createGoogleProvider();
+    const currentUser = client.currentUser;
+    const hintEmail = options.loginHint || currentUser?.email || null;
+
+    // For reconnects, first try silent GIS token restoration (no popup needed if Google session is active)
+    if (mode === "reconnect" && currentUser) {
+      const silentRes = await trySilentDriveTokenRestore(currentUser);
+      if (silentRes?.accessToken) {
+        return { user: currentUser, accessToken: silentRes.accessToken };
+      }
+    }
+
+    const provider = createGoogleProvider(
+      mode === "switch"
+        ? { prompt: "select_account" }
+        : mode === "reconnect"
+        ? { loginHint: hintEmail }
+        : { prompt: currentUser ? undefined : "select_account", loginHint: hintEmail }
+    );
 
     let result;
     try {
-      result = await signInWithPopup(client, provider, browserPopupRedirectResolver);
+      if (mode === "reconnect" && currentUser) {
+        result = await reauthenticateWithPopup(
+          currentUser,
+          provider,
+          browserPopupRedirectResolver
+        );
+      } else {
+        result = await signInWithPopup(client, provider, browserPopupRedirectResolver);
+      }
     } catch (popupErr: any) {
+      // If reauthenticateWithPopup encountered user mismatch or credential error, fall back safely
+      if (mode === "reconnect" && popupErr?.code === "auth/user-mismatch") {
+        throw new Error(
+          "Избраният Google профил е различен от текущия. Използвайте бутона 'Смени акаунта', за да не смесвате данните."
+        );
+      }
       if (
         popupErr?.code === "auth/popup-blocked" ||
         popupErr?.code === "auth/cancelled-popup-request"
@@ -197,6 +438,12 @@ export async function signInWithGoogle(): Promise<{
         return new Promise(() => {});
       }
       throw popupErr;
+    }
+
+    if (options.expectedUid && result.user.uid !== options.expectedUid && mode === "reconnect") {
+      throw new Error(
+        "Избраният Google профил е различен от текущия. Локалните ви данни са запазени непокътнати."
+      );
     }
 
     const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -351,11 +598,24 @@ export async function ensureGoogleAccessToken(
     return currentToken;
   }
 
+  const client = getAuthClient() || auth;
+  const activeUser = client?.currentUser;
+  if (activeUser && (!expectedUid || activeUser.uid === expectedUid)) {
+    const silentRes = await trySilentDriveTokenRestore(activeUser);
+    if (silentRes?.accessToken) {
+      return silentRes.accessToken;
+    }
+  }
+
   if (!interactive) {
     return null;
   }
 
-  const result = await signInWithGoogle();
+  const result = await signInWithGoogle({
+    mode: activeUser ? "reconnect" : "login",
+    expectedUid: expectedUid || activeUser?.uid,
+    loginHint: activeUser?.email,
+  });
   return result.accessToken || null;
 }
 

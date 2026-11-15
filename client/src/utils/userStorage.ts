@@ -17,6 +17,9 @@ export const STORAGE_BASE_SETTINGS = "Settings";
 export const STORAGE_BASE_RECURRING_INCOMES = "RecurringIncomes";
 export const STORAGE_BASE_AUTO_BACKUP = "AutoBackup";
 export const STORAGE_BASE_LAST_SYNC = "LastCloudSync";
+export const STORAGE_BASE_LOCAL_UPDATED_AT = "LocalDataUpdatedAt";
+export const STORAGE_BASE_LAST_CLOUD_MODIFIED_AT = "LastCloudModifiedAt";
+export const STORAGE_BASE_DRIVE_CONNECTED = "DriveAutoReconnect";
 export const STORAGE_BASE_DISMISSED_RESTORE_PROMPT = "DismissedRestorePrompt";
 export const STORAGE_BASE_PRE_RESTORE_PREFIX = "PreRestore_Backup_";
 
@@ -200,6 +203,27 @@ export function setUserJSON<T>(baseKey: string, value: T, specificUid?: string):
   setUserItem(baseKey, JSON.stringify(value), specificUid);
 }
 
+export function getLocalDataUpdatedAt(specificUid?: string): string | null {
+  return getUserItem(STORAGE_BASE_LOCAL_UPDATED_AT, specificUid);
+}
+
+export function setLocalDataUpdatedAt(isoTimestamp: string | null, specificUid?: string): void {
+  if (!isoTimestamp) {
+    removeUserItem(STORAGE_BASE_LOCAL_UPDATED_AT, specificUid);
+    return;
+  }
+  setUserItem(STORAGE_BASE_LOCAL_UPDATED_AT, isoTimestamp, specificUid);
+}
+
+export function markLocalDataModified(specificUid?: string, isoTimestamp?: string): string {
+  const ts = isoTimestamp || new Date().toISOString();
+  setUserItem(STORAGE_BASE_LOCAL_UPDATED_AT, ts, specificUid);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("budgetflows:local-data-updated", { detail: { timestamp: ts } }));
+  }
+  return ts;
+}
+
 /**
  * Checks whether the given user has any meaningful financial data stored on this device.
  * Used to detect fresh logins on new devices (Phone, Tablet, Laptop) to offer cloud restore,
@@ -208,8 +232,17 @@ export function setUserJSON<T>(baseKey: string, value: T, specificUid?: string):
 export function isUserStorageEmpty(specificUid?: string): boolean {
   const targetUid = specificUid ? sanitizeUid(specificUid) : activeUid;
 
-  const monthly = getUserJSON<Record<string, unknown>>(STORAGE_BASE_MONTHLY, {}, targetUid);
-  const hasMonthly = Boolean(monthly && typeof monthly === "object" && Object.keys(monthly).length > 0);
+  const monthly = getUserJSON<Record<string, any>>(STORAGE_BASE_MONTHLY, {}, targetUid);
+  const hasMonthly = Boolean(
+    monthly &&
+      typeof monthly === "object" &&
+      Object.values(monthly).some((rec: any) => {
+        const fixedLen = Array.isArray(rec?.expenses?.fixed_expenses) ? rec.expenses.fixed_expenses.length : 0;
+        const addLen = Array.isArray(rec?.expenses?.additional_expenses) ? rec.expenses.additional_expenses.length : 0;
+        const incLen = Array.isArray(rec?.incomes) ? rec.incomes.length : 0;
+        return fixedLen > 0 || addLen > 0 || incLen > 0;
+      })
+  );
 
   const savings = getUserJSON<unknown[]>(STORAGE_BASE_SAVINGS, [], targetUid);
   const hasSavings = Array.isArray(savings) && savings.length > 0;
@@ -293,6 +326,9 @@ export const userStorage = {
   clear: clearUserStorage,
   savePreRestoreSnapshot,
   purgeLegacySharedKeys,
+  getLocalUpdatedAt: getLocalDataUpdatedAt,
+  setLocalUpdatedAt: setLocalDataUpdatedAt,
+  markLocalModified: markLocalDataModified,
   getActiveUid: getActiveStorageUser,
   setActiveUid: setActiveStorageUser,
   getKey: getUserStorageKey,

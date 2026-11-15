@@ -29,7 +29,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ThemeProvider } from "@/utils/themeContext";
 import { CloudSyncProvider, useCloudSync } from "@/utils/cloudSyncContext";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
-import { Cloud, DownloadCloud, LogIn } from "lucide-react";
+import { Cloud, DownloadCloud, LogIn, UploadCloud, AlertTriangle } from "lucide-react";
 
 // Utils & Types
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
@@ -153,6 +153,8 @@ const AppContent: React.FC = () => {
   >({});
   const [globalSavings, setGlobalSavings] = useState<IncomeItem[]>([]);
 
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+
   const {
     triggerAutoSync,
     syncStatus,
@@ -162,9 +164,14 @@ const AppContent: React.FC = () => {
     isAuthLoading,
     isSwitchingAccount,
     hasDriveAccessToken,
+    isRestoringDriveSession,
     isOnline,
     pendingRestoreOffer,
+    syncConflict,
     dismissRestoreOffer,
+    dismissSyncConflict,
+    resolveConflictUseLocal,
+    resolveConflictRestoreCloud,
     loginWithGoogle,
   } = useCloudSync();
 
@@ -202,10 +209,12 @@ const AppContent: React.FC = () => {
   // Save helpers strictly scoped to activeUid
   const saveMonthlyToStorage = (updated: Record<string, MonthlyRecord>) => {
     userStorage.setJSON(STORAGE_BASE_MONTHLY, updated, activeUid);
+    userStorage.markLocalModified(activeUid);
   };
 
   const saveSavingsToStorage = (updated: IncomeItem[]) => {
     userStorage.setJSON(STORAGE_BASE_SAVINGS, updated, activeUid);
+    userStorage.markLocalModified(activeUid);
   };
 
   // Add Electricity to Expenses
@@ -432,10 +441,14 @@ const AppContent: React.FC = () => {
                   </span>
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      !isOnline || !hasDriveAccessToken
+                      !isOnline
                         ? "bg-amber-400"
-                        : syncStatus === "syncing"
+                        : isRestoringDriveSession || syncStatus === "syncing"
                         ? "bg-blue-500 animate-pulse"
+                        : syncConflict
+                        ? "bg-amber-500 animate-pulse"
+                        : !hasDriveAccessToken
+                        ? "bg-amber-400"
                         : syncStatus === "synced"
                         ? "bg-emerald-500"
                         : syncStatus === "failed"
@@ -445,15 +458,19 @@ const AppContent: React.FC = () => {
                     title={
                       !isOnline
                         ? "Офлайн"
+                        : isRestoringDriveSession
+                        ? "Възстановяване на Drive сесията..."
+                        : syncConflict
+                        ? "Открит е конфликт между локална и облачна версия"
                         : !hasDriveAccessToken
                         ? "Изисква подновяване на Drive достъпа"
                         : syncStatus === "syncing"
                         ? "Синхронизиране..."
                         : syncStatus === "synced"
-                        ? "Синхронизирано"
+                        ? "Drive Connected ✅ • Синхронизирано"
                         : syncStatus === "failed"
                         ? "Грешка при синхронизация"
-                        : "Готово"
+                        : "Drive Connected ✅"
                     }
                   />
                 </button>
@@ -713,8 +730,153 @@ const AppContent: React.FC = () => {
         </div>
       </nav>
 
-      {/* Auto-Detected Cloud Backup Restore Offer (Multi-device login flow) */}
-      {pendingRestoreOffer &&
+      {/* Global Safe Sync Conflict & Multi-Device Restore Resolution Modal */}
+      {syncConflict &&
+        syncConflict.uid === activeUid &&
+        !isGlobalRestoreModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-4 animate-in zoom-in-95">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`p-3 rounded-xl ${
+                      syncConflict.reason === "fresh_device"
+                        ? "bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300"
+                        : "bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300"
+                    }`}
+                  >
+                    {syncConflict.reason === "fresh_device" ? (
+                      <DownloadCloud className="w-6 h-6" />
+                    ) : (
+                      <AlertTriangle className="w-6 h-6" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                      {syncConflict.reason === "fresh_device"
+                        ? "Открит е облачен архив в Google Drive"
+                        : syncConflict.reason === "cloud_newer"
+                        ? "Открита е по-нова версия в Google Drive"
+                        : "Различни промени локално и в Google Drive"}
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {user?.email || "Вашият Google акаунт"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={dismissSyncConflict}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {syncConflict.reason === "fresh_device"
+                  ? "На това устройство все още няма локални записи, но в Google Drive (appDataFolder) е наличен архив. За безопасност системата не презаписва данни автоматично."
+                  : "За да не загубите нито един локално добавен разход или запис от друго устройство, изберете кое действие да се приложи:"}
+              </p>
+
+              {/* Version Comparison Summary */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
+                  <div className="font-bold text-slate-800 dark:text-slate-200">
+                    Локална версия
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {syncConflict.localUpdatedAt
+                      ? new Date(syncConflict.localUpdatedAt).toLocaleString("bg-BG", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })
+                      : "Няма отбелязана промяна"}
+                  </div>
+                  <div className="mt-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300">
+                    Разходи: {syncConflict.localSummary.expensesCount} • Приходи:{" "}
+                    {syncConflict.localSummary.incomeCount}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70">
+                  <div className="font-bold text-emerald-900 dark:text-emerald-200">
+                    Облачна версия (Drive)
+                  </div>
+                  <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400 mt-0.5">
+                    {syncConflict.cloudUpdatedAt
+                      ? new Date(syncConflict.cloudUpdatedAt).toLocaleString("bg-BG", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })
+                      : "Наличен архив"}
+                  </div>
+                  {syncConflict.cloudBackup && (
+                    <div className="mt-1.5 text-[11px] font-medium text-emerald-900 dark:text-emerald-200">
+                      Разходи: {syncConflict.cloudBackup.summary.expensesCount} • Приходи:{" "}
+                      {syncConflict.cloudBackup.summary.incomeCount}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row flex-wrap items-center justify-end gap-2 pt-2">
+                {syncConflict.reason !== "fresh_device" && (
+                  <button
+                    type="button"
+                    disabled={isResolvingConflict}
+                    onClick={async () => {
+                      setIsResolvingConflict(true);
+                      try {
+                        await resolveConflictUseLocal();
+                      } finally {
+                        setIsResolvingConflict(false);
+                      }
+                    }}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isResolvingConflict ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <UploadCloud className="w-4 h-4" />
+                    )}
+                    <span>Използвай локалните данни</span>
+                  </button>
+                )}
+
+                {syncConflict.cloudBackup && (
+                  <button
+                    type="button"
+                    disabled={isResolvingConflict}
+                    onClick={() => {
+                      resolveConflictRestoreCloud("merge");
+                    }}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <DownloadCloud className="w-4 h-4" />
+                    <span>
+                      {syncConflict.reason === "fresh_device"
+                        ? "Възстанови от Google Drive"
+                        : "Възстанови облачния архив (Merge)"}
+                    </span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsGlobalRestoreModalOpen(true)}
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
+                >
+                  Още опции (Replace / Преглед)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* Fallback Auto-Detected Cloud Backup Restore Offer when preview wasn't pre-loaded */}
+      {!syncConflict &&
+        pendingRestoreOffer &&
         pendingRestoreOffer.uid === activeUid &&
         !isGlobalRestoreModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in">

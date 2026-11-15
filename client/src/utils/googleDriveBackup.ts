@@ -80,7 +80,7 @@ export async function uploadDriveBackup(
 
   if (existingFile && existingFile.id) {
     // 2. Update existing file content directly using media upload
-    const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media`;
+    const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media&fields=id,name,size,modifiedTime,createdTime`;
 
     const response = await fetch(updateUrl, {
       method: "PATCH",
@@ -92,6 +92,9 @@ export async function uploadDriveBackup(
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+      }
       const errText = await response.text();
       throw new Error(`Неуспешно обновяване на архива в Google Drive: ${errText}`);
     }
@@ -100,8 +103,8 @@ export async function uploadDriveBackup(
     return {
       success: true,
       fileId: updated.id || existingFile.id,
-      modifiedTime: new Date().toISOString(),
-      sizeBytes,
+      modifiedTime: updated.modifiedTime || new Date().toISOString(),
+      sizeBytes: updated.size ? parseInt(updated.size, 10) : sizeBytes,
       message: "Архивът в Google Drive беше обновен успешно.",
     };
   }
@@ -128,7 +131,7 @@ export async function uploadDriveBackup(
     closeDelimiter;
 
   const uploadUrl =
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,modifiedTime,createdTime";
 
   const response = await fetch(uploadUrl, {
     method: "POST",
@@ -140,6 +143,9 @@ export async function uploadDriveBackup(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+    }
     const errText = await response.text();
     throw new Error(`Неуспешно качване на архив в Google Drive: ${errText}`);
   }
@@ -149,8 +155,8 @@ export async function uploadDriveBackup(
   return {
     success: true,
     fileId: created.id,
-    modifiedTime: new Date().toISOString(),
-    sizeBytes,
+    modifiedTime: created.modifiedTime || new Date().toISOString(),
+    sizeBytes: created.size ? parseInt(created.size, 10) : sizeBytes,
     message: "Новият архив бе успешно записан в Google Drive (appDataFolder).",
   };
 }

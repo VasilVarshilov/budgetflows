@@ -45,15 +45,22 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     isAuthenticated,
     isSwitchingAccount,
     hasDriveAccessToken,
+    driveSessionStatus,
+    isRestoringDriveSession,
     authError,
     isOnline,
     autoBackupEnabled,
     setAutoBackupEnabled,
     syncStatus,
     lastSyncTime,
+    localUpdatedAt,
+    cloudUpdatedAt,
     lastSyncError,
     cloudBackupInfo,
     isLoadingCloudInfo,
+    syncConflict,
+    resolveConflictUseLocal,
+    resolveConflictRestoreCloud,
     loginWithGoogle,
     switchGoogleAccount,
     reconnectGoogleDrive,
@@ -63,6 +70,8 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     deleteCloudBackup,
     disconnectGoogleDrive,
   } = useCloudSync();
+
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
 
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -273,10 +282,22 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
                 Облачен архив (Google Drive Cloud Backup)
               </h2>
-              {isAuthenticated && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              {isAuthenticated && isRestoringDriveSession && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Възстановяване на Drive...</span>
+                </span>
+              )}
+              {isAuthenticated && !isRestoringDriveSession && hasDriveAccessToken && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   <ShieldCheck className="w-3 h-3" />
-                  <span>Свързан</span>
+                  <span>Drive Connected ✅</span>
+                </span>
+              )}
+              {isAuthenticated && !isRestoringDriveSession && !hasDriveAccessToken && driveSessionStatus === "needs_reauth" && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                  <KeyRound className="w-3 h-3" />
+                  <span>Изисква подновяване</span>
                 </span>
               )}
             </div>
@@ -622,15 +643,28 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             </div>
           </div>
 
-          {/* In-memory Google Drive token refresh prompt after page reload */}
-          {!hasDriveAccessToken && (
+          {/* Silent automatic Drive restoration banner */}
+          {isRestoringDriveSession && !hasDriveAccessToken && (
+            <div className="p-3.5 rounded-xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 flex items-center gap-2.5 text-xs text-blue-900 dark:text-blue-200">
+              <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
+              <div>
+                <span className="font-bold block">Автоматично възстановяване на Google Drive сесията...</span>
+                <span className="text-[11px] text-blue-700/90 dark:text-blue-300">
+                  Проверка на достъпа и сравнение на локалната и облачната версия без загуба на данни.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* In-memory Google Drive token refresh prompt only if automatic silent restore could not renew */}
+          {!hasDriveAccessToken && !isRestoringDriveSession && (
             <div className="p-3.5 rounded-xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               <div className="flex items-start gap-2.5 text-indigo-950 dark:text-indigo-200">
                 <KeyRound className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold block">Сесията за сигурност на Google Drive изисква потвърждение</span>
                   <span className="text-[11px] text-indigo-800/90 dark:text-indigo-300">
-                    За максимална защита OAuth токените се пазят само в оперативната памет. Подновете достъпа, за да проверим и синхронизираме Google Drive.
+                    Браузърът не позволи тихо подновяване на токена. Подновете достъпа — всички ваши локални разходи са запазени и ще бъдат сравнени безопасно с Drive.
                   </span>
                 </div>
               </div>
@@ -646,8 +680,80 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             </div>
           )}
 
-          {/* Cloud Info & Details Grid: Auto Backup, Backup Exists, Last Backup Date, File Size */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-4 border-t border-slate-200/80 dark:border-slate-700/80 text-xs">
+          {/* Safe Conflict Resolution Banner */}
+          {syncConflict && (
+            <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700 text-xs space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-slate-900 dark:text-white text-sm">
+                    {syncConflict.reason === "fresh_device"
+                      ? "Наличен е облачен архив в Google Drive за това ново устройство"
+                      : syncConflict.reason === "cloud_newer"
+                      ? "В Google Drive има по-нова версия на данните"
+                      : "Открити са промени както локално, така и в Google Drive"}
+                  </div>
+                  <p className="text-amber-900/90 dark:text-amber-200 mt-0.5 leading-relaxed">
+                    Локалните ви разходи не са презаписани. Изберете как да синхронизирате двете версии:
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {syncConflict.reason !== "fresh_device" && (
+                  <button
+                    type="button"
+                    disabled={isResolvingConflict}
+                    onClick={async () => {
+                      setIsResolvingConflict(true);
+                      try {
+                        const res = await resolveConflictUseLocal();
+                        setFeedback({
+                          type: res.success ? "success" : "error",
+                          text: res.message,
+                        });
+                      } finally {
+                        setIsResolvingConflict(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {isResolvingConflict ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
+                    <span>Използвай локалните данни (Use Local Data)</span>
+                  </button>
+                )}
+
+                {syncConflict.cloudBackup && (
+                  <button
+                    type="button"
+                    disabled={isResolvingConflict}
+                    onClick={() => {
+                      const res = resolveConflictRestoreCloud("merge");
+                      setFeedback({
+                          type: res.success ? "success" : "error",
+                          text: res.message,
+                      });
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <DownloadCloud className="w-3.5 h-3.5" />
+                    <span>Възстанови облачния архив (Merge)</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={onOpenRestoreModal}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  <span>Преглед и избор (Merge / Replace)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Cloud Info & Version Timestamps Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-4 border-t border-slate-200/80 dark:border-slate-700/80 text-xs">
             {/* Auto Backup Toggle */}
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <div>
@@ -696,17 +802,6 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               </div>
             </div>
 
-            {/* Last Backup Date */}
-            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-              <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                <span>Последна дата (Last Backup)</span>
-              </div>
-              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
-                {formatIsoDate(cloudBackupInfo?.modifiedTime || lastSyncTime)}
-              </p>
-            </div>
-
             {/* File Size */}
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
@@ -723,6 +818,39 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 ) : (
                   <span className="text-slate-500 dark:text-slate-400">-</span>
                 )}
+              </p>
+            </div>
+
+            {/* Last Sync */}
+            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Последна синхронизация (Last Sync)</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
+                {formatIsoDate(lastSyncTime)}
+              </p>
+            </div>
+
+            {/* Local Version Timestamp */}
+            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Локална версия (Local Version)</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
+                {formatIsoDate(localUpdatedAt)}
+              </p>
+            </div>
+
+            {/* Cloud Version Timestamp */}
+            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                <Cloud className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                <span>Облачна версия (Cloud Version)</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
+                {formatIsoDate(cloudUpdatedAt)}
               </p>
             </div>
           </div>
