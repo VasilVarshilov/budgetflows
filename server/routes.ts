@@ -89,6 +89,27 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Enable CORS & preflight handling for all /api/* endpoints (allows external/static frontends via VITE_API_BASE_URL)
+  app.use("/api", (req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      return res.status(204).end();
+    }
+    return next();
+  });
+
+  // Safe diagnostic endpoint to verify API reachability & GEMINI_API_KEY presence (without exposing secrets)
+  app.get("/api/ocr/health", (_req, res) => {
+    return res.json({
+      ok: true,
+      service: "receipt-ocr-gemini",
+      hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+      models: ["gemini-3.1-flash-lite", "gemini-4-hydrogen"],
+    });
+  });
+
   // Dynamic Firebase config endpoint for client runtime fallback
   app.get("/api/firebase-config", (_req, res) => {
     try {
@@ -121,11 +142,21 @@ export async function registerRoutes(
     }
   });
 
-  // OCR Receipt analysis endpoint using Gemini (gemini-4-hydrogen) with fallback & full diagnostics
+  const parseNum = (val: unknown): number => {
+    if (typeof val === "number") return Number.isFinite(val) ? val : 0;
+    if (typeof val === "string") {
+      const cleaned = val.replace(/[^\d.,-]/g, "").replace(",", ".");
+      const n = parseFloat(cleaned);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
+
+  // OCR Receipt analysis endpoint using Gemini (gemini-3.1-flash-lite / gemini-4-hydrogen) with fallback & full diagnostics
   app.post("/api/ocr/receipt", async (req, res) => {
     const reqStart = Date.now();
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = process.env.GEMINI_API_KEY?.trim();
       const { imageBase64, mimeType, ocrText } = req.body || {};
       const cleanBase64 = typeof imageBase64 === "string"
         ? imageBase64.replace(/^data:[^;]+;base64,/, "")
@@ -137,7 +168,7 @@ export async function registerRoutes(
       );
 
       if (!apiKey) {
-        const fallbackReason = "Missing GEMINI_API_KEY in server environment";
+        const fallbackReason = "Invalid or missing API key (GEMINI_API_KEY not configured on server)";
         console.warn(`[Gemini OCR] Fallback -> errorCode=NO_API_KEY | reason="${fallbackReason}"`);
         return res.json({
           success: false,
@@ -190,7 +221,7 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
 - "totalAmount": MUST be the final amount paid in the receipt's primary currency (ОБЩО, ОБЩА СУМА, КРАЙНА СУМА, ЗА ПЛАЩАНЕ, СУМА ЗА ПЛАЩАНЕ, TOTAL, GRAND TOTAL). NEVER pick VAT (ДДС), discount (ОТСТЪПКА), subtotal (МЕЖДИННА СУМА), or change (РЕСТО).
 - "expectedItemsCount": Integer count if printed on receipt (e.g. "17 АРТИКУЛА", "ITEMS SOLD: 17"), otherwise null.
 - "currency": Bulgaria uses the Euro (€, EUR). Prefer "€" whenever € or EUR appears (including dual-display receipts). Do NOT assume BGN and NEVER convert currencies — use the exact printed price values. Only return "лв." if the receipt is exclusively in BGN/лв. with no € or EUR values, or "$" / "£" if explicitly shown.
-- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item prices matches totalAmount. Merge multi-line wrapped product names into a single clean item name and expand common Bulgarian abbreviations cleanly where obvious while preserving Cyrillic names (e.g. ХЛЯБ БЯЛ, ПРЯСНО МЛЯКО, СИРЕНЕ). Extract exact quantity as integer ("quantity": 2 for "2 x Coca Cola", "2 x 2.40  4.80", or when "2 x 1.20" appears right above/below "ПРЯСНО МЛЯКО 2.40"; default 1) and the line total price ("price"). Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
+- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item prices matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola", "2 x 2.40  4.80", or when "2 x 1.20" appears right above/below "ПРЯСНО МЛЯКО 2.40"; default 1) and the line total price ("price"). Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
 - "notesFormatted": Multi-line list, one item per line strictly formatted as "<quantity> x <Item Name> - <currency><price>" (e.g. "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"). Never put all items on a single line.
 - "suggestedCategory": Lidl/Kaufland/Billa/Fantastico/T Market/Metro -> "храна"; Shell/OMV/Lukoil/Eko/Rompetrol -> "гориво"; Happy/Raffy/KFC/McDonald's -> "ресторант"; Cinema City/Kino Arena -> "кино"; Lilly/DM -> "козметика"; Sopharmacy/Subra -> "аптека".
 - Raw OCR text hint (may contain Cyrillic/Latin OCR artifacts): ${ocrText ? JSON.stringify(ocrText.slice(0, 6000)) : "None"}
@@ -208,7 +239,7 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
         const modelName = candidateModels[mIdx];
         const hasFallbackModel = mIdx < candidateModels.length - 1;
         lastModelAttempted = modelName;
-        const perModelTimeoutMs = 14000;
+        const perModelTimeoutMs = 18000;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), perModelTimeoutMs);
 
@@ -224,7 +255,7 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
               };
 
         try {
-          console.log(`[Gemini OCR] Request sent -> model=${modelName} | timeoutMs=${perModelTimeoutMs}`);
+          console.log(`[Gemini OCR] Gemini request started | model=${modelName} | timeoutMs=${perModelTimeoutMs}`);
           const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
             {
@@ -244,7 +275,7 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
           clearTimeout(timeoutId);
           lastHttpStatus = response.status;
           const elapsed = Date.now() - reqStart;
-          console.log(`[Gemini OCR] Response received <- model=${modelName} | status=${response.status} | durationMs=${elapsed}`);
+          console.log(`[Gemini OCR] Gemini response received | model=${modelName} | status=${response.status} | durationMs=${elapsed}`);
 
           if (!response.ok) {
             const errText = await response.text();
@@ -271,7 +302,10 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
               errorCode: lastErrorCode,
               httpStatus: response.status,
               modelAttempted: modelName,
-              fallbackReason: `Gemini API HTTP ${response.status}: ${lastErrorDetail || "Unknown error"}`,
+              fallbackReason:
+                response.status === 400 || response.status === 403
+                  ? `Invalid API key or Gemini request rejected (HTTP ${response.status})`
+                  : `Gemini API HTTP ${response.status}: ${lastErrorDetail || "Unknown error"}`,
               message: `Gemini returned status ${response.status} (${lastErrorCode}). Using local OCR.`,
             });
           }
@@ -337,9 +371,33 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
             }
           }
 
-          const itemCount = Array.isArray(parsedData?.items) ? parsedData.items.length : 0;
+          // Normalize numeric & structural fields from Gemini JSON cleanly
+          const normalizedItems = Array.isArray(parsedData?.items)
+            ? parsedData.items
+                .map((it: any) => ({
+                  name: typeof it?.name === "string" ? it.name.trim() : "",
+                  price: parseFloat(parseNum(it?.price).toFixed(2)),
+                  quantity: Math.max(1, Math.round(parseNum(it?.quantity) || 1)),
+                }))
+                .filter((it: any) => it.name.length > 0 && it.price > 0)
+            : [];
+
+          const normalizedData = {
+            merchantName: typeof parsedData?.merchantName === "string" ? parsedData.merchantName.trim() : "",
+            date: typeof parsedData?.date === "string" ? parsedData.date.trim() : "",
+            totalAmount: parseFloat(parseNum(parsedData?.totalAmount).toFixed(2)),
+            expectedItemsCount:
+              typeof parsedData?.expectedItemsCount === "number" && Number.isFinite(parsedData.expectedItemsCount)
+                ? Math.round(parsedData.expectedItemsCount)
+                : null,
+            currency: typeof parsedData?.currency === "string" && parsedData.currency.trim() ? parsedData.currency.trim() : "€",
+            suggestedCategory: typeof parsedData?.suggestedCategory === "string" ? parsedData.suggestedCategory.trim() : "",
+            items: normalizedItems,
+            notesFormatted: typeof parsedData?.notesFormatted === "string" ? parsedData.notesFormatted.trim() : "",
+          };
+
           console.log(
-            `[Gemini OCR] Success <- model=${modelName} | durationMs=${Date.now() - reqStart} | merchant="${parsedData?.merchantName || ""}" | total=${parsedData?.totalAmount ?? 0} | items=${itemCount}`
+            `[Gemini OCR] Gemini parsing completed | model=${modelName} | durationMs=${Date.now() - reqStart} | merchant="${normalizedData.merchantName}" | date="${normalizedData.date}" | total=${normalizedData.totalAmount} | items=${normalizedItems.length} | category="${normalizedData.suggestedCategory}"`
           );
 
           return res.json({
@@ -347,13 +405,13 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
             modelUsed: modelName,
             httpStatus: response.status,
             durationMs: Date.now() - reqStart,
-            data: parsedData,
+            data: normalizedData,
           });
         } catch (fetchErr: any) {
           clearTimeout(timeoutId);
           const isAbort = fetchErr?.name === "AbortError";
           lastErrorCode = isAbort ? "GEMINI_TIMEOUT" : "NETWORK_ERROR";
-          lastErrorDetail = fetchErr?.message || String(fetchErr);
+          lastErrorDetail = isAbort ? `Gemini timeout after ${perModelTimeoutMs}ms` : fetchErr?.message || String(fetchErr);
           console.warn(`[Gemini OCR] Request exception <- model=${modelName} | code=${lastErrorCode} | detail=${lastErrorDetail}`);
           if (hasFallbackModel) {
             continue;
@@ -364,13 +422,13 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
             errorCode: lastErrorCode,
             httpStatus: lastHttpStatus,
             modelAttempted: modelName,
-            fallbackReason: `${lastErrorCode}: ${lastErrorDetail}`,
+            fallbackReason: isAbort ? "Gemini timeout" : `${lastErrorCode}: ${lastErrorDetail}`,
             message: "Gemini analysis timed out or failed. Using local OCR.",
           });
         }
       }
 
-      const exhaustedReason = `All models failed (last=${lastModelAttempted}, status=${lastHttpStatus}): ${lastErrorDetail}`;
+      const exhaustedReason = `Gemini unavailable: all models failed (last=${lastModelAttempted}, status=${lastHttpStatus}): ${lastErrorDetail}`;
       console.warn(`[Gemini OCR] Fallback -> errorCode=${lastErrorCode} | reason="${exhaustedReason}"`);
       return res.json({
         success: false,
@@ -395,6 +453,31 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
     }
   });
 
+  // Ensure unsupported HTTP methods on /api/ocr/receipt return JSON 405 instead of falling through to HTML catch-all
+  app.all("/api/ocr/receipt", (req, res) => {
+    return res.status(405).json({
+      success: false,
+      error: "METHOD_NOT_ALLOWED",
+      errorCode: "METHOD_NOT_ALLOWED",
+      httpStatus: 405,
+      fallbackReason: `Method ${req.method} not allowed on /api/ocr/receipt (POST required)`,
+      message: "Use POST /api/ocr/receipt.",
+    });
+  });
+
+  // Catch-all JSON 404 guard for any unmatched /api/* route so Vite/static HTML is never returned for API requests
+  app.use("/api", (req, res) => {
+    return res.status(404).json({
+      success: false,
+      error: "ROUTE_NOT_FOUND",
+      errorCode: "ROUTE_NOT_FOUND",
+      httpStatus: 404,
+      fallbackReason: `Route not found: ${req.method} ${req.originalUrl}`,
+      message: `API route not found: ${req.method} ${req.originalUrl}`,
+    });
+  });
+
   return httpServer;
 }
+
 

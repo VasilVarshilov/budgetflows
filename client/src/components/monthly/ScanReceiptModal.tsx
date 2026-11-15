@@ -74,190 +74,315 @@ interface ScanReceiptModalProps {
   initialMode?: "camera" | "upload";
 }
 
-// Timeout-safe image preprocessor optimized for tall 15-30 item supermarket receipts
-async function prepareReceiptImageWithTimeout(
-  file: File,
-  maxWidth: number = 1800,
-  timeoutMs: number = 8000
-): Promise<{
+interface ImageQualityDiagnostics {
+  platform: "Mobile" | "Desktop";
+  originalFormat: string;
+  originalMimeType: string;
+  originalWidth: number;
+  originalHeight: number;
+  originalSizeBytes: number;
+  exifOrientation: number;
+  ocrFormat: string;
+  ocrWidth: number;
+  ocrHeight: number;
+  ocrSizeBytes: number;
+  usedOriginalFile: boolean;
+  wasResized: boolean;
+  wasRecompressed: boolean;
+  canvasConversionMethod: string;
+}
+
+interface PreparedReceiptImage {
+  ocrSource: File | Blob;
   base64: string;
   previewUrl: string;
-  ocrImageUrl: string;
+  previewObjectUrl?: string;
   mimeType: string;
   originalSize: number;
-  compressedSize: number;
+  ocrSizeBytes: number;
   dimensions: string;
-}> {
+  diagnostics: ImageQualityDiagnostics;
+}
+
+function detectPlatformType(): "Mobile" | "Desktop" {
+  if (typeof navigator === "undefined") return "Desktop";
+  const ua = navigator.userAgent || "";
+  const isMobileUa = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua);
+  return isMobileUa ? "Mobile" : "Desktop";
+}
+
+function detectImageFormatLabel(file: File): string {
+  const mime = (file.type || "").toLowerCase();
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (mime.includes("heic") || ext === "heic") return "HEIC";
+  if (mime.includes("heif") || ext === "heif") return "HEIF";
+  if (mime.includes("jpeg") || mime.includes("jpg") || ext === "jpg" || ext === "jpeg") return "JPEG";
+  if (mime.includes("png") || ext === "png") return "PNG";
+  if (mime.includes("webp") || ext === "webp") return "WEBP";
+  if (mime.includes("bmp") || ext === "bmp") return "BMP";
+  if (mime.includes("gif") || ext === "gif") return "GIF";
+  return mime ? mime.replace("image/", "").toUpperCase() : ext.toUpperCase() || "UNKNOWN";
+}
+
+// Read JPEG EXIF Orientation tag (1..8) from the first 128 KB without loading/altering the whole file
+async function readJpegExifOrientation(file: File): Promise<number> {
+  try {
+    const buffer = await file.slice(0, 131072).arrayBuffer();
+    const view = new DataView(buffer);
+    if (view.byteLength < 12 || view.getUint16(0, false) !== 0xffd8) {
+      return 1;
+    }
+    let offset = 2;
+    while (offset + 4 <= view.byteLength) {
+      const marker = view.getUint16(offset, false);
+      offset += 2;
+      if (marker === 0xffe1) {
+        if (offset + 8 > view.byteLength) return 1;
+        // Skip APP1 length (2 bytes) and check "Exif\0\0"
+        if (view.getUint32(offset + 2, false) !== 0x45786966) {
+          return 1;
+        }
+        const tiffStart = offset + 8;
+        if (tiffStart + 8 > view.byteLength) return 1;
+        const little = view.getUint16(tiffStart, false) === 0x4949;
+        const firstIfdOffset = view.getUint32(tiffStart + 4, little);
+        const ifdStart = tiffStart + firstIfdOffset;
+        if (ifdStart + 2 > view.byteLength) return 1;
+        const entries = view.getUint16(ifdStart, little);
+        for (let i = 0; i < entries; i++) {
+          const entryOffset = ifdStart + 2 + i * 12;
+          if (entryOffset + 12 > view.byteLength) break;
+          if (view.getUint16(entryOffset, little) === 0x0112) {
+            const val = view.getUint16(entryOffset + 8, little);
+            return val >= 1 && val <= 8 ? val : 1;
+          }
+        }
+        return 1;
+      } else if ((marker & 0xff00) !== 0xff00) {
+        break;
+      } else {
+        if (offset + 2 > view.byteLength) break;
+        const segLen = view.getUint16(offset, false);
+        if (segLen < 2) break;
+        offset += segLen;
+      }
+    }
+  } catch {
+    // Ignore EXIF read failures cleanly
+  }
+  return 1;
+}
+
+function readFileAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Неуспешно четене на файла от устройството."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function canvasToLosslessPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
+}
+
+// Preserve original uploaded image & resolution for OCR (never downscale or lossy-recompress before OCR)
+async function prepareReceiptImageWithTimeout(
+  file: File,
+  timeoutMs: number = 10000
+): Promise<PreparedReceiptImage> {
+  const platform = detectPlatformType();
+  const originalFormat = detectImageFormatLabel(file);
+  const exifOrientation =
+    originalFormat === "JPEG" ? await readJpegExifOrientation(file) : 1;
+  const isTesseractNativeFormat = ["JPEG", "PNG", "WEBP", "BMP", "GIF"].includes(originalFormat);
+
   return new Promise((resolve, reject) => {
     let hasFinished = false;
+    const objectUrl = URL.createObjectURL(file);
     const timer = setTimeout(() => {
       if (!hasFinished) {
         hasFinished = true;
+        URL.revokeObjectURL(objectUrl);
         reject(new Error("Обработката на изображението отне твърде много време (Timeout)."));
       }
     }, timeoutMs);
 
-    const reader = new FileReader();
+    const img = new Image();
 
-    reader.onerror = () => {
+    img.onerror = () => {
       if (hasFinished) return;
       hasFinished = true;
       clearTimeout(timer);
-      reject(new Error("Неуспешно четене на избрания файл от устройството."));
+      URL.revokeObjectURL(objectUrl);
+      if (originalFormat === "HEIC" || originalFormat === "HEIF") {
+        reject(
+          new Error(
+            "Форматът HEIC/HEIF не се поддържа директно от този браузър. Моля, изберете JPG/PNG снимка или снимайте директно с камерата."
+          )
+        );
+        return;
+      }
+      reject(new Error("Невалиден или неподдържан графичен формат на касовата бележка."));
     };
 
-    reader.onload = () => {
+    img.onload = async () => {
       if (hasFinished) return;
-      const img = new Image();
+      try {
+        // Note: Modern browsers decode <img> naturalWidth/naturalHeight AFTER honoring EXIF rotation
+        const originalWidth = img.naturalWidth || img.width;
+        const originalHeight = img.naturalHeight || img.height;
 
-      img.onerror = () => {
-        if (hasFinished) return;
-        hasFinished = true;
-        clearTimeout(timer);
-        reject(new Error("Невалиден или неподдържан графичен формат на касовата бележка."));
-      };
+        // 1. Determine OCR input source: prefer exact original File at full resolution without canvas conversion
+        let ocrSource: File | Blob = file;
+        let ocrWidth = originalWidth;
+        let ocrHeight = originalHeight;
+        let ocrFormat = originalFormat;
+        let usedOriginalFile = true;
+        let wasResized = false;
+        let wasRecompressed = false;
+        let canvasConversionMethod = "none (original File passed directly to Tesseract)";
 
-      img.onload = () => {
-        if (hasFinished) return;
-        hasFinished = true;
-        clearTimeout(timer);
+        // Only use lossless PNG canvas export if:
+        // - format is non-Tesseract (e.g. HEIC/HEIF decoded by iOS Safari) OR
+        // - mobile camera JPEG carries rotated EXIF orientation (> 1), which Leptonica WASM does not auto-rotate
+        const needsLosslessCanvasRender = !isTesseractNativeFormat || exifOrientation > 1;
+        let previewUrl = objectUrl;
+        let previewObjectUrl: string | undefined = objectUrl;
 
-        try {
-          let width = img.width;
-          let height = img.height;
-          const origDimensions = `${width}x${height}`;
-          const maxHeight = 5600; // Allow tall 15-30 item supermarket receipts without crushing width
-
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-          if (height > maxHeight) {
-            width = Math.round((width * maxHeight) / height);
-            height = maxHeight;
-          }
-          // Gentle upscale for narrow phone crops so Cyrillic glyphs remain crisp for Tesseract
-          if (width >= 300 && width < 1050 && height * (1200 / width) <= maxHeight) {
-            const scale = Math.min(1.5, 1200 / width);
-            width = Math.round(width * scale);
-            height = Math.round(height * scale);
-          }
-
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-
-          if (!ctx) {
-            const rawUrl = reader.result as string;
-            resolve({
-              base64: rawUrl,
-              previewUrl: rawUrl,
-              ocrImageUrl: rawUrl,
-              mimeType: file.type || "image/jpeg",
-              originalSize: file.size,
-              compressedSize: file.size,
-              dimensions: origDimensions,
-            });
-            return;
+        if (needsLosslessCanvasRender) {
+          usedOriginalFile = false;
+          // Respect mobile browser 16MP canvas pixel safety cap ONLY if an ultra-high-res sensor photo requires rotation/HEIC conversion
+          const MAX_CANVAS_PIXELS = 16_000_000;
+          const totalPixels = originalWidth * originalHeight;
+          let targetWidth = originalWidth;
+          let targetHeight = originalHeight;
+          if (totalPixels > MAX_CANVAS_PIXELS) {
+            const scale = Math.sqrt(MAX_CANVAS_PIXELS / totalPixels);
+            targetWidth = Math.max(1, Math.floor(originalWidth * scale));
+            targetHeight = Math.max(1, Math.floor(originalHeight * scale));
+            wasResized = true;
           }
 
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-
-          const mimeType = "image/jpeg";
-          const base64 = canvas.toDataURL(mimeType, 0.92);
-
-          // Build clean luminance grayscale variant with white-point stretch for faded thermal paper
-          let ocrImageUrl = base64;
-          try {
-            const ocrCanvas = document.createElement("canvas");
-            ocrCanvas.width = width;
-            ocrCanvas.height = height;
-            const ocrCtx = ocrCanvas.getContext("2d");
-            if (ocrCtx) {
-              ocrCtx.drawImage(canvas, 0, 0);
-              const imgData = ocrCtx.getImageData(0, 0, width, height);
-              const data = imgData.data;
-
-              // Sampled percentile histogram (p5..p95) handles uneven shadows on thermal receipts
-              const hist = new Uint32Array(256);
-              let sampleCount = 0;
-              for (let p = 0; p < data.length; p += 16) {
-                const l = Math.min(255, Math.max(0, Math.round(0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2])));
-                hist[l]++;
-                sampleCount++;
+          const ocrCanvas = document.createElement("canvas");
+          ocrCanvas.width = targetWidth;
+          ocrCanvas.height = targetHeight;
+          const ocrCtx = ocrCanvas.getContext("2d");
+          if (ocrCtx) {
+            ocrCtx.fillStyle = "#ffffff";
+            ocrCtx.fillRect(0, 0, targetWidth, targetHeight);
+            ocrCtx.drawImage(img, 0, 0, targetWidth, targetHeight);
+            const pngBlob = await canvasToLosslessPngBlob(ocrCanvas);
+            if (pngBlob) {
+              ocrSource = pngBlob;
+              ocrWidth = targetWidth;
+              ocrHeight = targetHeight;
+              ocrFormat = "PNG (lossless)";
+              wasRecompressed = false;
+              canvasConversionMethod =
+                exifOrientation > 1
+                  ? `drawImage() + canvas.toBlob('image/png') lossless (EXIF orientation ${exifOrientation})`
+                  : `drawImage() + canvas.toBlob('image/png') lossless (${originalFormat} -> PNG)`;
+              if (!isTesseractNativeFormat) {
+                const convertedPreviewUrl = URL.createObjectURL(pngBlob);
+                URL.revokeObjectURL(objectUrl);
+                previewUrl = convertedPreviewUrl;
+                previewObjectUrl = convertedPreviewUrl;
               }
-              let p5 = 0;
-              let p95 = 255;
-              if (sampleCount > 0) {
-                const lowTarget = sampleCount * 0.05;
-                const highTarget = sampleCount * 0.95;
-                let acc = 0;
-                for (let b = 0; b < 256; b++) {
-                  acc += hist[b];
-                  if (acc >= lowTarget) {
-                    p5 = b;
-                    break;
-                  }
-                }
-                acc = 0;
-                for (let b = 0; b < 256; b++) {
-                  acc += hist[b];
-                  if (acc >= highTarget) {
-                    p95 = b;
-                    break;
-                  }
-                }
-              }
-              const span = Math.max(64, p95 - p5);
-              const useStretch = span < 235 && p95 > p5 + 35;
-
-              for (let p = 0; p < data.length; p += 4) {
-                let gray = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-                if (useStretch) {
-                  gray = Math.min(255, Math.max(0, ((gray - p5) / span) * 255));
-                }
-                const enhanced = Math.min(255, Math.max(0, (gray - 128) * 1.18 + 134));
-                data[p] = enhanced;
-                data[p + 1] = enhanced;
-                data[p + 2] = enhanced;
-              }
-              ocrCtx.putImageData(imgData, 0, 0);
-              ocrImageUrl = ocrCanvas.toDataURL("image/jpeg", 0.94);
+            } else {
+              ocrSource = file;
+              canvasConversionMethod = "canvas.toBlob returned null -> fallback to original File";
+              usedOriginalFile = true;
             }
-          } catch {
-            ocrImageUrl = base64;
           }
-
-          resolve({
-            base64,
-            previewUrl: base64,
-            ocrImageUrl,
-            mimeType,
-            originalSize: file.size,
-            compressedSize: Math.round((base64.length * 3) / 4),
-            dimensions: `${width}x${height}`,
-          });
-        } catch {
-          const rawUrl = reader.result as string;
-          resolve({
-            base64: rawUrl,
-            previewUrl: rawUrl,
-            ocrImageUrl: rawUrl,
-            mimeType: file.type || "image/jpeg",
-            originalSize: file.size,
-            compressedSize: file.size,
-            dimensions: "unknown",
-          });
         }
-      };
 
-      img.src = reader.result as string;
+        // 2. Prepare base64 payload for optional Gemini API enhancement (separate from OCR input!)
+        let base64 = "";
+        let geminiMimeType = file.type || "image/jpeg";
+        const MAX_DIRECT_GEMINI_BYTES = 4.5 * 1024 * 1024;
+        if (
+          file.size <= MAX_DIRECT_GEMINI_BYTES &&
+          exifOrientation <= 1 &&
+          ["JPEG", "PNG", "WEBP"].includes(originalFormat)
+        ) {
+          base64 = await readFileAsDataUrl(file);
+        } else {
+          // Only create a separate JPEG copy for Gemini JSON transport if file > 4.5MB or rotated/HEIC
+          const maxGeminiWidth = 2400;
+          const maxGeminiHeight = 6000;
+          let gWidth = originalWidth;
+          let gHeight = originalHeight;
+          if (gWidth > maxGeminiWidth) {
+            gHeight = Math.round((gHeight * maxGeminiWidth) / gWidth);
+            gWidth = maxGeminiWidth;
+          }
+          if (gHeight > maxGeminiHeight) {
+            gWidth = Math.round((gWidth * maxGeminiHeight) / gHeight);
+            gHeight = maxGeminiHeight;
+          }
+          const gCanvas = document.createElement("canvas");
+          gCanvas.width = gWidth;
+          gCanvas.height = gHeight;
+          const gCtx = gCanvas.getContext("2d");
+          if (gCtx) {
+            gCtx.fillStyle = "#ffffff";
+            gCtx.fillRect(0, 0, gWidth, gHeight);
+            gCtx.drawImage(img, 0, 0, gWidth, gHeight);
+            base64 = gCanvas.toDataURL("image/jpeg", 0.92);
+            geminiMimeType = "image/jpeg";
+          } else {
+            base64 = await readFileAsDataUrl(ocrSource);
+          }
+        }
+
+        if (hasFinished) return;
+        hasFinished = true;
+        clearTimeout(timer);
+
+        const diagnostics: ImageQualityDiagnostics = {
+          platform,
+          originalFormat,
+          originalMimeType: file.type || "unknown",
+          originalWidth,
+          originalHeight,
+          originalSizeBytes: file.size,
+          exifOrientation,
+          ocrFormat,
+          ocrWidth,
+          ocrHeight,
+          ocrSizeBytes: ocrSource.size,
+          usedOriginalFile,
+          wasResized,
+          wasRecompressed,
+          canvasConversionMethod,
+        };
+
+        console.log("[Receipt OCR] Image Pipeline Diagnostics:", diagnostics);
+
+        resolve({
+          ocrSource,
+          base64,
+          previewUrl,
+          previewObjectUrl,
+          mimeType: geminiMimeType,
+          originalSize: file.size,
+          ocrSizeBytes: ocrSource.size,
+          dimensions: `${originalWidth}x${originalHeight}`,
+          diagnostics,
+        });
+      } catch (err: any) {
+        if (hasFinished) return;
+        hasFinished = true;
+        clearTimeout(timer);
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error(err?.message || "Неуспешна подготовка на изображението."));
+      }
     };
 
-    reader.readAsDataURL(file);
+    img.src = objectUrl;
   });
 }
 
@@ -566,7 +691,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     name: string;
     sizeFormatted: string;
     dimensions: string;
-    prepared?: { base64: string; mimeType: string; previewUrl: string; ocrImageUrl?: string };
+    prepared?: PreparedReceiptImage;
   } | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -673,6 +798,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
+    }
+    if (imageMeta?.prepared?.previewObjectUrl) {
+      URL.revokeObjectURL(imageMeta.prepared.previewObjectUrl);
     }
     setStep("upload");
     setImagePreview(null);
@@ -799,29 +927,40 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   // 1. Process image file and transition to Receipt Preview modal
   const processImageFile = async (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      const err = "Моля, изберете валиден графичен файл (JPG, PNG, WEBP).";
+    const isImageMime = file.type.startsWith("image/");
+    const isImageExtension = /\.(jpe?g|png|webp|heic|heif|bmp|gif|avif)$/i.test(file.name);
+    if (!isImageMime && !isImageExtension) {
+      const err = "Моля, изберете валиден графичен файл (JPG, PNG, WEBP, HEIC).";
       setErrorMessage(err);
-      addDebugLog("error", err, { fileType: file.type });
+      addDebugLog("error", err, { fileType: file.type, fileName: file.name });
       return;
     }
 
+    if (imageMeta?.prepared?.previewObjectUrl) {
+      URL.revokeObjectURL(imageMeta.prepared.previewObjectUrl);
+    }
+
     setErrorMessage(null);
-    addDebugLog("ocr_text", `Файл: "${file.name}" (${Math.round(file.size / 1024)} KB)`);
+    addDebugLog(
+      "ocr_text",
+      `Upload received -> file="${file.name}" | type="${file.type || "unknown"}" | originalSize=${file.size} bytes (${Math.round(file.size / 1024)} KB)`
+    );
 
     try {
-      const prepared = await prepareReceiptImageWithTimeout(file, 1800, 8000);
+      const prepared = await prepareReceiptImageWithTimeout(file, 10000);
+      const diag = prepared.diagnostics;
+      addDebugLog(
+        "ocr_text",
+        `Image Quality Check (${diag.platform}) | Original: ${diag.originalWidth}x${diag.originalHeight}, ${diag.originalSizeBytes} bytes (${Math.round(diag.originalSizeBytes / 1024)} KB), format=${diag.originalFormat}, EXIF=${diag.exifOrientation} | OCR Input: ${diag.ocrWidth}x${diag.ocrHeight}, ${diag.ocrSizeBytes} bytes (${Math.round(diag.ocrSizeBytes / 1024)} KB), format=${diag.ocrFormat} | originalPreserved=${diag.usedOriginalFile} | resized=${diag.wasResized} | recompressed=${diag.wasRecompressed} | canvas=${diag.canvasConversionMethod}`,
+        diag
+      );
+
       setImagePreview(prepared.previewUrl);
       setImageMeta({
         name: file.name,
-        sizeFormatted: `${Math.round(prepared.compressedSize / 1024)} KB`,
+        sizeFormatted: `${Math.round(prepared.originalSize / 1024)} KB`,
         dimensions: prepared.dimensions,
-        prepared: {
-          base64: prepared.base64,
-          mimeType: prepared.mimeType,
-          previewUrl: prepared.previewUrl,
-          ocrImageUrl: prepared.ocrImageUrl,
-        },
+        prepared,
       });
 
       const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim();
@@ -848,13 +987,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     runScanWorkflow(imageMeta.prepared);
   };
 
-  // OCR Workflow (Bulgarian-first Tesseract bul+eng -> Deterministic BG Parser -> Optional Gemini Enrichment)
-  const runScanWorkflow = async (prepared: {
-    base64: string;
-    mimeType: string;
-    previewUrl: string;
-    ocrImageUrl?: string;
-  }) => {
+  // OCR Workflow (Original-resolution Tesseract bul+eng -> Deterministic BG Parser -> Optional Gemini Enrichment)
+  const runScanWorkflow = async (prepared: PreparedReceiptImage) => {
     setStep("scanning");
     setAiUnavailable(false);
     setAiFallbackReason(null);
@@ -863,17 +997,20 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDateEditedByUser(false);
     setShowAddItemForm(false);
     setEditingItemIndex(null);
-    setScanStatusMessage("1/3 Оптимизиране на изображението за кирилица (bul+eng)...");
+    setScanStatusMessage("1/3 Подготовка на оригиналното изображение за OCR (bul+eng)...");
     let ocrRawText = "";
+    let ocrConfidence = 0;
     try {
+      const diag = prepared.diagnostics;
       const ocrResult = await runClientOcr(
-        prepared.ocrImageUrl || prepared.previewUrl,
+        prepared.ocrSource,
         (percent, status) => {
           setScanStatusMessage(`2/3 OCR разпознаване (${percent}%): ${status}`);
         },
         45000 // 45s timeout allows cold-downloading bul.traineddata.gz + eng.traineddata.gz reliably
       );
       ocrRawText = ocrResult.text;
+      ocrConfidence = ocrResult.confidence;
       setOcrLanguageInfo({
         requested: ocrResult.requestedLanguages,
         used: ocrResult.languagesUsed,
@@ -882,7 +1019,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       });
       addDebugLog(
         "ocr_text",
-        `OCR Config: requested="${ocrResult.requestedLanguages}" | active="${ocrResult.languagesUsed}" | fallback=${ocrResult.fallbackOccurred} | PSM=${ocrResult.psmMode} | ${ocrResult.durationMs}ms | точност ${ocrResult.confidence.toFixed(0)}% | ${ocrRawText.length} символа\n` +
+        `OCR Config (${diag.platform}): requested="${ocrResult.requestedLanguages}" | active="${ocrResult.languagesUsed}" | fallback=${ocrResult.fallbackOccurred} | PSM=${ocrResult.psmMode} | ${ocrResult.durationMs}ms | OCR Input=${diag.ocrWidth}x${diag.ocrHeight} (${Math.round(diag.ocrSizeBytes / 1024)} KB) | confidence=${ocrConfidence.toFixed(1)}% | textLength=${ocrRawText.length} chars\n` +
           ocrRawText.slice(0, 600)
       );
     } catch (ocrErr: any) {
@@ -899,6 +1036,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDateFallbackReason(localParsed.dateDetected ? null : localParsed.dateFallbackReason || "Не е открита валидна дата в OCR текста.");
     setExpectedItemsCount(localParsed.expectedItemsCount ?? null);
     setConfirmMismatchOverride(false);
+
+    addDebugLog(
+      "ocr_text",
+      `OCR Input Quality (${prepared.diagnostics.platform}) | Original=${prepared.diagnostics.originalWidth}x${prepared.diagnostics.originalHeight} (${Math.round(prepared.diagnostics.originalSizeBytes / 1024)} KB) | OCR=${prepared.diagnostics.ocrWidth}x${prepared.diagnostics.ocrHeight} (${Math.round(prepared.diagnostics.ocrSizeBytes / 1024)} KB) | Detected item count=${localParsed.items.length} | Detected confidence=${ocrConfidence.toFixed(1)}% | Detected text length=${ocrRawText.length} chars`
+    );
 
     addDebugLog(
       "parsed_merchant",
@@ -968,16 +1110,52 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     abortControllerRef.current = controller;
     const timeoutTimer = setTimeout(() => {
       controller.abort();
-    }, 32000); // 32s client timeout (>28s server timeout) so server error diagnostics aren't cut short
+    }, 40000); // 40s client timeout (> 2x18s server timeout) so server error diagnostics aren't cut short
+
+    const configuredApiBase = String((import.meta as any).env?.VITE_API_BASE_URL || "")
+      .trim()
+      .replace(/\/+$/, "");
+    const ocrEndpoint = configuredApiBase
+      ? `${configuredApiBase}/api/ocr/receipt`
+      : "/api/ocr/receipt";
+
+    const formatServerFailureReason = (
+      errorCode: string | undefined,
+      httpStatus: number | null | undefined,
+      serverReason?: string
+    ): string => {
+      if (errorCode === "NO_API_KEY") {
+        return "Invalid API key: GEMINI_API_KEY липсва на сървъра";
+      }
+      if (errorCode === "AUTH_OR_REQUEST_400" || errorCode === "AUTH_OR_REQUEST_403") {
+        return `Invalid API key или отказан достъп до Gemini (HTTP ${httpStatus})`;
+      }
+      if (errorCode === "GEMINI_TIMEOUT") {
+        return "Gemini timeout (превишено време за отговор)";
+      }
+      if (errorCode === "RATE_LIMITED_429") {
+        return "Gemini unavailable: достигнат лимит на заявки (HTTP 429)";
+      }
+      if (errorCode === "ROUTE_NOT_FOUND" || httpStatus === 404) {
+        return `Route not found (HTTP 404 на ${ocrEndpoint})`;
+      }
+      if (errorCode === "METHOD_NOT_ALLOWED" || httpStatus === 405) {
+        return "Static hosting has no API backend (HTTP 405)";
+      }
+      if (errorCode === "NETWORK_ERROR" || errorCode === "SERVER_ERROR") {
+        return `Gemini unavailable: ${serverReason || errorCode}`;
+      }
+      return serverReason || `${errorCode || "API_ERROR"}${httpStatus ? ` (HTTP ${httpStatus})` : ""}`;
+    };
 
     const geminiStart = Date.now();
     addDebugLog(
       "gemini_res",
-      `Gemini request sent -> POST /api/ocr/receipt (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
+      `Gemini request started -> POST ${ocrEndpoint} (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
     );
 
     try {
-      const response = await fetch("/api/ocr/receipt", {
+      const response = await fetch(ocrEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -1011,20 +1189,24 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setReceiptCurrency(resolvedCurrency);
 
           let finalTotal = localParsed.totalAmount;
+          const aiTotalNum =
+            typeof gData.totalAmount === "number"
+              ? gData.totalAmount
+              : parseFloat(String(gData.totalAmount || "").replace(",", "."));
 
-          if (gData.totalAmount && gData.totalAmount > 0) {
+          if (Number.isFinite(aiTotalNum) && aiTotalNum > 0) {
             if (localParsed.totalAmount > 0) {
-              if (gData.totalAmount < localParsed.totalAmount * 0.7) {
+              if (aiTotalNum < localParsed.totalAmount * 0.7) {
                 addDebugLog(
                   "parsed_total",
-                  `⚠️ Отхвърлена подозрителна сума от Gemini (${gData.totalAmount} ${resolvedCurrency}). Запазена е правилната обща сума от OCR: ${localParsed.totalAmount} ${resolvedCurrency}`
+                  `⚠️ Отхвърлена подозрителна сума от Gemini (${aiTotalNum} ${resolvedCurrency}). Запазена е правилната обща сума от OCR: ${localParsed.totalAmount} ${resolvedCurrency}`
                 );
                 finalTotal = localParsed.totalAmount;
               } else {
-                finalTotal = gData.totalAmount;
+                finalTotal = aiTotalNum;
               }
             } else {
-              finalTotal = gData.totalAmount;
+              finalTotal = aiTotalNum;
             }
           }
 
@@ -1032,10 +1214,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setDetectedTotal(finalTotal);
 
           // Merchant
-          if (gData.merchantName && gData.merchantName !== "Неизвестен търговец") {
-            setMerchantName(gData.merchantName);
-            setDetectedMerchant(gData.merchantName);
-            addDebugLog("parsed_merchant", `Gemini търговец: "${gData.merchantName}"`);
+          const cleanAiMerchant = typeof gData.merchantName === "string" ? gData.merchantName.trim() : "";
+          const isPlaceholderMerchant = /^(?:неизвестен търговец|неразпознат търговец|unknown(?:\s+merchant)?|n\/a)$/i.test(
+            cleanAiMerchant
+          );
+          if (cleanAiMerchant && !isPlaceholderMerchant) {
+            setMerchantName(cleanAiMerchant);
+            setDetectedMerchant(cleanAiMerchant);
+            addDebugLog("parsed_merchant", `Gemini търговец: "${cleanAiMerchant}"`);
           }
 
           // Date Priority: 1. OCR detected date -> 2. AI calendar-valid date -> 3. User correction -> 4. Today fallback
@@ -1076,15 +1262,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           // Normalize Gemini items & compare against local OCR items to prevent truncation
           const geminiNormalizedItems: ReceiptItemDetail[] = Array.isArray(gData.items)
             ? gData.items
-                .filter((it: any) => it && typeof it.name === "string" && it.name.trim() && Number(it.price) > 0)
-                .map((it: any) => ({
-                  name: it.name.trim(),
-                  price: Number(it.price),
-                  quantity:
-                    typeof it.quantity === "number" && Number.isFinite(it.quantity) && it.quantity >= 1
-                      ? Math.round(it.quantity)
-                      : 1,
-                }))
+                .map((it: any) => {
+                  const rawPrice =
+                    typeof it?.price === "number"
+                      ? it.price
+                      : parseFloat(String(it?.price || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+                  const rawQty =
+                    typeof it?.quantity === "number"
+                      ? it.quantity
+                      : parseFloat(String(it?.quantity || "").replace(",", "."));
+                  return {
+                    name: typeof it?.name === "string" ? it.name.trim() : "",
+                    price: Number.isFinite(rawPrice) ? parseFloat(rawPrice.toFixed(2)) : 0,
+                    quantity: Number.isFinite(rawQty) && rawQty >= 1 ? Math.round(rawQty) : 1,
+                  };
+                })
+                .filter((it: ReceiptItemDetail) => it.name.length > 0 && it.price > 0)
             : [];
 
           const bestChoice = chooseBestItemSet(
@@ -1158,7 +1351,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           // Smart category suggestion from Gemini + BG dictionary
           const enrichedCat = matchCategory(
             {
-              merchantName: gData.merchantName || localParsed.merchantName,
+              merchantName: cleanAiMerchant && !isPlaceholderMerchant ? cleanAiMerchant : localParsed.merchantName,
               rawText: gData.rawText || ocrRawText,
               suggestedCategory: gData.suggestedCategory,
             },
@@ -1170,35 +1363,49 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setSelectedBudgetCategoryId(matchingBudgetId);
           }
 
+          addDebugLog(
+            "gemini_res",
+            `Gemini parsing completed -> merchant="${cleanAiMerchant || localParsed.merchantName}" | items=${resolvedItems.length} | category="${enrichedCat.name}"`
+          );
+
           setAiSucceeded(true);
           setAiUnavailable(false);
           setAiFallbackReason(null);
           setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : "AI + OCR анализ");
         } else {
-          const reasonText =
-            json.fallbackReason ||
-            json.message ||
-            `Error ${json.errorCode || json.error || "UNKNOWN"}`;
+          const failureReason = formatServerFailureReason(
+            json.errorCode || json.error,
+            json.httpStatus ?? response.status,
+            json.fallbackReason || json.message
+          );
           addDebugLog(
             "gemini_res",
-            `Gemini fallback -> code=${json.errorCode || json.error || "UNKNOWN"} | reason=${reasonText}`
+            `Gemini fallback -> code=${json.errorCode || json.error || "UNKNOWN"} | reason=${failureReason}`
           );
           setAiUnavailable(true);
-          setAiFallbackReason(`${json.errorCode || json.error || "API_ERROR"}${json.httpStatus ? ` (HTTP ${json.httpStatus})` : ""}`);
+          setAiFallbackReason(failureReason);
           setAiSucceeded(false);
           setAiSourceBadge("OCR анализ");
         }
       } else {
-        const nonJsonReason = `Non-JSON response (HTTP ${response.status}, content-type=${contentType || "unknown"})`;
-        addDebugLog("gemini_res", `Gemini fallback -> ${nonJsonReason}`);
+        const failureReason =
+          response.status === 405
+            ? "Static hosting has no API backend (HTTP 405 — статичният хостинг не поддържа сървърни POST заявки)"
+            : response.status === 404
+            ? `Route not found (HTTP 404 — ${ocrEndpoint} не е намерен)`
+            : `Gemini unavailable: non-JSON response (HTTP ${response.status}, ${contentType || "unknown"})`;
+        addDebugLog("gemini_res", `Gemini fallback -> ${failureReason}`);
         setAiUnavailable(true);
-        setAiFallbackReason(`HTTP ${response.status} (static/non-JSON)`);
+        setAiFallbackReason(failureReason);
         setAiSucceeded(false);
         setAiSourceBadge("OCR анализ");
       }
     } catch (gErr: any) {
       clearTimeout(timeoutTimer);
-      const errReason = gErr?.name === "AbortError" ? "Client fetch timeout (>32s)" : gErr?.message || "Network error";
+      const errReason =
+        gErr?.name === "AbortError"
+          ? "Gemini timeout (превишено време >40s)"
+          : `Gemini unavailable (${gErr?.message || "Network error"})`;
       addDebugLog("gemini_res", `Gemini fallback -> ${errReason}`);
       setAiUnavailable(true);
       setAiFallbackReason(errReason);
@@ -1564,11 +1771,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           className="hidden"
           onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-              processImageFile(e.target.files[0]);
+            const picked = e.target.files?.[0];
+            e.target.value = "";
+            if (picked) {
+              processImageFile(picked);
             }
           }}
         />
@@ -1579,8 +1788,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           capture="environment"
           className="hidden"
           onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-              processImageFile(e.target.files[0]);
+            const captured = e.target.files?.[0];
+            e.target.value = "";
+            if (captured) {
+              processImageFile(captured);
             }
           }}
         />
