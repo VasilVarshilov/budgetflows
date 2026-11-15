@@ -260,7 +260,6 @@ export const CloudSyncProvider: React.FC<{
   const userRef = useRef<User | null>(null);
   const autoBackupRef = useRef<boolean>(true);
   const checkedRestoreOfferForUidRef = useRef<string | null>(null);
-  const lastSilentAttemptMsRef = useRef<number>(0);
 
   const clearPendingAutoSync = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -314,26 +313,25 @@ export const CloudSyncProvider: React.FC<{
     };
   }, []);
 
-  // Schedule proactive background refresh ~3 minutes before in-memory token expires
+  // Mark session as needing explicit reconnect when in-memory token expires (no auto-popups)
   const scheduleProactiveTokenRefresh = useCallback(
     (targetUser: User) => {
       clearRefreshTimer();
       const expiresAt = getGoogleTokenExpiresAt(targetUser.uid);
       if (!expiresAt) return;
 
-      const msUntilRefresh = Math.max(20_000, expiresAt - Date.now() - 180_000);
+      const msUntilExpiryCheck = Math.max(20_000, expiresAt - Date.now() + 1_000);
       refreshTimerRef.current = setTimeout(async () => {
         if (authUidRef.current !== targetUser.uid) return;
-        if (typeof navigator !== "undefined" && !navigator.onLine) return;
-
-        const refreshed = await trySilentDriveTokenRestore(targetUser, true);
+        const stillValid = await getGoogleAccessToken(targetUser.uid);
         if (authUidRef.current !== targetUser.uid) return;
-        if (refreshed?.accessToken) {
-          setHasDriveAccessToken(true);
-          setDriveSessionStatus("connected");
+        if (!stillValid) {
+          setHasDriveAccessToken(false);
+          setDriveSessionStatus("needs_reauth");
+        } else {
           scheduleProactiveTokenRefresh(targetUser);
         }
-      }, msUntilRefresh);
+      }, msUntilExpiryCheck);
     },
     [clearRefreshTimer]
   );
@@ -588,48 +586,8 @@ export const CloudSyncProvider: React.FC<{
     [scheduleProactiveTokenRefresh]
   );
 
-  // Silent session restoration helper invoked automatically on startup & focus recovery
-  const attemptAutomaticDriveRestore = useCallback(
-    async (targetUser: User) => {
-      const expectedUid = targetUser.uid;
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        setDriveSessionStatus("needs_reauth");
-        return;
-      }
-
-      lastSilentAttemptMsRef.current = Date.now();
-      setIsRestoringDriveSession(true);
-      setDriveSessionStatus("restoring");
-
-      try {
-        const silentRes = await trySilentDriveTokenRestore(targetUser);
-        if (authUidRef.current !== expectedUid) return;
-
-        if (silentRes?.accessToken) {
-          setHasDriveAccessToken(true);
-          setDriveSessionStatus("connected");
-          userStorage.setItem(STORAGE_BASE_DRIVE_CONNECTED, "true", expectedUid);
-          await evaluateDriveSyncState(targetUser, silentRes.accessToken);
-        } else {
-          setHasDriveAccessToken(false);
-          setDriveSessionStatus("needs_reauth");
-        }
-      } catch {
-        if (authUidRef.current === expectedUid) {
-          setHasDriveAccessToken(false);
-          setDriveSessionStatus("needs_reauth");
-        }
-      } finally {
-        if (authUidRef.current === expectedUid) {
-          setIsRestoringDriveSession(false);
-        }
-      }
-    },
-    [evaluateDriveSyncState]
-  );
-
   // Auth observer: synchronizes userStorage namespace strictly with Firebase UID
-  // and automatically attempts silent Drive session restoration on login/reload.
+  // and silently restores existing Firebase Auth session without launching Google OAuth.
   useEffect(() => {
     const unsubscribe = initGoogleAuth(
       (currentUser, token) => {
@@ -672,17 +630,9 @@ export const CloudSyncProvider: React.FC<{
             evaluateDriveSyncState(currentUser, token);
           }
         } else {
-          const autoRaw = userStorage.getItem(STORAGE_BASE_AUTO_BACKUP, nextUid);
-          const autoEnabled = autoRaw === null ? true : autoRaw === "true";
-          const drivePref =
-            userStorage.getItem(STORAGE_BASE_DRIVE_CONNECTED, nextUid) === "true";
-
-          if (autoEnabled || drivePref) {
-            attemptAutomaticDriveRestore(currentUser);
-          } else {
-            setDriveSessionStatus("needs_reauth");
-            setIsRestoringDriveSession(false);
-          }
+          // Existing Firebase session restored silently; Drive token requires explicit user reconnect
+          setDriveSessionStatus("needs_reauth");
+          setIsRestoringDriveSession(false);
         }
       },
       (err) => {
@@ -701,10 +651,9 @@ export const CloudSyncProvider: React.FC<{
     clearRefreshTimer,
     readUserSyncPreferences,
     evaluateDriveSyncState,
-    attemptAutomaticDriveRestore,
   ]);
 
-  // Recover Drive token silently on tab focus / visibility return if token expired
+  // Passively verify in-memory token expiry on tab focus / visibility return (no automatic popups)
   useEffect(() => {
     const checkFocusRecovery = () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
@@ -712,22 +661,11 @@ export const CloudSyncProvider: React.FC<{
       }
       const activeUser = userRef.current;
       if (!activeUser) return;
-      if (typeof navigator !== "undefined" && !navigator.onLine) return;
-      if (getStoredOAuthToken(activeUser.uid)) return;
 
-      const autoRaw = userStorage.getItem(
-        STORAGE_BASE_AUTO_BACKUP,
-        activeUser.uid
-      );
-      const autoEnabled = autoRaw === null ? true : autoRaw === "true";
-      const drivePref =
-        userStorage.getItem(STORAGE_BASE_DRIVE_CONNECTED, activeUser.uid) ===
-        "true";
-      if (!autoEnabled && !drivePref) return;
-
-      // Throttle silent focus attempts (at most once per 60 seconds)
-      if (Date.now() - lastSilentAttemptMsRef.current < 60_000) return;
-      attemptAutomaticDriveRestore(activeUser);
+      if (!getStoredOAuthToken(activeUser.uid)) {
+        setHasDriveAccessToken(false);
+        setDriveSessionStatus("needs_reauth");
+      }
     };
 
     window.addEventListener("focus", checkFocusRecovery);
@@ -736,7 +674,7 @@ export const CloudSyncProvider: React.FC<{
       window.removeEventListener("focus", checkFocusRecovery);
       document.removeEventListener("visibilitychange", checkFocusRecovery);
     };
-  }, [attemptAutomaticDriveRestore]);
+  }, []);
 
   const setAutoBackupEnabled = useCallback((enabled: boolean) => {
     autoBackupRef.current = enabled;
@@ -1019,12 +957,11 @@ export const CloudSyncProvider: React.FC<{
       return;
     }
 
-    // If token isn't in memory right now, keep hasPendingSyncRef = true and try silent recovery;
-    // when token is restored (silently or via reconnect), evaluateDriveSyncState uploads local changes.
+    // If token isn't in memory right now, keep hasPendingSyncRef = true without opening OAuth popups;
+    // when user explicitly reconnects Drive, evaluateDriveSyncState uploads local changes.
     if (!getStoredOAuthToken(currentUser.uid)) {
-      if (Date.now() - lastSilentAttemptMsRef.current > 30_000) {
-        attemptAutomaticDriveRestore(currentUser);
-      }
+      setHasDriveAccessToken(false);
+      setDriveSessionStatus("needs_reauth");
       return;
     }
 
@@ -1039,7 +976,7 @@ export const CloudSyncProvider: React.FC<{
       if (authUidRef.current !== scheduledForUid) return;
       executeBackup(true);
     }, 3500);
-  }, [executeBackup, attemptAutomaticDriveRestore]);
+  }, [executeBackup]);
 
   // Online / Offline listeners
   useEffect(() => {
@@ -1047,7 +984,8 @@ export const CloudSyncProvider: React.FC<{
       setIsOnline(true);
       const currentUser = userRef.current;
       if (currentUser && !getStoredOAuthToken(currentUser.uid)) {
-        attemptAutomaticDriveRestore(currentUser);
+        setHasDriveAccessToken(false);
+        setDriveSessionStatus("needs_reauth");
         return;
       }
       if (hasPendingSyncRef.current && autoBackupRef.current && currentUser) {
@@ -1066,7 +1004,7 @@ export const CloudSyncProvider: React.FC<{
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [triggerAutoSync, attemptAutomaticDriveRestore]);
+  }, [triggerAutoSync]);
 
   // Download and parse cloud backup for preview modal (with strict ownership validation)
   const downloadAndParseCloudBackup = useCallback(async () => {

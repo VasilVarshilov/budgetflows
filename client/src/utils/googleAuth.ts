@@ -175,70 +175,40 @@ export function toUserProfile(user: User): StoredUserProfile {
   };
 }
 
-let gisLoadPromise: Promise<boolean> | null = null;
 let discoveredOAuthClientId: string | null = null;
 let discoveryAttempted = false;
-let silentRestoreInFlight: Promise<{ accessToken: string; expiresIn: number } | null> | null = null;
+let startupDiagnosticsLogged = false;
 
-async function loadGisClientScript(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  if ((window as any).google?.accounts?.oauth2) return true;
-  if (gisLoadPromise) return gisLoadPromise;
-
-  gisLoadPromise = new Promise<boolean>((resolve) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[src^="https://accounts.google.com/gsi/client"]'
-    );
-    if (existing) {
-      if ((window as any).google?.accounts?.oauth2) {
-        resolve(true);
-        return;
-      }
-      const timer = setTimeout(() => resolve(false), 4500);
-      existing.addEventListener("load", () => {
-        clearTimeout(timer);
-        resolve(Boolean((window as any).google?.accounts?.oauth2));
-      });
-      existing.addEventListener("error", () => {
-        clearTimeout(timer);
-        resolve(false);
-      });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-
-    const timer = setTimeout(() => {
-      resolve(Boolean((window as any).google?.accounts?.oauth2));
-    }, 4500);
-
-    script.onload = () => {
-      clearTimeout(timer);
-      resolve(Boolean((window as any).google?.accounts?.oauth2));
-    };
-    script.onerror = () => {
-      clearTimeout(timer);
-      resolve(false);
-    };
-    document.head.appendChild(script);
-  });
-
-  return gisLoadPromise;
+export interface OAuthConfigurationDiagnostics {
+  currentOrigin: string;
+  currentHostname: string;
+  currentPath: string;
+  projectId: string;
+  authDomain: string;
+  oAuthClientId: string | null;
+  oAuthClientIdSource: "env_or_config" | "firebase_identity_toolkit" | "unresolved";
+  redirectUri: string | null;
+  javascriptOrigin: string;
+  originMismatchReasons: string[];
 }
 
-async function resolveGoogleOAuthClientId(): Promise<string | null> {
+async function resolveGoogleOAuthClientId(): Promise<{
+  clientId: string | null;
+  source: OAuthConfigurationDiagnostics["oAuthClientIdSource"];
+}> {
   if (!isFirebaseConfigured()) {
     await loadFirebaseConfigAsync();
   }
   const config = getFirebaseConfig();
   if (config.oAuthClientId && config.oAuthClientId.includes(".apps.googleusercontent.com")) {
-    return config.oAuthClientId;
+    return { clientId: config.oAuthClientId, source: "env_or_config" };
   }
-  if (discoveredOAuthClientId) return discoveredOAuthClientId;
-  if (discoveryAttempted || !config.apiKey || typeof window === "undefined") return null;
+  if (discoveredOAuthClientId) {
+    return { clientId: discoveredOAuthClientId, source: "firebase_identity_toolkit" };
+  }
+  if (discoveryAttempted || !config.apiKey || typeof window === "undefined") {
+    return { clientId: null, source: "unresolved" };
+  }
 
   discoveryAttempted = true;
   try {
@@ -253,7 +223,7 @@ async function resolveGoogleOAuthClientId(): Promise<string | null> {
         }),
       }
     );
-    if (!res.ok) return null;
+    if (!res.ok) return { clientId: null, source: "unresolved" };
     const data = await res.json();
     const authUri = typeof data?.authUri === "string" ? data.authUri : "";
     if (authUri) {
@@ -261,97 +231,111 @@ async function resolveGoogleOAuthClientId(): Promise<string | null> {
       const clientId = parsedUrl.searchParams.get("client_id");
       if (clientId && clientId.includes(".apps.googleusercontent.com")) {
         discoveredOAuthClientId = clientId;
-        return discoveredOAuthClientId;
+        return { clientId: discoveredOAuthClientId, source: "firebase_identity_toolkit" };
       }
     }
   } catch {
-    // Non-fatal: GIS silent renewal simply skips when client_id is unavailable
+    // Non-fatal: metadata discovery is optional
   }
-  return null;
+  return { clientId: null, source: "unresolved" };
 }
 
 /**
- * Attempts to silently acquire or renew a Google Drive OAuth access token via
- * Google Identity Services (prompt="") without disturbing the user with popups.
+ * Collects active OAuth configuration metadata (origin, client ID, redirect URI, JS origin)
+ * without opening any OAuth popup or initiating interactive login.
+ */
+export async function getOAuthConfigurationDiagnostics(): Promise<OAuthConfigurationDiagnostics> {
+  if (!isFirebaseConfigured()) {
+    await loadFirebaseConfigAsync();
+  }
+  const config = getFirebaseConfig();
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const currentHostname = typeof window !== "undefined" ? window.location.hostname : "";
+  const currentPath = typeof window !== "undefined" ? window.location.pathname : "/";
+  const resolved = await resolveGoogleOAuthClientId();
+
+  const authDomain =
+    config.authDomain || (config.projectId ? `${config.projectId}.firebaseapp.com` : "");
+  const redirectUri = authDomain ? `https://${authDomain}/__/auth/handler` : null;
+
+  const originMismatchReasons: string[] = [];
+  if (currentOrigin) {
+    originMismatchReasons.push(
+      `Direct Google OAuth / GIS requires "${currentOrigin}" (exact scheme + host + port, no path) in Google Cloud Console -> Authorized JavaScript origins.`
+    );
+  }
+  if (currentPath && currentPath !== "/" && currentOrigin) {
+    originMismatchReasons.push(
+      `App is served under subpath "${currentPath}". Authorized JavaScript origins must use "${currentOrigin}" WITHOUT "${currentPath}".`
+    );
+  }
+  if (currentHostname.endsWith(".run.app")) {
+    originMismatchReasons.push(
+      `Running on preview origin "${currentOrigin}". Dynamic preview URLs are not registered in Google Cloud Authorized JavaScript origins by default; Firebase Auth popup uses "${redirectUri}" instead.`
+    );
+  }
+
+  return {
+    currentOrigin,
+    currentHostname,
+    currentPath,
+    projectId: config.projectId || "",
+    authDomain,
+    oAuthClientId: resolved.clientId,
+    oAuthClientIdSource: resolved.source,
+    redirectUri,
+    javascriptOrigin: currentOrigin,
+    originMismatchReasons,
+  };
+}
+
+/**
+ * Logs OAuth configuration diagnostics safely to the console (never leaks secrets or raw tokens).
+ */
+export async function logOAuthDiagnostics(
+  context: string
+): Promise<OAuthConfigurationDiagnostics | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const diag = await getOAuthConfigurationDiagnostics();
+    console.info(`[BudgetFlows OAuth Diagnostics] (${context})`, {
+      currentOrigin: diag.currentOrigin,
+      javascriptOrigin: diag.javascriptOrigin,
+      oAuthClientId: diag.oAuthClientId || "(unresolved — check Firebase Auth Google provider)",
+      oAuthClientIdSource: diag.oAuthClientIdSource,
+      redirectUri: diag.redirectUri || "(not configured)",
+      authDomain: diag.authDomain || "(not configured)",
+      projectId: diag.projectId || "(not configured)",
+      originMismatchCheck: diag.originMismatchReasons,
+    });
+    return diag;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Checks passively for an existing in-memory Google Drive OAuth access token.
+ * NEVER opens Google Identity Services popups or calls requestAccessToken automatically,
+ * preventing unwanted popups and 400 origin_mismatch errors on startup/focus/sync.
  */
 export async function trySilentDriveTokenRestore(
   targetUser?: User | null,
   forceRefresh = false
 ): Promise<{ accessToken: string; expiresIn: number } | null> {
   if (typeof window === "undefined") return null;
-  if (typeof navigator !== "undefined" && !navigator.onLine) return null;
+  if (forceRefresh) return null;
 
   const client = getAuthClient() || auth;
   const activeUser = targetUser || client?.currentUser;
   if (!activeUser) return null;
 
-  if (!forceRefresh) {
-    const existing = getStoredOAuthToken(activeUser.uid);
-    if (existing) {
-      return { accessToken: existing, expiresIn: 3600 };
-    }
+  const existing = getStoredOAuthToken(activeUser.uid);
+  if (existing) {
+    return { accessToken: existing, expiresIn: 3600 };
   }
 
-  if (silentRestoreInFlight) {
-    return silentRestoreInFlight;
-  }
-
-  silentRestoreInFlight = (async () => {
-    try {
-      const clientId = await resolveGoogleOAuthClientId();
-      if (!clientId) return null;
-
-      const scriptReady = await loadGisClientScript();
-      const oauth2 = (window as any).google?.accounts?.oauth2;
-      if (!scriptReady || !oauth2?.initTokenClient) {
-        return null;
-      }
-
-      return await new Promise<{ accessToken: string; expiresIn: number } | null>(
-        (resolve) => {
-          let settled = false;
-          const finish = (val: { accessToken: string; expiresIn: number } | null) => {
-            if (!settled) {
-              settled = true;
-              clearTimeout(timeoutId);
-              resolve(val);
-            }
-          };
-
-          const timeoutId = setTimeout(() => finish(null), 5500);
-
-          try {
-            const tokenClient = oauth2.initTokenClient({
-              client_id: clientId,
-              scope: DRIVE_APPDATA_SCOPE,
-              hint: activeUser.email || undefined,
-              prompt: "",
-              callback: (resp: any) => {
-                if (resp?.access_token && !resp?.error) {
-                  const expiresIn = Number(resp.expires_in) || 3600;
-                  saveStoredOAuthToken(resp.access_token, expiresIn, activeUser.uid);
-                  finish({ accessToken: resp.access_token, expiresIn });
-                } else {
-                  finish(null);
-                }
-              },
-              error_callback: () => finish(null),
-            });
-
-            tokenClient.requestAccessToken({ prompt: "" });
-          } catch {
-            finish(null);
-          }
-        }
-      );
-    } catch {
-      return null;
-    } finally {
-      silentRestoreInFlight = null;
-    }
-  })();
-
-  return silentRestoreInFlight;
+  return null;
 }
 
 export interface GoogleSignInOptions {
@@ -362,8 +346,9 @@ export interface GoogleSignInOptions {
 
 /**
  * Initiates Google OAuth Sign-in or Drive Reconnection with appDataFolder scope.
+ * MUST ONLY be called in direct response to an explicit user action (button click).
  * - mode="switch": forces account chooser (prompt="select_account").
- * - mode="reconnect": reauthenticates the active user seamlessly via login_hint without forcing account switch.
+ * - mode="reconnect": reauthenticates the active user via login_hint using Firebase Auth popup handler.
  */
 export async function signInWithGoogle(
   options: GoogleSignInOptions = {}
@@ -385,6 +370,8 @@ export async function signInWithGoogle(
       await loadFirebaseConfigAsync();
     }
 
+    await logOAuthDiagnostics(`explicit_${mode}`);
+
     const client = getAuthClient() || auth;
     if (!client) {
       throw new Error(
@@ -394,14 +381,6 @@ export async function signInWithGoogle(
 
     const currentUser = client.currentUser;
     const hintEmail = options.loginHint || currentUser?.email || null;
-
-    // For reconnects, first try silent GIS token restoration (no popup needed if Google session is active)
-    if (mode === "reconnect" && currentUser) {
-      const silentRes = await trySilentDriveTokenRestore(currentUser);
-      if (silentRes?.accessToken) {
-        return { user: currentUser, accessToken: silentRes.accessToken };
-      }
-    }
 
     const provider = createGoogleProvider(
       mode === "switch"
@@ -457,6 +436,9 @@ export async function signInWithGoogle(
     return { user: result.user, accessToken: credential.accessToken };
   } catch (error: any) {
     console.error("Google sign-in error:", error);
+    if (isOriginMismatchError(error)) {
+      void logOAuthDiagnostics("origin_mismatch_detected");
+    }
     throw error;
   } finally {
     isSigningIn = false;
@@ -474,6 +456,21 @@ export function isRefererBlockedError(error: any): boolean {
     msg.includes("requests-from-referer") ||
     msg.includes("api_key_http_referrer_blocked") ||
     (msg.includes("referer") && msg.includes("blocked"))
+  );
+}
+
+/**
+ * Detects OAuth 400 origin_mismatch / storagerelay invalid origin errors
+ */
+export function isOriginMismatchError(error: any): boolean {
+  const msg = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
+  return (
+    msg.includes("origin_mismatch") ||
+    msg.includes("invalid_origin") ||
+    msg.includes("storagerelay") ||
+    code.includes("origin_mismatch") ||
+    code === "auth/unauthorized-continue-uri"
   );
 }
 
@@ -503,11 +500,18 @@ export function formatFirebaseAuthError(error: any): string {
   const currentDomain = typeof window !== "undefined" ? window.location.hostname : "домейна";
   const currentOrigin = typeof window !== "undefined" ? window.location.origin : `https://${currentDomain}`;
   const config = getFirebaseConfig();
+  const redirectUri = `https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/__/auth/handler`;
 
   if (isRefererBlockedError(error)) {
     return (
       `Достъпът на Firebase API ключа от адрес (${currentOrigin}) е блокиран от Google Cloud (HTTP 403 API_KEY_HTTP_REFERRER_BLOCKED). ` +
       `Добавете "${currentOrigin}/*" и "https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/*" в Website restrictions на API ключа в Google Cloud Console -> APIs & Services -> Credentials.`
+    );
+  }
+  if (isOriginMismatchError(error)) {
+    return (
+      `Грешка 400 (origin_mismatch): Текущият JavaScript origin (${currentOrigin}) не е добавен в "Authorized JavaScript origins" ` +
+      `или Redirect URI (${redirectUri}) липсва в OAuth 2.0 Client ID в Google Cloud Console -> APIs & Services -> Credentials.`
     );
   }
   if (isAccessDeniedError(error)) {
@@ -523,7 +527,7 @@ export function formatFirebaseAuthError(error: any): string {
     code === "auth/unauthorized-continue-uri" ||
     msg.includes("redirect_uri_mismatch")
   ) {
-    return `Несъответствие в Redirect URI: Проверете Authorized redirect URIs в Google Cloud Console (трябва да съдържа https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/__/auth/handler).`;
+    return `Несъответствие в Redirect URI: Проверете Authorized redirect URIs в Google Cloud Console (трябва да съдържа ${redirectUri}).`;
   }
   if (code === "auth/operation-not-allowed") {
     return "Входът с Google не е активиран във Firebase Authentication (Build -> Authentication -> Sign-in method -> Google -> Enable).";
@@ -586,8 +590,8 @@ export async function getGoogleAccessToken(expectedUid?: string): Promise<string
 /**
  * Ensures a valid Google OAuth Access Token is available in memory.
  * If missing or expired:
- * - When interactive is true, triggers signInWithGoogle to renew consent/token seamlessly.
- * - When interactive is false, returns null without disturbing the user.
+ * - When interactive is true (explicit user action), triggers signInWithGoogle to renew consent/token.
+ * - When interactive is false, returns null silently without opening any OAuth popup.
  */
 export async function ensureGoogleAccessToken(
   interactive = false,
@@ -598,18 +602,12 @@ export async function ensureGoogleAccessToken(
     return currentToken;
   }
 
-  const client = getAuthClient() || auth;
-  const activeUser = client?.currentUser;
-  if (activeUser && (!expectedUid || activeUser.uid === expectedUid)) {
-    const silentRes = await trySilentDriveTokenRestore(activeUser);
-    if (silentRes?.accessToken) {
-      return silentRes.accessToken;
-    }
-  }
-
   if (!interactive) {
     return null;
   }
+
+  const client = getAuthClient() || auth;
+  const activeUser = client?.currentUser;
 
   const result = await signInWithGoogle({
     mode: activeUser ? "reconnect" : "login",
@@ -620,7 +618,9 @@ export async function ensureGoogleAccessToken(
 }
 
 /**
- * Initializes Google Auth state observer with proper async cleanup.
+ * Initializes passive Google Auth state observer on startup.
+ * Restores existing Firebase Auth session and checks in-memory Drive token
+ * WITHOUT automatically launching Google OAuth popups.
  */
 export function initGoogleAuth(
   onUserChanged: (user: User | null, token: string | null) => void,
@@ -629,10 +629,15 @@ export function initGoogleAuth(
   let isDisposed = false;
   let unsubscribeAuth: (() => void) | null = null;
 
+  if (!startupDiagnosticsLogged) {
+    startupDiagnosticsLogged = true;
+    void logOAuthDiagnostics("startup_passive_restore");
+  }
+
   const attachObserver = (activeClient: Auth) => {
     if (isDisposed) return;
 
-    // Check if user just returned from a redirect flow on mobile
+    // Check passively if user just returned from an explicit redirect flow
     getRedirectResult(activeClient, browserPopupRedirectResolver)
       .then((redirectResult) => {
         if (isDisposed) return;

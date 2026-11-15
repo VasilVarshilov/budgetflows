@@ -30,7 +30,9 @@ import {
   isUnauthorizedDomainError,
   isAccessDeniedError,
   isRefererBlockedError,
+  isOriginMismatchError,
 } from "@/utils/googleAuth";
+import { getFirebaseConfig } from "@/utils/firebaseConfig";
 
 interface GoogleAuthCardProps {
   onOpenRestoreModal: () => void;
@@ -91,8 +93,12 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
   const [refererBlockedError, setRefererBlockedError] = useState(() =>
     Boolean(authError && isRefererBlockedError(authError))
   );
+  const [originMismatchError, setOriginMismatchError] = useState(() =>
+    Boolean(authError && isOriginMismatchError(authError))
+  );
   const [copiedDomain, setCopiedDomain] = useState(false);
   const [copiedOrigin, setCopiedOrigin] = useState(false);
+  const [copiedJsOrigin, setCopiedJsOrigin] = useState(false);
 
   const displayUser = user || storedProfile;
 
@@ -115,6 +121,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     setUnauthorizedDomainError(false);
     setAccessDeniedError(false);
     setRefererBlockedError(false);
+    setOriginMismatchError(false);
     try {
       await loginWithGoogle();
       setFeedback({
@@ -126,6 +133,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       setUnauthorizedDomainError(isUnauthorizedDomainError(e));
       setAccessDeniedError(isAccessDeniedError(e));
       setRefererBlockedError(isRefererBlockedError(e));
+      setOriginMismatchError(isOriginMismatchError(e));
       setFeedback({
         type: "error",
         text: formatFirebaseAuthError(e),
@@ -141,6 +149,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     setUnauthorizedDomainError(false);
     setAccessDeniedError(false);
     setRefererBlockedError(false);
+    setOriginMismatchError(false);
     try {
       await switchGoogleAccount();
       setFeedback({
@@ -152,6 +161,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       setUnauthorizedDomainError(isUnauthorizedDomainError(e));
       setAccessDeniedError(isAccessDeniedError(e));
       setRefererBlockedError(isRefererBlockedError(e));
+      setOriginMismatchError(isOriginMismatchError(e));
       setFeedback({
         type: "error",
         text: formatFirebaseAuthError(e),
@@ -166,6 +176,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     setFeedback(null);
     setAccessDeniedError(false);
     setRefererBlockedError(false);
+    setOriginMismatchError(false);
     try {
       await reconnectGoogleDrive();
       setFeedback({
@@ -176,6 +187,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     } catch (e: any) {
       setAccessDeniedError(isAccessDeniedError(e));
       setRefererBlockedError(isRefererBlockedError(e));
+      setOriginMismatchError(isOriginMismatchError(e));
       setFeedback({
         type: "error",
         text: formatFirebaseAuthError(e),
@@ -523,6 +535,53 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
         </div>
       )}
 
+      {/* 400 origin_mismatch Guide */}
+      {(originMismatchError || (authError && isOriginMismatchError(authError))) && (
+        <div className="p-4 sm:p-5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-amber-950 dark:text-amber-200 text-xs space-y-3 animate-in fade-in">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-slate-900 dark:text-white text-sm">
+                Грешка 400 (origin_mismatch): Несъответствие на JavaScript Origin в OAuth Client
+              </p>
+              <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
+                Google OAuth изисква точният произход (без път след домейна) да е добавен в <strong>Authorized JavaScript origins</strong> на вашия OAuth 2.0 Client ID.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-amber-200 dark:border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="truncate space-y-1">
+              <div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">Authorized JavaScript origin:</span>
+                <code className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm select-all">
+                  {typeof window !== "undefined" ? window.location.origin : "https://vasilvarshilov.github.io"}
+                </code>
+              </div>
+              <div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">Authorized redirect URI:</span>
+                <code className="font-mono text-slate-700 dark:text-slate-300 text-xs select-all">
+                  {`https://${getFirebaseConfig().authDomain || "gen-lang-client-0141580200.firebaseapp.com"}/__/auth/handler`}
+                </code>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const origin = typeof window !== "undefined" ? window.location.origin : "https://vasilvarshilov.github.io";
+                navigator.clipboard?.writeText(origin);
+                setCopiedJsOrigin(true);
+                setTimeout(() => setCopiedJsOrigin(false), 2500);
+              }}
+              className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>{copiedJsOrigin ? "Копирано!" : "Копирай origin"}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {lastSyncError && (
         <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -662,9 +721,9 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <div className="flex items-start gap-2.5 text-indigo-950 dark:text-indigo-200">
                 <KeyRound className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold block">Сесията за сигурност на Google Drive изисква потвърждение</span>
+                  <span className="font-bold block">Профилът е зареден — подновете Drive достъпа при нужда</span>
                   <span className="text-[11px] text-indigo-800/90 dark:text-indigo-300">
-                    Браузърът не позволи тихо подновяване на токена. Подновете достъпа — всички ваши локални разходи са запазени и ще бъдат сравнени безопасно с Drive.
+                    За ваша сигурност достъпът до Google Drive се пази само в текущата сесия на браузъра и не отваря автоматични прозорци. Натиснете бутона, за да синхронизирате — локалните ви данни са запазени.
                   </span>
                 </div>
               </div>

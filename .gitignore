@@ -3,6 +3,8 @@ dist
 .env
 .env.*
 !.env.example
+.dev.vars
+.wrangler
 *.log
 .DS_Store
 
