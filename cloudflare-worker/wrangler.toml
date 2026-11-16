@@ -5,3 +5,8 @@ workers_dev = true
 
 [vars]
 ALLOWED_ORIGIN = "https://vasilvarshilov.github.io"
+
+[previews]
+
+[previews.vars]
+ALLOWED_ORIGIN = "https://vasilvarshilov.github.io"
