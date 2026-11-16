@@ -41,6 +41,7 @@ import {
   STORAGE_BASE_AUTO_BACKUP,
   STORAGE_BASE_LAST_SYNC,
   STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
+  STORAGE_BASE_CLOUD_FILE_INFO,
   STORAGE_BASE_DRIVE_CONNECTED,
   STORAGE_BASE_PENDING_SYNC,
   STORAGE_BASE_DISMISSED_RESTORE_PROMPT,
@@ -323,6 +324,28 @@ export const CloudSyncProvider: React.FC<{
     const localTs = userStorage.getLocalUpdatedAt(uid);
     setLocalUpdatedAt(localTs);
 
+    const cachedInfo =
+      uid && uid !== "guest"
+        ? userStorage.getJSON<DriveFileInfo | null>(STORAGE_BASE_CLOUD_FILE_INFO, null, uid)
+        : null;
+    if (cachedInfo && cachedInfo.id) {
+      setCloudBackupInfo(cachedInfo);
+    } else {
+      const lastCloudMod =
+        uid && uid !== "guest"
+          ? userStorage.getItem(STORAGE_BASE_LAST_CLOUD_MODIFIED_AT, uid)
+          : null;
+      if (lastCloudMod) {
+        setCloudBackupInfo({
+          id: "",
+          name: DRIVE_BACKUP_FILENAME,
+          modifiedTime: lastCloudMod,
+        });
+      } else {
+        setCloudBackupInfo(null);
+      }
+    }
+
     hasPendingSyncRef.current = computeHasUnsyncedLocalChanges(uid);
   }, []);
 
@@ -411,6 +434,11 @@ export const CloudSyncProvider: React.FC<{
         const info = await findDriveBackup(token);
         if (authUidRef.current !== expectedUid) return null;
         setCloudBackupInfo(info);
+        if (info) {
+          userStorage.setJSON(STORAGE_BASE_CLOUD_FILE_INFO, info, expectedUid);
+        } else {
+          userStorage.removeItem(STORAGE_BASE_CLOUD_FILE_INFO, expectedUid);
+        }
         return info;
       } catch (e: any) {
         const errMsg = e?.message || "";
@@ -457,6 +485,11 @@ export const CloudSyncProvider: React.FC<{
         const info = await findDriveBackup(token);
         if (authUidRef.current !== expectedUid) return null;
         setCloudBackupInfo(info);
+        if (info) {
+          userStorage.setJSON(STORAGE_BASE_CLOUD_FILE_INFO, info, expectedUid);
+        } else {
+          userStorage.removeItem(STORAGE_BASE_CLOUD_FILE_INFO, expectedUid);
+        }
 
         const isEmpty = userStorage.isEmpty(expectedUid);
         const currentLocalUpdatedAt = userStorage.getLocalUpdatedAt(expectedUid);
@@ -519,6 +552,7 @@ export const CloudSyncProvider: React.FC<{
             size: formatDriveFileSize(uploadRes.sizeBytes),
             createdTime: info?.createdTime || cloudModTime,
           };
+          userStorage.setJSON(STORAGE_BASE_CLOUD_FILE_INFO, updatedInfo, expectedUid);
           setCloudBackupInfo(updatedInfo);
           return updatedInfo;
         }
@@ -531,6 +565,7 @@ export const CloudSyncProvider: React.FC<{
               expectedUid
             );
           }
+          persistPendingSyncFlag(expectedUid, false);
           setSyncConflict(null);
           setSyncStatus("synced");
           return info;
@@ -628,6 +663,9 @@ export const CloudSyncProvider: React.FC<{
             setHasDriveAccessToken(false);
             setDriveSessionStatus("needs_reauth");
           }
+        } else if (authUidRef.current === expectedUid) {
+          setSyncStatus("failed");
+          setLastSyncError(errMsg || "Грешка при синхронизация с Google Drive.");
         }
         console.warn("Could not evaluate Drive sync state:", e);
         return null;
@@ -637,7 +675,7 @@ export const CloudSyncProvider: React.FC<{
         }
       }
     },
-    [scheduleProactiveTokenRefresh]
+    [scheduleProactiveTokenRefresh, persistPendingSyncFlag]
   );
 
   // Auth observer: synchronizes userStorage namespace strictly with Firebase UID
@@ -690,6 +728,13 @@ export const CloudSyncProvider: React.FC<{
           void trySilentDriveTokenRestore(currentUser)
             .then((restored) => {
               if (authUidRef.current !== nextUid) return;
+              // Guard against race where user clicked interactive sign-in while BroadcastChannel check waited
+              if (getStoredOAuthToken(nextUid)) {
+                setIsRestoringDriveSession(false);
+                setHasDriveAccessToken(true);
+                setDriveSessionStatus("connected");
+                return;
+              }
               setIsRestoringDriveSession(false);
               if (restored?.accessToken) {
                 setHasDriveAccessToken(true);
@@ -718,7 +763,7 @@ export const CloudSyncProvider: React.FC<{
               }
             })
             .catch(() => {
-              if (authUidRef.current !== nextUid) return;
+              if (authUidRef.current !== nextUid || getStoredOAuthToken(nextUid)) return;
               setIsRestoringDriveSession(false);
               setHasDriveAccessToken(false);
               const unsynced = computeHasUnsyncedLocalChanges(nextUid);
@@ -778,7 +823,7 @@ export const CloudSyncProvider: React.FC<{
       if (getStoredOAuthToken(uid)) return;
 
       void trySilentDriveTokenRestore(activeUser).then((restored) => {
-        if (authUidRef.current !== uid) return;
+        if (authUidRef.current !== uid || getStoredOAuthToken(uid)) return;
         if (restored?.accessToken) {
           setHasDriveAccessToken(true);
           setDriveSessionStatus("connected");
@@ -989,14 +1034,16 @@ export const CloudSyncProvider: React.FC<{
           setLocalUpdatedAt(stamped);
         }
 
-        setCloudBackupInfo((prev) => ({
-          id: result.fileId || prev?.id || "",
+        const updatedInfo: DriveFileInfo = {
+          id: result.fileId || cloudBackupInfo?.id || "",
           name: DRIVE_BACKUP_FILENAME,
           modifiedTime: cloudModTime,
           sizeBytes: result.sizeBytes,
           size: formatDriveFileSize(result.sizeBytes),
-          createdTime: prev?.createdTime || cloudModTime,
-        }));
+          createdTime: cloudBackupInfo?.createdTime || cloudModTime,
+        };
+        userStorage.setJSON(STORAGE_BASE_CLOUD_FILE_INFO, updatedInfo, expectedUid);
+        setCloudBackupInfo(updatedInfo);
 
         await refreshDriveMetadataOnly(activeUser, token);
 
@@ -1127,7 +1174,7 @@ export const CloudSyncProvider: React.FC<{
     if (!getStoredOAuthToken(currentUser.uid)) {
       const scheduledForUid = currentUser.uid;
       void trySilentDriveTokenRestore(currentUser).then((silentRes) => {
-        if (authUidRef.current !== scheduledForUid) return;
+        if (authUidRef.current !== scheduledForUid || getStoredOAuthToken(scheduledForUid)) return;
         if (silentRes?.accessToken) {
           setHasDriveAccessToken(true);
           setDriveSessionStatus("connected");
@@ -1173,7 +1220,7 @@ export const CloudSyncProvider: React.FC<{
 
       if (!getStoredOAuthToken(currentUser.uid)) {
         void trySilentDriveTokenRestore(currentUser).then((restored) => {
-          if (authUidRef.current !== currentUser.uid) return;
+          if (authUidRef.current !== currentUser.uid || getStoredOAuthToken(currentUser.uid)) return;
           if (restored?.accessToken) {
             setHasDriveAccessToken(true);
             setDriveSessionStatus("connected");
@@ -1666,6 +1713,7 @@ export const CloudSyncProvider: React.FC<{
       await deleteDriveBackup(token, existing.id);
       if (authUidRef.current === expectedUid) {
         userStorage.removeItem(STORAGE_BASE_LAST_CLOUD_MODIFIED_AT, expectedUid);
+        userStorage.removeItem(STORAGE_BASE_CLOUD_FILE_INFO, expectedUid);
         setCloudBackupInfo(null);
         setPendingRestoreOffer(null);
         setSyncConflict(null);
@@ -1738,7 +1786,12 @@ export const CloudSyncProvider: React.FC<{
 
   const isAuthenticated = Boolean(user);
   const storedProfile = user ? toUserProfile(user) : null;
-  const cloudUpdatedAt = cloudBackupInfo?.modifiedTime || null;
+  const cloudUpdatedAt =
+    cloudBackupInfo?.modifiedTime ||
+    (activeUid && activeUid !== "guest"
+      ? userStorage.getItem(STORAGE_BASE_LAST_CLOUD_MODIFIED_AT, activeUid)
+      : null) ||
+    null;
   const hasUnsyncedChanges =
     Boolean(user) &&
     (driveSessionStatus === "needs_reauth" ||

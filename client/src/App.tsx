@@ -167,6 +167,7 @@ const AppContent: React.FC = () => {
     driveSessionStatus,
     isRestoringDriveSession,
     isOnline,
+    autoBackupEnabled,
     pendingRestoreOffer,
     syncConflict,
     dismissRestoreOffer,
@@ -174,6 +175,7 @@ const AppContent: React.FC = () => {
     resolveConflictUseLocal,
     resolveConflictRestoreCloud,
     loginWithGoogle,
+    reconnectGoogleDrive,
   } = useCloudSync();
 
   const monthlyDataRef = useRef<Record<string, MonthlyRecord>>({});
@@ -442,63 +444,81 @@ const AppContent: React.FC = () => {
 
               {/* Cloud Sync Status / User Profile Chip */}
               {displayUser ? (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("backup")}
-                  title={`Google Drive: ${displayUser.email || "Свързан"}`}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
-                >
-                  {displayUser.photoURL ? (
-                    <img
-                      src={displayUser.photoURL}
-                      alt="Google Profile"
-                      className="w-4 h-4 rounded-full object-cover"
+                <div className="flex items-center gap-1.5">
+                  {driveSessionStatus === "needs_reauth" &&
+                    autoBackupEnabled &&
+                    isOnline &&
+                    !isRestoringDriveSession && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          reconnectGoogleDrive().catch(() => setActiveTab("backup"));
+                        }}
+                        title="Има несинхронизирани промени — натиснете за 1-клик синхронизация с Google Drive"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-[11px] font-semibold text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
+                      >
+                        <UploadCloud className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                        <span className="hidden sm:inline">Синхронизирай</span>
+                      </button>
+                    )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("backup")}
+                    title={`Google Drive: ${displayUser.email || "Свързан"}`}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
+                  >
+                    {displayUser.photoURL ? (
+                      <img
+                        src={displayUser.photoURL}
+                        alt="Google Profile"
+                        className="w-4 h-4 rounded-full object-cover"
+                      />
+                    ) : (
+                      <Cloud className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    )}
+                    <span className="hidden sm:inline font-semibold text-[11px] max-w-[90px] truncate">
+                      {displayUser.displayName
+                        ? displayUser.displayName.split(" ")[0]
+                        : "Drive"}
+                    </span>
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        !isOnline
+                          ? "bg-amber-400"
+                          : isRestoringDriveSession || syncStatus === "syncing"
+                          ? "bg-blue-500 animate-pulse"
+                          : syncConflict
+                          ? "bg-amber-500 animate-pulse"
+                          : driveSessionStatus === "needs_reauth"
+                          ? "bg-amber-400"
+                          : syncStatus === "failed"
+                          ? "bg-rose-500"
+                          : hasDriveAccessToken || driveSessionStatus === "standby"
+                          ? "bg-emerald-500"
+                          : "bg-emerald-500"
+                      }`}
+                      title={
+                        !isOnline
+                          ? "Офлайн"
+                          : isRestoringDriveSession
+                          ? "Възстановяване на Drive сесията..."
+                          : syncConflict
+                          ? "Открит е конфликт между локална и облачна версия"
+                          : driveSessionStatus === "needs_reauth"
+                          ? "Има несинхронизирани промени — подновете Drive достъпа"
+                          : syncStatus === "syncing"
+                          ? "Синхронизиране..."
+                          : driveSessionStatus === "standby"
+                          ? "Сесията е активна • Синхронизирано с Google Drive"
+                          : syncStatus === "synced"
+                          ? "Drive Connected ✅ • Синхронизирано"
+                          : syncStatus === "failed"
+                          ? "Грешка при синхронизация"
+                          : "Drive Connected ✅"
+                      }
                     />
-                  ) : (
-                    <Cloud className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  )}
-                  <span className="hidden sm:inline font-semibold text-[11px] max-w-[90px] truncate">
-                    {displayUser.displayName
-                      ? displayUser.displayName.split(" ")[0]
-                      : "Drive"}
-                  </span>
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      !isOnline
-                        ? "bg-amber-400"
-                        : isRestoringDriveSession || syncStatus === "syncing"
-                        ? "bg-blue-500 animate-pulse"
-                        : syncConflict
-                        ? "bg-amber-500 animate-pulse"
-                        : driveSessionStatus === "needs_reauth"
-                        ? "bg-amber-400"
-                        : syncStatus === "failed"
-                        ? "bg-rose-500"
-                        : hasDriveAccessToken || driveSessionStatus === "standby"
-                        ? "bg-emerald-500"
-                        : "bg-emerald-500"
-                    }`}
-                    title={
-                      !isOnline
-                        ? "Офлайн"
-                        : isRestoringDriveSession
-                        ? "Възстановяване на Drive сесията..."
-                        : syncConflict
-                        ? "Открит е конфликт между локална и облачна версия"
-                        : driveSessionStatus === "needs_reauth"
-                        ? "Има несинхронизирани промени — подновете Drive достъпа"
-                        : syncStatus === "syncing"
-                        ? "Синхронизиране..."
-                        : driveSessionStatus === "standby"
-                        ? "Сесията е активна • Синхронизирано с Google Drive"
-                        : syncStatus === "synced"
-                        ? "Drive Connected ✅ • Синхронизирано"
-                        : syncStatus === "failed"
-                        ? "Грешка при синхронизация"
-                        : "Drive Connected ✅"
-                    }
-                  />
-                </button>
+                  </button>
+                </div>
               ) : (
                 <button
                   type="button"

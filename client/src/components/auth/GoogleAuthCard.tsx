@@ -878,10 +878,19 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                     <Loader2 className="w-3 h-3 animate-spin" />
                     <span>Проверка в Drive...</span>
                   </span>
-                ) : cloudBackupInfo ? (
+                ) : cloudBackupInfo && (hasDriveAccessToken || cloudBackupInfo.id) ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Наличен в appDataFolder</span>
+                    <span>
+                      {hasDriveAccessToken
+                        ? "Наличен в appDataFolder"
+                        : "Наличен в Drive (последна проверка)"}
+                    </span>
+                  </span>
+                ) : lastSyncTime || cloudUpdatedAt ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Изисква проверка с Drive</span>
                   </span>
                 ) : (
                   <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
