@@ -1112,9 +1112,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       controller.abort();
     }, 40000); // 40s client timeout (> 2x18s server timeout) so server error diagnostics aren't cut short
 
-    const configuredApiBase = String((import.meta as any).env?.VITE_API_BASE_URL || "")
-      .trim()
-      .replace(/\/+$/, "");
+    const rawConfiguredApiUrl = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+    const configuredApiBase = rawConfiguredApiUrl.replace(/\/+$/, "");
     const ocrEndpoint = configuredApiBase
       ? `${configuredApiBase}/api/ocr/receipt`
       : "/api/ocr/receipt";
@@ -1149,9 +1148,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     };
 
     const geminiStart = Date.now();
+    console.info("[BudgetFlows OCR Network Diagnostics] Request", {
+      configuredApiUrl: rawConfiguredApiUrl || "(empty)",
+      resolvedOcrUrl: ocrEndpoint,
+      requestUrl: ocrEndpoint,
+      runtimeOrigin: typeof window !== "undefined" ? window.location.origin : "",
+    });
     addDebugLog(
       "gemini_res",
-      `Gemini request started -> POST ${ocrEndpoint} (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
+      `OCR Network Diagnostics | Configured API URL=${rawConfiguredApiUrl || "(empty)"} | Resolved OCR URL=${ocrEndpoint} | Request URL=${ocrEndpoint} (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
     );
 
     try {
@@ -1169,12 +1174,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       clearTimeout(timeoutTimer);
       const contentType = response.headers.get("content-type") || "";
       const geminiElapsed = Date.now() - geminiStart;
+      const finalRequestUrl = response.url || ocrEndpoint;
+
+      console.info("[BudgetFlows OCR Network Diagnostics] Response", {
+        configuredApiUrl: rawConfiguredApiUrl || "(empty)",
+        resolvedOcrUrl: ocrEndpoint,
+        requestUrl: finalRequestUrl,
+        responseStatus: response.status,
+        responseContentType: contentType || "(empty)",
+        durationMs: geminiElapsed,
+      });
 
       if (contentType.includes("application/json")) {
         const json = await response.json();
         addDebugLog(
           "gemini_res",
-          `Gemini response received <- HTTP ${response.status} in ${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"} | errorCode=${json.errorCode || json.error || "none"}`,
+          `Gemini response received <- Request URL=${finalRequestUrl} | Response status=${response.status} | Response content-type=${contentType || "(empty)"} | duration=${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"} | errorCode=${json.errorCode || json.error || "none"}`,
           json
         );
 
