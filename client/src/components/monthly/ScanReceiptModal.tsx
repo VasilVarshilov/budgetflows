@@ -84,7 +84,10 @@ interface OcrAiRequestDiagnostics {
   timestamp: string;
   status: "pending" | "success" | "failed";
   failingStage: OcrPipelineStage;
+  clientPlatform: "Mobile" | "Desktop";
+  userAgent: string;
   requestUrl: string;
+  pageUrl: string;
   requestOrigin: string;
   configuredApiBaseUrl: string;
   requestMethod: string;
@@ -110,6 +113,9 @@ interface OcrAiRequestDiagnostics {
   healthProbeStatus: string;
   healthComparisonSummary: string;
   workerTimingSummary: string;
+  requestHeadersSummary: string;
+  workerResponseHeadersSummary: string;
+  preflightLogsSummary: string;
 }
 
 interface ScanReceiptModalProps {
@@ -1258,7 +1264,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     });
     const diagId = `${geminiStart}-${Math.random().toString(36).slice(2, 7)}`;
     const requestOrigin = typeof window !== "undefined" ? window.location.origin : "";
+    const pageUrl = typeof window !== "undefined" ? window.location.href : "";
+    const clientPlatform = detectPlatformType();
+    const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
     const requestMethod = "POST";
+    const clientSentHeadersSummary = `Origin=${requestOrigin || "(none)"} | Method=${requestMethod} | Content-Type=application/json | mode=cors | credentials=omit`;
 
     let requestBodyStr = "";
     let jsonPayloadBytes = 0;
@@ -1277,7 +1287,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         timestamp: reqTimestamp,
         status: "failed",
         failingStage: "REQUEST_CREATION",
+        clientPlatform,
+        userAgent,
         requestUrl: ocrEndpoint,
+        pageUrl,
         requestOrigin,
         configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
         requestMethod,
@@ -1303,6 +1316,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         healthProbeStatus: "not needed",
         healthComparisonSummary: "Failed before sending request",
         workerTimingSummary: "not reached",
+        requestHeadersSummary: clientSentHeadersSummary,
+        workerResponseHeadersSummary: "not reached",
+        preflightLogsSummary: "not reached",
       });
       setAiUnavailable(true);
       setAiFallbackReason(reason);
@@ -1318,7 +1334,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       timestamp: reqTimestamp,
       status: "pending",
       failingStage: "REQUEST_SEND",
+      clientPlatform,
+      userAgent,
       requestUrl: ocrEndpoint,
+      pageUrl,
       requestOrigin,
       configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
       requestMethod,
@@ -1344,15 +1363,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       healthProbeStatus: "not run",
       healthComparisonSummary: "pending",
       workerTimingSummary: "pending",
+      requestHeadersSummary: clientSentHeadersSummary,
+      workerResponseHeadersSummary: "pending",
+      preflightLogsSummary: "pending",
     });
 
     console.info("[BudgetFlows OCR Network Diagnostics] Request", {
       stage: "REQUEST_SEND",
+      clientPlatform,
+      userAgent,
+      pageUrl,
       requestOrigin,
       configuredApiUrl: rawConfiguredApiUrl || "(empty)",
       resolvedOcrUrl: ocrEndpoint,
       requestUrl: ocrEndpoint,
       requestMethod,
+      requestHeaders: { "Content-Type": "application/json" },
       imageWidth: prepared.diagnostics.originalWidth,
       imageHeight: prepared.diagnostics.originalHeight,
       aiTransportWidth: prepared.aiWidth,
@@ -1366,11 +1392,26 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     });
     addDebugLog(
       "gemini_res",
-      `OCR Request Payload | URL=${ocrEndpoint} | Method=${requestMethod} | Image=${prepared.diagnostics.originalWidth}x${prepared.diagnostics.originalHeight} (AI=${prepared.aiWidth}x${prepared.aiHeight}) | MIME=${prepared.diagnostics.originalMimeType}->${prepared.mimeType} | Orig=${prepared.originalSize}B | Compressed=${prepared.compressedSizeBytes}B | Base64=${prepared.base64SizeChars} chars | JSON=${jsonPayloadBytes}B (${(jsonPayloadBytes / 1024).toFixed(1)} KB)`
+      `OCR Request (${clientPlatform}) | Origin=${requestOrigin || "(none)"} | URL=${ocrEndpoint} | Method=${requestMethod} | Image=${prepared.diagnostics.originalWidth}x${prepared.diagnostics.originalHeight} (AI=${prepared.aiWidth}x${prepared.aiHeight}) | MIME=${prepared.diagnostics.originalMimeType}->${prepared.mimeType} | Orig=${prepared.originalSize}B | Compressed=${prepared.compressedSizeBytes}B | Base64=${prepared.base64SizeChars} chars | JSON=${jsonPayloadBytes}B (${(jsonPayloadBytes / 1024).toFixed(1)} KB)`
     );
 
     let uploadStartMs = performance.now();
     let uploadDurationMs = 0;
+
+    const serializeHeadersObj = (hObj: Record<string, unknown> | undefined | null): string => {
+      if (!hObj || typeof hObj !== "object") return "not reported";
+      return Object.entries(hObj)
+        .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+        .join(" | ");
+    };
+
+    const serializeFetchHeaders = (resHeaders: Headers): string => {
+      const pairs: string[] = [];
+      resHeaders.forEach((value, key) => {
+        pairs.push(`${key}: ${value}`);
+      });
+      return pairs.length > 0 ? pairs.join(" | ") : "not exposed by CORS";
+    };
 
     try {
       currentStage = "REQUEST_SEND";
@@ -1379,6 +1420,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         method: requestMethod,
         mode: "cors",
         credentials: "omit",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: requestBodyStr,
@@ -1387,16 +1429,19 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       uploadDurationMs = Math.round(performance.now() - uploadStartMs);
       clearTimeout(timeoutTimer);
       const contentType = response.headers.get("content-type") || "";
+      const rawResponseHeadersSummary = serializeFetchHeaders(response.headers);
       const geminiElapsed = Date.now() - geminiStart;
       const finalRequestUrl = response.url || ocrEndpoint;
 
       console.info("[BudgetFlows OCR Network Diagnostics] Response", {
         stage: "JSON_PARSE",
+        clientPlatform,
         requestOrigin,
         requestUrl: finalRequestUrl,
         requestMethod,
         responseStatus: response.status,
         responseContentType: contentType || "(empty)",
+        responseHeaders: rawResponseHeadersSummary,
         uploadDurationMs,
         durationMs: geminiElapsed,
       });
@@ -1426,10 +1471,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         const workerTimingSummary = json.workerTiming
           ? `stage=${json.workerTiming.stage}, contentLength=${json.workerTiming.contentLength}, bodySize=${json.workerTiming.requestBodySize ?? "?"}B, rx=${json.workerTiming.requestReceivedTimestamp}, done=${json.workerTiming.requestCompletedTimestamp}`
           : "not reported";
+        const requestHeadersSummary = json.requestHeadersSeen
+          ? serializeHeadersObj(json.requestHeadersSeen)
+          : clientSentHeadersSummary;
+        const workerResponseHeadersSummary = json.workerResponseHeaders
+          ? serializeHeadersObj(json.workerResponseHeaders)
+          : rawResponseHeadersSummary;
 
         addDebugLog(
           "gemini_res",
-          `Gemini response received <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | WorkerTiming=(${workerTimingSummary})`,
+          `Gemini response received (${clientPlatform}) <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | WorkerHeaders=(${workerResponseHeadersSummary}) | ReqSeen=(${requestHeadersSummary}) | WorkerTiming=(${workerTimingSummary})`,
           json
         );
 
@@ -1439,7 +1490,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             timestamp: reqTimestamp,
             status: "success",
             failingStage: "CLIENT_RESPONSE",
+            clientPlatform,
+            userAgent,
             requestUrl: finalRequestUrl,
+            pageUrl,
             requestOrigin,
             configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
             requestMethod,
@@ -1465,6 +1519,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             healthProbeStatus: "not needed",
             healthComparisonSummary: `POST /api/ocr/receipt succeeded in ${uploadDurationMs}ms (${jsonPayloadBytes} bytes)`,
             workerTimingSummary,
+            requestHeadersSummary,
+            workerResponseHeadersSummary,
+            preflightLogsSummary: "POST succeeded (preflight accepted)",
           });
           const gData = json.data;
           // Bulgaria uses Euro (€) - do not let AI flip an explicitly detected Euro receipt back to BGN
@@ -1674,7 +1731,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             timestamp: reqTimestamp,
             status: "failed",
             failingStage: serverStage,
+            clientPlatform,
+            userAgent,
             requestUrl: finalRequestUrl,
+            pageUrl,
             requestOrigin,
             configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
             requestMethod,
@@ -1700,6 +1760,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             healthProbeStatus: "not needed (POST reached Worker)",
             healthComparisonSummary: `POST reached Worker at stage ${serverStage} in ${uploadDurationMs}ms`,
             workerTimingSummary,
+            requestHeadersSummary,
+            workerResponseHeadersSummary,
+            preflightLogsSummary: "POST reached Worker",
           });
           addDebugLog(
             "gemini_res",
@@ -1746,7 +1809,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           timestamp: reqTimestamp,
           status: "failed",
           failingStage: "JSON_PARSE",
+          clientPlatform,
+          userAgent,
           requestUrl: finalRequestUrl,
+          pageUrl,
           requestOrigin,
           configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
           requestMethod,
@@ -1772,6 +1838,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           healthProbeStatus: "not needed (HTTP response received)",
           healthComparisonSummary: `POST returned non-JSON HTTP ${response.status} after ${uploadDurationMs}ms`,
           workerTimingSummary: "non-JSON response",
+          requestHeadersSummary: clientSentHeadersSummary,
+          workerResponseHeadersSummary: rawResponseHeadersSummary,
+          preflightLogsSummary: "POST reached edge/server (non-JSON)",
         });
         addDebugLog(
           "gemini_res",
@@ -1799,36 +1868,60 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       let tinyPostStatus: number | null = null;
       let tinyPostDurationMs: number | null = null;
       let tinyPostError = "";
+      let capturedReqHeadersSummary = clientSentHeadersSummary;
+      let capturedWorkerRespHeadersSummary = "not received (fetch threw before headers)";
+      let capturedPreflightsSummary = "unavailable (health CORS probe failed)";
 
       if (!isAbort && !isOffline && failedClientStage === "REQUEST_SEND") {
-        const healthUrl = configuredApiBase
+        const healthBaseUrl = configuredApiBase
           ? `${configuredApiBase}/api/ocr/health`
           : "/api/ocr/health";
+        const healthUrl = `${healthBaseUrl}?cors_probe=${Date.now()}`;
         const hStart = performance.now();
         try {
           const healthRes = await fetch(healthUrl, {
             method: "GET",
             mode: "cors",
             credentials: "omit",
+            cache: "no-store",
           });
           const hMs = Math.round(performance.now() - hStart);
           healthHttpStatus = healthRes.status;
           healthReached = healthRes.ok;
           const hCt = healthRes.headers.get("content-type") || "";
+          capturedWorkerRespHeadersSummary = serializeFetchHeaders(healthRes.headers);
           if (hCt.includes("application/json")) {
             const hJson = await healthRes.json();
             healthHasKey = typeof hJson?.hasApiKey === "boolean" ? hJson.hasApiKey : null;
+            if (hJson?.requestHeadersSeen) {
+              capturedReqHeadersSummary = serializeHeadersObj(hJson.requestHeadersSeen);
+            }
+            if (hJson?.workerResponseHeaders) {
+              capturedWorkerRespHeadersSummary = serializeHeadersObj(hJson.workerResponseHeaders);
+            }
+            if (Array.isArray(hJson?.recentPreflights) && hJson.recentPreflights.length > 0) {
+              capturedPreflightsSummary = hJson.recentPreflights
+                .slice(0, 3)
+                .map(
+                  (p: any) =>
+                    `[${p.deviceHint}] OPTIONS origin=${p.origin} allow=${p.accessControlAllowOrigin} acrh=${p.accessControlRequestHeaders} pna=${p.accessControlRequestPrivateNetwork} secFetch=${JSON.stringify(p.secFetchHeaders || {})}`
+                )
+                .join(" || ");
+            } else {
+              capturedPreflightsSummary = "0 OPTIONS preflights logged in current Worker isolate";
+            }
           }
-          healthProbeSummary = `GET /api/ocr/health (cors) -> HTTP ${healthRes.status} in ${hMs}ms (${healthHasKey !== null ? `hasApiKey=${healthHasKey}` : hCt || "ok"})`;
+          healthProbeSummary = `GET /api/ocr/health (cors, no-store) -> HTTP ${healthRes.status} in ${hMs}ms (${healthHasKey !== null ? `hasApiKey=${healthHasKey}` : hCt || "ok"})`;
         } catch (hErr: any) {
           const hMs = Math.round(performance.now() - hStart);
-          healthProbeSummary = `GET /api/ocr/health (cors) FAILED in ${hMs}ms (${hErr?.name || "Error"}: ${hErr?.message || "network error"})`;
+          healthProbeSummary = `GET /api/ocr/health (cors, no-store) FAILED in ${hMs}ms (${hErr?.name || "Error"}: ${hErr?.message || "network error"})`;
           // Distinguish proven browser CORS rejection vs network/TLS/connection block using mode: "no-cors"
           try {
             await fetch(healthUrl, {
               method: "GET",
               mode: "no-cors",
               credentials: "omit",
+              cache: "no-store",
             });
             healthNoCorsReachable = true;
           } catch {
@@ -1844,11 +1937,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               method: "POST",
               mode: "cors",
               credentials: "omit",
+              cache: "no-store",
               headers: { "Content-Type": "application/json" },
               body: "{}",
             });
             tinyPostDurationMs = Math.round(performance.now() - tStart);
             tinyPostStatus = tinyRes.status;
+            const tCt = tinyRes.headers.get("content-type") || "";
+            if (tCt.includes("application/json")) {
+              const tJson = await tinyRes.json();
+              if (tJson?.requestHeadersSeen) {
+                capturedReqHeadersSummary = serializeHeadersObj(tJson.requestHeadersSeen);
+              }
+              if (tJson?.workerResponseHeaders) {
+                capturedWorkerRespHeadersSummary = serializeHeadersObj(tJson.workerResponseHeaders);
+              }
+            }
           } catch (tErr: any) {
             tinyPostDurationMs = Math.round(performance.now() - tStart);
             tinyPostError = `${tErr?.name || "Error"}: ${tErr?.message || "POST probe failed"}`;
@@ -1885,7 +1989,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         httpStatusDisplay = `0 on ${payloadKb} KB POST (Health=HTTP ${healthHttpStatus}, 2B POST=HTTP ${tinyPostStatus})`;
         workerErrCode = "LARGE_POST_UPLOAD_FAILED";
         healthComparisonSummary = `${healthProbeSummary} | Tiny 2B POST -> HTTP ${tinyPostStatus} in ${tinyPostDurationMs}ms (CORS & POST route proven working!) | Full ${payloadKb} KB POST -> FAILED in ${uploadDurationMs}ms`;
-        actualFailureReason = `CORS & POST route work (GET /health=HTTP ${healthHttpStatus}, 2B POST=HTTP ${tinyPostStatus}), but the ${payloadKb} KB receipt POST failed at REQUEST_SEND after ${uploadDurationMs}ms (${rawErrLabel}) — payload size/upload drop or Worker 1101/1102 limit`;
+        actualFailureReason = `CORS & POST route work (GET /health=HTTP ${healthHttpStatus}, 2B POST=HTTP ${tinyPostStatus}), but the ${payloadKb} KB receipt POST failed at REQUEST_SEND after ${uploadDurationMs}ms (${rawErrLabel})`;
       } else if (healthReached && tinyPostStatus === null) {
         httpStatusDisplay = `0 on POST (Health=HTTP ${healthHttpStatus}, 2B POST failed)`;
         workerErrCode = "POST_PREFLIGHT_OR_METHOD_FAILED";
@@ -1898,8 +2002,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       } else if (healthNoCorsReachable === true) {
         httpStatusDisplay = "0 (Proven CORS rejection)";
         workerErrCode = "PROVEN_CORS_REJECTION";
-        healthComparisonSummary = `GET /health (mode: cors) FAILED, while GET /health (mode: no-cors) SUCCEEDED — Origin "${requestOrigin}" rejected by CORS`;
-        actualFailureReason = `Proven CORS rejection: browser blocked JS access from Origin "${requestOrigin || "(unknown)"}" on ${ocrEndpoint} (no-cors reachability succeeded)`;
+        healthComparisonSummary = `[${clientPlatform}] GET /health (mode: cors) FAILED, while GET /health (mode: no-cors) SUCCEEDED — browser rejected CORS for Page Origin "${requestOrigin || "(none)"}"`;
+        actualFailureReason = `Proven CORS rejection on ${clientPlatform}: Page Origin "${requestOrigin || "(unknown)"}" (${pageUrl}) failed GET /health (mode: cors) while no-cors succeeded. Note: GET /health has no custom headers, so this is either an Origin mismatch against Worker ALLOWED_ORIGIN or a Desktop PNA/Incognito CORS rejection.`;
       } else {
         httpStatusDisplay = "0 (Connection / TLS / Blocker Drop)";
         workerErrCode = "NETWORK_OR_CONNECTION_DROP";
@@ -1912,7 +2016,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         timestamp: reqTimestamp,
         status: "failed",
         failingStage: failedClientStage,
+        clientPlatform,
+        userAgent,
         requestUrl: ocrEndpoint,
+        pageUrl,
         requestOrigin,
         configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
         requestMethod,
@@ -1938,13 +2045,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         healthProbeStatus: healthProbeSummary,
         healthComparisonSummary,
         workerTimingSummary: "not reached",
+        requestHeadersSummary: capturedReqHeadersSummary,
+        workerResponseHeadersSummary: capturedWorkerRespHeadersSummary,
+        preflightLogsSummary: capturedPreflightsSummary,
       });
 
       console.warn("[BudgetFlows OCR Network Diagnostics] Request Failed", {
+        clientPlatform,
+        userAgent,
+        pageUrl,
         failingStage: failedClientStage,
         requestOrigin,
         requestUrl: ocrEndpoint,
         requestMethod,
+        requestHeadersSummary: capturedReqHeadersSummary,
+        workerResponseHeadersSummary: capturedWorkerRespHeadersSummary,
+        preflightLogsSummary: capturedPreflightsSummary,
         imageWidth: prepared.diagnostics.originalWidth,
         imageHeight: prepared.diagnostics.originalHeight,
         aiTransportWidth: prepared.aiWidth,
@@ -1966,7 +2082,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
       addDebugLog(
         "gemini_res",
-        `Gemini failed <- Failing Stage=${failedClientStage} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B (${payloadKb} KB) | WorkerCode=${workerErrCode} | Compare=(${healthComparisonSummary}) | reason=${actualFailureReason}`
+        `Gemini failed (${clientPlatform}) <- Failing Stage=${failedClientStage} | Origin=${requestOrigin || "(none)"} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B (${payloadKb} KB) | WorkerCode=${workerErrCode} | Compare=(${healthComparisonSummary}) | Preflights=(${capturedPreflightsSummary}) | reason=${actualFailureReason}`
       );
       setAiUnavailable(true);
       setAiFallbackReason(actualFailureReason);
@@ -2618,12 +2734,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   {aiDiagnostics && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 font-mono text-[11px]">
                       <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800/80">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Failing Stage</span>
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Failing Stage ({aiDiagnostics.clientPlatform})</span>
                         <span className="text-rose-700 dark:text-rose-300 font-bold">{aiDiagnostics.failingStage}</span>
                       </div>
                       <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 min-w-0">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Request URL ({aiDiagnostics.requestMethod})</span>
-                        <span className="text-slate-900 dark:text-slate-100 break-all">{aiDiagnostics.requestUrl}</span>
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Page Origin → Request URL ({aiDiagnostics.requestMethod})</span>
+                        <span className="text-slate-900 dark:text-slate-100 break-all">
+                          {aiDiagnostics.requestOrigin || "(none)"} → {aiDiagnostics.requestUrl}
+                        </span>
                       </div>
                       <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
                         <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">HTTP Status Code</span>
@@ -2648,11 +2766,20 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         <span className="text-slate-900 dark:text-slate-100 break-words">{aiDiagnostics.healthComparisonSummary}</span>
                       </div>
                       <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2 lg:col-span-3">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Request Headers & Worker Response Headers</span>
+                        <span className="text-slate-700 dark:text-slate-300 break-all block">
+                          Req: {aiDiagnostics.requestHeadersSummary}
+                        </span>
+                        <span className="text-slate-700 dark:text-slate-300 break-all block mt-0.5">
+                          Resp: {aiDiagnostics.workerResponseHeadersSummary}
+                        </span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2 lg:col-span-3">
                         <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">
                           Image & Sizes | Timeout: {aiDiagnostics.timeoutReason}
                         </span>
                         <span className="text-slate-700 dark:text-slate-300 break-words">
-                          Orig: {aiDiagnostics.imageWidth}x{aiDiagnostics.imageHeight} ({(aiDiagnostics.originalFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.originalMimeType}) | AI Copy: {aiDiagnostics.aiTransportWidth}x{aiDiagnostics.aiTransportHeight} ({(aiDiagnostics.compressedFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.mimeType}) | Base64: {(aiDiagnostics.base64SizeChars / 1024).toFixed(1)} KB | Origin: {aiDiagnostics.requestOrigin || "(none)"}
+                          Orig: {aiDiagnostics.imageWidth}x{aiDiagnostics.imageHeight} ({(aiDiagnostics.originalFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.originalMimeType}) | AI Copy: {aiDiagnostics.aiTransportWidth}x{aiDiagnostics.aiTransportHeight} ({(aiDiagnostics.compressedFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.mimeType}) | Base64: {(aiDiagnostics.base64SizeChars / 1024).toFixed(1)} KB
                         </span>
                       </div>
                     </div>
@@ -3386,7 +3513,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             </span>
                           </div>
                           <span className="text-slate-400 text-[10px]">
-                            Origin: {reqDiag.requestOrigin || "(none)"}
+                            [{reqDiag.clientPlatform}] Origin: {reqDiag.requestOrigin || "(none)"}
                           </span>
                         </div>
 
@@ -3423,6 +3550,18 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             <span className="text-slate-400">Health vs POST: </span>
                             <span className="text-emerald-300 break-words">{reqDiag.healthComparisonSummary}</span>
                           </div>
+                          <div className="sm:col-span-2 break-all">
+                            <span className="text-slate-400">Request Headers: </span>
+                            <span className="text-slate-200">{reqDiag.requestHeadersSummary}</span>
+                          </div>
+                          <div className="sm:col-span-2 break-all">
+                            <span className="text-slate-400">Worker Response Headers: </span>
+                            <span className="text-sky-200">{reqDiag.workerResponseHeadersSummary}</span>
+                          </div>
+                          <div className="sm:col-span-2 break-all">
+                            <span className="text-slate-400">OPTIONS Preflights: </span>
+                            <span className="text-amber-200">{reqDiag.preflightLogsSummary}</span>
+                          </div>
                           <div className="sm:col-span-2">
                             <span className="text-slate-400">Timeout Reason: </span>
                             <span className="text-slate-200">{reqDiag.timeoutReason}</span>
@@ -3434,7 +3573,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             </div>
                           )}
                           <div className="sm:col-span-2 text-[10px] text-slate-400 break-all">
-                            Model: {reqDiag.modelAttempted} | Content-Type: {reqDiag.responseContentType} | Worker Timing: {reqDiag.workerTimingSummary}
+                            Model: {reqDiag.modelAttempted} | Content-Type: {reqDiag.responseContentType} | Page: {reqDiag.pageUrl} | Worker Timing: {reqDiag.workerTimingSummary}
                           </div>
                         </div>
                       </div>
