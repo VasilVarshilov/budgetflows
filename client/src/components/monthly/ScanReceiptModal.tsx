@@ -300,9 +300,10 @@ async function prepareReceiptImageWithTimeout(
         }
 
         // 2. Prepare base64 payload for optional Gemini API enhancement (separate from OCR input!)
+        // Keep Gemini JSON transport compact (~300-800KB) so Cloudflare Worker & mobile networks don't fail on multi-MB POST bodies.
         let base64 = "";
         let geminiMimeType = file.type || "image/jpeg";
-        const MAX_DIRECT_GEMINI_BYTES = 4.5 * 1024 * 1024;
+        const MAX_DIRECT_GEMINI_BYTES = 1.2 * 1024 * 1024;
         if (
           file.size <= MAX_DIRECT_GEMINI_BYTES &&
           exifOrientation <= 1 &&
@@ -310,9 +311,9 @@ async function prepareReceiptImageWithTimeout(
         ) {
           base64 = await readFileAsDataUrl(file);
         } else {
-          // Only create a separate JPEG copy for Gemini JSON transport if file > 4.5MB or rotated/HEIC
-          const maxGeminiWidth = 2400;
-          const maxGeminiHeight = 6000;
+          // Only create a separate JPEG copy for Gemini JSON transport if file > 1.2MB or rotated/HEIC
+          const maxGeminiWidth = 1600;
+          const maxGeminiHeight = 4000;
           let gWidth = originalWidth;
           let gHeight = originalHeight;
           if (gWidth > maxGeminiWidth) {
@@ -1148,27 +1149,35 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     };
 
     const geminiStart = Date.now();
+    const requestOrigin = typeof window !== "undefined" ? window.location.origin : "";
+    const requestMethod = "POST";
+    const requestBodyStr = JSON.stringify({
+      imageBase64: prepared.base64,
+      mimeType: prepared.mimeType,
+      ocrText: ocrRawText,
+    });
+
     console.info("[BudgetFlows OCR Network Diagnostics] Request", {
+      requestOrigin,
       configuredApiUrl: rawConfiguredApiUrl || "(empty)",
       resolvedOcrUrl: ocrEndpoint,
       requestUrl: ocrEndpoint,
-      runtimeOrigin: typeof window !== "undefined" ? window.location.origin : "",
+      requestMethod,
+      payloadBytes: requestBodyStr.length,
     });
     addDebugLog(
       "gemini_res",
-      `OCR Network Diagnostics | Configured API URL=${rawConfiguredApiUrl || "(empty)"} | Resolved OCR URL=${ocrEndpoint} | Request URL=${ocrEndpoint} (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
+      `OCR Network Diagnostics | Request Origin=${requestOrigin} | Request Method=${requestMethod} | Configured API URL=${rawConfiguredApiUrl || "(empty)"} | Resolved OCR URL=${ocrEndpoint} | Request URL=${ocrEndpoint} | payloadBytes=${requestBodyStr.length} (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
     );
 
     try {
       const response = await fetch(ocrEndpoint, {
-        method: "POST",
+        method: requestMethod,
+        mode: "cors",
+        credentials: "omit",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
-        body: JSON.stringify({
-          imageBase64: prepared.base64,
-          mimeType: prepared.mimeType,
-          ocrText: ocrRawText,
-        }),
+        body: requestBodyStr,
       });
 
       clearTimeout(timeoutTimer);
@@ -1177,9 +1186,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       const finalRequestUrl = response.url || ocrEndpoint;
 
       console.info("[BudgetFlows OCR Network Diagnostics] Response", {
+        requestOrigin,
         configuredApiUrl: rawConfiguredApiUrl || "(empty)",
         resolvedOcrUrl: ocrEndpoint,
         requestUrl: finalRequestUrl,
+        requestMethod,
         responseStatus: response.status,
         responseContentType: contentType || "(empty)",
         durationMs: geminiElapsed,
@@ -1189,7 +1200,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         const json = await response.json();
         addDebugLog(
           "gemini_res",
-          `Gemini response received <- Request URL=${finalRequestUrl} | Response status=${response.status} | Response content-type=${contentType || "(empty)"} | duration=${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"} | errorCode=${json.errorCode || json.error || "none"}`,
+          `Gemini response received <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | Response Status=${response.status} | Response Content-Type=${contentType || "(empty)"} | duration=${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"} | errorCode=${json.errorCode || json.error || "none"}`,
           json
         );
 
@@ -1409,7 +1420,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             : response.status === 404
             ? `Route not found (HTTP 404 — ${ocrEndpoint} не е намерен)`
             : `Gemini unavailable: non-JSON response (HTTP ${response.status}, ${contentType || "unknown"})`;
-        addDebugLog("gemini_res", `Gemini fallback -> ${failureReason}`);
+        addDebugLog(
+          "gemini_res",
+          `Gemini fallback <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | Response Status=${response.status} | Response Content-Type=${contentType || "(empty)"} | reason=${failureReason}`
+        );
         setAiUnavailable(true);
         setAiFallbackReason(failureReason);
         setAiSucceeded(false);
@@ -1421,7 +1435,37 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         gErr?.name === "AbortError"
           ? "Gemini timeout (превишено време >40s)"
           : `Gemini unavailable (${gErr?.message || "Network error"})`;
-      addDebugLog("gemini_res", `Gemini fallback -> ${errReason}`);
+
+      let healthProbeSummary = "skipped";
+      if (gErr?.name !== "AbortError" && configuredApiBase) {
+        try {
+          const healthRes = await fetch(`${configuredApiBase}/api/ocr/health`, {
+            method: "GET",
+            mode: "cors",
+            credentials: "omit",
+          });
+          healthProbeSummary = `status=${healthRes.status}, content-type=${healthRes.headers.get("content-type") || "(empty)"}`;
+        } catch (hErr: any) {
+          healthProbeSummary = `failed (${hErr?.message || "network error"})`;
+        }
+      }
+
+      console.warn("[BudgetFlows OCR Network Diagnostics] Fetch Failed", {
+        requestOrigin,
+        requestUrl: ocrEndpoint,
+        requestMethod,
+        responseStatus: "no_response (network/CORS error)",
+        responseContentType: "none",
+        errorName: gErr?.name,
+        errorMessage: gErr?.message,
+        payloadBytes: requestBodyStr.length,
+        healthProbe: healthProbeSummary,
+      });
+
+      addDebugLog(
+        "gemini_res",
+        `Gemini fallback <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${ocrEndpoint} | Response Status=no_response | Response Content-Type=none | payloadBytes=${requestBodyStr.length} | healthProbe=${healthProbeSummary} | reason=${errReason}`
+      );
       setAiUnavailable(true);
       setAiFallbackReason(errReason);
       setAiSucceeded(false);

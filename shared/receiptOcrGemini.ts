@@ -88,10 +88,10 @@ export async function analyzeReceiptWithGemini(input: {
 
   try {
     const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+    const rawBase64 = typeof input.imageBase64 === "string" ? input.imageBase64 : "";
+    const dataPrefixComma = rawBase64.startsWith("data:") ? rawBase64.indexOf(",") : -1;
     const cleanBase64 =
-      typeof input.imageBase64 === "string"
-        ? input.imageBase64.replace(/^data:[^;]+;base64,/, "")
-        : "";
+      dataPrefixComma !== -1 ? rawBase64.slice(dataPrefixComma + 1) : rawBase64;
     const ocrTextStr = typeof input.ocrText === "string" ? input.ocrText : "";
     const mimeTypeStr =
       typeof input.mimeType === "string" && input.mimeType.trim()
