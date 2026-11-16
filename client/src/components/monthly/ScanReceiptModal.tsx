@@ -13,7 +13,6 @@ import {
   ChevronUp,
   RefreshCw,
   Check,
-  Bug,
   Clock,
   ArrowRight,
   Info,
@@ -59,10 +58,7 @@ export interface OCRReceiptResult {
 }
 
 interface DebugLog {
-  timestamp: string;
   step: "ocr_text" | "parsed_total" | "parsed_merchant" | "parsed_date" | "parsed_items" | "gemini_res" | "error" | "expense";
-  message: string;
-  data?: any;
 }
 
 type OcrPipelineStage =
@@ -78,45 +74,6 @@ type OcrPipelineStage =
   | "GEMINI_RESPONSE"
   | "JSON_PARSE"
   | "CLIENT_RESPONSE";
-
-interface OcrAiRequestDiagnostics {
-  id: string;
-  timestamp: string;
-  status: "pending" | "success" | "failed";
-  failingStage: OcrPipelineStage;
-  clientPlatform: "Mobile" | "Desktop";
-  userAgent: string;
-  requestUrl: string;
-  pageUrl: string;
-  requestOrigin: string;
-  configuredApiBaseUrl: string;
-  requestMethod: string;
-  imageWidth: number;
-  imageHeight: number;
-  aiTransportWidth: number;
-  aiTransportHeight: number;
-  originalMimeType: string;
-  mimeType: string;
-  originalFileSizeBytes: number;
-  compressedFileSizeBytes: number;
-  base64SizeChars: number;
-  payloadBytes: number;
-  uploadDurationMs: number | null;
-  durationMs: number | null;
-  httpStatus: number | string | null;
-  responseContentType: string;
-  workerErrorCode: string;
-  geminiErrorCode: string;
-  timeoutReason: string;
-  actualFailureReason: string;
-  modelAttempted: string;
-  healthProbeStatus: string;
-  healthComparisonSummary: string;
-  workerTimingSummary: string;
-  requestHeadersSummary: string;
-  workerResponseHeadersSummary: string;
-  preflightLogsSummary: string;
-}
 
 interface ScanReceiptModalProps {
   isOpen: boolean;
@@ -835,8 +792,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [aiUnavailable, setAiUnavailable] = useState<boolean>(false);
   const [aiFallbackReason, setAiFallbackReason] = useState<string | null>(null);
   const [aiSucceeded, setAiSucceeded] = useState<boolean>(false);
-  const [aiDiagnostics, setAiDiagnostics] = useState<OcrAiRequestDiagnostics | null>(null);
-  const [aiDiagnosticsHistory, setAiDiagnosticsHistory] = useState<OcrAiRequestDiagnostics[]>([]);
   const [processingWarning, setProcessingWarning] = useState<string | null>(null);
   const [ocrLanguageInfo, setOcrLanguageInfo] = useState<{
     requested: string;
@@ -855,9 +810,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [editItemQuantity, setEditItemQuantity] = useState<string>("1");
   const [editItemPrice, setEditItemPrice] = useState<string>("");
 
-  // Debug Panel State
-  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
-  const [showDebugPanel, setShowDebugPanel] = useState<boolean>(false);
   const [scanElapsedSeconds, setScanElapsedSeconds] = useState<number>(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -875,7 +827,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
   }, []);
 
-  // Add event to debug log
+  // Internal developer logging (console only)
   const addDebugLog = useCallback(
     (step: DebugLog["step"], message: string, data?: any) => {
       const now = new Date().toLocaleTimeString("bg-BG", {
@@ -884,7 +836,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         second: "2-digit",
       });
       console.log(`[Receipt OCR] [${now}] [${step.toUpperCase()}] ${message}`, data || "");
-      setDebugLogs((prev) => [...prev, { timestamp: now, step, message, data }]);
     },
     []
   );
@@ -932,7 +883,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setAiUnavailable(false);
     setAiFallbackReason(null);
     setAiSucceeded(false);
-    setAiDiagnostics(null);
     setProcessingWarning(null);
     setOcrLanguageInfo(null);
     setShowAddItemForm(false);
@@ -1075,7 +1025,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     } catch (prepErr: any) {
       const failedPrepStage = prepErr?.stage || "IMAGE_LOAD";
       addDebugLog("error", `Провал на етап ${failedPrepStage}: ${prepErr.message}`);
-      setProcessingWarning(`Грешка на етап ${failedPrepStage}: въведете данните ръчно.`);
+      setProcessingWarning("Изображението не можа да бъде обработено автоматично. Моля, въведете данните ръчно.");
       setMerchantName("Касова бележка");
       setStep("review");
     }
@@ -1095,7 +1045,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setAiUnavailable(false);
     setAiFallbackReason(null);
     setAiSucceeded(false);
-    setAiDiagnostics(null);
     setProcessingWarning(null);
     setDateEditedByUser(false);
     setShowAddItemForm(false);
@@ -1221,54 +1170,37 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       ? `${configuredApiBase}/api/ocr/receipt`
       : "/api/ocr/receipt";
 
-    const recordAiDiagnostic = (entry: OcrAiRequestDiagnostics) => {
-      setAiDiagnostics(entry);
-      setAiDiagnosticsHistory((prev) => [entry, ...prev].slice(0, 10));
-    };
-
-    const formatServerFailureReason = (
-      errorCode: string | undefined,
-      httpStatus: number | null | undefined,
-      serverReason?: string
+    const getFriendlyAiErrorMessage = (
+      errorCode?: string | null,
+      httpStatus?: number | null,
+      isTimeout?: boolean
     ): string => {
-      if (serverReason && serverReason.trim()) {
-        return serverReason.trim();
+      if (
+        isTimeout ||
+        errorCode === "GEMINI_TIMEOUT" ||
+        errorCode === "CLIENT_TIMEOUT" ||
+        errorCode === "CLIENT_ABORT_40S_TIMEOUT" ||
+        httpStatus === 504 ||
+        httpStatus === 524
+      ) {
+        return "AI анализът отне твърде дълго време.";
       }
-      if (errorCode === "NO_API_KEY") {
-        return "GEMINI_API_KEY missing or empty on backend server";
+      if (
+        errorCode === "WORKER_EXCEPTION" ||
+        errorCode === "SERVER_ERROR" ||
+        errorCode === "INVALID_JSON" ||
+        (typeof httpStatus === "number" && httpStatus >= 500)
+      ) {
+        return "Възникна временен проблем при AI анализа.";
       }
-      if (errorCode === "AUTH_OR_REQUEST_400" || errorCode === "AUTH_OR_REQUEST_403") {
-        return `Gemini rejected API key or request payload (HTTP ${httpStatus})`;
-      }
-      if (errorCode === "GEMINI_TIMEOUT") {
-        return "Gemini API request timed out on server";
-      }
-      if (errorCode === "RATE_LIMITED_429") {
-        return "Gemini rate limit exceeded (HTTP 429)";
-      }
-      if (errorCode === "ROUTE_NOT_FOUND" || httpStatus === 404) {
-        return `Endpoint not found (HTTP 404 at ${ocrEndpoint})`;
-      }
-      if (errorCode === "METHOD_NOT_ALLOWED" || httpStatus === 405) {
-        return "Static hosting rejected POST with HTTP 405 Method Not Allowed";
-      }
-      return `${errorCode || "API_ERROR"}${httpStatus ? ` (HTTP ${httpStatus})` : ""}`;
+      return "AI анализът временно не е наличен.";
     };
 
     let currentStage: OcrPipelineStage = "REQUEST_CREATION";
     const geminiStart = Date.now();
-    const reqTimestamp = new Date().toLocaleTimeString("bg-BG", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    const diagId = `${geminiStart}-${Math.random().toString(36).slice(2, 7)}`;
     const requestOrigin = typeof window !== "undefined" ? window.location.origin : "";
-    const pageUrl = typeof window !== "undefined" ? window.location.href : "";
     const clientPlatform = detectPlatformType();
-    const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
     const requestMethod = "POST";
-    const clientSentHeadersSummary = `Origin=${requestOrigin || "(none)"} | Method=${requestMethod} | Content-Type=application/json | mode=cors | credentials=omit`;
 
     let requestBodyStr = "";
     let jsonPayloadBytes = 0;
@@ -1281,47 +1213,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       jsonPayloadBytes = new TextEncoder().encode(requestBodyStr).byteLength;
     } catch (serialErr: any) {
       clearTimeout(timeoutTimer);
-      const reason = `Failed at REQUEST_CREATION while serializing JSON (${serialErr?.message || "JSON.stringify error"})`;
-      recordAiDiagnostic({
-        id: diagId,
-        timestamp: reqTimestamp,
-        status: "failed",
-        failingStage: "REQUEST_CREATION",
-        clientPlatform,
-        userAgent,
-        requestUrl: ocrEndpoint,
-        pageUrl,
-        requestOrigin,
-        configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
-        requestMethod,
-        imageWidth: prepared.diagnostics.originalWidth,
-        imageHeight: prepared.diagnostics.originalHeight,
-        aiTransportWidth: prepared.aiWidth,
-        aiTransportHeight: prepared.aiHeight,
-        originalMimeType: prepared.diagnostics.originalMimeType,
-        mimeType: prepared.mimeType,
-        originalFileSizeBytes: prepared.originalSize,
-        compressedFileSizeBytes: prepared.compressedSizeBytes,
-        base64SizeChars: prepared.base64SizeChars,
-        payloadBytes: 0,
-        uploadDurationMs: 0,
-        durationMs: Date.now() - geminiStart,
-        httpStatus: "0 (Not sent)",
-        responseContentType: "none",
-        workerErrorCode: "REQUEST_CREATION_FAILED",
-        geminiErrorCode: "NOT_REACHED",
-        timeoutReason: "None",
-        actualFailureReason: reason,
-        modelAttempted: "—",
-        healthProbeStatus: "not needed",
-        healthComparisonSummary: "Failed before sending request",
-        workerTimingSummary: "not reached",
-        requestHeadersSummary: clientSentHeadersSummary,
-        workerResponseHeadersSummary: "not reached",
-        preflightLogsSummary: "not reached",
+      console.warn("[BudgetFlows OCR Network Diagnostics] Request serialization failed", {
+        stage: "REQUEST_CREATION",
+        error: serialErr?.message,
       });
       setAiUnavailable(true);
-      setAiFallbackReason(reason);
+      setAiFallbackReason("AI анализът временно не е наличен.");
       setAiSucceeded(false);
       setAiSourceBadge("OCR анализ");
       abortControllerRef.current = null;
@@ -1329,56 +1226,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       return;
     }
 
-    setAiDiagnostics({
-      id: diagId,
-      timestamp: reqTimestamp,
-      status: "pending",
-      failingStage: "REQUEST_SEND",
-      clientPlatform,
-      userAgent,
-      requestUrl: ocrEndpoint,
-      pageUrl,
-      requestOrigin,
-      configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
-      requestMethod,
-      imageWidth: prepared.diagnostics.originalWidth,
-      imageHeight: prepared.diagnostics.originalHeight,
-      aiTransportWidth: prepared.aiWidth,
-      aiTransportHeight: prepared.aiHeight,
-      originalMimeType: prepared.diagnostics.originalMimeType,
-      mimeType: prepared.mimeType,
-      originalFileSizeBytes: prepared.originalSize,
-      compressedFileSizeBytes: prepared.compressedSizeBytes,
-      base64SizeChars: prepared.base64SizeChars,
-      payloadBytes: jsonPayloadBytes,
-      uploadDurationMs: null,
-      durationMs: null,
-      httpStatus: "pending",
-      responseContentType: "pending",
-      workerErrorCode: "pending",
-      geminiErrorCode: "pending",
-      timeoutReason: "None",
-      actualFailureReason: "",
-      modelAttempted: "—",
-      healthProbeStatus: "not run",
-      healthComparisonSummary: "pending",
-      workerTimingSummary: "pending",
-      requestHeadersSummary: clientSentHeadersSummary,
-      workerResponseHeadersSummary: "pending",
-      preflightLogsSummary: "pending",
-    });
-
     console.info("[BudgetFlows OCR Network Diagnostics] Request", {
       stage: "REQUEST_SEND",
       clientPlatform,
-      userAgent,
-      pageUrl,
       requestOrigin,
       configuredApiUrl: rawConfiguredApiUrl || "(empty)",
       resolvedOcrUrl: ocrEndpoint,
-      requestUrl: ocrEndpoint,
       requestMethod,
-      requestHeaders: { "Content-Type": "application/json" },
       imageWidth: prepared.diagnostics.originalWidth,
       imageHeight: prepared.diagnostics.originalHeight,
       aiTransportWidth: prepared.aiWidth,
@@ -1398,21 +1252,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     let uploadStartMs = performance.now();
     let uploadDurationMs = 0;
 
-    const serializeHeadersObj = (hObj: Record<string, unknown> | undefined | null): string => {
-      if (!hObj || typeof hObj !== "object") return "not reported";
-      return Object.entries(hObj)
-        .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
-        .join(" | ");
-    };
-
-    const serializeFetchHeaders = (resHeaders: Headers): string => {
-      const pairs: string[] = [];
-      resHeaders.forEach((value, key) => {
-        pairs.push(`${key}: ${value}`);
-      });
-      return pairs.length > 0 ? pairs.join(" | ") : "not exposed by CORS";
-    };
-
     try {
       currentStage = "REQUEST_SEND";
       uploadStartMs = performance.now();
@@ -1429,7 +1268,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       uploadDurationMs = Math.round(performance.now() - uploadStartMs);
       clearTimeout(timeoutTimer);
       const contentType = response.headers.get("content-type") || "";
-      const rawResponseHeadersSummary = serializeFetchHeaders(response.headers);
       const geminiElapsed = Date.now() - geminiStart;
       const finalRequestUrl = response.url || ocrEndpoint;
 
@@ -1441,7 +1279,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         requestMethod,
         responseStatus: response.status,
         responseContentType: contentType || "(empty)",
-        responseHeaders: rawResponseHeadersSummary,
         uploadDurationMs,
         durationMs: geminiElapsed,
       });
@@ -1463,66 +1300,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         const resolvedGeminiErrorCode =
           json.geminiErrorCode ||
           (!json.success && resolvedWorkerErrorCode === "NONE" ? serverErrorCode : "NONE");
-        const resolvedTimeoutReason =
-          json.timeoutReason ||
-          (serverErrorCode === "GEMINI_TIMEOUT"
-            ? `Server Gemini request timed out (${geminiElapsed}ms elapsed)`
-            : "None");
         const workerTimingSummary = json.workerTiming
           ? `stage=${json.workerTiming.stage}, contentLength=${json.workerTiming.contentLength}, bodySize=${json.workerTiming.requestBodySize ?? "?"}B, rx=${json.workerTiming.requestReceivedTimestamp}, done=${json.workerTiming.requestCompletedTimestamp}`
           : "not reported";
-        const requestHeadersSummary = json.requestHeadersSeen
-          ? serializeHeadersObj(json.requestHeadersSeen)
-          : clientSentHeadersSummary;
-        const workerResponseHeadersSummary = json.workerResponseHeaders
-          ? serializeHeadersObj(json.workerResponseHeaders)
-          : rawResponseHeadersSummary;
 
         addDebugLog(
           "gemini_res",
-          `Gemini response received (${clientPlatform}) <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | WorkerHeaders=(${workerResponseHeadersSummary}) | ReqSeen=(${requestHeadersSummary}) | WorkerTiming=(${workerTimingSummary})`,
+          `Gemini response received (${clientPlatform}) <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | WorkerTiming=(${workerTimingSummary})`,
           json
         );
 
         if (json.success && json.data) {
-          recordAiDiagnostic({
-            id: diagId,
-            timestamp: reqTimestamp,
-            status: "success",
-            failingStage: "CLIENT_RESPONSE",
-            clientPlatform,
-            userAgent,
-            requestUrl: finalRequestUrl,
-            pageUrl,
-            requestOrigin,
-            configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
-            requestMethod,
-            imageWidth: prepared.diagnostics.originalWidth,
-            imageHeight: prepared.diagnostics.originalHeight,
-            aiTransportWidth: prepared.aiWidth,
-            aiTransportHeight: prepared.aiHeight,
-            originalMimeType: prepared.diagnostics.originalMimeType,
-            mimeType: prepared.mimeType,
-            originalFileSizeBytes: prepared.originalSize,
-            compressedFileSizeBytes: prepared.compressedSizeBytes,
-            base64SizeChars: prepared.base64SizeChars,
-            payloadBytes: jsonPayloadBytes,
-            uploadDurationMs,
-            durationMs: geminiElapsed,
-            httpStatus: json.httpStatus ?? response.status,
-            responseContentType: contentType || "(empty)",
-            workerErrorCode: "NONE",
-            geminiErrorCode: "NONE",
-            timeoutReason: "None",
-            actualFailureReason: "",
-            modelAttempted: json.modelUsed || "—",
-            healthProbeStatus: "not needed",
-            healthComparisonSummary: `POST /api/ocr/receipt succeeded in ${uploadDurationMs}ms (${jsonPayloadBytes} bytes)`,
-            workerTimingSummary,
-            requestHeadersSummary,
-            workerResponseHeadersSummary,
-            preflightLogsSummary: "POST succeeded (preflight accepted)",
-          });
           const gData = json.data;
           // Bulgaria uses Euro (€) - do not let AI flip an explicitly detected Euro receipt back to BGN
           const hasExplicitEuroInOcr = /€|\bEUR\b|\bЕУР\b/i.test(ocrRawText);
@@ -1721,371 +1509,83 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             json.failingStage ||
             json.workerTiming?.stage ||
             (resolvedWorkerErrorCode !== "NONE" ? "WORKER_PARSE" : "GEMINI_RESPONSE");
-          const failureReason = formatServerFailureReason(
-            json.errorCode || json.error,
-            json.httpStatus ?? response.status,
-            json.fallbackReason || json.message
-          );
-          recordAiDiagnostic({
-            id: diagId,
-            timestamp: reqTimestamp,
-            status: "failed",
+          const technicalReason = json.fallbackReason || json.message || serverErrorCode;
+          console.warn("[BudgetFlows OCR Network Diagnostics] Server Fallback", {
             failingStage: serverStage,
-            clientPlatform,
-            userAgent,
             requestUrl: finalRequestUrl,
-            pageUrl,
-            requestOrigin,
-            configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
-            requestMethod,
-            imageWidth: prepared.diagnostics.originalWidth,
-            imageHeight: prepared.diagnostics.originalHeight,
-            aiTransportWidth: prepared.aiWidth,
-            aiTransportHeight: prepared.aiHeight,
-            originalMimeType: prepared.diagnostics.originalMimeType,
-            mimeType: prepared.mimeType,
-            originalFileSizeBytes: prepared.originalSize,
-            compressedFileSizeBytes: prepared.compressedSizeBytes,
-            base64SizeChars: prepared.base64SizeChars,
-            payloadBytes: jsonPayloadBytes,
-            uploadDurationMs,
-            durationMs: geminiElapsed,
             httpStatus: json.httpStatus ?? response.status,
-            responseContentType: contentType || "(empty)",
             workerErrorCode: resolvedWorkerErrorCode,
             geminiErrorCode: resolvedGeminiErrorCode,
-            timeoutReason: resolvedTimeoutReason,
-            actualFailureReason: failureReason,
-            modelAttempted: json.modelAttempted || "—",
-            healthProbeStatus: "not needed (POST reached Worker)",
-            healthComparisonSummary: `POST reached Worker at stage ${serverStage} in ${uploadDurationMs}ms`,
-            workerTimingSummary,
-            requestHeadersSummary,
-            workerResponseHeadersSummary,
-            preflightLogsSummary: "POST reached Worker",
+            technicalReason,
           });
           addDebugLog(
             "gemini_res",
-            `Gemini fallback -> Failing Stage=${serverStage} | Request URL=${finalRequestUrl} | HTTP Status=${json.httpStatus ?? response.status} | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | Timeout Reason=${resolvedTimeoutReason} | reason=${failureReason}`
+            `Gemini fallback -> Failing Stage=${serverStage} | HTTP Status=${json.httpStatus ?? response.status} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | reason=${technicalReason}`
           );
           setAiUnavailable(true);
-          setAiFallbackReason(failureReason);
+          setAiFallbackReason(
+            getFriendlyAiErrorMessage(
+              resolvedWorkerErrorCode !== "NONE" ? resolvedWorkerErrorCode : resolvedGeminiErrorCode,
+              json.httpStatus ?? response.status,
+              serverErrorCode === "GEMINI_TIMEOUT"
+            )
+          );
           setAiSucceeded(false);
           setAiSourceBadge("OCR анализ");
         }
       } else {
-        let rawBodySnippet = "";
-        try {
-          rawBodySnippet = (await response.text())
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 220);
-        } catch {
-          rawBodySnippet = "";
-        }
-        const cfErrorMatch = rawBodySnippet.match(/error code:\s*(\d+)/i);
-        const workerErrCode =
-          response.status === 405
-            ? "METHOD_NOT_ALLOWED_405"
-            : response.status === 404
-            ? "ROUTE_NOT_FOUND_404"
-            : cfErrorMatch
-            ? `CLOUDFLARE_EDGE_${cfErrorMatch[1]}`
-            : `NON_JSON_HTTP_${response.status}`;
-        const timeoutNote =
-          response.status === 504 || response.status === 524
-            ? `Upstream gateway timeout (HTTP ${response.status})`
-            : "None";
-        const failureReason =
-          response.status === 405
-            ? `Static hosting rejected POST with HTTP 405 at ${finalRequestUrl}`
-            : response.status === 404
-            ? `API endpoint not found (HTTP 404 at ${finalRequestUrl})`
-            : `HTTP ${response.status} (${contentType || "non-JSON"})${rawBodySnippet ? `: ${rawBodySnippet}` : response.statusText ? `: ${response.statusText}` : ""}`;
-
-        recordAiDiagnostic({
-          id: diagId,
-          timestamp: reqTimestamp,
-          status: "failed",
+        console.warn("[BudgetFlows OCR Network Diagnostics] Non-JSON Response", {
           failingStage: "JSON_PARSE",
-          clientPlatform,
-          userAgent,
-          requestUrl: finalRequestUrl,
-          pageUrl,
           requestOrigin,
-          configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
-          requestMethod,
-          imageWidth: prepared.diagnostics.originalWidth,
-          imageHeight: prepared.diagnostics.originalHeight,
-          aiTransportWidth: prepared.aiWidth,
-          aiTransportHeight: prepared.aiHeight,
-          originalMimeType: prepared.diagnostics.originalMimeType,
-          mimeType: prepared.mimeType,
-          originalFileSizeBytes: prepared.originalSize,
-          compressedFileSizeBytes: prepared.compressedSizeBytes,
-          base64SizeChars: prepared.base64SizeChars,
-          payloadBytes: jsonPayloadBytes,
-          uploadDurationMs,
-          durationMs: geminiElapsed,
+          requestUrl: finalRequestUrl,
           httpStatus: response.status,
-          responseContentType: contentType || "(empty)",
-          workerErrorCode: workerErrCode,
-          geminiErrorCode: "NOT_REACHED",
-          timeoutReason: timeoutNote,
-          actualFailureReason: failureReason,
-          modelAttempted: "—",
-          healthProbeStatus: "not needed (HTTP response received)",
-          healthComparisonSummary: `POST returned non-JSON HTTP ${response.status} after ${uploadDurationMs}ms`,
-          workerTimingSummary: "non-JSON response",
-          requestHeadersSummary: clientSentHeadersSummary,
-          workerResponseHeadersSummary: rawResponseHeadersSummary,
-          preflightLogsSummary: "POST reached edge/server (non-JSON)",
+          contentType: contentType || "(empty)",
         });
         addDebugLog(
           "gemini_res",
-          `Gemini fallback <- Failing Stage=JSON_PARSE | Request Origin=${requestOrigin} | Request URL=${finalRequestUrl} | HTTP Status=${response.status} | Worker Error Code=${workerErrCode} | reason=${failureReason}`
+          `Gemini fallback <- Failing Stage=JSON_PARSE | HTTP Status=${response.status} | ContentType=${contentType || "(empty)"}`
         );
         setAiUnavailable(true);
-        setAiFallbackReason(failureReason);
+        setAiFallbackReason(getFriendlyAiErrorMessage(null, response.status, false));
         setAiSucceeded(false);
         setAiSourceBadge("OCR анализ");
       }
     } catch (gErr: any) {
       uploadDurationMs = Math.round(performance.now() - uploadStartMs);
       clearTimeout(timeoutTimer);
-      const geminiElapsed = Date.now() - geminiStart;
       const isAbort = gErr?.name === "AbortError";
       const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
       const failedClientStage: OcrPipelineStage =
         currentStage === "JSON_PARSE" ? "JSON_PARSE" : "REQUEST_SEND";
 
-      let healthProbeSummary = "skipped";
-      let healthHttpStatus: number | null = null;
-      let healthReached = false;
-      let healthHasKey: boolean | null = null;
-      let healthNoCorsReachable: boolean | null = null;
-      let tinyPostStatus: number | null = null;
-      let tinyPostDurationMs: number | null = null;
-      let tinyPostError = "";
-      let capturedReqHeadersSummary = clientSentHeadersSummary;
-      let capturedWorkerRespHeadersSummary = "not received (fetch threw before headers)";
-      let capturedPreflightsSummary = "unavailable (health CORS probe failed)";
-
-      if (!isAbort && !isOffline && failedClientStage === "REQUEST_SEND") {
-        const healthBaseUrl = configuredApiBase
-          ? `${configuredApiBase}/api/ocr/health`
-          : "/api/ocr/health";
-        const healthUrl = `${healthBaseUrl}?cors_probe=${Date.now()}`;
-        const hStart = performance.now();
-        try {
-          const healthRes = await fetch(healthUrl, {
-            method: "GET",
-            mode: "cors",
-            credentials: "omit",
-            cache: "no-store",
-          });
-          const hMs = Math.round(performance.now() - hStart);
-          healthHttpStatus = healthRes.status;
-          healthReached = healthRes.ok;
-          const hCt = healthRes.headers.get("content-type") || "";
-          capturedWorkerRespHeadersSummary = serializeFetchHeaders(healthRes.headers);
-          if (hCt.includes("application/json")) {
-            const hJson = await healthRes.json();
-            healthHasKey = typeof hJson?.hasApiKey === "boolean" ? hJson.hasApiKey : null;
-            if (hJson?.requestHeadersSeen) {
-              capturedReqHeadersSummary = serializeHeadersObj(hJson.requestHeadersSeen);
-            }
-            if (hJson?.workerResponseHeaders) {
-              capturedWorkerRespHeadersSummary = serializeHeadersObj(hJson.workerResponseHeaders);
-            }
-            if (Array.isArray(hJson?.recentPreflights) && hJson.recentPreflights.length > 0) {
-              capturedPreflightsSummary = hJson.recentPreflights
-                .slice(0, 3)
-                .map(
-                  (p: any) =>
-                    `[${p.deviceHint}] OPTIONS origin=${p.origin} allow=${p.accessControlAllowOrigin} acrh=${p.accessControlRequestHeaders} pna=${p.accessControlRequestPrivateNetwork} secFetch=${JSON.stringify(p.secFetchHeaders || {})}`
-                )
-                .join(" || ");
-            } else {
-              capturedPreflightsSummary = "0 OPTIONS preflights logged in current Worker isolate";
-            }
-          }
-          healthProbeSummary = `GET /api/ocr/health (cors, no-store) -> HTTP ${healthRes.status} in ${hMs}ms (${healthHasKey !== null ? `hasApiKey=${healthHasKey}` : hCt || "ok"})`;
-        } catch (hErr: any) {
-          const hMs = Math.round(performance.now() - hStart);
-          healthProbeSummary = `GET /api/ocr/health (cors, no-store) FAILED in ${hMs}ms (${hErr?.name || "Error"}: ${hErr?.message || "network error"})`;
-          // Distinguish proven browser CORS rejection vs network/TLS/connection block using mode: "no-cors"
-          try {
-            await fetch(healthUrl, {
-              method: "GET",
-              mode: "no-cors",
-              credentials: "omit",
-              cache: "no-store",
-            });
-            healthNoCorsReachable = true;
-          } catch {
-            healthNoCorsReachable = false;
-          }
-        }
-
-        // If GET /api/ocr/health succeeded over CORS, test a tiny 2-byte JSON POST ("{}") which returns 400 MISSING_DATA without invoking Gemini!
-        if (healthReached) {
-          const tStart = performance.now();
-          try {
-            const tinyRes = await fetch(ocrEndpoint, {
-              method: "POST",
-              mode: "cors",
-              credentials: "omit",
-              cache: "no-store",
-              headers: { "Content-Type": "application/json" },
-              body: "{}",
-            });
-            tinyPostDurationMs = Math.round(performance.now() - tStart);
-            tinyPostStatus = tinyRes.status;
-            const tCt = tinyRes.headers.get("content-type") || "";
-            if (tCt.includes("application/json")) {
-              const tJson = await tinyRes.json();
-              if (tJson?.requestHeadersSeen) {
-                capturedReqHeadersSummary = serializeHeadersObj(tJson.requestHeadersSeen);
-              }
-              if (tJson?.workerResponseHeaders) {
-                capturedWorkerRespHeadersSummary = serializeHeadersObj(tJson.workerResponseHeaders);
-              }
-            }
-          } catch (tErr: any) {
-            tinyPostDurationMs = Math.round(performance.now() - tStart);
-            tinyPostError = `${tErr?.name || "Error"}: ${tErr?.message || "POST probe failed"}`;
-          }
-        }
-      } else if (isOffline) {
-        healthProbeSummary = "skipped (browser offline)";
-      }
-
-      const rawErrLabel = `${gErr?.name || "NetworkError"}: ${gErr?.message || "No response received"}`;
-      const payloadKb = (jsonPayloadBytes / 1024).toFixed(1);
-      let actualFailureReason = "";
-      let httpStatusDisplay: number | string = "0 (No HTTP response)";
-      let workerErrCode = "UNKNOWN";
-      let geminiErrCode = "NOT_REACHED";
-      let timeoutNote = "None";
-      let healthComparisonSummary = healthProbeSummary;
-
-      if (failedClientStage === "JSON_PARSE") {
-        httpStatusDisplay = "200 (Response body stream/JSON parse failed)";
-        workerErrCode = "RESPONSE_JSON_PARSE_ERROR";
-        actualFailureReason = `Received HTTP headers in ${uploadDurationMs}ms, then failed at JSON_PARSE: ${rawErrLabel}`;
-      } else if (isAbort) {
-        httpStatusDisplay = "0 (Aborted at 40000ms)";
-        workerErrCode = "CLIENT_ABORT_40S_TIMEOUT";
-        geminiErrCode = "CLIENT_TIMEOUT";
-        timeoutNote = `Client AbortController aborted POST after ${uploadDurationMs}ms (40000ms limit exceeded) with ${payloadKb} KB payload`;
-        actualFailureReason = `POST (${payloadKb} KB) timed out after ${Math.round(uploadDurationMs / 1000)}s waiting for ${ocrEndpoint}`;
-      } else if (isOffline) {
-        httpStatusDisplay = "0 (Browser Offline)";
-        workerErrCode = "CLIENT_OFFLINE";
-        actualFailureReason = "Browser is offline (navigator.onLine = false) during REQUEST_SEND";
-      } else if (healthReached && tinyPostStatus !== null) {
-        httpStatusDisplay = `0 on ${payloadKb} KB POST (Health=HTTP ${healthHttpStatus}, 2B POST=HTTP ${tinyPostStatus})`;
-        workerErrCode = "LARGE_POST_UPLOAD_FAILED";
-        healthComparisonSummary = `${healthProbeSummary} | Tiny 2B POST -> HTTP ${tinyPostStatus} in ${tinyPostDurationMs}ms (CORS & POST route proven working!) | Full ${payloadKb} KB POST -> FAILED in ${uploadDurationMs}ms`;
-        actualFailureReason = `CORS & POST route work (GET /health=HTTP ${healthHttpStatus}, 2B POST=HTTP ${tinyPostStatus}), but the ${payloadKb} KB receipt POST failed at REQUEST_SEND after ${uploadDurationMs}ms (${rawErrLabel})`;
-      } else if (healthReached && tinyPostStatus === null) {
-        httpStatusDisplay = `0 on POST (Health=HTTP ${healthHttpStatus}, 2B POST failed)`;
-        workerErrCode = "POST_PREFLIGHT_OR_METHOD_FAILED";
-        healthComparisonSummary = `${healthProbeSummary} | Tiny 2B POST -> FAILED (${tinyPostError}) in ${tinyPostDurationMs}ms`;
-        actualFailureReason = `GET /health succeeded (HTTP ${healthHttpStatus}), but even a 2-byte POST /api/ocr/receipt failed (${tinyPostError}) — OPTIONS preflight or POST upload failure`;
-      } else if (healthHttpStatus !== null) {
-        httpStatusDisplay = `0 on POST (Health GET HTTP ${healthHttpStatus})`;
-        workerErrCode = `WORKER_HTTP_${healthHttpStatus}`;
-        actualFailureReason = `POST (${payloadKb} KB) failed at REQUEST_SEND (${rawErrLabel}) and GET /api/ocr/health returned HTTP ${healthHttpStatus}`;
-      } else if (healthNoCorsReachable === true) {
-        httpStatusDisplay = "0 (Proven CORS rejection)";
-        workerErrCode = "PROVEN_CORS_REJECTION";
-        healthComparisonSummary = `[${clientPlatform}] GET /health (mode: cors) FAILED, while GET /health (mode: no-cors) SUCCEEDED — browser rejected CORS for Page Origin "${requestOrigin || "(none)"}"`;
-        actualFailureReason = `Proven CORS rejection on ${clientPlatform}: Page Origin "${requestOrigin || "(unknown)"}" (${pageUrl}) failed GET /health (mode: cors) while no-cors succeeded. Note: GET /health has no custom headers, so this is either an Origin mismatch against Worker ALLOWED_ORIGIN or a Desktop PNA/Incognito CORS rejection.`;
-      } else {
-        httpStatusDisplay = "0 (Connection / TLS / Blocker Drop)";
-        workerErrCode = "NETWORK_OR_CONNECTION_DROP";
-        healthComparisonSummary = `GET /health (cors & no-cors) both failed from JS (${healthProbeSummary})`;
-        actualFailureReason = `Network/connection drop from JS context before HTTP response (${rawErrLabel}; both cors and no-cors GET /health failed; payload=${payloadKb} KB)`;
-      }
-
-      recordAiDiagnostic({
-        id: diagId,
-        timestamp: reqTimestamp,
-        status: "failed",
-        failingStage: failedClientStage,
-        clientPlatform,
-        userAgent,
-        requestUrl: ocrEndpoint,
-        pageUrl,
-        requestOrigin,
-        configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
-        requestMethod,
-        imageWidth: prepared.diagnostics.originalWidth,
-        imageHeight: prepared.diagnostics.originalHeight,
-        aiTransportWidth: prepared.aiWidth,
-        aiTransportHeight: prepared.aiHeight,
-        originalMimeType: prepared.diagnostics.originalMimeType,
-        mimeType: prepared.mimeType,
-        originalFileSizeBytes: prepared.originalSize,
-        compressedFileSizeBytes: prepared.compressedSizeBytes,
-        base64SizeChars: prepared.base64SizeChars,
-        payloadBytes: jsonPayloadBytes,
-        uploadDurationMs,
-        durationMs: geminiElapsed,
-        httpStatus: httpStatusDisplay,
-        responseContentType: "none",
-        workerErrorCode: workerErrCode,
-        geminiErrorCode: geminiErrCode,
-        timeoutReason: timeoutNote,
-        actualFailureReason,
-        modelAttempted: "—",
-        healthProbeStatus: healthProbeSummary,
-        healthComparisonSummary,
-        workerTimingSummary: "not reached",
-        requestHeadersSummary: capturedReqHeadersSummary,
-        workerResponseHeadersSummary: capturedWorkerRespHeadersSummary,
-        preflightLogsSummary: capturedPreflightsSummary,
-      });
-
       console.warn("[BudgetFlows OCR Network Diagnostics] Request Failed", {
         clientPlatform,
-        userAgent,
-        pageUrl,
         failingStage: failedClientStage,
         requestOrigin,
         requestUrl: ocrEndpoint,
         requestMethod,
-        requestHeadersSummary: capturedReqHeadersSummary,
-        workerResponseHeadersSummary: capturedWorkerRespHeadersSummary,
-        preflightLogsSummary: capturedPreflightsSummary,
-        imageWidth: prepared.diagnostics.originalWidth,
-        imageHeight: prepared.diagnostics.originalHeight,
-        aiTransportWidth: prepared.aiWidth,
-        aiTransportHeight: prepared.aiHeight,
-        originalMimeType: prepared.diagnostics.originalMimeType,
-        mimeType: prepared.mimeType,
-        originalFileSizeBytes: prepared.originalSize,
-        compressedFileSizeBytes: prepared.compressedSizeBytes,
-        base64SizeChars: prepared.base64SizeChars,
         jsonPayloadBytes,
         uploadDurationMs,
-        httpStatus: httpStatusDisplay,
-        workerErrorCode: workerErrCode,
-        geminiErrorCode: geminiErrCode,
-        timeoutReason: timeoutNote,
-        healthComparisonSummary,
-        actualFailureReason,
+        isAbort,
+        isOffline,
+        errorName: gErr?.name,
+        errorMessage: gErr?.message,
       });
 
       addDebugLog(
         "gemini_res",
-        `Gemini failed (${clientPlatform}) <- Failing Stage=${failedClientStage} | Origin=${requestOrigin || "(none)"} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B (${payloadKb} KB) | WorkerCode=${workerErrCode} | Compare=(${healthComparisonSummary}) | Preflights=(${capturedPreflightsSummary}) | reason=${actualFailureReason}`
+        `Gemini failed (${clientPlatform}) <- Stage=${failedClientStage} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B | reason=${gErr?.message || "Network error"}`
       );
       setAiUnavailable(true);
-      setAiFallbackReason(actualFailureReason);
+      setAiFallbackReason(
+        isOffline
+          ? "Няма интернет връзка. AI анализът временно не е наличен."
+          : getFriendlyAiErrorMessage(
+              isAbort ? "CLIENT_TIMEOUT" : "NETWORK_ERROR",
+              null,
+              isAbort
+            )
+      );
       setAiSucceeded(false);
       setAiSourceBadge("OCR анализ");
     } finally {
@@ -2424,17 +1924,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setShowDebugPanel((prev) => !prev)}
-              className={`p-2 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1 ${
-                showDebugPanel
-                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
-                  : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              }`}
-              title="Диагностичен панел (Debug logs)"
-            >
-              <Bug className="w-4 h-4" />
-            </button>
-            <button
               onClick={handleClose}
               className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
               title="Затвори"
@@ -2699,91 +2188,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 </div>
               )}
 
-              {/* AI Fallback Notice with Actual Failure Reason & Diagnostic Fields */}
+              {/* Clean User-Friendly AI Fallback Notice */}
               {aiUnavailable && (
-                <div className="p-3.5 bg-slate-100 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl space-y-2.5 text-xs text-slate-700 dark:text-slate-300">
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div className="flex items-start gap-2 min-w-0 flex-1">
-                      <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                      <div className="space-y-1 min-w-0">
-                        <div>
-                          <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
-                          <span className="text-rose-700 dark:text-rose-300 font-semibold break-words">
-                            AI грешка: {aiDiagnostics?.actualFailureReason || aiFallbackReason || "Неизвестна грешка"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {ocrLanguageInfo && (
-                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                          OCR: {ocrLanguageInfo.used}
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setShowDebugPanel((prev) => !prev)}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-950 text-indigo-700 dark:text-indigo-300 border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer flex items-center gap-1"
-                      >
-                        <Bug className="w-3 h-3" />
-                        <span>{showDebugPanel ? "Скрий диагностика" : "OCR AI диагностика"}</span>
-                      </button>
-                    </div>
+                <div className="p-3.5 bg-slate-100 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
+                  <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
+                    <span>{aiFallbackReason || "AI анализът временно не е наличен."} Данните са извлечени чрез локално разпознаване.</span>
                   </div>
-
-                  {aiDiagnostics && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 font-mono text-[11px]">
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800/80">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Failing Stage ({aiDiagnostics.clientPlatform})</span>
-                        <span className="text-rose-700 dark:text-rose-300 font-bold">{aiDiagnostics.failingStage}</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 min-w-0">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Page Origin → Request URL ({aiDiagnostics.requestMethod})</span>
-                        <span className="text-slate-900 dark:text-slate-100 break-all">
-                          {aiDiagnostics.requestOrigin || "(none)"} → {aiDiagnostics.requestUrl}
-                        </span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">HTTP Status Code</span>
-                        <span className="text-slate-900 dark:text-slate-100 font-semibold">{String(aiDiagnostics.httpStatus ?? "none")}</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Worker Error Code</span>
-                        <span className="text-amber-700 dark:text-amber-300 font-semibold break-all">{aiDiagnostics.workerErrorCode}</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Gemini Error Code</span>
-                        <span className="text-rose-700 dark:text-rose-300 font-semibold break-all">{aiDiagnostics.geminiErrorCode}</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Payload & Upload</span>
-                        <span className="text-slate-900 dark:text-slate-100 font-semibold">
-                          JSON {(aiDiagnostics.payloadBytes / 1024).toFixed(1)} KB ({aiDiagnostics.uploadDurationMs ?? "—"}ms)
-                        </span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2 lg:col-span-3">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Health GET vs Receipt POST Comparison</span>
-                        <span className="text-slate-900 dark:text-slate-100 break-words">{aiDiagnostics.healthComparisonSummary}</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2 lg:col-span-3">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Request Headers & Worker Response Headers</span>
-                        <span className="text-slate-700 dark:text-slate-300 break-all block">
-                          Req: {aiDiagnostics.requestHeadersSummary}
-                        </span>
-                        <span className="text-slate-700 dark:text-slate-300 break-all block mt-0.5">
-                          Resp: {aiDiagnostics.workerResponseHeadersSummary}
-                        </span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2 lg:col-span-3">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">
-                          Image & Sizes | Timeout: {aiDiagnostics.timeoutReason}
-                        </span>
-                        <span className="text-slate-700 dark:text-slate-300 break-words">
-                          Orig: {aiDiagnostics.imageWidth}x{aiDiagnostics.imageHeight} ({(aiDiagnostics.originalFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.originalMimeType}) | AI Copy: {aiDiagnostics.aiTransportWidth}x{aiDiagnostics.aiTransportHeight} ({(aiDiagnostics.compressedFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.mimeType}) | Base64: {(aiDiagnostics.base64SizeChars / 1024).toFixed(1)} KB
-                        </span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -3464,159 +2876,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             </div>
           )}
 
-          {/* Expandable OCR AI Requests Diagnostics & Debug Logs Panel */}
-          {showDebugPanel && (
-            <div className="mt-4 p-4 bg-slate-900 rounded-2xl border border-slate-800 text-white font-mono text-xs space-y-4">
-              {/* OCR AI Requests Diagnostics Section */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="font-bold text-indigo-300 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    OCR AI Requests Diagnostics
-                  </span>
-                  <span className="text-[11px] text-slate-400">
-                    {aiDiagnosticsHistory.length} {aiDiagnosticsHistory.length === 1 ? "заявка" : "заявки"}
-                  </span>
-                </div>
-
-                {aiDiagnosticsHistory.length === 0 ? (
-                  <div className="text-[11px] text-slate-400 py-1">
-                    Няма изпратени OCR AI заявки до момента.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
-                    {aiDiagnosticsHistory.map((reqDiag) => (
-                      <div
-                        key={reqDiag.id}
-                        className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-[11px]"
-                      >
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-slate-400">[{reqDiag.timestamp}]</span>
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                reqDiag.status === "success"
-                                  ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
-                                  : reqDiag.status === "pending"
-                                  ? "bg-indigo-950 text-indigo-300 border border-indigo-800"
-                                  : "bg-rose-950 text-rose-300 border border-rose-800"
-                              }`}
-                            >
-                              {reqDiag.status}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700">
-                              Stage: {reqDiag.failingStage}
-                            </span>
-                            <span className="text-slate-300">
-                              {reqDiag.requestMethod} | JSON {(reqDiag.payloadBytes / 1024).toFixed(1)} KB
-                              {reqDiag.uploadDurationMs !== null ? ` | upload ${reqDiag.uploadDurationMs}ms` : ""}
-                            </span>
-                          </div>
-                          <span className="text-slate-400 text-[10px]">
-                            [{reqDiag.clientPlatform}] Origin: {reqDiag.requestOrigin || "(none)"}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
-                          <div className="break-all">
-                            <span className="text-slate-400">Request URL: </span>
-                            <span className="text-sky-300">{reqDiag.requestUrl}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">HTTP Status Code: </span>
-                            <span className="text-white font-semibold">{String(reqDiag.httpStatus ?? "none")}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Worker Error Code: </span>
-                            <span className="text-amber-300 font-semibold">{reqDiag.workerErrorCode}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Gemini Error Code: </span>
-                            <span className="text-rose-300 font-semibold">{reqDiag.geminiErrorCode}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Image (Orig / AI): </span>
-                            <span className="text-slate-200">
-                              {reqDiag.imageWidth}x{reqDiag.imageHeight} / {reqDiag.aiTransportWidth}x{reqDiag.aiTransportHeight} ({reqDiag.mimeType})
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Sizes (Orig / Comp / B64): </span>
-                            <span className="text-slate-200">
-                              {(reqDiag.originalFileSizeBytes / 1024).toFixed(1)} KB / {(reqDiag.compressedFileSizeBytes / 1024).toFixed(1)} KB / {(reqDiag.base64SizeChars / 1024).toFixed(1)} KB
-                            </span>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <span className="text-slate-400">Health vs POST: </span>
-                            <span className="text-emerald-300 break-words">{reqDiag.healthComparisonSummary}</span>
-                          </div>
-                          <div className="sm:col-span-2 break-all">
-                            <span className="text-slate-400">Request Headers: </span>
-                            <span className="text-slate-200">{reqDiag.requestHeadersSummary}</span>
-                          </div>
-                          <div className="sm:col-span-2 break-all">
-                            <span className="text-slate-400">Worker Response Headers: </span>
-                            <span className="text-sky-200">{reqDiag.workerResponseHeadersSummary}</span>
-                          </div>
-                          <div className="sm:col-span-2 break-all">
-                            <span className="text-slate-400">OPTIONS Preflights: </span>
-                            <span className="text-amber-200">{reqDiag.preflightLogsSummary}</span>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <span className="text-slate-400">Timeout Reason: </span>
-                            <span className="text-slate-200">{reqDiag.timeoutReason}</span>
-                          </div>
-                          {reqDiag.actualFailureReason && (
-                            <div className="sm:col-span-2">
-                              <span className="text-slate-400">Failure Reason: </span>
-                              <span className="text-rose-300 break-words">{reqDiag.actualFailureReason}</span>
-                            </div>
-                          )}
-                          <div className="sm:col-span-2 text-[10px] text-slate-400 break-all">
-                            Model: {reqDiag.modelAttempted} | Content-Type: {reqDiag.responseContentType} | Page: {reqDiag.pageUrl} | Worker Timing: {reqDiag.workerTimingSummary}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Raw Debug Event Stream */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="font-bold text-amber-400 flex items-center gap-1.5">
-                    <Bug className="w-4 h-4" />
-                    Диагностични логове (Debug Logs)
-                  </span>
-                  <span className="text-[11px] text-slate-400">{debugLogs.length} записа</span>
-                </div>
-                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                  {debugLogs.length === 0 ? (
-                    <span className="text-slate-400">Няма записани логове до момента.</span>
-                  ) : (
-                    debugLogs.map((log, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-[11px] leading-relaxed">
-                        <span className="text-slate-400 shrink-0">[{log.timestamp}]</span>
-                        <span
-                          className={`font-semibold shrink-0 uppercase text-[9px] px-1 rounded ${
-                            log.step === "error"
-                              ? "bg-red-950 text-red-400 border border-red-800"
-                              : log.step === "parsed_total" || log.step === "expense"
-                              ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
-                              : "bg-indigo-950 text-indigo-300 border border-indigo-800"
-                          }`}
-                        >
-                          {log.step}
-                        </span>
-                        <span className="text-slate-300 break-all">{log.message}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Modal Footer */}
