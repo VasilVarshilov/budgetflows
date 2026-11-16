@@ -65,15 +65,40 @@ interface DebugLog {
   data?: any;
 }
 
+type OcrPipelineStage =
+  | "IMAGE_LOAD"
+  | "IMAGE_CONVERSION"
+  | "IMAGE_RESIZE"
+  | "BASE64_ENCODING"
+  | "REQUEST_CREATION"
+  | "REQUEST_SEND"
+  | "WORKER_RECEIVED"
+  | "WORKER_PARSE"
+  | "GEMINI_REQUEST"
+  | "GEMINI_RESPONSE"
+  | "JSON_PARSE"
+  | "CLIENT_RESPONSE";
+
 interface OcrAiRequestDiagnostics {
   id: string;
   timestamp: string;
   status: "pending" | "success" | "failed";
+  failingStage: OcrPipelineStage;
   requestUrl: string;
   requestOrigin: string;
   configuredApiBaseUrl: string;
   requestMethod: string;
+  imageWidth: number;
+  imageHeight: number;
+  aiTransportWidth: number;
+  aiTransportHeight: number;
+  originalMimeType: string;
+  mimeType: string;
+  originalFileSizeBytes: number;
+  compressedFileSizeBytes: number;
+  base64SizeChars: number;
   payloadBytes: number;
+  uploadDurationMs: number | null;
   durationMs: number | null;
   httpStatus: number | string | null;
   responseContentType: string;
@@ -83,6 +108,8 @@ interface OcrAiRequestDiagnostics {
   actualFailureReason: string;
   modelAttempted: string;
   healthProbeStatus: string;
+  healthComparisonSummary: string;
+  workerTimingSummary: string;
 }
 
 interface ScanReceiptModalProps {
@@ -106,6 +133,11 @@ interface ImageQualityDiagnostics {
   ocrWidth: number;
   ocrHeight: number;
   ocrSizeBytes: number;
+  aiTransportWidth: number;
+  aiTransportHeight: number;
+  aiCompressedSizeBytes: number;
+  base64SizeChars: number;
+  lastCompletedStage: OcrPipelineStage;
   usedOriginalFile: boolean;
   wasResized: boolean;
   wasRecompressed: boolean;
@@ -120,6 +152,10 @@ interface PreparedReceiptImage {
   mimeType: string;
   originalSize: number;
   ocrSizeBytes: number;
+  compressedSizeBytes: number;
+  base64SizeChars: number;
+  aiWidth: number;
+  aiHeight: number;
   dimensions: string;
   diagnostics: ImageQualityDiagnostics;
 }
@@ -221,12 +257,15 @@ async function prepareReceiptImageWithTimeout(
 
   return new Promise((resolve, reject) => {
     let hasFinished = false;
+    let prepStage: OcrPipelineStage = "IMAGE_LOAD";
     const objectUrl = URL.createObjectURL(file);
     const timer = setTimeout(() => {
       if (!hasFinished) {
         hasFinished = true;
         URL.revokeObjectURL(objectUrl);
-        reject(new Error("Обработката на изображението отне твърде много време (Timeout)."));
+        const timeoutErr: any = new Error(`[${prepStage}] Обработката на изображението отне твърде много време (Timeout).`);
+        timeoutErr.stage = prepStage;
+        reject(timeoutErr);
       }
     }, timeoutMs);
 
@@ -238,14 +277,16 @@ async function prepareReceiptImageWithTimeout(
       clearTimeout(timer);
       URL.revokeObjectURL(objectUrl);
       if (originalFormat === "HEIC" || originalFormat === "HEIF") {
-        reject(
-          new Error(
-            "Форматът HEIC/HEIF не се поддържа директно от този браузър. Моля, изберете JPG/PNG снимка или снимайте директно с камерата."
-          )
+        const heicErr: any = new Error(
+          "Форматът HEIC/HEIF не се поддържа директно от този браузър. Моля, изберете JPG/PNG снимка или снимайте директно с камерата."
         );
+        heicErr.stage = "IMAGE_LOAD";
+        reject(heicErr);
         return;
       }
-      reject(new Error("Невалиден или неподдържан графичен формат на касовата бележка."));
+      const loadErr: any = new Error("Невалиден или неподдържан графичен формат на касовата бележка.");
+      loadErr.stage = "IMAGE_LOAD";
+      reject(loadErr);
     };
 
     img.onload = async () => {
@@ -273,6 +314,7 @@ async function prepareReceiptImageWithTimeout(
         let previewObjectUrl: string | undefined = objectUrl;
 
         if (needsLosslessCanvasRender) {
+          prepStage = "IMAGE_CONVERSION";
           usedOriginalFile = false;
           // Respect mobile browser 16MP canvas pixel safety cap ONLY if an ultra-high-res sensor photo requires rotation/HEIC conversion
           const MAX_CANVAS_PIXELS = 16_000_000;
@@ -323,14 +365,19 @@ async function prepareReceiptImageWithTimeout(
         // Keep Gemini JSON transport compact (~300-800KB) so Cloudflare Worker & mobile networks don't fail on multi-MB POST bodies.
         let base64 = "";
         let geminiMimeType = file.type || "image/jpeg";
+        let aiTransportWidth = originalWidth;
+        let aiTransportHeight = originalHeight;
+        let aiCompressedSizeBytes = file.size;
         const MAX_DIRECT_GEMINI_BYTES = 1.2 * 1024 * 1024;
         if (
           file.size <= MAX_DIRECT_GEMINI_BYTES &&
           exifOrientation <= 1 &&
           ["JPEG", "PNG", "WEBP"].includes(originalFormat)
         ) {
+          prepStage = "BASE64_ENCODING";
           base64 = await readFileAsDataUrl(file);
         } else {
+          prepStage = "IMAGE_RESIZE";
           // Only create a separate JPEG copy for Gemini JSON transport if file > 1.2MB or rotated/HEIC
           const maxGeminiWidth = 1600;
           const maxGeminiHeight = 4000;
@@ -344,10 +391,13 @@ async function prepareReceiptImageWithTimeout(
             gWidth = Math.round((gWidth * maxGeminiHeight) / gHeight);
             gHeight = maxGeminiHeight;
           }
+          aiTransportWidth = gWidth;
+          aiTransportHeight = gHeight;
           const gCanvas = document.createElement("canvas");
           gCanvas.width = gWidth;
           gCanvas.height = gHeight;
           const gCtx = gCanvas.getContext("2d");
+          prepStage = "BASE64_ENCODING";
           if (gCtx) {
             gCtx.fillStyle = "#ffffff";
             gCtx.fillRect(0, 0, gWidth, gHeight);
@@ -357,6 +407,14 @@ async function prepareReceiptImageWithTimeout(
           } else {
             base64 = await readFileAsDataUrl(ocrSource);
           }
+        }
+
+        // Calculate exact decoded binary size of the compressed image sent in JSON
+        const commaIdx = base64.indexOf(",");
+        const pureB64 = commaIdx !== -1 ? base64.slice(commaIdx + 1) : base64;
+        if (pureB64.length > 0) {
+          const padding = pureB64.endsWith("==") ? 2 : pureB64.endsWith("=") ? 1 : 0;
+          aiCompressedSizeBytes = Math.max(0, Math.floor((pureB64.length * 3) / 4) - padding);
         }
 
         if (hasFinished) return;
@@ -375,6 +433,11 @@ async function prepareReceiptImageWithTimeout(
           ocrWidth,
           ocrHeight,
           ocrSizeBytes: ocrSource.size,
+          aiTransportWidth,
+          aiTransportHeight,
+          aiCompressedSizeBytes,
+          base64SizeChars: base64.length,
+          lastCompletedStage: prepStage,
           usedOriginalFile,
           wasResized,
           wasRecompressed,
@@ -391,6 +454,10 @@ async function prepareReceiptImageWithTimeout(
           mimeType: geminiMimeType,
           originalSize: file.size,
           ocrSizeBytes: ocrSource.size,
+          compressedSizeBytes: aiCompressedSizeBytes,
+          base64SizeChars: base64.length,
+          aiWidth: aiTransportWidth,
+          aiHeight: aiTransportHeight,
           dimensions: `${originalWidth}x${originalHeight}`,
           diagnostics,
         });
@@ -399,7 +466,11 @@ async function prepareReceiptImageWithTimeout(
         hasFinished = true;
         clearTimeout(timer);
         URL.revokeObjectURL(objectUrl);
-        reject(new Error(err?.message || "Неуспешна подготовка на изображението."));
+        const stageErr: any = new Error(
+          `[${prepStage}] ${err?.message || "Неуспешна подготовка на изображението."}`
+        );
+        stageErr.stage = prepStage;
+        reject(stageErr);
       }
     };
 
@@ -996,8 +1067,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
       setStep("preview");
     } catch (prepErr: any) {
-      addDebugLog("error", `Грешка при предварителна обработка: ${prepErr.message}`);
-      setProcessingWarning("Неуспешна обработка на файла. Въведете данните ръчно.");
+      const failedPrepStage = prepErr?.stage || "IMAGE_LOAD";
+      addDebugLog("error", `Провал на етап ${failedPrepStage}: ${prepErr.message}`);
+      setProcessingWarning(`Грешка на етап ${failedPrepStage}: въведете данните ръчно.`);
       setMerchantName("Касова бележка");
       setStep("review");
     }
@@ -1177,6 +1249,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       return `${errorCode || "API_ERROR"}${httpStatus ? ` (HTTP ${httpStatus})` : ""}`;
     };
 
+    let currentStage: OcrPipelineStage = "REQUEST_CREATION";
     const geminiStart = Date.now();
     const reqTimestamp = new Date().toLocaleTimeString("bg-BG", {
       hour: "2-digit",
@@ -1186,21 +1259,80 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     const diagId = `${geminiStart}-${Math.random().toString(36).slice(2, 7)}`;
     const requestOrigin = typeof window !== "undefined" ? window.location.origin : "";
     const requestMethod = "POST";
-    const requestBodyStr = JSON.stringify({
-      imageBase64: prepared.base64,
-      mimeType: prepared.mimeType,
-      ocrText: ocrRawText,
-    });
+
+    let requestBodyStr = "";
+    let jsonPayloadBytes = 0;
+    try {
+      requestBodyStr = JSON.stringify({
+        imageBase64: prepared.base64,
+        mimeType: prepared.mimeType,
+        ocrText: ocrRawText,
+      });
+      jsonPayloadBytes = new TextEncoder().encode(requestBodyStr).byteLength;
+    } catch (serialErr: any) {
+      clearTimeout(timeoutTimer);
+      const reason = `Failed at REQUEST_CREATION while serializing JSON (${serialErr?.message || "JSON.stringify error"})`;
+      recordAiDiagnostic({
+        id: diagId,
+        timestamp: reqTimestamp,
+        status: "failed",
+        failingStage: "REQUEST_CREATION",
+        requestUrl: ocrEndpoint,
+        requestOrigin,
+        configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
+        requestMethod,
+        imageWidth: prepared.diagnostics.originalWidth,
+        imageHeight: prepared.diagnostics.originalHeight,
+        aiTransportWidth: prepared.aiWidth,
+        aiTransportHeight: prepared.aiHeight,
+        originalMimeType: prepared.diagnostics.originalMimeType,
+        mimeType: prepared.mimeType,
+        originalFileSizeBytes: prepared.originalSize,
+        compressedFileSizeBytes: prepared.compressedSizeBytes,
+        base64SizeChars: prepared.base64SizeChars,
+        payloadBytes: 0,
+        uploadDurationMs: 0,
+        durationMs: Date.now() - geminiStart,
+        httpStatus: "0 (Not sent)",
+        responseContentType: "none",
+        workerErrorCode: "REQUEST_CREATION_FAILED",
+        geminiErrorCode: "NOT_REACHED",
+        timeoutReason: "None",
+        actualFailureReason: reason,
+        modelAttempted: "—",
+        healthProbeStatus: "not needed",
+        healthComparisonSummary: "Failed before sending request",
+        workerTimingSummary: "not reached",
+      });
+      setAiUnavailable(true);
+      setAiFallbackReason(reason);
+      setAiSucceeded(false);
+      setAiSourceBadge("OCR анализ");
+      abortControllerRef.current = null;
+      setStep("review");
+      return;
+    }
 
     setAiDiagnostics({
       id: diagId,
       timestamp: reqTimestamp,
       status: "pending",
+      failingStage: "REQUEST_SEND",
       requestUrl: ocrEndpoint,
       requestOrigin,
       configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
       requestMethod,
-      payloadBytes: requestBodyStr.length,
+      imageWidth: prepared.diagnostics.originalWidth,
+      imageHeight: prepared.diagnostics.originalHeight,
+      aiTransportWidth: prepared.aiWidth,
+      aiTransportHeight: prepared.aiHeight,
+      originalMimeType: prepared.diagnostics.originalMimeType,
+      mimeType: prepared.mimeType,
+      originalFileSizeBytes: prepared.originalSize,
+      compressedFileSizeBytes: prepared.compressedSizeBytes,
+      base64SizeChars: prepared.base64SizeChars,
+      payloadBytes: jsonPayloadBytes,
+      uploadDurationMs: null,
       durationMs: null,
       httpStatus: "pending",
       responseContentType: "pending",
@@ -1210,22 +1342,39 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       actualFailureReason: "",
       modelAttempted: "—",
       healthProbeStatus: "not run",
+      healthComparisonSummary: "pending",
+      workerTimingSummary: "pending",
     });
 
     console.info("[BudgetFlows OCR Network Diagnostics] Request", {
+      stage: "REQUEST_SEND",
       requestOrigin,
       configuredApiUrl: rawConfiguredApiUrl || "(empty)",
       resolvedOcrUrl: ocrEndpoint,
       requestUrl: ocrEndpoint,
       requestMethod,
-      payloadBytes: requestBodyStr.length,
+      imageWidth: prepared.diagnostics.originalWidth,
+      imageHeight: prepared.diagnostics.originalHeight,
+      aiTransportWidth: prepared.aiWidth,
+      aiTransportHeight: prepared.aiHeight,
+      originalMimeType: prepared.diagnostics.originalMimeType,
+      mimeType: prepared.mimeType,
+      originalFileSizeBytes: prepared.originalSize,
+      compressedFileSizeBytes: prepared.compressedSizeBytes,
+      base64SizeChars: prepared.base64SizeChars,
+      jsonPayloadBytes,
     });
     addDebugLog(
       "gemini_res",
-      `OCR Network Diagnostics | Request Origin=${requestOrigin} | Request Method=${requestMethod} | Configured API URL=${rawConfiguredApiUrl || "(empty)"} | Resolved OCR URL=${ocrEndpoint} | Request URL=${ocrEndpoint} | payloadBytes=${requestBodyStr.length} (imageBase64=${prepared.base64.length} chars, ocrText=${ocrRawText.length} chars)`
+      `OCR Request Payload | URL=${ocrEndpoint} | Method=${requestMethod} | Image=${prepared.diagnostics.originalWidth}x${prepared.diagnostics.originalHeight} (AI=${prepared.aiWidth}x${prepared.aiHeight}) | MIME=${prepared.diagnostics.originalMimeType}->${prepared.mimeType} | Orig=${prepared.originalSize}B | Compressed=${prepared.compressedSizeBytes}B | Base64=${prepared.base64SizeChars} chars | JSON=${jsonPayloadBytes}B (${(jsonPayloadBytes / 1024).toFixed(1)} KB)`
     );
 
+    let uploadStartMs = performance.now();
+    let uploadDurationMs = 0;
+
     try {
+      currentStage = "REQUEST_SEND";
+      uploadStartMs = performance.now();
       const response = await fetch(ocrEndpoint, {
         method: requestMethod,
         mode: "cors",
@@ -1235,24 +1384,27 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         body: requestBodyStr,
       });
 
+      uploadDurationMs = Math.round(performance.now() - uploadStartMs);
       clearTimeout(timeoutTimer);
       const contentType = response.headers.get("content-type") || "";
       const geminiElapsed = Date.now() - geminiStart;
       const finalRequestUrl = response.url || ocrEndpoint;
 
       console.info("[BudgetFlows OCR Network Diagnostics] Response", {
+        stage: "JSON_PARSE",
         requestOrigin,
-        configuredApiUrl: rawConfiguredApiUrl || "(empty)",
-        resolvedOcrUrl: ocrEndpoint,
         requestUrl: finalRequestUrl,
         requestMethod,
         responseStatus: response.status,
         responseContentType: contentType || "(empty)",
+        uploadDurationMs,
         durationMs: geminiElapsed,
       });
 
       if (contentType.includes("application/json")) {
+        currentStage = "JSON_PARSE";
         const json = await response.json();
+        currentStage = "CLIENT_RESPONSE";
         const serverErrorCode = String(json.errorCode || json.error || "NONE");
         const resolvedWorkerErrorCode =
           json.workerErrorCode ||
@@ -1271,10 +1423,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           (serverErrorCode === "GEMINI_TIMEOUT"
             ? `Server Gemini request timed out (${geminiElapsed}ms elapsed)`
             : "None");
+        const workerTimingSummary = json.workerTiming
+          ? `stage=${json.workerTiming.stage}, contentLength=${json.workerTiming.contentLength}, bodySize=${json.workerTiming.requestBodySize ?? "?"}B, rx=${json.workerTiming.requestReceivedTimestamp}, done=${json.workerTiming.requestCompletedTimestamp}`
+          : "not reported";
 
         addDebugLog(
           "gemini_res",
-          `Gemini response received <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | HTTP Status=${json.httpStatus ?? response.status} (transport=${response.status}) | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | Timeout Reason=${resolvedTimeoutReason} | duration=${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"}`,
+          `Gemini response received <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | WorkerTiming=(${workerTimingSummary})`,
           json
         );
 
@@ -1283,11 +1438,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             id: diagId,
             timestamp: reqTimestamp,
             status: "success",
+            failingStage: "CLIENT_RESPONSE",
             requestUrl: finalRequestUrl,
             requestOrigin,
             configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
             requestMethod,
-            payloadBytes: requestBodyStr.length,
+            imageWidth: prepared.diagnostics.originalWidth,
+            imageHeight: prepared.diagnostics.originalHeight,
+            aiTransportWidth: prepared.aiWidth,
+            aiTransportHeight: prepared.aiHeight,
+            originalMimeType: prepared.diagnostics.originalMimeType,
+            mimeType: prepared.mimeType,
+            originalFileSizeBytes: prepared.originalSize,
+            compressedFileSizeBytes: prepared.compressedSizeBytes,
+            base64SizeChars: prepared.base64SizeChars,
+            payloadBytes: jsonPayloadBytes,
+            uploadDurationMs,
             durationMs: geminiElapsed,
             httpStatus: json.httpStatus ?? response.status,
             responseContentType: contentType || "(empty)",
@@ -1297,6 +1463,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             actualFailureReason: "",
             modelAttempted: json.modelUsed || "—",
             healthProbeStatus: "not needed",
+            healthComparisonSummary: `POST /api/ocr/receipt succeeded in ${uploadDurationMs}ms (${jsonPayloadBytes} bytes)`,
+            workerTimingSummary,
           });
           const gData = json.data;
           // Bulgaria uses Euro (€) - do not let AI flip an explicitly detected Euro receipt back to BGN
@@ -1492,6 +1660,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setAiFallbackReason(null);
           setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : "AI + OCR анализ");
         } else {
+          const serverStage: OcrPipelineStage =
+            json.failingStage ||
+            json.workerTiming?.stage ||
+            (resolvedWorkerErrorCode !== "NONE" ? "WORKER_PARSE" : "GEMINI_RESPONSE");
           const failureReason = formatServerFailureReason(
             json.errorCode || json.error,
             json.httpStatus ?? response.status,
@@ -1501,11 +1673,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             id: diagId,
             timestamp: reqTimestamp,
             status: "failed",
+            failingStage: serverStage,
             requestUrl: finalRequestUrl,
             requestOrigin,
             configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
             requestMethod,
-            payloadBytes: requestBodyStr.length,
+            imageWidth: prepared.diagnostics.originalWidth,
+            imageHeight: prepared.diagnostics.originalHeight,
+            aiTransportWidth: prepared.aiWidth,
+            aiTransportHeight: prepared.aiHeight,
+            originalMimeType: prepared.diagnostics.originalMimeType,
+            mimeType: prepared.mimeType,
+            originalFileSizeBytes: prepared.originalSize,
+            compressedFileSizeBytes: prepared.compressedSizeBytes,
+            base64SizeChars: prepared.base64SizeChars,
+            payloadBytes: jsonPayloadBytes,
+            uploadDurationMs,
             durationMs: geminiElapsed,
             httpStatus: json.httpStatus ?? response.status,
             responseContentType: contentType || "(empty)",
@@ -1514,11 +1697,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             timeoutReason: resolvedTimeoutReason,
             actualFailureReason: failureReason,
             modelAttempted: json.modelAttempted || "—",
-            healthProbeStatus: "not needed",
+            healthProbeStatus: "not needed (POST reached Worker)",
+            healthComparisonSummary: `POST reached Worker at stage ${serverStage} in ${uploadDurationMs}ms`,
+            workerTimingSummary,
           });
           addDebugLog(
             "gemini_res",
-            `Gemini fallback -> Request URL=${finalRequestUrl} | HTTP Status=${json.httpStatus ?? response.status} | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | Timeout Reason=${resolvedTimeoutReason} | reason=${failureReason}`
+            `Gemini fallback -> Failing Stage=${serverStage} | Request URL=${finalRequestUrl} | HTTP Status=${json.httpStatus ?? response.status} | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | Timeout Reason=${resolvedTimeoutReason} | reason=${failureReason}`
           );
           setAiUnavailable(true);
           setAiFallbackReason(failureReason);
@@ -1560,11 +1745,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           id: diagId,
           timestamp: reqTimestamp,
           status: "failed",
+          failingStage: "JSON_PARSE",
           requestUrl: finalRequestUrl,
           requestOrigin,
           configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
           requestMethod,
-          payloadBytes: requestBodyStr.length,
+          imageWidth: prepared.diagnostics.originalWidth,
+          imageHeight: prepared.diagnostics.originalHeight,
+          aiTransportWidth: prepared.aiWidth,
+          aiTransportHeight: prepared.aiHeight,
+          originalMimeType: prepared.diagnostics.originalMimeType,
+          mimeType: prepared.mimeType,
+          originalFileSizeBytes: prepared.originalSize,
+          compressedFileSizeBytes: prepared.compressedSizeBytes,
+          base64SizeChars: prepared.base64SizeChars,
+          payloadBytes: jsonPayloadBytes,
+          uploadDurationMs,
           durationMs: geminiElapsed,
           httpStatus: response.status,
           responseContentType: contentType || "(empty)",
@@ -1573,11 +1769,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           timeoutReason: timeoutNote,
           actualFailureReason: failureReason,
           modelAttempted: "—",
-          healthProbeStatus: "not needed",
+          healthProbeStatus: "not needed (HTTP response received)",
+          healthComparisonSummary: `POST returned non-JSON HTTP ${response.status} after ${uploadDurationMs}ms`,
+          workerTimingSummary: "non-JSON response",
         });
         addDebugLog(
           "gemini_res",
-          `Gemini fallback <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | HTTP Status=${response.status} | Response Content-Type=${contentType || "(empty)"} | Worker Error Code=${workerErrCode} | reason=${failureReason}`
+          `Gemini fallback <- Failing Stage=JSON_PARSE | Request Origin=${requestOrigin} | Request URL=${finalRequestUrl} | HTTP Status=${response.status} | Worker Error Code=${workerErrCode} | reason=${failureReason}`
         );
         setAiUnavailable(true);
         setAiFallbackReason(failureReason);
@@ -1585,26 +1783,35 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         setAiSourceBadge("OCR анализ");
       }
     } catch (gErr: any) {
+      uploadDurationMs = Math.round(performance.now() - uploadStartMs);
       clearTimeout(timeoutTimer);
       const geminiElapsed = Date.now() - geminiStart;
       const isAbort = gErr?.name === "AbortError";
       const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const failedClientStage: OcrPipelineStage =
+        currentStage === "JSON_PARSE" ? "JSON_PARSE" : "REQUEST_SEND";
 
       let healthProbeSummary = "skipped";
       let healthHttpStatus: number | null = null;
       let healthReached = false;
       let healthHasKey: boolean | null = null;
+      let healthNoCorsReachable: boolean | null = null;
+      let tinyPostStatus: number | null = null;
+      let tinyPostDurationMs: number | null = null;
+      let tinyPostError = "";
 
-      if (!isAbort && !isOffline) {
+      if (!isAbort && !isOffline && failedClientStage === "REQUEST_SEND") {
         const healthUrl = configuredApiBase
           ? `${configuredApiBase}/api/ocr/health`
           : "/api/ocr/health";
+        const hStart = performance.now();
         try {
           const healthRes = await fetch(healthUrl, {
             method: "GET",
             mode: "cors",
             credentials: "omit",
           });
+          const hMs = Math.round(performance.now() - hStart);
           healthHttpStatus = healthRes.status;
           healthReached = healthRes.ok;
           const hCt = healthRes.headers.get("content-type") || "";
@@ -1612,54 +1819,114 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             const hJson = await healthRes.json();
             healthHasKey = typeof hJson?.hasApiKey === "boolean" ? hJson.hasApiKey : null;
           }
-          healthProbeSummary = `HTTP ${healthRes.status} (${hCt || "no content-type"}${healthHasKey !== null ? `, hasApiKey=${healthHasKey}` : ""})`;
+          healthProbeSummary = `GET /api/ocr/health (cors) -> HTTP ${healthRes.status} in ${hMs}ms (${healthHasKey !== null ? `hasApiKey=${healthHasKey}` : hCt || "ok"})`;
         } catch (hErr: any) {
-          healthProbeSummary = `GET failed (${hErr?.name || "Error"}: ${hErr?.message || "network error"})`;
+          const hMs = Math.round(performance.now() - hStart);
+          healthProbeSummary = `GET /api/ocr/health (cors) FAILED in ${hMs}ms (${hErr?.name || "Error"}: ${hErr?.message || "network error"})`;
+          // Distinguish proven browser CORS rejection vs network/TLS/connection block using mode: "no-cors"
+          try {
+            await fetch(healthUrl, {
+              method: "GET",
+              mode: "no-cors",
+              credentials: "omit",
+            });
+            healthNoCorsReachable = true;
+          } catch {
+            healthNoCorsReachable = false;
+          }
+        }
+
+        // If GET /api/ocr/health succeeded over CORS, test a tiny 2-byte JSON POST ("{}") which returns 400 MISSING_DATA without invoking Gemini!
+        if (healthReached) {
+          const tStart = performance.now();
+          try {
+            const tinyRes = await fetch(ocrEndpoint, {
+              method: "POST",
+              mode: "cors",
+              credentials: "omit",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
+            tinyPostDurationMs = Math.round(performance.now() - tStart);
+            tinyPostStatus = tinyRes.status;
+          } catch (tErr: any) {
+            tinyPostDurationMs = Math.round(performance.now() - tStart);
+            tinyPostError = `${tErr?.name || "Error"}: ${tErr?.message || "POST probe failed"}`;
+          }
         }
       } else if (isOffline) {
         healthProbeSummary = "skipped (browser offline)";
       }
 
       const rawErrLabel = `${gErr?.name || "NetworkError"}: ${gErr?.message || "No response received"}`;
+      const payloadKb = (jsonPayloadBytes / 1024).toFixed(1);
       let actualFailureReason = "";
       let httpStatusDisplay: number | string = "0 (No HTTP response)";
       let workerErrCode = "UNKNOWN";
       let geminiErrCode = "NOT_REACHED";
       let timeoutNote = "None";
+      let healthComparisonSummary = healthProbeSummary;
 
-      if (isAbort) {
+      if (failedClientStage === "JSON_PARSE") {
+        httpStatusDisplay = "200 (Response body stream/JSON parse failed)";
+        workerErrCode = "RESPONSE_JSON_PARSE_ERROR";
+        actualFailureReason = `Received HTTP headers in ${uploadDurationMs}ms, then failed at JSON_PARSE: ${rawErrLabel}`;
+      } else if (isAbort) {
         httpStatusDisplay = "0 (Aborted at 40000ms)";
-        workerErrCode = "NO_RESPONSE_BEFORE_40S_TIMEOUT";
+        workerErrCode = "CLIENT_ABORT_40S_TIMEOUT";
         geminiErrCode = "CLIENT_TIMEOUT";
-        timeoutNote = `Client AbortController aborted POST after ${geminiElapsed}ms (40000ms limit exceeded)`;
-        actualFailureReason = `Request timed out after ${Math.round(geminiElapsed / 1000)}s waiting for ${ocrEndpoint}`;
+        timeoutNote = `Client AbortController aborted POST after ${uploadDurationMs}ms (40000ms limit exceeded) with ${payloadKb} KB payload`;
+        actualFailureReason = `POST (${payloadKb} KB) timed out after ${Math.round(uploadDurationMs / 1000)}s waiting for ${ocrEndpoint}`;
       } else if (isOffline) {
         httpStatusDisplay = "0 (Browser Offline)";
         workerErrCode = "CLIENT_OFFLINE";
-        actualFailureReason = "Browser is offline (navigator.onLine = false) — could not connect to Worker";
-      } else if (healthReached) {
-        httpStatusDisplay = `0 on POST (Health GET HTTP ${healthHttpStatus})`;
-        workerErrCode = "POST_CORS_OR_WORKER_DROP";
-        actualFailureReason = `POST rejected or dropped before returning CORS headers (${rawErrLabel}; payload=${Math.round(requestBodyStr.length / 1024)} KB), while GET /api/ocr/health succeeded (${healthProbeSummary}) — check Worker 1101/1102 limit or CORS preflight`;
+        actualFailureReason = "Browser is offline (navigator.onLine = false) during REQUEST_SEND";
+      } else if (healthReached && tinyPostStatus !== null) {
+        httpStatusDisplay = `0 on ${payloadKb} KB POST (Health=HTTP ${healthHttpStatus}, 2B POST=HTTP ${tinyPostStatus})`;
+        workerErrCode = "LARGE_POST_UPLOAD_FAILED";
+        healthComparisonSummary = `${healthProbeSummary} | Tiny 2B POST -> HTTP ${tinyPostStatus} in ${tinyPostDurationMs}ms (CORS & POST route proven working!) | Full ${payloadKb} KB POST -> FAILED in ${uploadDurationMs}ms`;
+        actualFailureReason = `CORS & POST route work (GET /health=HTTP ${healthHttpStatus}, 2B POST=HTTP ${tinyPostStatus}), but the ${payloadKb} KB receipt POST failed at REQUEST_SEND after ${uploadDurationMs}ms (${rawErrLabel}) — payload size/upload drop or Worker 1101/1102 limit`;
+      } else if (healthReached && tinyPostStatus === null) {
+        httpStatusDisplay = `0 on POST (Health=HTTP ${healthHttpStatus}, 2B POST failed)`;
+        workerErrCode = "POST_PREFLIGHT_OR_METHOD_FAILED";
+        healthComparisonSummary = `${healthProbeSummary} | Tiny 2B POST -> FAILED (${tinyPostError}) in ${tinyPostDurationMs}ms`;
+        actualFailureReason = `GET /health succeeded (HTTP ${healthHttpStatus}), but even a 2-byte POST /api/ocr/receipt failed (${tinyPostError}) — OPTIONS preflight or POST upload failure`;
       } else if (healthHttpStatus !== null) {
         httpStatusDisplay = `0 on POST (Health GET HTTP ${healthHttpStatus})`;
         workerErrCode = `WORKER_HTTP_${healthHttpStatus}`;
-        actualFailureReason = `POST failed (${rawErrLabel}) and GET /api/ocr/health returned HTTP ${healthHttpStatus}`;
+        actualFailureReason = `POST (${payloadKb} KB) failed at REQUEST_SEND (${rawErrLabel}) and GET /api/ocr/health returned HTTP ${healthHttpStatus}`;
+      } else if (healthNoCorsReachable === true) {
+        httpStatusDisplay = "0 (Proven CORS rejection)";
+        workerErrCode = "PROVEN_CORS_REJECTION";
+        healthComparisonSummary = `GET /health (mode: cors) FAILED, while GET /health (mode: no-cors) SUCCEEDED — Origin "${requestOrigin}" rejected by CORS`;
+        actualFailureReason = `Proven CORS rejection: browser blocked JS access from Origin "${requestOrigin || "(unknown)"}" on ${ocrEndpoint} (no-cors reachability succeeded)`;
       } else {
-        httpStatusDisplay = "0 (CORS / DNS / TLS blocked)";
-        workerErrCode = "CORS_BLOCKED_OR_HOST_UNREACHABLE";
-        actualFailureReason = `CORS preflight blocked for origin ${requestOrigin || "(unknown)"} or Worker host unreachable (${rawErrLabel}; ${healthProbeSummary})`;
+        httpStatusDisplay = "0 (Connection / TLS / Blocker Drop)";
+        workerErrCode = "NETWORK_OR_CONNECTION_DROP";
+        healthComparisonSummary = `GET /health (cors & no-cors) both failed from JS (${healthProbeSummary})`;
+        actualFailureReason = `Network/connection drop from JS context before HTTP response (${rawErrLabel}; both cors and no-cors GET /health failed; payload=${payloadKb} KB)`;
       }
 
       recordAiDiagnostic({
         id: diagId,
         timestamp: reqTimestamp,
         status: "failed",
+        failingStage: failedClientStage,
         requestUrl: ocrEndpoint,
         requestOrigin,
         configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
         requestMethod,
-        payloadBytes: requestBodyStr.length,
+        imageWidth: prepared.diagnostics.originalWidth,
+        imageHeight: prepared.diagnostics.originalHeight,
+        aiTransportWidth: prepared.aiWidth,
+        aiTransportHeight: prepared.aiHeight,
+        originalMimeType: prepared.diagnostics.originalMimeType,
+        mimeType: prepared.mimeType,
+        originalFileSizeBytes: prepared.originalSize,
+        compressedFileSizeBytes: prepared.compressedSizeBytes,
+        base64SizeChars: prepared.base64SizeChars,
+        payloadBytes: jsonPayloadBytes,
+        uploadDurationMs,
         durationMs: geminiElapsed,
         httpStatus: httpStatusDisplay,
         responseContentType: "none",
@@ -1669,24 +1936,37 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         actualFailureReason,
         modelAttempted: "—",
         healthProbeStatus: healthProbeSummary,
+        healthComparisonSummary,
+        workerTimingSummary: "not reached",
       });
 
       console.warn("[BudgetFlows OCR Network Diagnostics] Request Failed", {
+        failingStage: failedClientStage,
         requestOrigin,
         requestUrl: ocrEndpoint,
         requestMethod,
+        imageWidth: prepared.diagnostics.originalWidth,
+        imageHeight: prepared.diagnostics.originalHeight,
+        aiTransportWidth: prepared.aiWidth,
+        aiTransportHeight: prepared.aiHeight,
+        originalMimeType: prepared.diagnostics.originalMimeType,
+        mimeType: prepared.mimeType,
+        originalFileSizeBytes: prepared.originalSize,
+        compressedFileSizeBytes: prepared.compressedSizeBytes,
+        base64SizeChars: prepared.base64SizeChars,
+        jsonPayloadBytes,
+        uploadDurationMs,
         httpStatus: httpStatusDisplay,
         workerErrorCode: workerErrCode,
         geminiErrorCode: geminiErrCode,
         timeoutReason: timeoutNote,
+        healthComparisonSummary,
         actualFailureReason,
-        payloadBytes: requestBodyStr.length,
-        healthProbe: healthProbeSummary,
       });
 
       addDebugLog(
         "gemini_res",
-        `Gemini request failed <- Request URL=${ocrEndpoint} | HTTP Status=${httpStatusDisplay} | Worker Error Code=${workerErrCode} | Gemini Error Code=${geminiErrCode} | Timeout Reason=${timeoutNote} | payloadBytes=${requestBodyStr.length} | healthProbe=${healthProbeSummary} | reason=${actualFailureReason}`
+        `Gemini failed <- Failing Stage=${failedClientStage} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B (${payloadKb} KB) | WorkerCode=${workerErrCode} | Compare=(${healthComparisonSummary}) | reason=${actualFailureReason}`
       );
       setAiUnavailable(true);
       setAiFallbackReason(actualFailureReason);
@@ -2337,8 +2617,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
                   {aiDiagnostics && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 font-mono text-[11px]">
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800/80">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Failing Stage</span>
+                        <span className="text-rose-700 dark:text-rose-300 font-bold">{aiDiagnostics.failingStage}</span>
+                      </div>
                       <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 min-w-0">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Request URL</span>
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Request URL ({aiDiagnostics.requestMethod})</span>
                         <span className="text-slate-900 dark:text-slate-100 break-all">{aiDiagnostics.requestUrl}</span>
                       </div>
                       <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
@@ -2353,9 +2637,23 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Gemini Error Code</span>
                         <span className="text-rose-700 dark:text-rose-300 font-semibold break-all">{aiDiagnostics.geminiErrorCode}</span>
                       </div>
-                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2">
-                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Timeout Reason</span>
-                        <span className="text-slate-900 dark:text-slate-100 break-words">{aiDiagnostics.timeoutReason}</span>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Payload & Upload</span>
+                        <span className="text-slate-900 dark:text-slate-100 font-semibold">
+                          JSON {(aiDiagnostics.payloadBytes / 1024).toFixed(1)} KB ({aiDiagnostics.uploadDurationMs ?? "—"}ms)
+                        </span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2 lg:col-span-3">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Health GET vs Receipt POST Comparison</span>
+                        <span className="text-slate-900 dark:text-slate-100 break-words">{aiDiagnostics.healthComparisonSummary}</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2 lg:col-span-3">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">
+                          Image & Sizes | Timeout: {aiDiagnostics.timeoutReason}
+                        </span>
+                        <span className="text-slate-700 dark:text-slate-300 break-words">
+                          Orig: {aiDiagnostics.imageWidth}x{aiDiagnostics.imageHeight} ({(aiDiagnostics.originalFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.originalMimeType}) | AI Copy: {aiDiagnostics.aiTransportWidth}x{aiDiagnostics.aiTransportHeight} ({(aiDiagnostics.compressedFileSizeBytes / 1024).toFixed(1)} KB, {aiDiagnostics.mimeType}) | Base64: {(aiDiagnostics.base64SizeChars / 1024).toFixed(1)} KB | Origin: {aiDiagnostics.requestOrigin || "(none)"}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -3066,7 +3364,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-[11px]"
                       >
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-slate-400">[{reqDiag.timestamp}]</span>
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -3079,9 +3377,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             >
                               {reqDiag.status}
                             </span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700">
+                              Stage: {reqDiag.failingStage}
+                            </span>
                             <span className="text-slate-300">
-                              {reqDiag.requestMethod} | {Math.round(reqDiag.payloadBytes / 1024)} KB
-                              {reqDiag.durationMs !== null ? ` | ${reqDiag.durationMs}ms` : ""}
+                              {reqDiag.requestMethod} | JSON {(reqDiag.payloadBytes / 1024).toFixed(1)} KB
+                              {reqDiag.uploadDurationMs !== null ? ` | upload ${reqDiag.uploadDurationMs}ms` : ""}
                             </span>
                           </div>
                           <span className="text-slate-400 text-[10px]">
@@ -3106,6 +3407,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             <span className="text-slate-400">Gemini Error Code: </span>
                             <span className="text-rose-300 font-semibold">{reqDiag.geminiErrorCode}</span>
                           </div>
+                          <div>
+                            <span className="text-slate-400">Image (Orig / AI): </span>
+                            <span className="text-slate-200">
+                              {reqDiag.imageWidth}x{reqDiag.imageHeight} / {reqDiag.aiTransportWidth}x{reqDiag.aiTransportHeight} ({reqDiag.mimeType})
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Sizes (Orig / Comp / B64): </span>
+                            <span className="text-slate-200">
+                              {(reqDiag.originalFileSizeBytes / 1024).toFixed(1)} KB / {(reqDiag.compressedFileSizeBytes / 1024).toFixed(1)} KB / {(reqDiag.base64SizeChars / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+                          <div className="sm:col-span-2">
+                            <span className="text-slate-400">Health vs POST: </span>
+                            <span className="text-emerald-300 break-words">{reqDiag.healthComparisonSummary}</span>
+                          </div>
                           <div className="sm:col-span-2">
                             <span className="text-slate-400">Timeout Reason: </span>
                             <span className="text-slate-200">{reqDiag.timeoutReason}</span>
@@ -3116,8 +3433,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                               <span className="text-rose-300 break-words">{reqDiag.actualFailureReason}</span>
                             </div>
                           )}
-                          <div className="sm:col-span-2 text-[10px] text-slate-400">
-                            Model: {reqDiag.modelAttempted} | Content-Type: {reqDiag.responseContentType} | Health Probe: {reqDiag.healthProbeStatus}
+                          <div className="sm:col-span-2 text-[10px] text-slate-400 break-all">
+                            Model: {reqDiag.modelAttempted} | Content-Type: {reqDiag.responseContentType} | Worker Timing: {reqDiag.workerTimingSummary}
                           </div>
                         </div>
                       </div>

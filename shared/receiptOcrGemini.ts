@@ -37,6 +37,7 @@ export interface GeminiReceiptAnalysisResponse {
         workerErrorCode?: string | null;
         geminiErrorCode?: string | null;
         timeoutReason?: string | null;
+        failingStage?: "WORKER_PARSE" | "GEMINI_REQUEST" | "GEMINI_RESPONSE" | "JSON_PARSE";
         httpStatus: number | null;
         modelAttempted: string | null;
         fallbackReason: string;
@@ -261,6 +262,7 @@ export async function analyzeReceiptWithGemini(input: {
               workerErrorCode: null,
               geminiErrorCode: lastGeminiErrorCode,
               timeoutReason: lastTimeoutReason,
+              failingStage: "GEMINI_RESPONSE",
               httpStatus: response.status,
               modelAttempted: modelName,
               fallbackReason:
@@ -302,6 +304,7 @@ export async function analyzeReceiptWithGemini(input: {
               workerErrorCode: null,
               geminiErrorCode: lastGeminiErrorCode,
               timeoutReason: null,
+              failingStage: "GEMINI_RESPONSE",
               httpStatus: response.status,
               modelAttempted: modelName,
               fallbackReason: emptyReason,
@@ -346,6 +349,7 @@ export async function analyzeReceiptWithGemini(input: {
                 workerErrorCode: null,
                 geminiErrorCode: lastGeminiErrorCode,
                 timeoutReason: null,
+                failingStage: "JSON_PARSE",
                 httpStatus: response.status,
                 modelAttempted: modelName,
                 fallbackReason: parseReason,
@@ -436,6 +440,7 @@ export async function analyzeReceiptWithGemini(input: {
             workerErrorCode: isAbort ? null : "UPSTREAM_FETCH_ERROR",
             geminiErrorCode: lastGeminiErrorCode,
             timeoutReason: lastTimeoutReason,
+            failingStage: "GEMINI_REQUEST",
             httpStatus: lastHttpStatus,
             modelAttempted: modelName,
             fallbackReason: isAbort
@@ -460,6 +465,12 @@ export async function analyzeReceiptWithGemini(input: {
         workerErrorCode: null,
         geminiErrorCode: lastGeminiErrorCode || lastErrorCode,
         timeoutReason: lastTimeoutReason,
+        failingStage:
+          lastErrorCode === "GEMINI_TIMEOUT" || lastErrorCode === "NETWORK_ERROR"
+            ? "GEMINI_REQUEST"
+            : lastErrorCode === "PARSE_ERROR"
+            ? "JSON_PARSE"
+            : "GEMINI_RESPONSE",
         httpStatus: lastHttpStatus,
         modelAttempted: lastModelAttempted,
         fallbackReason: exhaustedReason,
@@ -480,6 +491,7 @@ export async function analyzeReceiptWithGemini(input: {
         workerErrorCode: "SERVER_ERROR",
         geminiErrorCode: "NOT_REACHED",
         timeoutReason: null,
+        failingStage: "GEMINI_REQUEST",
         httpStatus: 500,
         modelAttempted: null,
         fallbackReason: err?.message || "Unexpected server error",
