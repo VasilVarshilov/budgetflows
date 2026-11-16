@@ -20,6 +20,7 @@ export const STORAGE_BASE_LAST_SYNC = "LastCloudSync";
 export const STORAGE_BASE_LOCAL_UPDATED_AT = "LocalDataUpdatedAt";
 export const STORAGE_BASE_LAST_CLOUD_MODIFIED_AT = "LastCloudModifiedAt";
 export const STORAGE_BASE_DRIVE_CONNECTED = "DriveAutoReconnect";
+export const STORAGE_BASE_PENDING_SYNC = "PendingCloudSync";
 export const STORAGE_BASE_DISMISSED_RESTORE_PROMPT = "DismissedRestorePrompt";
 export const STORAGE_BASE_PRE_RESTORE_PREFIX = "PreRestore_Backup_";
 

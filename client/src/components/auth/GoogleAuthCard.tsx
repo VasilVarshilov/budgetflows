@@ -306,6 +306,12 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                   <span>Drive Connected ✅</span>
                 </span>
               )}
+              {isAuthenticated && !isRestoringDriveSession && !hasDriveAccessToken && driveSessionStatus === "standby" && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Автоматичен архив активен</span>
+                </span>
+              )}
               {isAuthenticated && !isRestoringDriveSession && !hasDriveAccessToken && driveSessionStatus === "needs_reauth" && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                   <KeyRound className="w-3 h-3" />
@@ -715,15 +721,39 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             </div>
           )}
 
-          {/* In-memory Google Drive token refresh prompt only if automatic silent restore could not renew */}
-          {!hasDriveAccessToken && !isRestoringDriveSession && (
-            <div className="p-3.5 rounded-xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-start gap-2.5 text-indigo-950 dark:text-indigo-200">
-                <KeyRound className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+          {/* Standby status when Google profile is restored cleanly and already synced */}
+          {!hasDriveAccessToken && !isRestoringDriveSession && driveSessionStatus === "standby" && (
+            <div className="p-3.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-start gap-2.5 text-emerald-950 dark:text-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold block">Профилът е зареден — подновете Drive достъпа при нужда</span>
-                  <span className="text-[11px] text-indigo-800/90 dark:text-indigo-300">
-                    За ваша сигурност достъпът до Google Drive се пази само в текущата сесия на браузъра и не отваря автоматични прозорци. Натиснете бутона, за да синхронизирате — локалните ви данни са запазени.
+                  <span className="font-bold block">Профилът е възстановен автоматично • Данните са в синхрон</span>
+                  <span className="text-[11px] text-emerald-800/90 dark:text-emerald-300">
+                    Няма чакащи несинхронизирани промени. Натиснете „Архивирай сега“ или „Възстанови от Drive“ по всяко време за директен обмен с Google Drive.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleReconnectDrive}
+                disabled={isLoggingIn}
+                className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-emerald-100/60 dark:hover:bg-slate-700 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isLoggingIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span>Свържи Drive за тази сесия</span>
+              </button>
+            </div>
+          )}
+
+          {/* Reconnect prompt shown ONLY when Drive token expired/absent AND local changes need synchronization */}
+          {!hasDriveAccessToken && !isRestoringDriveSession && driveSessionStatus === "needs_reauth" && (
+            <div className="p-3.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-start gap-2.5 text-amber-950 dark:text-amber-200">
+                <KeyRound className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Има чакащи локални промени за синхронизация с Google Drive</span>
+                  <span className="text-[11px] text-amber-900/90 dark:text-amber-300">
+                    За ваша сигурност браузърите не пазят сурови Drive токени след затваряне. Натиснете бутона, за да изпратите новите записи в облака — локалните данни са запазени.
                   </span>
                 </div>
               </div>

@@ -42,6 +42,7 @@ import {
   STORAGE_BASE_LAST_SYNC,
   STORAGE_BASE_LAST_CLOUD_MODIFIED_AT,
   STORAGE_BASE_DRIVE_CONNECTED,
+  STORAGE_BASE_PENDING_SYNC,
   STORAGE_BASE_DISMISSED_RESTORE_PROMPT,
 } from "./userStorage";
 import { BackupData } from "@/types";
@@ -52,6 +53,7 @@ export type DriveSessionStatus =
   | "disconnected"
   | "restoring"
   | "connected"
+  | "standby"
   | "needs_reauth";
 
 export interface PendingRestoreOffer {
@@ -80,6 +82,22 @@ function parseTimestampMs(iso?: string | null): number | null {
   if (!iso) return null;
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : null;
+}
+
+function computeHasUnsyncedLocalChanges(uid: string): boolean {
+  if (!uid || uid === "guest") return false;
+  if (userStorage.getItem(STORAGE_BASE_PENDING_SYNC, uid) === "true") {
+    return true;
+  }
+  const localTs = parseTimestampMs(userStorage.getLocalUpdatedAt(uid));
+  const lastSyncTs = parseTimestampMs(userStorage.getItem(STORAGE_BASE_LAST_SYNC, uid));
+  if (localTs !== null && lastSyncTs !== null && localTs > lastSyncTs + 1500) {
+    return true;
+  }
+  if (!userStorage.isEmpty(uid) && lastSyncTs === null) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -172,6 +190,7 @@ interface CloudSyncContextType {
   isSwitchingAccount: boolean;
   hasDriveAccessToken: boolean;
   driveSessionStatus: DriveSessionStatus;
+  hasUnsyncedChanges: boolean;
   isRestoringDriveSession: boolean;
   authError: any | null;
   isOnline: boolean;
@@ -260,6 +279,22 @@ export const CloudSyncProvider: React.FC<{
   const userRef = useRef<User | null>(null);
   const autoBackupRef = useRef<boolean>(true);
   const checkedRestoreOfferForUidRef = useRef<string | null>(null);
+  const isApplyingRestoreRef = useRef<boolean>(false);
+  const isBackupInFlightRef = useRef<boolean>(false);
+  const triggerAutoSyncRef = useRef<() => void>(() => {});
+  const executeBackupRef = useRef<
+    (isAutomatic?: boolean, allowOverwriteConflict?: boolean) => Promise<{ success: boolean; message: string }>
+  >(async () => ({ success: false, message: "" }));
+
+  const persistPendingSyncFlag = useCallback((uid: string, pending: boolean) => {
+    hasPendingSyncRef.current = pending;
+    if (!uid || uid === "guest") return;
+    if (pending) {
+      userStorage.setItem(STORAGE_BASE_PENDING_SYNC, "true", uid);
+    } else {
+      userStorage.removeItem(STORAGE_BASE_PENDING_SYNC, uid);
+    }
+  }, []);
 
   const clearPendingAutoSync = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -287,6 +322,8 @@ export const CloudSyncProvider: React.FC<{
 
     const localTs = userStorage.getLocalUpdatedAt(uid);
     setLocalUpdatedAt(localTs);
+
+    hasPendingSyncRef.current = computeHasUnsyncedLocalChanges(uid);
   }, []);
 
   const refreshLocalUpdatedAt = useCallback(() => {
@@ -295,13 +332,22 @@ export const CloudSyncProvider: React.FC<{
   }, []);
 
   // Keep localUpdatedAt synchronized whenever any storage module writes user changes
+  // (Expenses, Incomes, Budgets, Categories, Electricity, Settings) and queue auto-sync cleanly.
   useEffect(() => {
     const handleLocalUpdate = (ev: Event) => {
+      const uid = authUidRef.current;
       const detail = (ev as CustomEvent<{ timestamp?: string }>)?.detail;
       if (detail?.timestamp) {
         setLocalUpdatedAt(detail.timestamp);
       } else {
-        setLocalUpdatedAt(userStorage.getLocalUpdatedAt(authUidRef.current));
+        setLocalUpdatedAt(userStorage.getLocalUpdatedAt(uid));
+      }
+
+      if (!isApplyingRestoreRef.current && uid && uid !== "guest") {
+        persistPendingSyncFlag(uid, true);
+        if (autoBackupRef.current && userRef.current) {
+          triggerAutoSyncRef.current();
+        }
       }
     };
     window.addEventListener("budgetflows:local-data-updated", handleLocalUpdate);
@@ -311,9 +357,9 @@ export const CloudSyncProvider: React.FC<{
         handleLocalUpdate
       );
     };
-  }, []);
+  }, [persistPendingSyncFlag]);
 
-  // Mark session as needing explicit reconnect when in-memory token expires (no auto-popups)
+  // Mark session status cleanly when in-memory token expires (no auto-popups)
   const scheduleProactiveTokenRefresh = useCallback(
     (targetUser: User) => {
       clearRefreshTimer();
@@ -327,7 +373,14 @@ export const CloudSyncProvider: React.FC<{
         if (authUidRef.current !== targetUser.uid) return;
         if (!stillValid) {
           setHasDriveAccessToken(false);
-          setDriveSessionStatus("needs_reauth");
+          const unsynced =
+            hasPendingSyncRef.current || computeHasUnsyncedLocalChanges(targetUser.uid);
+          const hasSyncedBefore = Boolean(
+            userStorage.getItem(STORAGE_BASE_LAST_SYNC, targetUser.uid)
+          );
+          setDriveSessionStatus(
+            unsynced || !hasSyncedBefore ? "needs_reauth" : "standby"
+          );
         } else {
           scheduleProactiveTokenRefresh(targetUser);
         }
@@ -416,13 +469,14 @@ export const CloudSyncProvider: React.FC<{
           expectedUid
         );
 
+        const persistentPending = computeHasUnsyncedLocalChanges(expectedUid);
         const decision = decideDriveSyncAction({
           isLocalEmpty: isEmpty,
           localUpdatedAt: currentLocalUpdatedAt,
           lastSyncTime: currentLastSync,
           lastKnownCloudModifiedTime: lastKnownCloudMod,
           cloudInfo: info,
-          hasPendingSync: hasPendingSyncRef.current,
+          hasPendingSync: hasPendingSyncRef.current || persistentPending,
           autoBackupEnabled: autoBackupRef.current,
         });
 
@@ -452,7 +506,7 @@ export const CloudSyncProvider: React.FC<{
             setLocalUpdatedAt(stamped);
           }
 
-          hasPendingSyncRef.current = false;
+          persistPendingSyncFlag(expectedUid, false);
           setLastSyncTime(nowIso);
           setSyncStatus("synced");
           setSyncConflict(null);
@@ -630,9 +684,51 @@ export const CloudSyncProvider: React.FC<{
             evaluateDriveSyncState(currentUser, token);
           }
         } else {
-          // Existing Firebase session restored silently; Drive token requires explicit user reconnect
-          setDriveSessionStatus("needs_reauth");
-          setIsRestoringDriveSession(false);
+          // Existing Firebase session restored silently; try passive in-memory cross-tab restore
+          setIsRestoringDriveSession(true);
+          setDriveSessionStatus("restoring");
+          void trySilentDriveTokenRestore(currentUser)
+            .then((restored) => {
+              if (authUidRef.current !== nextUid) return;
+              setIsRestoringDriveSession(false);
+              if (restored?.accessToken) {
+                setHasDriveAccessToken(true);
+                setDriveSessionStatus("connected");
+                userStorage.setItem(STORAGE_BASE_DRIVE_CONNECTED, "true", nextUid);
+                if (typeof navigator === "undefined" || navigator.onLine) {
+                  evaluateDriveSyncState(currentUser, restored.accessToken);
+                }
+              } else {
+                setHasDriveAccessToken(false);
+                const unsynced = computeHasUnsyncedLocalChanges(nextUid);
+                const hasSyncedBefore = Boolean(
+                  userStorage.getItem(STORAGE_BASE_LAST_SYNC, nextUid)
+                );
+                if (unsynced) {
+                  persistPendingSyncFlag(nextUid, true);
+                  setDriveSessionStatus("needs_reauth");
+                } else if (hasSyncedBefore) {
+                  setDriveSessionStatus("standby");
+                  setSyncStatus((prev) => (prev === "idle" ? "synced" : prev));
+                } else {
+                  setDriveSessionStatus(
+                    autoBackupRef.current ? "needs_reauth" : "standby"
+                  );
+                }
+              }
+            })
+            .catch(() => {
+              if (authUidRef.current !== nextUid) return;
+              setIsRestoringDriveSession(false);
+              setHasDriveAccessToken(false);
+              const unsynced = computeHasUnsyncedLocalChanges(nextUid);
+              const hasSyncedBefore = Boolean(
+                userStorage.getItem(STORAGE_BASE_LAST_SYNC, nextUid)
+              );
+              setDriveSessionStatus(
+                unsynced || !hasSyncedBefore ? "needs_reauth" : "standby"
+              );
+            });
         }
       },
       (err) => {
@@ -651,39 +747,76 @@ export const CloudSyncProvider: React.FC<{
     clearRefreshTimer,
     readUserSyncPreferences,
     evaluateDriveSyncState,
+    persistPendingSyncFlag,
   ]);
 
-  // Passively verify in-memory token expiry on tab focus / visibility return (no automatic popups)
+  // Passively verify token expiry on tab focus / visibility return, AND flush pending sync before page hide/close
   useEffect(() => {
+    const flushPendingOnLeave = () => {
+      const activeUser = userRef.current;
+      if (!activeUser || !autoBackupRef.current) return;
+      if (!debounceTimerRef.current && !hasPendingSyncRef.current) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (!getStoredOAuthToken(activeUser.uid)) return;
+
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      void executeBackupRef.current(true);
+    };
+
     const checkFocusRecovery = () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        flushPendingOnLeave();
         return;
       }
       const activeUser = userRef.current;
       if (!activeUser) return;
 
-      if (!getStoredOAuthToken(activeUser.uid)) {
-        setHasDriveAccessToken(false);
-        setDriveSessionStatus("needs_reauth");
-      }
+      const uid = activeUser.uid;
+      if (getStoredOAuthToken(uid)) return;
+
+      void trySilentDriveTokenRestore(activeUser).then((restored) => {
+        if (authUidRef.current !== uid) return;
+        if (restored?.accessToken) {
+          setHasDriveAccessToken(true);
+          setDriveSessionStatus("connected");
+          if (typeof navigator === "undefined" || navigator.onLine) {
+            void evaluateDriveSyncState(activeUser, restored.accessToken);
+          }
+        } else {
+          setHasDriveAccessToken(false);
+          const unsynced =
+            hasPendingSyncRef.current || computeHasUnsyncedLocalChanges(uid);
+          const hasSyncedBefore = Boolean(
+            userStorage.getItem(STORAGE_BASE_LAST_SYNC, uid)
+          );
+          setDriveSessionStatus(
+            unsynced || !hasSyncedBefore ? "needs_reauth" : "standby"
+          );
+        }
+      });
     };
 
     window.addEventListener("focus", checkFocusRecovery);
     document.addEventListener("visibilitychange", checkFocusRecovery);
+    window.addEventListener("pagehide", flushPendingOnLeave);
     return () => {
       window.removeEventListener("focus", checkFocusRecovery);
       document.removeEventListener("visibilitychange", checkFocusRecovery);
+      window.removeEventListener("pagehide", flushPendingOnLeave);
     };
-  }, []);
+  }, [evaluateDriveSyncState]);
 
   const setAutoBackupEnabled = useCallback((enabled: boolean) => {
+    const uid = authUidRef.current;
     autoBackupRef.current = enabled;
     setAutoBackupEnabledState(enabled);
-    userStorage.setItem(
-      STORAGE_BASE_AUTO_BACKUP,
-      String(enabled),
-      authUidRef.current
-    );
+    userStorage.setItem(STORAGE_BASE_AUTO_BACKUP, String(enabled), uid);
+    if (enabled && uid !== "guest" && computeHasUnsyncedLocalChanges(uid)) {
+      triggerAutoSyncRef.current();
+    }
   }, []);
 
   const fetchCloudBackupDetails = useCallback(async (): Promise<DriveFileInfo | null> => {
@@ -748,9 +881,9 @@ export const CloudSyncProvider: React.FC<{
           setLastSyncError(
             "Няма активна Google сесия или изтекъл токен. Моля, подновете достъпа."
           );
-        } else {
+        } else if (expectedUid && expectedUid !== "guest") {
           // Keep pending sync queued so reconnect uploads it automatically
-          hasPendingSyncRef.current = true;
+          persistPendingSyncFlag(expectedUid, true);
           setDriveSessionStatus("needs_reauth");
         }
         return {
@@ -776,7 +909,7 @@ export const CloudSyncProvider: React.FC<{
         syncConflict &&
         syncConflict.uid === expectedUid
       ) {
-        hasPendingSyncRef.current = true;
+        persistPendingSyncFlag(expectedUid, true);
         return {
           success: false,
           message:
@@ -785,7 +918,7 @@ export const CloudSyncProvider: React.FC<{
       }
 
       if (typeof navigator !== "undefined" && !navigator.onLine) {
-        hasPendingSyncRef.current = true;
+        persistPendingSyncFlag(expectedUid, true);
         setSyncStatus("offline");
         return {
           success: false,
@@ -793,6 +926,17 @@ export const CloudSyncProvider: React.FC<{
             "Няма интернет връзка. Промените ще се синхронизират автоматично при връщане онлайн.",
         };
       }
+
+      if (isBackupInFlightRef.current) {
+        persistPendingSyncFlag(expectedUid, true);
+        return {
+          success: false,
+          message: "В момента се извършва синхронизация.",
+        };
+      }
+
+      const localStampBeforeUpload = userStorage.getLocalUpdatedAt(expectedUid);
+      isBackupInFlightRef.current = true;
 
       try {
         setSyncStatus("syncing");
@@ -814,8 +958,19 @@ export const CloudSyncProvider: React.FC<{
         const nowIso = new Date().toISOString();
         const cloudModTime = result.modifiedTime || nowIso;
 
-        hasPendingSyncRef.current = false;
-        setSyncStatus("synced");
+        const localStampAfterUpload = userStorage.getLocalUpdatedAt(expectedUid);
+        const modifiedDuringUpload =
+          localStampAfterUpload &&
+          localStampBeforeUpload &&
+          localStampAfterUpload !== localStampBeforeUpload;
+
+        if (!modifiedDuringUpload) {
+          persistPendingSyncFlag(expectedUid, false);
+          setSyncStatus("synced");
+        } else {
+          persistPendingSyncFlag(expectedUid, true);
+        }
+
         setLastSyncTime(nowIso);
         setSyncConflict(null);
         setPendingRestoreOffer(null);
@@ -844,6 +999,10 @@ export const CloudSyncProvider: React.FC<{
         }));
 
         await refreshDriveMetadataOnly(activeUser, token);
+
+        if (modifiedDuringUpload && autoBackupRef.current) {
+          triggerAutoSyncRef.current();
+        }
 
         return {
           success: true,
@@ -883,7 +1042,7 @@ export const CloudSyncProvider: React.FC<{
                 if (authUidRef.current === expectedUid) {
                   const nowIso = new Date().toISOString();
                   const cloudModTime = retryResult.modifiedTime || nowIso;
-                  hasPendingSyncRef.current = false;
+                  persistPendingSyncFlag(expectedUid, false);
                   setSyncStatus("synced");
                   setLastSyncTime(nowIso);
                   setSyncConflict(null);
@@ -910,7 +1069,7 @@ export const CloudSyncProvider: React.FC<{
               console.warn("Retry after token refresh failed:", retryErr);
             }
           } else {
-            hasPendingSyncRef.current = true;
+            persistPendingSyncFlag(expectedUid, true);
           }
         }
 
@@ -922,6 +1081,8 @@ export const CloudSyncProvider: React.FC<{
           success: false,
           message: errMsg,
         };
+      } finally {
+        isBackupInFlightRef.current = false;
       }
     },
     [
@@ -929,26 +1090,30 @@ export const CloudSyncProvider: React.FC<{
       syncConflict,
       refreshDriveMetadataOnly,
       scheduleProactiveTokenRefresh,
+      persistPendingSyncFlag,
     ]
   );
+
+  executeBackupRef.current = executeBackup;
 
   // Trigger manual backup
   const backupNow = useCallback(async () => {
     return executeBackup(false, true);
   }, [executeBackup]);
 
-  // Trigger debounced auto sync — ALWAYS tracks pending sync even while disconnected/offline
-  // so local edits made before Drive reconnection are never lost or overwritten.
+  // Trigger fast debounced auto sync (1000ms) — ALWAYS persists pending sync flag
+  // across reloads/offline periods so local edits are never lost or overwritten.
   const triggerAutoSync = useCallback(() => {
     const currentUser = userRef.current;
     const uid = authUidRef.current;
 
-    if (uid && !userStorage.getLocalUpdatedAt(uid)) {
-      const ts = userStorage.markLocalModified(uid);
-      setLocalUpdatedAt(ts);
+    if (uid && uid !== "guest") {
+      persistPendingSyncFlag(uid, true);
+      if (!userStorage.getLocalUpdatedAt(uid)) {
+        const ts = userStorage.markLocalModified(uid);
+        setLocalUpdatedAt(ts);
+      }
     }
-
-    hasPendingSyncRef.current = true;
 
     if (!autoBackupRef.current || !currentUser) return;
 
@@ -957,11 +1122,26 @@ export const CloudSyncProvider: React.FC<{
       return;
     }
 
-    // If token isn't in memory right now, keep hasPendingSyncRef = true without opening OAuth popups;
-    // when user explicitly reconnects Drive, evaluateDriveSyncState uploads local changes.
+    // If token isn't in memory right now, try cross-tab silent restore cleanly;
+    // keep durable pending flag = true without opening automatic OAuth popups.
     if (!getStoredOAuthToken(currentUser.uid)) {
-      setHasDriveAccessToken(false);
-      setDriveSessionStatus("needs_reauth");
+      const scheduledForUid = currentUser.uid;
+      void trySilentDriveTokenRestore(currentUser).then((silentRes) => {
+        if (authUidRef.current !== scheduledForUid) return;
+        if (silentRes?.accessToken) {
+          setHasDriveAccessToken(true);
+          setDriveSessionStatus("connected");
+          if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+          setSyncStatus("syncing");
+          debounceTimerRef.current = setTimeout(() => {
+            if (authUidRef.current !== scheduledForUid) return;
+            void executeBackup(true);
+          }, 1000);
+        } else {
+          setHasDriveAccessToken(false);
+          setDriveSessionStatus("needs_reauth");
+        }
+      });
       return;
     }
 
@@ -974,21 +1154,46 @@ export const CloudSyncProvider: React.FC<{
 
     debounceTimerRef.current = setTimeout(() => {
       if (authUidRef.current !== scheduledForUid) return;
-      executeBackup(true);
-    }, 3500);
-  }, [executeBackup]);
+      void executeBackup(true);
+    }, 1000);
+  }, [executeBackup, persistPendingSyncFlag]);
+
+  triggerAutoSyncRef.current = triggerAutoSync;
 
   // Online / Offline listeners
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
       const currentUser = userRef.current;
-      if (currentUser && !getStoredOAuthToken(currentUser.uid)) {
-        setHasDriveAccessToken(false);
-        setDriveSessionStatus("needs_reauth");
+      if (!currentUser) return;
+
+      const hasPending =
+        hasPendingSyncRef.current ||
+        computeHasUnsyncedLocalChanges(currentUser.uid);
+
+      if (!getStoredOAuthToken(currentUser.uid)) {
+        void trySilentDriveTokenRestore(currentUser).then((restored) => {
+          if (authUidRef.current !== currentUser.uid) return;
+          if (restored?.accessToken) {
+            setHasDriveAccessToken(true);
+            setDriveSessionStatus("connected");
+            if (hasPending && autoBackupRef.current) {
+              triggerAutoSync();
+            }
+          } else {
+            setHasDriveAccessToken(false);
+            const hasSyncedBefore = Boolean(
+              userStorage.getItem(STORAGE_BASE_LAST_SYNC, currentUser.uid)
+            );
+            setDriveSessionStatus(
+              hasPending || !hasSyncedBefore ? "needs_reauth" : "standby"
+            );
+          }
+        });
         return;
       }
-      if (hasPendingSyncRef.current && autoBackupRef.current && currentUser) {
+
+      if (hasPending && autoBackupRef.current) {
         triggerAutoSync();
       }
     };
@@ -1160,7 +1365,13 @@ export const CloudSyncProvider: React.FC<{
           console.warn("Could not save emergency pre-restore snapshot:", e);
         }
 
-        const res = applyBackup(backup, mode);
+        isApplyingRestoreRef.current = true;
+        let res: { message: string };
+        try {
+          res = applyBackup(backup, mode);
+        } finally {
+          isApplyingRestoreRef.current = false;
+        }
 
         const nowIso = new Date().toISOString();
         const effectiveCloudTime =
@@ -1192,6 +1403,7 @@ export const CloudSyncProvider: React.FC<{
               targetUid
             );
           }
+          persistPendingSyncFlag(targetUid, false);
           clearPendingAutoSync();
           setSyncStatus("synced");
         } else {
@@ -1206,14 +1418,14 @@ export const CloudSyncProvider: React.FC<{
               targetUid
             );
           }
-          hasPendingSyncRef.current = true;
+          persistPendingSyncFlag(targetUid, true);
           if (autoBackupRef.current && currentUser && getStoredOAuthToken(currentUser.uid)) {
             if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
             debounceTimerRef.current = setTimeout(() => {
               if (authUidRef.current === currentUser.uid) {
                 executeBackup(true, true);
               }
-            }, 1500);
+            }, 1000);
           }
         }
 
@@ -1234,7 +1446,7 @@ export const CloudSyncProvider: React.FC<{
         };
       }
     },
-    [onDataRestored, cloudBackupInfo, clearPendingAutoSync, executeBackup]
+    [onDataRestored, cloudBackupInfo, clearPendingAutoSync, executeBackup, persistPendingSyncFlag]
   );
 
   // Explicit conflict resolution: keep local data and push to Drive
@@ -1527,6 +1739,10 @@ export const CloudSyncProvider: React.FC<{
   const isAuthenticated = Boolean(user);
   const storedProfile = user ? toUserProfile(user) : null;
   const cloudUpdatedAt = cloudBackupInfo?.modifiedTime || null;
+  const hasUnsyncedChanges =
+    Boolean(user) &&
+    (driveSessionStatus === "needs_reauth" ||
+      computeHasUnsyncedLocalChanges(activeUid));
 
   return (
     <CloudSyncContext.Provider
@@ -1539,6 +1755,7 @@ export const CloudSyncProvider: React.FC<{
         isSwitchingAccount,
         hasDriveAccessToken,
         driveSessionStatus,
+        hasUnsyncedChanges,
         isRestoringDriveSession,
         authError,
         isOnline,

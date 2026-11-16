@@ -106,6 +106,86 @@ let isSigningIn = false;
 // Clean up any legacy shared OAuth tokens or profiles on module load
 purgeLegacySharedKeys();
 
+// Strictly in-memory cross-tab OAuth handoff channel (never writes to disk/storage).
+// Allows a reloaded or newly opened tab/window to silently receive an active,
+// unexpired in-memory Drive OAuth token from another open tab of the same user.
+const OAUTH_SYNC_CHANNEL_NAME = "budgetflows_oauth_sync";
+let oauthBroadcastChannel: BroadcastChannel | null = null;
+const pendingTokenRequests = new Map<
+  string,
+  (res: { accessToken: string; expiresIn: number } | null) => void
+>();
+
+function getOAuthBroadcastChannel(): BroadcastChannel | null {
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") {
+    return null;
+  }
+  if (oauthBroadcastChannel) return oauthBroadcastChannel;
+  try {
+    const channel = new BroadcastChannel(OAUTH_SYNC_CHANNEL_NAME);
+    channel.onmessage = (event: MessageEvent) => {
+      const msg = event?.data;
+      if (!msg || typeof msg !== "object") return;
+
+      if (msg.type === "REQUEST_TOKEN" && typeof msg.uid === "string" && typeof msg.requestId === "string") {
+        if (
+          cachedAccessToken &&
+          cachedAccessToken.uid === msg.uid &&
+          Date.now() < cachedAccessToken.expiresAt
+        ) {
+          channel.postMessage({
+            type: "TOKEN_RESPONSE",
+            requestId: msg.requestId,
+            uid: cachedAccessToken.uid,
+            token: cachedAccessToken.token,
+            expiresAt: cachedAccessToken.expiresAt,
+          });
+        }
+        return;
+      }
+
+      if (
+        msg.type === "TOKEN_RESPONSE" &&
+        typeof msg.requestId === "string" &&
+        typeof msg.uid === "string" &&
+        typeof msg.token === "string" &&
+        typeof msg.expiresAt === "number"
+      ) {
+        if (msg.expiresAt > Date.now() + 30_000) {
+          cachedAccessToken = {
+            token: msg.token,
+            uid: msg.uid,
+            expiresAt: msg.expiresAt,
+          };
+          const resolver = pendingTokenRequests.get(msg.requestId);
+          if (resolver) {
+            pendingTokenRequests.delete(msg.requestId);
+            resolver({
+              accessToken: msg.token,
+              expiresIn: Math.max(60, Math.floor((msg.expiresAt - Date.now()) / 1000)),
+            });
+          }
+        }
+        return;
+      }
+
+      if (msg.type === "TOKEN_CLEARED") {
+        if (!msg.uid || (cachedAccessToken && cachedAccessToken.uid === msg.uid)) {
+          cachedAccessToken = null;
+        }
+      }
+    };
+    oauthBroadcastChannel = channel;
+    return channel;
+  } catch {
+    return null;
+  }
+}
+
+if (typeof window !== "undefined") {
+  getOAuthBroadcastChannel();
+}
+
 /**
  * Saves or clears the Google OAuth token strictly in memory, bound to a user UID.
  */
@@ -118,7 +198,13 @@ export function saveStoredOAuthToken(
   purgeLegacySharedKeys();
 
   if (!token || !uid) {
+    const prevUid = cachedAccessToken?.uid;
     cachedAccessToken = null;
+    try {
+      getOAuthBroadcastChannel()?.postMessage({ type: "TOKEN_CLEARED", uid: prevUid || null });
+    } catch {
+      // ignore
+    }
     return;
   }
 
@@ -157,8 +243,14 @@ export function getGoogleTokenExpiresAt(expectedUid?: string): number | null {
 }
 
 export function clearStoredOAuthToken(): void {
+  const prevUid = cachedAccessToken?.uid || null;
   cachedAccessToken = null;
   purgeLegacySharedKeys();
+  try {
+    getOAuthBroadcastChannel()?.postMessage({ type: "TOKEN_CLEARED", uid: prevUid });
+  } catch {
+    // ignore
+  }
 }
 
 export function isGoogleTokenValid(expectedUid?: string): boolean {
@@ -315,9 +407,10 @@ export async function logOAuthDiagnostics(
 }
 
 /**
- * Checks passively for an existing in-memory Google Drive OAuth access token.
- * NEVER opens Google Identity Services popups or calls requestAccessToken automatically,
- * preventing unwanted popups and 400 origin_mismatch errors on startup/focus/sync.
+ * Passively attempts to restore a valid Google Drive OAuth access token without opening popups:
+ * 1. Checks current-tab in-memory token cache (if unexpired and matching UID).
+ * 2. Requests an active, unexpired in-memory token from any sibling open tab/window via BroadcastChannel.
+ * NEVER stores tokens in localStorage/sessionStorage and NEVER opens automatic OAuth popups.
  */
 export async function trySilentDriveTokenRestore(
   targetUser?: User | null,
@@ -332,10 +425,47 @@ export async function trySilentDriveTokenRestore(
 
   const existing = getStoredOAuthToken(activeUser.uid);
   if (existing) {
-    return { accessToken: existing, expiresIn: 3600 };
+    const exp = getGoogleTokenExpiresAt(activeUser.uid);
+    const remainingSec = exp ? Math.max(60, Math.floor((exp - Date.now()) / 1000)) : 3600;
+    return { accessToken: existing, expiresIn: remainingSec };
   }
 
-  return null;
+  const channel = getOAuthBroadcastChannel();
+  if (!channel) return null;
+
+  return new Promise<{ accessToken: string; expiresIn: number } | null>((resolve) => {
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      pendingTokenRequests.delete(requestId);
+      resolve(null);
+    }, 150);
+
+    pendingTokenRequests.set(requestId, (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(res);
+    });
+
+    try {
+      channel.postMessage({
+        type: "REQUEST_TOKEN",
+        uid: activeUser.uid,
+        requestId,
+      });
+    } catch {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        pendingTokenRequests.delete(requestId);
+        resolve(null);
+      }
+    }
+  });
 }
 
 export interface GoogleSignInOptions {

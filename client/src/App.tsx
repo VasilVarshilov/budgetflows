@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Zap,
   Calendar,
@@ -164,6 +164,7 @@ const AppContent: React.FC = () => {
     isAuthLoading,
     isSwitchingAccount,
     hasDriveAccessToken,
+    driveSessionStatus,
     isRestoringDriveSession,
     isOnline,
     pendingRestoreOffer,
@@ -174,6 +175,9 @@ const AppContent: React.FC = () => {
     resolveConflictRestoreCloud,
     loginWithGoogle,
   } = useCloudSync();
+
+  const monthlyDataRef = useRef<Record<string, MonthlyRecord>>({});
+  monthlyDataRef.current = monthlyData;
 
   const displayUser = user || storedProfile;
 
@@ -190,7 +194,10 @@ const AppContent: React.FC = () => {
       [],
       targetUid
     );
-    setMonthlyData(storedMonthly && typeof storedMonthly === "object" ? storedMonthly : {});
+    const normalizedMonthly =
+      storedMonthly && typeof storedMonthly === "object" ? storedMonthly : {};
+    monthlyDataRef.current = normalizedMonthly;
+    setMonthlyData(normalizedMonthly);
     setGlobalSavings(Array.isArray(storedSavings) ? storedSavings : []);
     setWorkspaceRevision((prev) => prev + 1);
   }, []);
@@ -199,6 +206,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (isAuthLoading || isSwitchingAccount) {
       // Clear active in-memory view during account transitions to avoid any data flash
+      monthlyDataRef.current = {};
       setMonthlyData({});
       setGlobalSavings([]);
       return;
@@ -206,96 +214,107 @@ const AppContent: React.FC = () => {
     loadAccountWorkspaceData(activeUid);
   }, [activeUid, isAuthLoading, isSwitchingAccount, loadAccountWorkspaceData]);
 
-  // Save helpers strictly scoped to activeUid
-  const saveMonthlyToStorage = (updated: Record<string, MonthlyRecord>) => {
-    userStorage.setJSON(STORAGE_BASE_MONTHLY, updated, activeUid);
-    userStorage.markLocalModified(activeUid);
-  };
+  // Save helpers strictly scoped to the current activeUid (never capturing stale guest UID)
+  const saveMonthlyToStorage = useCallback(
+    (updated: Record<string, MonthlyRecord>, explicitUid?: string) => {
+      const targetUid = explicitUid || userStorage.getActiveUid();
+      userStorage.setJSON(STORAGE_BASE_MONTHLY, updated, targetUid);
+      userStorage.markLocalModified(targetUid);
+    },
+    []
+  );
 
-  const saveSavingsToStorage = (updated: IncomeItem[]) => {
-    userStorage.setJSON(STORAGE_BASE_SAVINGS, updated, activeUid);
-    userStorage.markLocalModified(activeUid);
-  };
+  const saveSavingsToStorage = useCallback(
+    (updated: IncomeItem[], explicitUid?: string) => {
+      const targetUid = explicitUid || userStorage.getActiveUid();
+      userStorage.setJSON(STORAGE_BASE_SAVINGS, updated, targetUid);
+      userStorage.markLocalModified(targetUid);
+    },
+    []
+  );
 
   // Add Electricity to Expenses
   const handleAddElectricityToExpenses = useCallback(
     (em1Amount: number, em2Amount: number) => {
-      setMonthlyData((prev) => {
-        const monthKey = getCurrentMonthBulgarian();
-        const existing = prev[monthKey] || {
-          month: monthKey,
-          tab: "expenses",
-          meta: { generated_at: new Date().toISOString() },
-          inputs: {
-            old_t1: 0,
-            new_t1: 0,
-            old_t2: 0,
-            new_t2: 0,
-            day_price_with_vat: 0,
-            night_price_with_vat: 0,
-            invoice_total: 0,
-          },
-          results: {
-            cons_t1_kwh: 0,
-            cons_t2_kwh: 0,
-            total_cons_em1_kwh: 0,
-            cost_em1_eur: 0,
-            em2_remainder_eur: 0,
-          },
-        };
+      const targetUid = userStorage.getActiveUid();
+      const prev = monthlyDataRef.current;
+      const monthKey = getCurrentMonthBulgarian();
+      const existing = prev[monthKey] || {
+        month: monthKey,
+        tab: "expenses",
+        meta: { generated_at: new Date().toISOString() },
+        inputs: {
+          old_t1: 0,
+          new_t1: 0,
+          old_t2: 0,
+          new_t2: 0,
+          day_price_with_vat: 0,
+          night_price_with_vat: 0,
+          invoice_total: 0,
+        },
+        results: {
+          cons_t1_kwh: 0,
+          cons_t2_kwh: 0,
+          total_cons_em1_kwh: 0,
+          cost_em1_eur: 0,
+          em2_remainder_eur: 0,
+        },
+      };
 
-        const existingExpenses = existing.expenses?.additional_expenses || [];
-        
-        // Remove any existing electricity expenses to avoid duplicates
-        const filteredExpenses = existingExpenses.filter(
-          (e) => !e.categoryName.startsWith("Сметка Ток")
-        );
+      const existingExpenses = existing.expenses?.additional_expenses || [];
 
-        // Create two new electricity expense items
-        const em1Expense: ExpenseItem = {
-          id: `electricity_em1_${Date.now()}`,
-          categoryId: "electricity",
-          categoryName: "Сметка Ток - Електромер 1",
-          categoryIcon: "Zap",
-          categoryColor: "bg-yellow-100 text-yellow-600",
-          amount: em1Amount,
-          note: "",
-          date: new Date().toISOString(),
-        };
+      // Remove any existing electricity expenses to avoid duplicates
+      const filteredExpenses = existingExpenses.filter(
+        (e) => !e.categoryName.startsWith("Сметка Ток")
+      );
 
-        const em2Expense: ExpenseItem = {
-          id: `electricity_em2_${Date.now() + 1}`,
-          categoryId: "electricity",
-          categoryName: "Сметка Ток - Електромер 2",
-          categoryIcon: "Zap",
-          categoryColor: "bg-yellow-100 text-yellow-600",
-          amount: em2Amount,
-          note: "",
-          date: new Date().toISOString(),
-        };
+      // Create two new electricity expense items
+      const em1Expense: ExpenseItem = {
+        id: `electricity_em1_${Date.now()}`,
+        categoryId: "electricity",
+        categoryName: "Сметка Ток - Електромер 1",
+        categoryIcon: "Zap",
+        categoryColor: "bg-yellow-100 text-yellow-600",
+        amount: em1Amount,
+        note: "",
+        date: new Date().toISOString(),
+      };
 
-        const updated: MonthlyRecord = {
-          ...existing,
-          expenses: {
-            saved_em2_eur: existing.expenses?.saved_em2_eur || 0,
-            // Keep existing fixed expenses
-            fixed_expenses: existing.expenses?.fixed_expenses || [],
-            additional_expenses: [...filteredExpenses, em1Expense, em2Expense],
-          },
-        };
+      const em2Expense: ExpenseItem = {
+        id: `electricity_em2_${Date.now() + 1}`,
+        categoryId: "electricity",
+        categoryName: "Сметка Ток - Електромер 2",
+        categoryIcon: "Zap",
+        categoryColor: "bg-yellow-100 text-yellow-600",
+        amount: em2Amount,
+        note: "",
+        date: new Date().toISOString(),
+      };
 
-        const newData = { ...prev, [monthKey]: updated };
-        saveMonthlyToStorage(newData);
-        triggerAutoSync();
-        return newData;
-      });
+      const updated: MonthlyRecord = {
+        ...existing,
+        expenses: {
+          saved_em2_eur: existing.expenses?.saved_em2_eur || 0,
+          // Keep existing fixed expenses
+          fixed_expenses: existing.expenses?.fixed_expenses || [],
+          additional_expenses: [...filteredExpenses, em1Expense, em2Expense],
+        },
+      };
+
+      const newData = { ...prev, [monthKey]: updated };
+      monthlyDataRef.current = newData;
+      saveMonthlyToStorage(newData, targetUid);
+      setMonthlyData(newData);
+      triggerAutoSync();
     },
-    [triggerAutoSync]
+    [activeUid, saveMonthlyToStorage, triggerAutoSync]
   );
 
   // Monthly Expenses Save
-  const handleSaveExpenses = useCallback((expensesData: any, targetMonth?: string) => {
-    setMonthlyData((prev) => {
+  const handleSaveExpenses = useCallback(
+    (expensesData: any, targetMonth?: string) => {
+      const targetUid = userStorage.getActiveUid();
+      const prev = monthlyDataRef.current;
       const monthKey = targetMonth || currentMonth || getCurrentMonthBulgarian();
 
       const existing = prev[monthKey] || {
@@ -327,41 +346,45 @@ const AppContent: React.FC = () => {
       };
 
       const newData = { ...prev, [monthKey]: updated };
-      saveMonthlyToStorage(newData);
+      monthlyDataRef.current = newData;
+      saveMonthlyToStorage(newData, targetUid);
+      setMonthlyData(newData);
       triggerAutoSync();
-      return newData;
-    });
-  }, [currentMonth, triggerAutoSync]);
+    },
+    [currentMonth, activeUid, saveMonthlyToStorage, triggerAutoSync]
+  );
 
   // Monthly Incomes Save (for any monthKey)
   const handleSaveIncomesForMonth = useCallback(
     (targetMonthKey: string, incomes: IncomeItem[]) => {
-      setMonthlyData((prev) => {
-        const monthKey = targetMonthKey || currentMonth || getCurrentMonthBulgarian();
-        const existing = prev[monthKey] || createEmptyMonthlyRecord(monthKey);
+      const targetUid = userStorage.getActiveUid();
+      const prev = monthlyDataRef.current;
+      const monthKey = targetMonthKey || currentMonth || getCurrentMonthBulgarian();
+      const existing = prev[monthKey] || createEmptyMonthlyRecord(monthKey);
 
-        const updated: MonthlyRecord = {
-          ...existing,
-          incomes,
-        };
+      const updated: MonthlyRecord = {
+        ...existing,
+        incomes,
+      };
 
-        const newData = { ...prev, [monthKey]: updated };
-        saveMonthlyToStorage(newData);
-        triggerAutoSync();
-        return newData;
-      });
+      const newData = { ...prev, [monthKey]: updated };
+      monthlyDataRef.current = newData;
+      saveMonthlyToStorage(newData, targetUid);
+      setMonthlyData(newData);
+      triggerAutoSync();
     },
-    [currentMonth, triggerAutoSync]
+    [currentMonth, activeUid, saveMonthlyToStorage, triggerAutoSync]
   );
 
   // Global Savings Save
   const handleUpdateGlobalSavings = useCallback(
     (newSavings: IncomeItem[]) => {
+      const targetUid = userStorage.getActiveUid();
+      saveSavingsToStorage(newSavings, targetUid);
       setGlobalSavings(newSavings);
-      saveSavingsToStorage(newSavings);
       triggerAutoSync();
     },
-    [triggerAutoSync]
+    [activeUid, saveSavingsToStorage, triggerAutoSync]
   );
 
   // Restore / reload all state after backup import or local clear
@@ -447,12 +470,12 @@ const AppContent: React.FC = () => {
                         ? "bg-blue-500 animate-pulse"
                         : syncConflict
                         ? "bg-amber-500 animate-pulse"
-                        : !hasDriveAccessToken
+                        : driveSessionStatus === "needs_reauth"
                         ? "bg-amber-400"
-                        : syncStatus === "synced"
-                        ? "bg-emerald-500"
                         : syncStatus === "failed"
                         ? "bg-rose-500"
+                        : hasDriveAccessToken || driveSessionStatus === "standby"
+                        ? "bg-emerald-500"
                         : "bg-emerald-500"
                     }`}
                     title={
@@ -462,10 +485,12 @@ const AppContent: React.FC = () => {
                         ? "Възстановяване на Drive сесията..."
                         : syncConflict
                         ? "Открит е конфликт между локална и облачна версия"
-                        : !hasDriveAccessToken
-                        ? "Изисква подновяване на Drive достъпа"
+                        : driveSessionStatus === "needs_reauth"
+                        ? "Има несинхронизирани промени — подновете Drive достъпа"
                         : syncStatus === "syncing"
                         ? "Синхронизиране..."
+                        : driveSessionStatus === "standby"
+                        ? "Сесията е активна • Синхронизирано с Google Drive"
                         : syncStatus === "synced"
                         ? "Drive Connected ✅ • Синхронизирано"
                         : syncStatus === "failed"
