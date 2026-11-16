@@ -65,6 +65,26 @@ interface DebugLog {
   data?: any;
 }
 
+interface OcrAiRequestDiagnostics {
+  id: string;
+  timestamp: string;
+  status: "pending" | "success" | "failed";
+  requestUrl: string;
+  requestOrigin: string;
+  configuredApiBaseUrl: string;
+  requestMethod: string;
+  payloadBytes: number;
+  durationMs: number | null;
+  httpStatus: number | string | null;
+  responseContentType: string;
+  workerErrorCode: string;
+  geminiErrorCode: string;
+  timeoutReason: string;
+  actualFailureReason: string;
+  modelAttempted: string;
+  healthProbeStatus: string;
+}
+
 interface ScanReceiptModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -738,6 +758,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [aiUnavailable, setAiUnavailable] = useState<boolean>(false);
   const [aiFallbackReason, setAiFallbackReason] = useState<string | null>(null);
   const [aiSucceeded, setAiSucceeded] = useState<boolean>(false);
+  const [aiDiagnostics, setAiDiagnostics] = useState<OcrAiRequestDiagnostics | null>(null);
+  const [aiDiagnosticsHistory, setAiDiagnosticsHistory] = useState<OcrAiRequestDiagnostics[]>([]);
   const [processingWarning, setProcessingWarning] = useState<string | null>(null);
   const [ocrLanguageInfo, setOcrLanguageInfo] = useState<{
     requested: string;
@@ -833,6 +855,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setAiUnavailable(false);
     setAiFallbackReason(null);
     setAiSucceeded(false);
+    setAiDiagnostics(null);
     setProcessingWarning(null);
     setOcrLanguageInfo(null);
     setShowAddItemForm(false);
@@ -994,6 +1017,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setAiUnavailable(false);
     setAiFallbackReason(null);
     setAiSucceeded(false);
+    setAiDiagnostics(null);
     setProcessingWarning(null);
     setDateEditedByUser(false);
     setShowAddItemForm(false);
@@ -1119,42 +1143,73 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       ? `${configuredApiBase}/api/ocr/receipt`
       : "/api/ocr/receipt";
 
+    const recordAiDiagnostic = (entry: OcrAiRequestDiagnostics) => {
+      setAiDiagnostics(entry);
+      setAiDiagnosticsHistory((prev) => [entry, ...prev].slice(0, 10));
+    };
+
     const formatServerFailureReason = (
       errorCode: string | undefined,
       httpStatus: number | null | undefined,
       serverReason?: string
     ): string => {
+      if (serverReason && serverReason.trim()) {
+        return serverReason.trim();
+      }
       if (errorCode === "NO_API_KEY") {
-        return "Invalid API key: GEMINI_API_KEY липсва на сървъра";
+        return "GEMINI_API_KEY missing or empty on backend server";
       }
       if (errorCode === "AUTH_OR_REQUEST_400" || errorCode === "AUTH_OR_REQUEST_403") {
-        return `Invalid API key или отказан достъп до Gemini (HTTP ${httpStatus})`;
+        return `Gemini rejected API key or request payload (HTTP ${httpStatus})`;
       }
       if (errorCode === "GEMINI_TIMEOUT") {
-        return "Gemini timeout (превишено време за отговор)";
+        return "Gemini API request timed out on server";
       }
       if (errorCode === "RATE_LIMITED_429") {
-        return "Gemini unavailable: достигнат лимит на заявки (HTTP 429)";
+        return "Gemini rate limit exceeded (HTTP 429)";
       }
       if (errorCode === "ROUTE_NOT_FOUND" || httpStatus === 404) {
-        return `Route not found (HTTP 404 на ${ocrEndpoint})`;
+        return `Endpoint not found (HTTP 404 at ${ocrEndpoint})`;
       }
       if (errorCode === "METHOD_NOT_ALLOWED" || httpStatus === 405) {
-        return "Static hosting has no API backend (HTTP 405)";
+        return "Static hosting rejected POST with HTTP 405 Method Not Allowed";
       }
-      if (errorCode === "NETWORK_ERROR" || errorCode === "SERVER_ERROR") {
-        return `Gemini unavailable: ${serverReason || errorCode}`;
-      }
-      return serverReason || `${errorCode || "API_ERROR"}${httpStatus ? ` (HTTP ${httpStatus})` : ""}`;
+      return `${errorCode || "API_ERROR"}${httpStatus ? ` (HTTP ${httpStatus})` : ""}`;
     };
 
     const geminiStart = Date.now();
+    const reqTimestamp = new Date().toLocaleTimeString("bg-BG", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const diagId = `${geminiStart}-${Math.random().toString(36).slice(2, 7)}`;
     const requestOrigin = typeof window !== "undefined" ? window.location.origin : "";
     const requestMethod = "POST";
     const requestBodyStr = JSON.stringify({
       imageBase64: prepared.base64,
       mimeType: prepared.mimeType,
       ocrText: ocrRawText,
+    });
+
+    setAiDiagnostics({
+      id: diagId,
+      timestamp: reqTimestamp,
+      status: "pending",
+      requestUrl: ocrEndpoint,
+      requestOrigin,
+      configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
+      requestMethod,
+      payloadBytes: requestBodyStr.length,
+      durationMs: null,
+      httpStatus: "pending",
+      responseContentType: "pending",
+      workerErrorCode: "pending",
+      geminiErrorCode: "pending",
+      timeoutReason: "None",
+      actualFailureReason: "",
+      modelAttempted: "—",
+      healthProbeStatus: "not run",
     });
 
     console.info("[BudgetFlows OCR Network Diagnostics] Request", {
@@ -1198,13 +1253,51 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
       if (contentType.includes("application/json")) {
         const json = await response.json();
+        const serverErrorCode = String(json.errorCode || json.error || "NONE");
+        const resolvedWorkerErrorCode =
+          json.workerErrorCode ||
+          (!json.success &&
+          !json.modelAttempted &&
+          ["METHOD_NOT_ALLOWED", "INVALID_JSON", "ROUTE_NOT_FOUND", "WORKER_EXCEPTION", "MISSING_DATA", "SERVER_ERROR"].includes(
+            serverErrorCode
+          )
+            ? serverErrorCode
+            : "NONE");
+        const resolvedGeminiErrorCode =
+          json.geminiErrorCode ||
+          (!json.success && resolvedWorkerErrorCode === "NONE" ? serverErrorCode : "NONE");
+        const resolvedTimeoutReason =
+          json.timeoutReason ||
+          (serverErrorCode === "GEMINI_TIMEOUT"
+            ? `Server Gemini request timed out (${geminiElapsed}ms elapsed)`
+            : "None");
+
         addDebugLog(
           "gemini_res",
-          `Gemini response received <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | Response Status=${response.status} | Response Content-Type=${contentType || "(empty)"} | duration=${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"} | errorCode=${json.errorCode || json.error || "none"}`,
+          `Gemini response received <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | HTTP Status=${json.httpStatus ?? response.status} (transport=${response.status}) | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | Timeout Reason=${resolvedTimeoutReason} | duration=${geminiElapsed}ms | success=${Boolean(json.success)} | model=${json.modelUsed || json.modelAttempted || "—"}`,
           json
         );
 
         if (json.success && json.data) {
+          recordAiDiagnostic({
+            id: diagId,
+            timestamp: reqTimestamp,
+            status: "success",
+            requestUrl: finalRequestUrl,
+            requestOrigin,
+            configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
+            requestMethod,
+            payloadBytes: requestBodyStr.length,
+            durationMs: geminiElapsed,
+            httpStatus: json.httpStatus ?? response.status,
+            responseContentType: contentType || "(empty)",
+            workerErrorCode: "NONE",
+            geminiErrorCode: "NONE",
+            timeoutReason: "None",
+            actualFailureReason: "",
+            modelAttempted: json.modelUsed || "—",
+            healthProbeStatus: "not needed",
+          });
           const gData = json.data;
           // Bulgaria uses Euro (€) - do not let AI flip an explicitly detected Euro receipt back to BGN
           const hasExplicitEuroInOcr = /€|\bEUR\b|\bЕУР\b/i.test(ocrRawText);
@@ -1404,9 +1497,28 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             json.httpStatus ?? response.status,
             json.fallbackReason || json.message
           );
+          recordAiDiagnostic({
+            id: diagId,
+            timestamp: reqTimestamp,
+            status: "failed",
+            requestUrl: finalRequestUrl,
+            requestOrigin,
+            configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
+            requestMethod,
+            payloadBytes: requestBodyStr.length,
+            durationMs: geminiElapsed,
+            httpStatus: json.httpStatus ?? response.status,
+            responseContentType: contentType || "(empty)",
+            workerErrorCode: resolvedWorkerErrorCode,
+            geminiErrorCode: resolvedGeminiErrorCode,
+            timeoutReason: resolvedTimeoutReason,
+            actualFailureReason: failureReason,
+            modelAttempted: json.modelAttempted || "—",
+            healthProbeStatus: "not needed",
+          });
           addDebugLog(
             "gemini_res",
-            `Gemini fallback -> code=${json.errorCode || json.error || "UNKNOWN"} | reason=${failureReason}`
+            `Gemini fallback -> Request URL=${finalRequestUrl} | HTTP Status=${json.httpStatus ?? response.status} | Worker Error Code=${resolvedWorkerErrorCode} | Gemini Error Code=${resolvedGeminiErrorCode} | Timeout Reason=${resolvedTimeoutReason} | reason=${failureReason}`
           );
           setAiUnavailable(true);
           setAiFallbackReason(failureReason);
@@ -1414,15 +1526,58 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setAiSourceBadge("OCR анализ");
         }
       } else {
+        let rawBodySnippet = "";
+        try {
+          rawBodySnippet = (await response.text())
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 220);
+        } catch {
+          rawBodySnippet = "";
+        }
+        const cfErrorMatch = rawBodySnippet.match(/error code:\s*(\d+)/i);
+        const workerErrCode =
+          response.status === 405
+            ? "METHOD_NOT_ALLOWED_405"
+            : response.status === 404
+            ? "ROUTE_NOT_FOUND_404"
+            : cfErrorMatch
+            ? `CLOUDFLARE_EDGE_${cfErrorMatch[1]}`
+            : `NON_JSON_HTTP_${response.status}`;
+        const timeoutNote =
+          response.status === 504 || response.status === 524
+            ? `Upstream gateway timeout (HTTP ${response.status})`
+            : "None";
         const failureReason =
           response.status === 405
-            ? "Static hosting has no API backend (HTTP 405 — статичният хостинг не поддържа сървърни POST заявки)"
+            ? `Static hosting rejected POST with HTTP 405 at ${finalRequestUrl}`
             : response.status === 404
-            ? `Route not found (HTTP 404 — ${ocrEndpoint} не е намерен)`
-            : `Gemini unavailable: non-JSON response (HTTP ${response.status}, ${contentType || "unknown"})`;
+            ? `API endpoint not found (HTTP 404 at ${finalRequestUrl})`
+            : `HTTP ${response.status} (${contentType || "non-JSON"})${rawBodySnippet ? `: ${rawBodySnippet}` : response.statusText ? `: ${response.statusText}` : ""}`;
+
+        recordAiDiagnostic({
+          id: diagId,
+          timestamp: reqTimestamp,
+          status: "failed",
+          requestUrl: finalRequestUrl,
+          requestOrigin,
+          configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
+          requestMethod,
+          payloadBytes: requestBodyStr.length,
+          durationMs: geminiElapsed,
+          httpStatus: response.status,
+          responseContentType: contentType || "(empty)",
+          workerErrorCode: workerErrCode,
+          geminiErrorCode: "NOT_REACHED",
+          timeoutReason: timeoutNote,
+          actualFailureReason: failureReason,
+          modelAttempted: "—",
+          healthProbeStatus: "not needed",
+        });
         addDebugLog(
           "gemini_res",
-          `Gemini fallback <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | Response Status=${response.status} | Response Content-Type=${contentType || "(empty)"} | reason=${failureReason}`
+          `Gemini fallback <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${finalRequestUrl} | HTTP Status=${response.status} | Response Content-Type=${contentType || "(empty)"} | Worker Error Code=${workerErrCode} | reason=${failureReason}`
         );
         setAiUnavailable(true);
         setAiFallbackReason(failureReason);
@@ -1431,43 +1586,110 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       }
     } catch (gErr: any) {
       clearTimeout(timeoutTimer);
-      const errReason =
-        gErr?.name === "AbortError"
-          ? "Gemini timeout (превишено време >40s)"
-          : `Gemini unavailable (${gErr?.message || "Network error"})`;
+      const geminiElapsed = Date.now() - geminiStart;
+      const isAbort = gErr?.name === "AbortError";
+      const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
 
       let healthProbeSummary = "skipped";
-      if (gErr?.name !== "AbortError" && configuredApiBase) {
+      let healthHttpStatus: number | null = null;
+      let healthReached = false;
+      let healthHasKey: boolean | null = null;
+
+      if (!isAbort && !isOffline) {
+        const healthUrl = configuredApiBase
+          ? `${configuredApiBase}/api/ocr/health`
+          : "/api/ocr/health";
         try {
-          const healthRes = await fetch(`${configuredApiBase}/api/ocr/health`, {
+          const healthRes = await fetch(healthUrl, {
             method: "GET",
             mode: "cors",
             credentials: "omit",
           });
-          healthProbeSummary = `status=${healthRes.status}, content-type=${healthRes.headers.get("content-type") || "(empty)"}`;
+          healthHttpStatus = healthRes.status;
+          healthReached = healthRes.ok;
+          const hCt = healthRes.headers.get("content-type") || "";
+          if (hCt.includes("application/json")) {
+            const hJson = await healthRes.json();
+            healthHasKey = typeof hJson?.hasApiKey === "boolean" ? hJson.hasApiKey : null;
+          }
+          healthProbeSummary = `HTTP ${healthRes.status} (${hCt || "no content-type"}${healthHasKey !== null ? `, hasApiKey=${healthHasKey}` : ""})`;
         } catch (hErr: any) {
-          healthProbeSummary = `failed (${hErr?.message || "network error"})`;
+          healthProbeSummary = `GET failed (${hErr?.name || "Error"}: ${hErr?.message || "network error"})`;
         }
+      } else if (isOffline) {
+        healthProbeSummary = "skipped (browser offline)";
       }
 
-      console.warn("[BudgetFlows OCR Network Diagnostics] Fetch Failed", {
+      const rawErrLabel = `${gErr?.name || "NetworkError"}: ${gErr?.message || "No response received"}`;
+      let actualFailureReason = "";
+      let httpStatusDisplay: number | string = "0 (No HTTP response)";
+      let workerErrCode = "UNKNOWN";
+      let geminiErrCode = "NOT_REACHED";
+      let timeoutNote = "None";
+
+      if (isAbort) {
+        httpStatusDisplay = "0 (Aborted at 40000ms)";
+        workerErrCode = "NO_RESPONSE_BEFORE_40S_TIMEOUT";
+        geminiErrCode = "CLIENT_TIMEOUT";
+        timeoutNote = `Client AbortController aborted POST after ${geminiElapsed}ms (40000ms limit exceeded)`;
+        actualFailureReason = `Request timed out after ${Math.round(geminiElapsed / 1000)}s waiting for ${ocrEndpoint}`;
+      } else if (isOffline) {
+        httpStatusDisplay = "0 (Browser Offline)";
+        workerErrCode = "CLIENT_OFFLINE";
+        actualFailureReason = "Browser is offline (navigator.onLine = false) — could not connect to Worker";
+      } else if (healthReached) {
+        httpStatusDisplay = `0 on POST (Health GET HTTP ${healthHttpStatus})`;
+        workerErrCode = "POST_CORS_OR_WORKER_DROP";
+        actualFailureReason = `POST rejected or dropped before returning CORS headers (${rawErrLabel}; payload=${Math.round(requestBodyStr.length / 1024)} KB), while GET /api/ocr/health succeeded (${healthProbeSummary}) — check Worker 1101/1102 limit or CORS preflight`;
+      } else if (healthHttpStatus !== null) {
+        httpStatusDisplay = `0 on POST (Health GET HTTP ${healthHttpStatus})`;
+        workerErrCode = `WORKER_HTTP_${healthHttpStatus}`;
+        actualFailureReason = `POST failed (${rawErrLabel}) and GET /api/ocr/health returned HTTP ${healthHttpStatus}`;
+      } else {
+        httpStatusDisplay = "0 (CORS / DNS / TLS blocked)";
+        workerErrCode = "CORS_BLOCKED_OR_HOST_UNREACHABLE";
+        actualFailureReason = `CORS preflight blocked for origin ${requestOrigin || "(unknown)"} or Worker host unreachable (${rawErrLabel}; ${healthProbeSummary})`;
+      }
+
+      recordAiDiagnostic({
+        id: diagId,
+        timestamp: reqTimestamp,
+        status: "failed",
+        requestUrl: ocrEndpoint,
+        requestOrigin,
+        configuredApiBaseUrl: rawConfiguredApiUrl || "(empty - relative)",
+        requestMethod,
+        payloadBytes: requestBodyStr.length,
+        durationMs: geminiElapsed,
+        httpStatus: httpStatusDisplay,
+        responseContentType: "none",
+        workerErrorCode: workerErrCode,
+        geminiErrorCode: geminiErrCode,
+        timeoutReason: timeoutNote,
+        actualFailureReason,
+        modelAttempted: "—",
+        healthProbeStatus: healthProbeSummary,
+      });
+
+      console.warn("[BudgetFlows OCR Network Diagnostics] Request Failed", {
         requestOrigin,
         requestUrl: ocrEndpoint,
         requestMethod,
-        responseStatus: "no_response (network/CORS error)",
-        responseContentType: "none",
-        errorName: gErr?.name,
-        errorMessage: gErr?.message,
+        httpStatus: httpStatusDisplay,
+        workerErrorCode: workerErrCode,
+        geminiErrorCode: geminiErrCode,
+        timeoutReason: timeoutNote,
+        actualFailureReason,
         payloadBytes: requestBodyStr.length,
         healthProbe: healthProbeSummary,
       });
 
       addDebugLog(
         "gemini_res",
-        `Gemini fallback <- Request Origin=${requestOrigin} | Request Method=${requestMethod} | Request URL=${ocrEndpoint} | Response Status=no_response | Response Content-Type=none | payloadBytes=${requestBodyStr.length} | healthProbe=${healthProbeSummary} | reason=${errReason}`
+        `Gemini request failed <- Request URL=${ocrEndpoint} | HTTP Status=${httpStatusDisplay} | Worker Error Code=${workerErrCode} | Gemini Error Code=${geminiErrCode} | Timeout Reason=${timeoutNote} | payloadBytes=${requestBodyStr.length} | healthProbe=${healthProbeSummary} | reason=${actualFailureReason}`
       );
       setAiUnavailable(true);
-      setAiFallbackReason(errReason);
+      setAiFallbackReason(actualFailureReason);
       setAiSucceeded(false);
       setAiSourceBadge("OCR анализ");
     } finally {
@@ -2081,20 +2303,61 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 </div>
               )}
 
-              {/* Neutral AI Fallback Notice (with diagnostic reason when fallback occurs) */}
+              {/* AI Fallback Notice with Actual Failure Reason & Diagnostic Fields */}
               {aiUnavailable && (
-                <div className="px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
-                  <div className="flex items-center gap-2">
-                    <Info className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
-                    <span>
-                      <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
-                      AI подобренията временно не са налични{aiFallbackReason ? ` (${aiFallbackReason})` : "."}
-                    </span>
+                <div className="p-3.5 bg-slate-100 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl space-y-2.5 text-xs text-slate-700 dark:text-slate-300">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1 min-w-0">
+                        <div>
+                          <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
+                          <span className="text-rose-700 dark:text-rose-300 font-semibold break-words">
+                            AI грешка: {aiDiagnostics?.actualFailureReason || aiFallbackReason || "Неизвестна грешка"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {ocrLanguageInfo && (
+                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                          OCR: {ocrLanguageInfo.used}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowDebugPanel((prev) => !prev)}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-950 text-indigo-700 dark:text-indigo-300 border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <Bug className="w-3 h-3" />
+                        <span>{showDebugPanel ? "Скрий диагностика" : "OCR AI диагностика"}</span>
+                      </button>
+                    </div>
                   </div>
-                  {ocrLanguageInfo && (
-                    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                      OCR: {ocrLanguageInfo.used}
-                    </span>
+
+                  {aiDiagnostics && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 font-mono text-[11px]">
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 min-w-0">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Request URL</span>
+                        <span className="text-slate-900 dark:text-slate-100 break-all">{aiDiagnostics.requestUrl}</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">HTTP Status Code</span>
+                        <span className="text-slate-900 dark:text-slate-100 font-semibold">{String(aiDiagnostics.httpStatus ?? "none")}</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Worker Error Code</span>
+                        <span className="text-amber-700 dark:text-amber-300 font-semibold break-all">{aiDiagnostics.workerErrorCode}</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Gemini Error Code</span>
+                        <span className="text-rose-700 dark:text-rose-300 font-semibold break-all">{aiDiagnostics.geminiErrorCode}</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/80 sm:col-span-2">
+                        <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 block">Timeout Reason</span>
+                        <span className="text-slate-900 dark:text-slate-100 break-words">{aiDiagnostics.timeoutReason}</span>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -2776,38 +3039,125 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             </div>
           )}
 
-          {/* Expandable Debug Logs Panel */}
+          {/* Expandable OCR AI Requests Diagnostics & Debug Logs Panel */}
           {showDebugPanel && (
-            <div className="mt-4 p-4 bg-slate-900 rounded-2xl border border-slate-800 text-white font-mono text-xs space-y-2.5">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="font-bold text-amber-400 flex items-center gap-1.5">
-                  <Bug className="w-4 h-4" />
-                  Диагностични логове (Debug Logs)
-                </span>
-                <span className="text-[11px] text-slate-400">{debugLogs.length} записа</span>
-              </div>
-              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                {debugLogs.length === 0 ? (
-                  <span className="text-slate-400">Няма записани логове до момента.</span>
+            <div className="mt-4 p-4 bg-slate-900 rounded-2xl border border-slate-800 text-white font-mono text-xs space-y-4">
+              {/* OCR AI Requests Diagnostics Section */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="font-bold text-indigo-300 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    OCR AI Requests Diagnostics
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    {aiDiagnosticsHistory.length} {aiDiagnosticsHistory.length === 1 ? "заявка" : "заявки"}
+                  </span>
+                </div>
+
+                {aiDiagnosticsHistory.length === 0 ? (
+                  <div className="text-[11px] text-slate-400 py-1">
+                    Няма изпратени OCR AI заявки до момента.
+                  </div>
                 ) : (
-                  debugLogs.map((log, idx) => (
-                    <div key={idx} className="flex items-start gap-2 text-[11px] leading-relaxed">
-                      <span className="text-slate-400 shrink-0">[{log.timestamp}]</span>
-                      <span
-                        className={`font-semibold shrink-0 uppercase text-[9px] px-1 rounded ${
-                          log.step === "error"
-                            ? "bg-red-950 text-red-400 border border-red-800"
-                            : log.step === "parsed_total" || log.step === "expense"
-                            ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
-                            : "bg-indigo-950 text-indigo-300 border border-indigo-800"
-                        }`}
+                  <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                    {aiDiagnosticsHistory.map((reqDiag) => (
+                      <div
+                        key={reqDiag.id}
+                        className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-[11px]"
                       >
-                        {log.step}
-                      </span>
-                      <span className="text-slate-300 break-all">{log.message}</span>
-                    </div>
-                  ))
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400">[{reqDiag.timestamp}]</span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                reqDiag.status === "success"
+                                  ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
+                                  : reqDiag.status === "pending"
+                                  ? "bg-indigo-950 text-indigo-300 border border-indigo-800"
+                                  : "bg-rose-950 text-rose-300 border border-rose-800"
+                              }`}
+                            >
+                              {reqDiag.status}
+                            </span>
+                            <span className="text-slate-300">
+                              {reqDiag.requestMethod} | {Math.round(reqDiag.payloadBytes / 1024)} KB
+                              {reqDiag.durationMs !== null ? ` | ${reqDiag.durationMs}ms` : ""}
+                            </span>
+                          </div>
+                          <span className="text-slate-400 text-[10px]">
+                            Origin: {reqDiag.requestOrigin || "(none)"}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
+                          <div className="break-all">
+                            <span className="text-slate-400">Request URL: </span>
+                            <span className="text-sky-300">{reqDiag.requestUrl}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">HTTP Status Code: </span>
+                            <span className="text-white font-semibold">{String(reqDiag.httpStatus ?? "none")}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Worker Error Code: </span>
+                            <span className="text-amber-300 font-semibold">{reqDiag.workerErrorCode}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Gemini Error Code: </span>
+                            <span className="text-rose-300 font-semibold">{reqDiag.geminiErrorCode}</span>
+                          </div>
+                          <div className="sm:col-span-2">
+                            <span className="text-slate-400">Timeout Reason: </span>
+                            <span className="text-slate-200">{reqDiag.timeoutReason}</span>
+                          </div>
+                          {reqDiag.actualFailureReason && (
+                            <div className="sm:col-span-2">
+                              <span className="text-slate-400">Failure Reason: </span>
+                              <span className="text-rose-300 break-words">{reqDiag.actualFailureReason}</span>
+                            </div>
+                          )}
+                          <div className="sm:col-span-2 text-[10px] text-slate-400">
+                            Model: {reqDiag.modelAttempted} | Content-Type: {reqDiag.responseContentType} | Health Probe: {reqDiag.healthProbeStatus}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
+              </div>
+
+              {/* Raw Debug Event Stream */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                    <Bug className="w-4 h-4" />
+                    Диагностични логове (Debug Logs)
+                  </span>
+                  <span className="text-[11px] text-slate-400">{debugLogs.length} записа</span>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {debugLogs.length === 0 ? (
+                    <span className="text-slate-400">Няма записани логове до момента.</span>
+                  ) : (
+                    debugLogs.map((log, idx) => (
+                      <div key={idx} className="flex items-start gap-2 text-[11px] leading-relaxed">
+                        <span className="text-slate-400 shrink-0">[{log.timestamp}]</span>
+                        <span
+                          className={`font-semibold shrink-0 uppercase text-[9px] px-1 rounded ${
+                            log.step === "error"
+                              ? "bg-red-950 text-red-400 border border-red-800"
+                              : log.step === "parsed_total" || log.step === "expense"
+                              ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
+                              : "bg-indigo-950 text-indigo-300 border border-indigo-800"
+                          }`}
+                        >
+                          {log.step}
+                        </span>
+                        <span className="text-slate-300 break-all">{log.message}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           )}

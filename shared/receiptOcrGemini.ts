@@ -34,6 +34,9 @@ export interface GeminiReceiptAnalysisResponse {
         success: false;
         error: string;
         errorCode: string;
+        workerErrorCode?: string | null;
+        geminiErrorCode?: string | null;
+        timeoutReason?: string | null;
         httpStatus: number | null;
         modelAttempted: string | null;
         fallbackReason: string;
@@ -114,6 +117,9 @@ export async function analyzeReceiptWithGemini(input: {
           success: false,
           error: "NO_API_KEY",
           errorCode: "NO_API_KEY",
+          workerErrorCode: "MISSING_GEMINI_API_KEY",
+          geminiErrorCode: "NO_API_KEY",
+          timeoutReason: null,
           httpStatus: null,
           modelAttempted: null,
           fallbackReason,
@@ -129,6 +135,9 @@ export async function analyzeReceiptWithGemini(input: {
           success: false,
           error: "MISSING_DATA",
           errorCode: "MISSING_DATA",
+          workerErrorCode: "MISSING_REQUEST_DATA",
+          geminiErrorCode: "NOT_REACHED",
+          timeoutReason: null,
           httpStatus: 400,
           modelAttempted: null,
           fallbackReason: "No image or OCR text provided",
@@ -150,6 +159,8 @@ export async function analyzeReceiptWithGemini(input: {
 
     let lastHttpStatus: number | null = null;
     let lastErrorCode = "API_ERROR";
+    let lastGeminiErrorCode: string | null = null;
+    let lastTimeoutReason: string | null = null;
     let lastErrorDetail = "";
     let lastModelAttempted: string = GEMINI_RECEIPT_MODELS[0];
 
@@ -201,9 +212,24 @@ export async function analyzeReceiptWithGemini(input: {
 
         if (!response.ok) {
           const errText = await response.text();
-          lastErrorDetail = errText.slice(0, 300);
+          let upstreamStatus: string | null = null;
+          let upstreamMessage: string | null = null;
+          try {
+            const parsedErr = JSON.parse(errText);
+            upstreamStatus = parsedErr?.error?.status || null;
+            upstreamMessage = parsedErr?.error?.message || null;
+          } catch {
+            // Raw text fallback
+          }
+          lastErrorDetail = (upstreamMessage || errText).slice(0, 300);
+          lastTimeoutReason =
+            response.status === 504 || upstreamStatus === "DEADLINE_EXCEEDED"
+              ? `Gemini API returned HTTP ${response.status} (${upstreamStatus || "DEADLINE_EXCEEDED"})`
+              : null;
+
           if (response.status === 404) {
             lastErrorCode = "MODEL_NOT_FOUND_404";
+            lastGeminiErrorCode = upstreamStatus || "MODEL_NOT_FOUND_404";
             console.warn(
               `[Gemini OCR] Model ${modelName} returned 404, checking next fallback model:`,
               lastErrorDetail
@@ -217,8 +243,11 @@ export async function analyzeReceiptWithGemini(input: {
           } else {
             lastErrorCode = `HTTP_${response.status}`;
           }
+          lastGeminiErrorCode = upstreamStatus
+            ? `${lastErrorCode} (${upstreamStatus})`
+            : lastErrorCode;
           console.warn(
-            `[Gemini OCR] API error <- model=${modelName} | code=${lastErrorCode} | body=${lastErrorDetail}`
+            `[Gemini OCR] API error <- model=${modelName} | code=${lastErrorCode} | geminiStatus=${upstreamStatus || "none"} | body=${lastErrorDetail}`
           );
           if (hasFallbackModel && response.status >= 500) {
             continue;
@@ -229,13 +258,16 @@ export async function analyzeReceiptWithGemini(input: {
               success: false,
               error: lastErrorCode,
               errorCode: lastErrorCode,
+              workerErrorCode: null,
+              geminiErrorCode: lastGeminiErrorCode,
+              timeoutReason: lastTimeoutReason,
               httpStatus: response.status,
               modelAttempted: modelName,
               fallbackReason:
                 response.status === 400 || response.status === 403
-                  ? `Invalid API key or Gemini request rejected (HTTP ${response.status})`
-                  : `Gemini API HTTP ${response.status}: ${lastErrorDetail || "Unknown error"}`,
-              message: `Gemini returned status ${response.status} (${lastErrorCode}). Using local OCR.`,
+                  ? `Gemini rejected request (HTTP ${response.status}${upstreamStatus ? ` / ${upstreamStatus}` : ""}): ${lastErrorDetail || "Invalid API key or request payload"}`
+                  : `Gemini API HTTP ${response.status}${upstreamStatus ? ` (${upstreamStatus})` : ""}: ${lastErrorDetail || "Unknown error"}`,
+              message: `Gemini returned status ${response.status} (${lastGeminiErrorCode}). Using local OCR.`,
             },
           };
         }
@@ -258,6 +290,8 @@ export async function analyzeReceiptWithGemini(input: {
           console.warn(
             `[Gemini OCR] Fallback -> errorCode=EMPTY_RESPONSE | reason="${emptyReason}"`
           );
+          lastErrorCode = "EMPTY_RESPONSE";
+          lastGeminiErrorCode = `EMPTY_RESPONSE (${finishReason})`;
           if (hasFallbackModel) continue;
           return {
             status: 200,
@@ -265,6 +299,9 @@ export async function analyzeReceiptWithGemini(input: {
               success: false,
               error: "EMPTY_RESPONSE",
               errorCode: "EMPTY_RESPONSE",
+              workerErrorCode: null,
+              geminiErrorCode: lastGeminiErrorCode,
+              timeoutReason: null,
               httpStatus: response.status,
               modelAttempted: modelName,
               fallbackReason: emptyReason,
@@ -297,6 +334,8 @@ export async function analyzeReceiptWithGemini(input: {
               `[Gemini OCR] Failed to parse JSON:`,
               rawContent.slice(0, 300)
             );
+            lastErrorCode = "PARSE_ERROR";
+            lastGeminiErrorCode = `PARSE_ERROR (${finishReason})`;
             if (hasFallbackModel) continue;
             return {
               status: 200,
@@ -304,6 +343,9 @@ export async function analyzeReceiptWithGemini(input: {
                 success: false,
                 error: "PARSE_ERROR",
                 errorCode: "PARSE_ERROR",
+                workerErrorCode: null,
+                geminiErrorCode: lastGeminiErrorCode,
+                timeoutReason: null,
                 httpStatus: response.status,
                 modelAttempted: modelName,
                 fallbackReason: parseReason,
@@ -372,8 +414,12 @@ export async function analyzeReceiptWithGemini(input: {
         clearTimeout(timeoutId);
         const isAbort = fetchErr?.name === "AbortError";
         lastErrorCode = isAbort ? "GEMINI_TIMEOUT" : "NETWORK_ERROR";
+        lastGeminiErrorCode = lastErrorCode;
+        lastTimeoutReason = isAbort
+          ? `Server-side Gemini fetch timed out after ${perModelTimeoutMs}ms (model=${modelName})`
+          : null;
         lastErrorDetail = isAbort
-          ? `Gemini timeout after ${perModelTimeoutMs}ms`
+          ? `Gemini timeout after ${perModelTimeoutMs}ms (model=${modelName})`
           : fetchErr?.message || String(fetchErr);
         console.warn(
           `[Gemini OCR] Request exception <- model=${modelName} | code=${lastErrorCode} | detail=${lastErrorDetail}`
@@ -387,10 +433,13 @@ export async function analyzeReceiptWithGemini(input: {
             success: false,
             error: lastErrorCode,
             errorCode: lastErrorCode,
+            workerErrorCode: isAbort ? null : "UPSTREAM_FETCH_ERROR",
+            geminiErrorCode: lastGeminiErrorCode,
+            timeoutReason: lastTimeoutReason,
             httpStatus: lastHttpStatus,
             modelAttempted: modelName,
             fallbackReason: isAbort
-              ? "Gemini timeout"
+              ? lastTimeoutReason || "Gemini timeout"
               : `${lastErrorCode}: ${lastErrorDetail}`,
             message: "Gemini analysis timed out or failed. Using local OCR.",
           },
@@ -398,7 +447,7 @@ export async function analyzeReceiptWithGemini(input: {
       }
     }
 
-    const exhaustedReason = `Gemini unavailable: all models failed (last=${lastModelAttempted}, status=${lastHttpStatus}): ${lastErrorDetail}`;
+    const exhaustedReason = `All Gemini models failed (last=${lastModelAttempted}, status=${lastHttpStatus ?? "none"}): ${lastErrorDetail}`;
     console.warn(
       `[Gemini OCR] Fallback -> errorCode=${lastErrorCode} | reason="${exhaustedReason}"`
     );
@@ -408,6 +457,9 @@ export async function analyzeReceiptWithGemini(input: {
         success: false,
         error: lastErrorCode,
         errorCode: lastErrorCode,
+        workerErrorCode: null,
+        geminiErrorCode: lastGeminiErrorCode || lastErrorCode,
+        timeoutReason: lastTimeoutReason,
         httpStatus: lastHttpStatus,
         modelAttempted: lastModelAttempted,
         fallbackReason: exhaustedReason,
@@ -425,6 +477,9 @@ export async function analyzeReceiptWithGemini(input: {
         success: false,
         error: "SERVER_ERROR",
         errorCode: "SERVER_ERROR",
+        workerErrorCode: "SERVER_ERROR",
+        geminiErrorCode: "NOT_REACHED",
+        timeoutReason: null,
         httpStatus: 500,
         modelAttempted: null,
         fallbackReason: err?.message || "Unexpected server error",

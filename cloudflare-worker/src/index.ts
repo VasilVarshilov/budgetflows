@@ -125,6 +125,9 @@ export default {
               success: false,
               error: "METHOD_NOT_ALLOWED",
               errorCode: "METHOD_NOT_ALLOWED",
+              workerErrorCode: "METHOD_NOT_ALLOWED",
+              geminiErrorCode: null,
+              timeoutReason: null,
               httpStatus: 405,
               fallbackReason: `Method ${request.method} not allowed on /api/ocr/health (GET required)`,
               message: "Use GET /api/ocr/health.",
@@ -157,6 +160,9 @@ export default {
               success: false,
               error: "METHOD_NOT_ALLOWED",
               errorCode: "METHOD_NOT_ALLOWED",
+              workerErrorCode: "METHOD_NOT_ALLOWED",
+              geminiErrorCode: null,
+              timeoutReason: null,
               httpStatus: 405,
               fallbackReason: `Method ${request.method} not allowed on /api/ocr/receipt (POST required)`,
               message: "Use POST /api/ocr/receipt.",
@@ -170,14 +176,17 @@ export default {
         let body: Record<string, unknown> = {};
         try {
           body = (await request.json()) as Record<string, unknown>;
-        } catch {
+        } catch (parseErr: any) {
           return jsonResponse(
             {
               success: false,
               error: "INVALID_JSON",
               errorCode: "INVALID_JSON",
+              workerErrorCode: "INVALID_JSON",
+              geminiErrorCode: null,
+              timeoutReason: null,
               httpStatus: 400,
-              fallbackReason: "Request body must be valid JSON",
+              fallbackReason: `Request body must be valid JSON (${parseErr?.message || "JSON parse error"})`,
               message: "Invalid JSON request body.",
             },
             400,
@@ -204,6 +213,9 @@ export default {
           success: false,
           error: "ROUTE_NOT_FOUND",
           errorCode: "ROUTE_NOT_FOUND",
+          workerErrorCode: "ROUTE_NOT_FOUND",
+          geminiErrorCode: null,
+          timeoutReason: null,
           httpStatus: 404,
           fallbackReason: `Route not found: ${request.method} ${url.pathname}`,
           message: `API route not found: ${request.method} ${url.pathname}`,
@@ -218,7 +230,10 @@ export default {
         {
           success: false,
           error: "WORKER_EXCEPTION",
-          errorCode: "SERVER_ERROR",
+          errorCode: "WORKER_EXCEPTION",
+          workerErrorCode: "WORKER_EXCEPTION",
+          geminiErrorCode: null,
+          timeoutReason: null,
           httpStatus: 500,
           modelAttempted: null,
           fallbackReason: err?.message || "Unexpected Worker exception",
