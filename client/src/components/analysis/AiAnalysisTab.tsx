@@ -19,12 +19,6 @@ import {
   Award,
   Layers,
   Banknote,
-  MessageSquare,
-  Send,
-  Calendar,
-  Calculator,
-  Receipt,
-  RotateCcw,
 } from "lucide-react";
 import { MonthlyRecord, IncomeItem } from "@/types";
 import {
@@ -32,10 +26,7 @@ import {
   FinancialInsight,
   InsightPriority,
 } from "@/utils/aiAnalysisEngine";
-import {
-  answerFinancialChatQuestion,
-  AiChatResponse,
-} from "@/utils/aiChatEngine";
+import { AiChatSection } from "./AiChatSection";
 
 interface AiAnalysisTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -43,25 +34,6 @@ interface AiAnalysisTabProps {
   currentMonth?: string;
   onNavigateTab?: (tab: any) => void;
 }
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  timestamp: string;
-  response?: AiChatResponse;
-}
-
-const EXAMPLE_CHAT_QUESTIONS = [
-  "Колко пари са похарчени за цигари този месец?",
-  "Кой беше най-големият ми разход този месец?",
-  "Колко похарчих в Lidl?",
-  "Кои категории се увеличиха спрямо миналия месец?",
-  "Колко спестих през последните 3 месеца?",
-  "Какъв е средният ми месечен разход?",
-  "How much did I spend on coffee in November?",
-  "What are my recurring expenses?",
-];
 
 type FilterCategory = "all" | "income" | "spending" | "savings" | "electricity" | "trend" | "top";
 
@@ -73,45 +45,6 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 }) => {
   const [selectedFilter, setSelectedFilter] = useState<FilterCategory>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-
-  const handleSubmitChat = (questionText?: string) => {
-    const q = (questionText ?? chatInput).trim();
-    if (!q) return;
-
-    const nowTime = new Date().toLocaleTimeString("bg-BG", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    const userMsg: ChatMessage = {
-      id: `u_${Date.now()}`,
-      role: "user",
-      text: q,
-      timestamp: nowTime,
-    };
-
-    const result = answerFinancialChatQuestion(
-      q,
-      monthlyData,
-      globalSavings,
-      currentMonth
-    );
-
-    const botMsg: ChatMessage = {
-      id: `a_${Date.now() + 1}`,
-      role: "assistant",
-      text: result.answer,
-      timestamp: nowTime,
-      response: result,
-    };
-
-    setChatMessages((prev) => [...prev, userMsg, botMsg]);
-    if (!questionText) {
-      setChatInput("");
-    }
-  };
 
   // Generate analysis from real user data
   const analysis = useMemo(() => {
@@ -286,195 +219,12 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
         </div>
       </div>
 
-      {/* AI Chat Section */}
-      <section
-        aria-label="AI Chat"
-        className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden transition-colors"
-      >
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200/70 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-              <MessageSquare className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                AI Chat — Въпроси по вашите финанси
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Търсене на български и английски в разходи, бележки, касови бележки, приходи, спестявания, бюджети и ток
-                {currentMonth ? ` · Избран месец: ${currentMonth}` : ""}
-              </p>
-            </div>
-          </div>
-
-          {chatMessages.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setChatMessages([])}
-              className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Изчисти чата</span>
-            </button>
-          )}
-        </div>
-
-        {/* Example Prompts */}
-        <div className="px-5 py-3 bg-slate-50/70 dark:bg-slate-950/40 border-b border-slate-100 dark:border-slate-800">
-          <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-            Примерни въпроси
-          </span>
-          <div className="flex flex-wrap gap-1.5">
-            {EXAMPLE_CHAT_QUESTIONS.map((sample) => (
-              <button
-                key={sample}
-                type="button"
-                onClick={() => handleSubmitChat(sample)}
-                className="text-left text-xs font-medium px-3 py-1.5 min-h-[34px] rounded-lg bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-slate-700 dark:text-slate-200 hover:text-indigo-700 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors cursor-pointer"
-              >
-                {sample}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Chat History */}
-        {chatMessages.length > 0 && (
-          <div className="p-5 space-y-4 max-h-[520px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80">
-            {chatMessages.map((msg) => {
-              if (msg.role === "user") {
-                return (
-                  <div key={msg.id} className="pt-3 first:pt-0 flex justify-end">
-                    <div className="max-w-2xl bg-indigo-600 text-white px-4 py-2.5 rounded-2xl rounded-br-sm text-sm font-medium shadow-xs">
-                      <p>{msg.text}</p>
-                      <span className="block text-[10px] text-indigo-200 text-right mt-1 tabular-nums">
-                        {msg.timestamp}
-                      </span>
-                    </div>
-                  </div>
-                );
-              }
-
-              const res = msg.response;
-              return (
-                <div key={msg.id} className="pt-4 first:pt-0 space-y-3">
-                  <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl p-4 space-y-3">
-                    {/* Direct Answer */}
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-white leading-relaxed">
-                        {res?.answer || msg.text}
-                      </p>
-                      <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 tabular-nums">
-                        {msg.timestamp}
-                      </span>
-                    </div>
-
-                    {res && (
-                      <>
-                        {/* Time Range & Calculation Metadata */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2 border-t border-slate-200/70 dark:border-slate-700/70 text-xs">
-                          <div className="flex items-start gap-2 text-slate-700 dark:text-slate-300">
-                            <Calendar className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-                            <div>
-                              <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Анализиран период
-                              </span>
-                              <span className="font-semibold text-slate-900 dark:text-white">
-                                {res.timeRangeLabel}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-start gap-2 text-slate-700 dark:text-slate-300">
-                            <Calculator className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                            <div className="min-w-0">
-                              <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Изчисление
-                              </span>
-                              <span className="font-mono text-[11px] text-slate-800 dark:text-slate-200 break-words tabular-nums">
-                                {res.calculation}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Matched Expenses / Items */}
-                        {res.matchedExpenses.length > 0 && (
-                          <div className="pt-2 border-t border-slate-200/70 dark:border-slate-700/70 space-y-1.5">
-                            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                              <Receipt className="w-3.5 h-3.5 text-indigo-500" />
-                              Открити записи ({res.matchedExpenses.length})
-                            </span>
-                            <div className="divide-y divide-slate-200/60 dark:divide-slate-700/60 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
-                              {res.matchedExpenses.slice(0, 10).map((m) => (
-                                <div
-                                  key={m.id}
-                                  className="px-3 py-2 flex items-start justify-between gap-3 text-xs"
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="font-semibold text-slate-900 dark:text-white truncate">
-                                      {m.merchantOrCategory}
-                                      <span className="font-normal text-slate-500 dark:text-slate-400">
-                                        {" "}· {m.categoryName} · {m.date}
-                                      </span>
-                                    </div>
-                                    {m.matchedSnippet && (
-                                      <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5 break-words">
-                                        {m.matchedSnippet}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <div className="text-right shrink-0 font-mono tabular-nums">
-                                    <span className="font-bold text-slate-900 dark:text-white">
-                                      €{m.matchedAmount.toFixed(2)}
-                                    </span>
-                                    {m.matchedKind === "item" &&
-                                      Math.abs(m.expenseAmount - m.matchedAmount) > 0.01 && (
-                                        <span className="block text-[10px] text-slate-500 dark:text-slate-400">
-                                          от бон €{m.expenseAmount.toFixed(2)}
-                                        </span>
-                                      )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Input Form */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSubmitChat();
-          }}
-          className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2.5"
-        >
-          <input
-            type="text"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder="Попитайте напр.: Колко похарчих за цигари през ноември? или How much did I spend in Lidl?"
-            aria-label="Задайте въпрос за вашите финанси"
-            className="flex-1 min-h-[44px] px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          />
-          <button
-            type="submit"
-            disabled={!chatInput.trim()}
-            className="min-h-[44px] px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <Send className="w-4 h-4" />
-            <span>Попитай</span>
-          </button>
-        </form>
-      </section>
+      {/* Modern AI Chat Assistant */}
+      <AiChatSection
+        monthlyData={monthlyData}
+        globalSavings={globalSavings}
+        currentMonth={currentMonth}
+      />
 
       {/* Filter Tabs Bar */}
       <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-2 sm:gap-3 transition-colors">
