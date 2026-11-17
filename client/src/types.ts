@@ -66,8 +66,12 @@ export interface ExpenseCategory {
 
 export interface ReceiptItemDetail {
   name: string;
-  price: number;
+  price: number; // Final price after discount (synced with finalPrice ?? price)
   quantity?: number;
+  originalPrice?: number;
+  discount?: number;
+  finalPrice?: number;
+  discountLabel?: string;
 }
 
 export interface ExpenseItem {

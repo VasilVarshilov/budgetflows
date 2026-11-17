@@ -458,8 +458,8 @@ function chooseBestItemSet(
     return { items: geminiItems, source: "gemini", reason: "Using AI items (local OCR returned 0 items)" };
   }
 
-  const localSum = localItems.reduce((s, i) => s + i.price, 0);
-  const geminiSum = geminiItems.reduce((s, i) => s + i.price, 0);
+  const localSum = localItems.reduce((s, i) => s + (i.finalPrice ?? i.price), 0);
+  const geminiSum = geminiItems.reduce((s, i) => s + (i.finalPrice ?? i.price), 0);
 
   if (receiptTotal > 0) {
     const localErr = Math.abs(localSum - receiptTotal) / receiptTotal;
@@ -961,7 +961,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       } else if (allSelected && fullReceiptTotal > 0) {
         setAmount(fullReceiptTotal.toFixed(2));
       } else {
-        const sum = selectedItems.reduce((acc, item) => acc + item.price, 0);
+        const sum = selectedItems.reduce((acc, item) => acc + (item.finalPrice ?? item.price), 0);
         setAmount(sum.toFixed(2));
       }
 
@@ -1123,8 +1123,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     // Initial baseline state populated from OCR-first results
     const initialItems: ReceiptItemDetail[] = (localParsed.items || []).map((it) => ({
       name: it.name,
-      price: it.price,
+      price: it.finalPrice ?? it.price,
       quantity: it.quantity && it.quantity >= 1 ? it.quantity : 1,
+      ...(it.discount && it.discount > 0 && it.originalPrice !== undefined
+        ? {
+            originalPrice: it.originalPrice,
+            discount: it.discount,
+            finalPrice: it.finalPrice ?? it.price,
+            ...(it.discountLabel ? { discountLabel: it.discountLabel } : {}),
+          }
+        : {}),
     }));
     setMerchantName(localParsed.merchantName);
     setAmount(localParsed.totalAmount > 0 ? localParsed.totalAmount.toFixed(2) : "");
@@ -1399,17 +1407,61 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     typeof it?.price === "number"
                       ? it.price
                       : parseFloat(String(it?.price || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+                  const rawOrig =
+                    typeof it?.originalPrice === "number"
+                      ? it.originalPrice
+                      : parseFloat(String(it?.originalPrice || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+                  const rawDisc =
+                    typeof it?.discount === "number"
+                      ? Math.abs(it.discount)
+                      : Math.abs(parseFloat(String(it?.discount || "").replace(/[^\d.,-]/g, "").replace(",", ".")));
+                  const rawFinal =
+                    typeof it?.finalPrice === "number"
+                      ? it.finalPrice
+                      : parseFloat(String(it?.finalPrice || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+                  const discLabel =
+                    typeof it?.discountLabel === "string" && it.discountLabel.trim()
+                      ? it.discountLabel.trim()
+                      : undefined;
+                  const hasDiscount = Number.isFinite(rawDisc) && rawDisc > 0;
+                  const origPrice = hasDiscount
+                    ? Number.isFinite(rawOrig) && rawOrig > 0
+                      ? parseFloat(rawOrig.toFixed(2))
+                      : parseFloat(((Number.isFinite(rawFinal) && rawFinal > 0 ? rawFinal : rawPrice) + rawDisc).toFixed(2))
+                    : undefined;
+                  const finalPriceVal = hasDiscount
+                    ? Number.isFinite(rawFinal) && rawFinal >= 0
+                      ? parseFloat(rawFinal.toFixed(2))
+                      : origPrice !== undefined
+                      ? parseFloat(Math.max(0, origPrice - rawDisc).toFixed(2))
+                      : parseFloat((rawPrice || 0).toFixed(2))
+                    : undefined;
+                  const effectivePrice =
+                    finalPriceVal !== undefined
+                      ? finalPriceVal
+                      : Number.isFinite(rawPrice)
+                      ? parseFloat(rawPrice.toFixed(2))
+                      : 0;
                   const rawQty =
                     typeof it?.quantity === "number"
                       ? it.quantity
                       : parseFloat(String(it?.quantity || "").replace(",", "."));
-                  return {
+                  const res: ReceiptItemDetail = {
                     name: typeof it?.name === "string" ? it.name.trim() : "",
-                    price: Number.isFinite(rawPrice) ? parseFloat(rawPrice.toFixed(2)) : 0,
+                    price: effectivePrice,
                     quantity: Number.isFinite(rawQty) && rawQty >= 1 ? Math.round(rawQty) : 1,
+                    ...(hasDiscount && origPrice !== undefined && finalPriceVal !== undefined
+                      ? {
+                          originalPrice: origPrice,
+                          discount: parseFloat(rawDisc.toFixed(2)),
+                          finalPrice: finalPriceVal,
+                          ...(discLabel ? { discountLabel: discLabel } : {}),
+                        }
+                      : {}),
                   };
+                  return res;
                 })
-                .filter((it: ReceiptItemDetail) => it.name.length > 0 && it.price > 0)
+                .filter((it: ReceiptItemDetail) => it.name.length > 0 && it.price >= 0 && (it.price > 0 || (it.discount ?? 0) > 0))
             : [];
 
           const bestChoice = chooseBestItemSet(
@@ -1422,22 +1474,48 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             bestChoice.source === "gemini" && initialItems.length === bestChoice.items.length
               ? bestChoice.items.map((gItem, idx) => {
                   const localMatch = initialItems[idx];
+                  let merged = gItem;
                   if (
                     localMatch &&
                     (localMatch.quantity || 1) > 1 &&
-                    (gItem.quantity || 1) === 1 &&
-                    Math.abs(localMatch.price - gItem.price) <= 0.02
+                    (merged.quantity || 1) === 1 &&
+                    Math.abs(localMatch.price - merged.price) <= 0.02
                   ) {
-                    return { ...gItem, quantity: localMatch.quantity };
+                    merged = { ...merged, quantity: localMatch.quantity };
                   }
-                  return gItem;
+                  if (
+                    localMatch &&
+                    localMatch.discount &&
+                    localMatch.discount > 0 &&
+                    !merged.discount &&
+                    Math.abs((localMatch.finalPrice ?? localMatch.price) - merged.price) <= 0.03
+                  ) {
+                    merged = {
+                      ...merged,
+                      originalPrice: localMatch.originalPrice,
+                      discount: localMatch.discount,
+                      finalPrice: merged.price,
+                      discountLabel: localMatch.discountLabel,
+                    };
+                  }
+                  return merged;
                 })
               : bestChoice.items;
+          const totalAttachedDisc = parseFloat(
+            resolvedItems.reduce((s, it) => s + (it.discount || 0), 0).toFixed(2)
+          );
+          const unattachedDisc = Math.max(
+            0,
+            parseFloat(((localParsed.discountTotal || 0) - totalAttachedDisc).toFixed(2))
+          );
+          if (totalAttachedDisc > 0) {
+            setDetectedDiscount(Math.max(localParsed.discountTotal || 0, totalAttachedDisc));
+          }
           const validation = validateReceiptTotals(
             resolvedItems,
             finalTotal,
             resolvedExpectedCount ?? undefined,
-            localParsed.discountTotal || 0,
+            unattachedDisc,
             resolvedCurrency
           );
 
@@ -1718,11 +1796,25 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       return;
     }
 
-    const nextItems = receiptItems.map((it, i) =>
-      i === idx
-        ? { name: cleanName, quantity: parsedQty, price: parseFloat(parsedPrice.toFixed(2)) }
-        : it
-    );
+    const nextItems = receiptItems.map((it, i) => {
+      if (i !== idx) return it;
+      const nextPrice = parseFloat(parsedPrice.toFixed(2));
+      if (it.originalPrice && it.originalPrice > nextPrice) {
+        return {
+          ...it,
+          name: cleanName,
+          quantity: parsedQty,
+          price: nextPrice,
+          finalPrice: nextPrice,
+          discount: parseFloat((it.originalPrice - nextPrice).toFixed(2)),
+        };
+      }
+      return {
+        name: cleanName,
+        quantity: parsedQty,
+        price: nextPrice,
+      };
+    });
     commitItemsMutation(nextItems, new Set(selectedItemIndices));
     setEditingItemIndex(null);
   };
@@ -1749,22 +1841,29 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   // Computed receipt totals, Selection Mode total, and >5% consistency validation
   const itemsFullSum = parseFloat(
-    receiptItems.reduce((sum, item) => sum + item.price, 0).toFixed(2)
+    receiptItems.reduce((sum, item) => sum + (item.finalPrice ?? item.price), 0).toFixed(2)
+  );
+  const attachedDiscountSum = parseFloat(
+    receiptItems.reduce((sum, item) => sum + (item.discount || 0), 0).toFixed(2)
   );
   const receiptTotalDisplay = detectedTotal > 0 ? detectedTotal : itemsFullSum;
   const selectedItemsList = receiptItems.filter((_, idx) => selectedItemIndices.has(idx));
   const isPartialSelection =
     receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length;
   const selectedItemsSum = parseFloat(
-    selectedItemsList.reduce((sum, item) => sum + item.price, 0).toFixed(2)
+    selectedItemsList.reduce((sum, item) => sum + (item.finalPrice ?? item.price), 0).toFixed(2)
   );
 
   const liveAmountNum = parseFloat(amount) || 0;
+  const liveUnattachedDiscount = Math.max(
+    0,
+    parseFloat((detectedDiscount - attachedDiscountSum).toFixed(2))
+  );
   const liveValidation = validateReceiptTotals(
     isPartialSelection ? selectedItemsList : receiptItems,
     isPartialSelection ? liveAmountNum : (liveAmountNum > 0 ? liveAmountNum : receiptTotalDisplay),
     isPartialSelection ? undefined : expectedItemsCount ?? undefined,
-    isPartialSelection ? 0 : detectedDiscount,
+    isPartialSelection ? 0 : liveUnattachedDiscount,
     receiptCurrency || "€"
   );
   // Verify Sum of items ≈ Receipt total (within 5% or expected item count deficit) when saving full receipt
@@ -1831,23 +1930,55 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       return;
     }
 
-    // Determine structured items using ONLY selected items (or edited notes), preserving quantities
+    // Determine structured items using ONLY selected items (or edited notes), preserving quantities and discounts
     let finalItems: ReceiptItemDetail[] = selectedItemsList.map((it) => ({
       name: it.name,
-      price: it.price,
+      price: it.finalPrice ?? it.price,
       quantity: it.quantity && it.quantity >= 1 ? it.quantity : 1,
+      ...(it.discount && it.discount > 0 && it.originalPrice !== undefined
+        ? {
+            originalPrice: it.originalPrice,
+            discount: it.discount,
+            finalPrice: it.finalPrice ?? it.price,
+            ...(it.discountLabel ? { discountLabel: it.discountLabel } : {}),
+          }
+        : {}),
     }));
     if (notes.trim()) {
       const parsedFromNotes = parseExpenseNote(notes, merchantName);
       if (parsedFromNotes.items && parsedFromNotes.items.length > 0) {
-        finalItems = parsedFromNotes.items.map((it, idx) => ({
-          name: it.name,
-          price: it.price,
-          quantity:
-            it.quantity && it.quantity >= 1
-              ? it.quantity
-              : selectedItemsList[idx]?.quantity || 1,
-        }));
+        finalItems = parsedFromNotes.items.map((it, idx) => {
+          const prevMeta = selectedItemsList[idx];
+          const hasDisc = Boolean(it.discount && it.discount > 0);
+          const fallbackDisc =
+            !hasDisc &&
+            prevMeta?.discount &&
+            prevMeta.discount > 0 &&
+            Math.abs((prevMeta.finalPrice ?? prevMeta.price) - it.price) <= 0.01;
+          return {
+            name: it.name,
+            price: it.finalPrice ?? it.price,
+            quantity:
+              it.quantity && it.quantity >= 1
+                ? it.quantity
+                : prevMeta?.quantity || 1,
+            ...(hasDisc
+              ? {
+                  originalPrice: it.originalPrice,
+                  discount: it.discount,
+                  finalPrice: it.finalPrice ?? it.price,
+                  ...(it.discountLabel ? { discountLabel: it.discountLabel } : {}),
+                }
+              : fallbackDisc
+              ? {
+                  originalPrice: prevMeta.originalPrice,
+                  discount: prevMeta.discount,
+                  finalPrice: it.price,
+                  ...(prevMeta.discountLabel ? { discountLabel: prevMeta.discountLabel } : {}),
+                }
+              : {}),
+          };
+        });
       }
     }
 
@@ -2640,32 +2771,54 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                   : "bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 opacity-75 hover:opacity-100"
                               }`}
                             >
-                              <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer select-none">
+                              <label className="flex items-start gap-2.5 min-w-0 flex-1 cursor-pointer select-none">
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
                                   onChange={() => handleToggleReceiptItem(idx)}
-                                  className="w-4.5 h-4.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                  className="w-4.5 h-4.5 mt-0.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
                                 />
-                                <span
-                                  className={`text-xs sm:text-sm font-semibold truncate ${
-                                    !isChecked ? "line-through" : ""
-                                  }`}
-                                >
-                                  {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
-                                  {item.name}
-                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <span
+                                    className={`block text-xs sm:text-sm font-semibold truncate ${
+                                      !isChecked ? "line-through" : ""
+                                    }`}
+                                  >
+                                    {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
+                                    {item.name}
+                                  </span>
+                                  {item.discount && item.discount > 0 && item.originalPrice !== undefined && (
+                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+                                      <span className="text-slate-500 dark:text-slate-400 line-through">
+                                        {formatDisplayPrice(item.originalPrice)}
+                                      </span>
+                                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                                        -{formatDisplayPrice(item.discount)} {item.discountLabel || "Отстъпка"}
+                                      </span>
+                                      <span className="text-slate-600 dark:text-slate-300 font-medium">
+                                        Final: {formatDisplayPrice(item.finalPrice ?? item.price)}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
                               </label>
                               <div className="flex items-center gap-1.5 shrink-0">
-                                <span
-                                  className={`text-xs sm:text-sm font-extrabold tabular-nums mr-1 ${
-                                    isChecked
-                                      ? "text-indigo-700 dark:text-indigo-300"
-                                      : "text-slate-500 dark:text-slate-400 line-through"
-                                  }`}
-                                >
-                                  {formatDisplayPrice(item.price)}
-                                </span>
+                                <div className="text-right mr-1">
+                                  {item.discount && item.discount > 0 && item.originalPrice !== undefined && (
+                                    <span className="block text-[10px] text-slate-400 dark:text-slate-500 line-through tabular-nums leading-none mb-0.5">
+                                      {formatDisplayPrice(item.originalPrice)}
+                                    </span>
+                                  )}
+                                  <span
+                                    className={`text-xs sm:text-sm font-extrabold tabular-nums ${
+                                      isChecked
+                                        ? "text-indigo-700 dark:text-indigo-300"
+                                        : "text-slate-500 dark:text-slate-400 line-through"
+                                    }`}
+                                  >
+                                    {formatDisplayPrice(item.finalPrice ?? item.price)}
+                                  </span>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => handleStartEditItem(idx)}
@@ -2704,9 +2857,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-semibold">
                             {isPartialSelection ? "Selected Total" : "Items Total"}
                           </span>
-                          <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                          <span className="font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
                             {formatDisplayPrice(isPartialSelection ? selectedItemsSum : itemsFullSum)}
                           </span>
+                          {!isPartialSelection && attachedDiscountSum > 0 && (
+                            <span className="block text-[10px] font-semibold text-emerald-700/90 dark:text-emerald-300/90 tabular-nums">
+                              Отстъпки: -{formatDisplayPrice(attachedDiscountSum)}
+                            </span>
+                          )}
                         </div>
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                           <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">

@@ -1714,19 +1714,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200 tabular-nums">
                 €{totalVariable.toFixed(2)}
               </span>
-              {!isAddingExpense && (
-                <button
-                  onClick={() => setIsAddingExpense(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-semibold transition-colors"
-                  title="Добави допълнителен разход"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Добави</span>
-                </button>
-              )}
             </div>
           </div>
 
@@ -2050,23 +2040,52 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                           {isExpanded ? (
                             <ul className="space-y-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-xs">
-                              {parsedReceipt.items.map((item, idx) => (
-                                <li
-                                  key={idx}
-                                  className="flex items-center justify-between gap-3 text-slate-700 dark:text-slate-300 py-0.5"
-                                >
-                                  <span className="break-words leading-tight flex-1">
-                                    • {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : ""}{item.name}
-                                  </span>
-                                  <span className="font-semibold text-slate-900 dark:text-slate-100 shrink-0 font-mono">
-                                    {parsedReceipt.currencySymbol === "$" ||
-                                    parsedReceipt.currencySymbol === "€" ||
-                                    parsedReceipt.currencySymbol === "£"
-                                      ? `${parsedReceipt.currencySymbol}${item.price.toFixed(2)}`
-                                      : `${item.price.toFixed(2)} ${parsedReceipt.currencySymbol || "€"}`}
-                                  </span>
-                                </li>
-                              ))}
+                              {parsedReceipt.items.map((item, idx) => {
+                                const curSym = parsedReceipt.currencySymbol || "€";
+                                const fmtItemPrice = (val: number) =>
+                                  curSym === "$" || curSym === "€" || curSym === "£"
+                                    ? `${curSym}${val.toFixed(2)}`
+                                    : `${val.toFixed(2)} ${curSym}`;
+                                const netPrice = item.finalPrice ?? item.price;
+                                const hasDisc =
+                                  Boolean(item.discount && item.discount > 0 && item.originalPrice !== undefined);
+                                return (
+                                  <li
+                                    key={idx}
+                                    className="flex items-start justify-between gap-3 text-slate-700 dark:text-slate-300 py-0.5"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <span className="block break-words leading-tight">
+                                        • {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : ""}
+                                        {item.name}
+                                      </span>
+                                      {hasDisc && item.originalPrice !== undefined && item.discount !== undefined && (
+                                        <div className="mt-0.5 pl-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+                                          <span className="text-slate-400 dark:text-slate-500 line-through">
+                                            {fmtItemPrice(item.originalPrice)}
+                                          </span>
+                                          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                                            -{fmtItemPrice(item.discount)} {item.discountLabel || "Отстъпка"}
+                                          </span>
+                                          <span className="text-slate-600 dark:text-slate-300 font-medium">
+                                            Final: {fmtItemPrice(netPrice)}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0 font-mono tabular-nums">
+                                      {hasDisc && item.originalPrice !== undefined && (
+                                        <span className="block text-[10px] text-slate-400 dark:text-slate-500 line-through leading-none mb-0.5">
+                                          {fmtItemPrice(item.originalPrice)}
+                                        </span>
+                                      )}
+                                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                        {fmtItemPrice(netPrice)}
+                                      </span>
+                                    </div>
+                                  </li>
+                                );
+                              })}
                             </ul>
                           ) : (
                             <div className="text-xs text-slate-500 dark:text-slate-400 italic">
@@ -2074,8 +2093,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               {parsedReceipt.currencySymbol === "$" ||
                               parsedReceipt.currencySymbol === "€" ||
                               parsedReceipt.currencySymbol === "£"
-                                ? `${parsedReceipt.currencySymbol}${parsedReceipt.items[0].price.toFixed(2)}`
-                                : `${parsedReceipt.items[0].price.toFixed(2)} ${parsedReceipt.currencySymbol || "€"}`}
+                                ? `${parsedReceipt.currencySymbol}${(parsedReceipt.items[0].finalPrice ?? parsedReceipt.items[0].price).toFixed(2)}`
+                                : `${(parsedReceipt.items[0].finalPrice ?? parsedReceipt.items[0].price).toFixed(2)} ${parsedReceipt.currencySymbol || "€"}`}
                               ) … и още {parsedReceipt.items.length - 1} артикула
                             </div>
                           )}

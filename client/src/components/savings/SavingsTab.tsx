@@ -503,32 +503,64 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Header (mirrors MonthlyExpensesTab top bar pattern) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl shadow-xs border border-slate-100 dark:border-slate-800 transition-colors">
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <PiggyBank className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
             Спестявания
           </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             Общ баланс и история (Lifetime)
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 self-end sm:self-center">
+          <button
+            onClick={() => {
+              if (isAdding && transactionType === "income") {
+                setIsAdding(false);
+              } else {
+                handleOpenAdd("income");
+              }
+            }}
+            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
+            title="Добави спестяване / приход"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Добави</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (isAdding && transactionType === "expense") {
+                setIsAdding(false);
+              } else {
+                handleOpenAdd("expense");
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200/80 dark:border-red-900/60 rounded-xl text-xs sm:text-sm font-semibold hover:bg-red-100 dark:hover:bg-red-900/60 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            title="Извади сума"
+          >
+            <Minus className="w-4 h-4" />
+            <span>Извади</span>
+          </button>
+
           <button
             onClick={() => setIsExportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-semibold transition-colors shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs sm:text-sm font-semibold transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
             title="Експорт на спестявания в текстов файл"
           >
             <Download className="w-4 h-4" />
             <span>Експорт</span>
           </button>
-          <div className="text-right bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-emerald-100 dark:border-slate-800 shadow-sm transition-colors">
-            <span className="text-xs text-slate-500 dark:text-slate-400 block uppercase tracking-wider font-semibold">
+
+          <div className="text-right pl-2 sm:pl-3 border-l border-slate-100 dark:border-slate-800">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 block uppercase tracking-wider font-medium">
               Налични средства
             </span>
             <span
-              className={`text-2xl sm:text-3xl font-black ${totalBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
+              className={`text-xl sm:text-2xl font-black tabular-nums ${totalBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
             >
               €{totalBalance.toFixed(2)}
             </span>
@@ -536,138 +568,132 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
         </div>
       </div>
 
+      {/* Add / Withdraw Form Panel (directly below top header, matching MonthlyExpensesTab) */}
+      {isAdding && (
+        <div
+          className={`
+          p-5 rounded-2xl shadow-md border-2 animate-in slide-in-from-top-3 relative bg-white dark:bg-slate-900 transition-colors
+          ${transactionType === "income" ? "border-emerald-200 dark:border-emerald-800" : "border-red-200 dark:border-red-800"}
+        `}
+        >
+          <button
+            onClick={() => setIsAdding(false)}
+            className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+            title="Затвори"
+            aria-label="Затвори"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <h4
+            className={`font-bold mb-4 flex items-center gap-2 ${transactionType === "income" ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}
+          >
+            {transactionType === "income" ? (
+              <Plus className="w-4 h-4" />
+            ) : (
+              <Minus className="w-4 h-4" />
+            )}
+            {transactionType === "income" ? "Добави спестяване / приход" : "Извади сума"}
+          </h4>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Category Selector Trigger */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Категория
+                </label>
+                <button
+                  onClick={() => setShowCategoryPicker(true)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md hover:border-emerald-300 dark:hover:border-emerald-500 focus:ring-2 focus:ring-emerald-100 dark:focus:ring-emerald-900/40 transition-all text-left"
+                >
+                  {selectedCategory ? (
+                    <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100">
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(selectedCategory.colorClass)}`}
+                      >
+                        {selectedCategory.iconName &&
+                        ICON_MAP[selectedCategory.iconName] ? (
+                          React.createElement(
+                            ICON_MAP[selectedCategory.iconName],
+                            {
+                              className: "w-2.5 h-2.5 text-current",
+                            },
+                          )
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-current" />
+                        )}
+                      </span>
+                      {selectedCategory.name}
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Избери категория...
+                    </span>
+                  )}
+                  <Plus className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                </button>
+              </div>
+
+              <InputGroup
+                label="Сума (EUR)"
+                value={amount}
+                onChange={setAmount}
+                placeholder="0.00"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Бележка (опционално)
+              </label>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                placeholder="..."
+              />
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={handleAddTransaction}
+                disabled={
+                  !selectedCategory ||
+                  !amount ||
+                  isNaN(parseDecimalInput(amount)) ||
+                  parseDecimalInput(amount) <= 0
+                }
+                className={`
+                  flex-1 text-white py-2.5 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors
+                  ${transactionType === "income" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}
+                `}
+              >
+                {transactionType === "income" ? "Добави" : "Извади"}
+              </button>
+              <button
+                onClick={() => setIsAdding(false)}
+                className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-semibold transition-colors"
+              >
+                Отказ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: List and Add Form */}
+        {/* Left Column: Transactions List */}
         <div className="space-y-4 order-2 lg:order-1">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-slate-700 dark:text-slate-200">
               История на транзакциите
             </h3>
-            {!isAdding && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleOpenAdd("expense")}
-                  className="min-h-[44px] min-w-[44px] flex items-center justify-center px-3 py-2 bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/60 rounded-xl text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/60 transition-colors"
-                  title="Извади сума"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleOpenAdd("income")}
-                  className="min-h-[44px] flex items-center gap-1 px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm"
-                  title="Добави приход"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Добави</span>
-                </button>
-              </div>
-            )}
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums">
+              {savingsData.length} {savingsData.length === 1 ? "запис" : "записа"}
+            </span>
           </div>
-
-          {/* Add Form Panel */}
-          {isAdding && (
-            <div
-              className={`
-              p-5 rounded-xl shadow-lg border animate-in slide-in-from-top-4 mb-4 relative bg-white dark:bg-slate-900 transition-colors
-              ${transactionType === "income" ? "border-emerald-100 dark:border-emerald-900/60 ring-1 ring-emerald-50 dark:ring-emerald-950/40" : "border-red-100 dark:border-red-900/60 ring-1 ring-red-50 dark:ring-red-950/40"}
-            `}
-            >
-              <button
-                onClick={() => setIsAdding(false)}
-                className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-
-              <h4
-                className={`font-bold mb-4 flex items-center gap-2 ${transactionType === "income" ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}
-              >
-                {transactionType === "income" ? (
-                  <Plus className="w-4 h-4" />
-                ) : (
-                  <Minus className="w-4 h-4" />
-                )}
-                {transactionType === "income" ? "Добави приход" : "Извади сума"}
-              </h4>
-
-              <div className="space-y-4">
-                {/* Category Selector Trigger */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Категория
-                  </label>
-                  <button
-                    onClick={() => setShowCategoryPicker(true)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md hover:border-emerald-300 dark:hover:border-emerald-500 focus:ring-2 focus:ring-emerald-100 dark:focus:ring-emerald-900/40 transition-all text-left"
-                  >
-                    {selectedCategory ? (
-                      <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100">
-                        <span
-                          className={`w-5 h-5 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(selectedCategory.colorClass)}`}
-                        >
-                          {selectedCategory.iconName &&
-                          ICON_MAP[selectedCategory.iconName] ? (
-                            React.createElement(
-                              ICON_MAP[selectedCategory.iconName],
-                              {
-                                className: "w-2.5 h-2.5 text-current",
-                              },
-                            )
-                          ) : (
-                            <div className="w-2 h-2 rounded-full bg-current" />
-                          )}
-                        </span>
-                        {selectedCategory.name}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500 dark:text-slate-400">
-                        Избери категория...
-                      </span>
-                    )}
-                    <Plus className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                  </button>
-                </div>
-
-                <InputGroup
-                  label="Сума (EUR)"
-                  value={amount}
-                  onChange={setAmount}
-                  placeholder="0.00"
-                />
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Бележка (опционално)
-                  </label>
-                  <input
-                    type="text"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
-                    placeholder="..."
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={handleAddTransaction}
-                    disabled={
-                      !selectedCategory ||
-                      !amount ||
-                      isNaN(parseDecimalInput(amount)) ||
-                      parseDecimalInput(amount) <= 0
-                    }
-                    className={`
-                      flex-1 text-white py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors
-                      ${transactionType === "income" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}
-                    `}
-                  >
-                    {transactionType === "income" ? "Добави" : "Извади"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Transactions List */}
           <div className="space-y-3">

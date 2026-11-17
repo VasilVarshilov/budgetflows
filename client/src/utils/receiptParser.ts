@@ -18,7 +18,15 @@ export interface ParsedReceiptData {
   subtotal?: number;
   tax?: number;
   currency: string;
-  items: Array<{ name: string; price: number; quantity: number }>;
+  items: Array<{
+    name: string;
+    price: number;
+    quantity: number;
+    originalPrice?: number;
+    discount?: number;
+    finalPrice?: number;
+    discountLabel?: string;
+  }>;
   notesFormatted: string;
   confidence: "high" | "medium" | "low";
   matchedRule?: string;
@@ -1342,6 +1350,9 @@ function extractTrailingItemPrice(
     // Reject if preceded immediately by a minus sign (discount row handled separately)
     const beforeChar = singleMatch.index > 0 ? line[singleMatch.index - 1] : "";
     if (beforeChar === "-") return null;
+    // Reject trailing minus right after the matched price digits (e.g. "1,02-" or "1,02 - Б")
+    const afterDigits = line.slice(singleMatch.index + singleMatch[0].indexOf(singleMatch[1]) + singleMatch[1].length);
+    if (/^\s*(?:€|EUR|лв\.?|BGN)?\s*-/.test(afterDigits)) return null;
     const price = parsePrice(singleMatch[1]);
     if (price && price > 0 && price < 50000) {
       return {
@@ -1355,33 +1366,133 @@ function extractTrailingItemPrice(
 }
 
 /**
- * Checks whether a line is a negative discount/rebate row (e.g. "LIDL PLUS -1.50 Б" or "ОТСТЪПКА -0.80").
+ * Checks if a line is a standalone promo header without a price (e.g. "#Lidl Plus промоция", "ПРОМОЦИЯ")
+ * that precedes a per-item discount line such as "ОТСТЪПКИ 1,02-".
  */
-function extractDiscountAmount(line: string): number {
+function extractPromoHeaderLabel(line: string): string | null {
+  if (/\d{1,5}[.,]\d{2}/.test(line)) return null;
+  const trimmed = line.trim();
+  const cyr = toCyrillicMatchForm(trimmed);
+  const lat = toLatinMatchForm(trimmed);
+
+  if (/#?\s*l[i1l]d[l1]\s*plu[s5]/i.test(trimmed) || /#?\s*lidl\s*plus/i.test(lat) || /лидл\s*плюс/i.test(cyr)) {
+    return "Lidl Plus";
+  }
+  if (/kaufland\s*card|кауфланд\s*карт/i.test(lat) || /кауфланд\s*карт/i.test(cyr)) {
+    return "Kaufland Card";
+  }
+  if (/billa\s*card|била\s*карт|билла\s*карт/i.test(lat) || /билл?а\s*карт/i.test(cyr)) {
+    return "Billa Card";
+  }
+  if (/^[#*\s]*(?:ПРОМОЦИЯ|ПРОМО|НАМАЛЕНИЕ|ОТСТЪПКИ|ОТСТЪПКА|АКЦИЯ|PROMO|DISCOUNT)[!:\s]*$/i.test(cyr) ||
+      /^[#*\s]*(?:PROMO|PROMOTION|DISCOUNT)[!:\s]*$/i.test(lat)) {
+    return "Промоция";
+  }
+  return null;
+}
+
+/**
+ * Checks whether a discount/savings line is a receipt footer summary
+ * (e.g. "ВИЕ СПЕСТИХТЕ: 1.86", "ОБЩА ОТСТЪПКА 1.86") that must NOT be attached to the last item.
+ */
+function isReceiptFooterDiscountSummary(line: string): boolean {
   const cyr = toCyrillicMatchForm(line);
-  const negMatch = line.match(/-\s*(\d{1,4}[.,]\d{2})\s*(?:€|EUR|лв\.?|BGN)?\s*[АБВГA-D68*]?\s*$/i);
-  if (negMatch) {
-    const val = parsePrice(negMatch[1]);
+  const lat = toLatinMatchForm(line);
+  return (
+    /(?:ВИЕ\s*СПЕСТИХТЕ|СПЕСТИХТЕ\s*ОБЩО|ОБЩА\s*ОТСТЪПКА|ОБЩО\s*ОТСТЪПКИ|ОБЩО\s*СПЕСТЕНИ|СПЕСТЕНИ\s*ОБЩО|СПЕСТЕНО\s*(?:ОБЩО|С\s*LIDL)|ОБЩО\s*НАМАЛЕНИЕ)/.test(cyr) ||
+    /(?:TOTAL\s*DISCOUNT|TOTAL\s*SAVINGS|TOTAL\s*SAVED|YOU\s*SAVED)/.test(lat)
+  );
+}
+
+/**
+ * Checks whether a line is a discount/rebate row and extracts its positive EUR/currency value.
+ * Supports:
+ * - Trailing minus (Lidl Bulgaria): "ОТСТЪПКИ 1,02-", "ОТСТЪПКИ 0,84-", "1,02- Б"
+ * - Leading minus: "LIDL PLUS -1.50 Б", "ОТСТЪПКА -0.80", "-1.02 €"
+ * - Explicit discount keyword + positive number: "ОТСТЪПКИ 1,02", "ОТСТЪПКА 0.50"
+ * - Dual-currency discount lines (picks preferred currency).
+ */
+function extractDiscountAmount(line: string, preferredCurrency: string = "€"): number {
+  const cyr = toCyrillicMatchForm(line);
+  const lat = toLatinMatchForm(line);
+
+  // Dual-currency discount line (e.g. "ОТСТЪПКИ 2,00- лв / 1,02- EUR" or "ОТСТЪПКА -2.00 / -1.02 €")
+  const dualDiscMatch = line.match(
+    /(-?\s*\d{1,4}[.,]\d{2}\s*-?\s*(?:EUR|BGN|€|лв\.?)?)\s*(?:[/|=]|или|\s)\s*(-?\s*\d{1,4}[.,]\d{2}\s*-?\s*(?:EUR|BGN|€|лв\.?)?)\s*(?:[([]?\s*[*#]?\s*[АБВГДЕабвгдеA-DSR685]\s*[)\]]?)?\s*$/i
+  );
+  const hasExplicitMinus = /(?:^|\s|[$€£])-\s*\d{1,4}[.,]\d{2}|\d{1,4}[.,]\d{2}\s*-/.test(line);
+  const hasDiscountKeyword =
+    /(?:ОТСТЪПК[АИ]?|НАМАЛЕНИ[ЕЯ]|СПЕСТЕН[ИО]?|ПРОМО(?:ЦИЯ)?|LIDL\s*PLUS|КАУФЛАНД\s*КАРТ|BILLA\s*CARD)/.test(cyr) ||
+    /(?:DISCOUNT|SAVED|PROMO|LIDL\s*PLUS|KAUFLAND\s*CARD|BILLA\s*CARD)/.test(lat);
+
+  if (dualDiscMatch && (hasExplicitMinus || hasDiscountKeyword)) {
+    const pA = parsePrice(dualDiscMatch[1].replace(/-/g, ""));
+    const pB = parsePrice(dualDiscMatch[2].replace(/-/g, ""));
+    if (pA && pB && (Math.abs(pA / pB - 1.95583) < 0.05 || Math.abs(pB / pA - 1.95583) < 0.05)) {
+      if (preferredCurrency === "€") {
+        if (/(?:€|EUR)/i.test(dualDiscMatch[1]) && !/(?:€|EUR)/i.test(dualDiscMatch[2])) return pA;
+        if (/(?:€|EUR)/i.test(dualDiscMatch[2]) && !/(?:€|EUR)/i.test(dualDiscMatch[1])) return pB;
+        return Math.min(pA, pB);
+      }
+      return Math.max(pA, pB);
+    }
+  }
+
+  // Trailing minus (Lidl standard: "ОТСТЪПКИ 1,02-", "1,02- Б", "0.84 - EUR")
+  const trailingMinusMatch = line.match(
+    /(\d{1,4}[.,]\d{2})\s*-(?:\s*(?:€|EUR|лв\.?|BGN))?\s*(?:[([]?\s*[*#]?\s*[АБВГДЕабвгдеA-DSR685]\s*[)\]]?)?\s*$/i
+  );
+  if (trailingMinusMatch) {
+    const val = parsePrice(trailingMinusMatch[1]);
     if (val && val > 0) return val;
   }
-  if (/(?:ОТСТЪПКА|НАМАЛЕНИЕ|СПЕСТЕНИ|DISCOUNT|SAVED|LIDL\s*PLUS)/.test(cyr)) {
-    const posMatch = line.match(/(\d{1,4}[.,]\d{2})\s*(?:€|EUR|лв\.?|BGN)?\s*[АБВГA-D68*]?\s*$/i);
+
+  // Leading minus ("-1.02", "- 0,84 €", "€-1.02")
+  const leadingMinusMatch = line.match(
+    /(?:[$€£]\s*-\s*|-\s*(?:[$€£]\s*)?)(\d{1,4}[.,]\d{2})(?:\s*(?:€|EUR|лв\.?|BGN))?\s*(?:[([]?\s*[*#]?\s*[АБВГДЕабвгдеA-DSR685]\s*[)\]]?)?\s*$/i
+  );
+  if (leadingMinusMatch) {
+    const val = parsePrice(leadingMinusMatch[1]);
+    if (val && val > 0) return val;
+  }
+
+  // Keyword discount line with positive number ("ОТСТЪПКИ 1,02", "LIDL PLUS 0.84")
+  if (hasDiscountKeyword) {
+    const posMatch = line.match(
+      /(\d{1,4}[.,]\d{2})\s*(?:€|EUR|лв\.?|BGN)?\s*(?:[([]?\s*[*#]?\s*[АБВГДЕабвгдеA-DSR685]\s*[)\]]?)?\s*$/i
+    );
     if (posMatch) {
       const val = parsePrice(posMatch[1]);
       if (val && val > 0) return val;
     }
   }
+
   return 0;
 }
 
-// Extract Item Lines from text (Bulgarian + English + EUR + multi-line + quantity preservation)
+export interface ExtractedReceiptItem {
+  name: string;
+  price: number;
+  quantity: number;
+  originalPrice?: number;
+  discount?: number;
+  finalPrice?: number;
+  discountLabel?: string;
+}
+
+// Extract Item Lines from text (Bulgarian + English + EUR + multi-line + quantity + per-item discount preservation)
 export function extractItems(
   lines: string[],
   _totalAmount: number,
   preferredCurrency: string = "€"
-): { items: Array<{ name: string; price: number; quantity: number }>; discountTotal: number } {
-  const items: Array<{ name: string; price: number; quantity: number }> = [];
+): {
+  items: ExtractedReceiptItem[];
+  discountTotal: number;
+  unattachedDiscountTotal: number;
+} {
+  const items: ExtractedReceiptItem[] = [];
   let discountTotal = 0;
+  let unattachedDiscountTotal = 0;
 
   // Quantity x UnitPrice (+ optional currency/unit rate + optional trailing line total)
   // e.g. "2 x 2.40   €4.80", "2 x 1.20 € = 2.40", "1.250 кг x 3.29 лв/кг  4.11 Б", "2 @ 1.20  2.40"
@@ -1405,6 +1516,15 @@ export function extractItems(
   const consumedLineIndices = new Set<number>();
   let pendingNameBuffer: Array<{ index: number; text: string }> = [];
   let seenItemsStart = false;
+  let pendingDiscountLabel: string | undefined;
+  let lastItemEligibleForDiscount = false;
+
+  const pushExtractedItem = (item: ExtractedReceiptItem) => {
+    items.push(item);
+    seenItemsStart = true;
+    lastItemEligibleForDiscount = true;
+    pendingDiscountLabel = undefined;
+  };
 
   const flushPendingName = (): string => {
     const joined = pendingNameBuffer.map((b) => b.text).join(" ").trim();
@@ -1422,20 +1542,61 @@ export function extractItems(
         break;
       }
       pendingNameBuffer = [];
+      pendingDiscountLabel = undefined;
+      lastItemEligibleForDiscount = false;
       continue;
     }
 
-    // Track negative discount rows without adding them as positive items
-    const disc = extractDiscountAmount(line);
-    if (disc > 0) {
-      discountTotal = parseFloat((discountTotal + disc).toFixed(2));
+    // Handle standalone promo header lines (e.g. "#Lidl Plus промоция") without polluting next item's name
+    const promoHeaderLabel = extractPromoHeaderLabel(line);
+    if (promoHeaderLabel) {
+      pendingDiscountLabel = promoHeaderLabel;
       pendingNameBuffer = [];
+      continue;
+    }
+
+    // Track discount rows & attach per-item discounts directly to the preceding item
+    const disc = extractDiscountAmount(line, preferredCurrency);
+    if (disc > 0) {
+      pendingNameBuffer = [];
+      if (isReceiptFooterDiscountSummary(line)) {
+        lastItemEligibleForDiscount = false;
+        pendingDiscountLabel = undefined;
+        continue;
+      }
+
+      discountTotal = parseFloat((discountTotal + disc).toFixed(2));
+      if (lastItemEligibleForDiscount && items.length > 0) {
+        const prevItem = items[items.length - 1];
+        const origPrice = prevItem.originalPrice ?? prevItem.price;
+        if (disc <= origPrice) {
+          const nextDiscount = parseFloat(((prevItem.discount || 0) + disc).toFixed(2));
+          const nextFinal = parseFloat(Math.max(0, origPrice - nextDiscount).toFixed(2));
+          prevItem.originalPrice = parseFloat(origPrice.toFixed(2));
+          prevItem.discount = nextDiscount;
+          prevItem.finalPrice = nextFinal;
+          prevItem.price = nextFinal;
+          prevItem.discountLabel =
+            prevItem.discountLabel ||
+            pendingDiscountLabel ||
+            (/(?:lidl\s*plus|лидл\s*плюс)/i.test(toLatinMatchForm(line))
+              ? "Lidl Plus"
+              : "Отстъпка");
+          pendingDiscountLabel = undefined;
+          consumedLineIndices.add(i);
+          continue;
+        }
+      }
+      unattachedDiscountTotal = parseFloat((unattachedDiscountTotal + disc).toFixed(2));
+      pendingDiscountLabel = undefined;
       continue;
     }
 
     // Skip explicit header/footer noise and clear buffer
     if (isSeparatorOrHeaderNoise(line) || isNonItemSummaryOrMetaLine(line)) {
       pendingNameBuffer = [];
+      lastItemEligibleForDiscount = false;
+      pendingDiscountLabel = undefined;
       continue;
     }
     if (!seenItemsStart && isReceiptHeaderLineForItems(line, preferredCurrency)) {
@@ -1493,13 +1654,12 @@ export function extractItems(
           displayName.length >= 2 &&
           !isStrayFiscalOrAddressName(displayName)
         ) {
-          items.push({
+          pushExtractedItem({
             name: displayName,
             price: totalLinePrice,
             quantity: isDiscreteCount ? rawQty : 1,
           });
           consumedLineIndices.add(i);
-          seenItemsStart = true;
           continue;
         }
       }
@@ -1561,14 +1721,13 @@ export function extractItems(
             /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
             !isStrayFiscalOrAddressName(name)
           ) {
-            items.push({
+            pushExtractedItem({
               name,
               price: nextPriceInfo.price,
               quantity: isDiscreteCount ? rawQty : 1,
             });
             consumedLineIndices.add(i);
             consumedLineIndices.add(i + 1);
-            seenItemsStart = true;
             continue;
           }
         }
@@ -1593,13 +1752,12 @@ export function extractItems(
         /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
         !isStrayFiscalOrAddressName(name)
       ) {
-        items.push({
+        pushExtractedItem({
           name,
           price,
           quantity: quantity >= 1 && quantity <= 999 ? quantity : 1,
         });
         consumedLineIndices.add(i);
-        seenItemsStart = true;
         continue;
       }
     }
@@ -1744,9 +1902,9 @@ export function extractItems(
           const item1 = parseItemFromChunk(earlierPriceMatch[1], p1, true);
           const item2 = parseItemFromChunk(earlierPriceMatch[3], p2, false);
           if (item1 && item2) {
-            items.push(item1, item2);
+            pushExtractedItem(item1);
+            pushExtractedItem(item2);
             consumedLineIndices.add(i);
-            seenItemsStart = true;
             continue;
           }
         }
@@ -1754,9 +1912,8 @@ export function extractItems(
 
       const parsedItem = parseItemFromChunk(priceInfo.cleanPrefix, priceInfo.price, true);
       if (parsedItem) {
-        items.push(parsedItem);
+        pushExtractedItem(parsedItem);
         consumedLineIndices.add(i);
-        seenItemsStart = true;
       } else {
         pendingNameBuffer = [];
       }
@@ -1780,7 +1937,7 @@ export function extractItems(
     }
   }
 
-  return { items, discountTotal };
+  return { items, discountTotal, unattachedDiscountTotal };
 }
 
 /**
@@ -1789,10 +1946,10 @@ export function extractItems(
  * or detected item count is lower than receipt's printed item count with a balance difference.
  */
 export function validateReceiptTotals(
-  items: Array<{ name: string; price: number; quantity?: number }>,
+  items: Array<{ name: string; price: number; finalPrice?: number; quantity?: number }>,
   receiptTotal: number,
   expectedItemsCount?: number,
-  discountTotal: number = 0,
+  unattachedDiscountTotal: number = 0,
   currency: string = "€"
 ): {
   itemsTotal: number;
@@ -1803,7 +1960,7 @@ export function validateReceiptTotals(
   warningMessage?: string;
 } {
   const itemsTotal = parseFloat(
-    items.reduce((sum, it) => sum + (Number(it.price) || 0), 0).toFixed(2)
+    items.reduce((sum, it) => sum + (Number(it.finalPrice ?? it.price) || 0), 0).toFixed(2)
   );
   const cleanReceiptTotal =
     receiptTotal > 0 ? parseFloat(receiptTotal.toFixed(2)) : itemsTotal;
@@ -1811,11 +1968,14 @@ export function validateReceiptTotals(
   const rawDifference = parseFloat(
     Math.abs(cleanReceiptTotal - itemsTotal).toFixed(2)
   );
-  const netAfterDiscount = parseFloat(Math.max(0, itemsTotal - (discountTotal || 0)).toFixed(2));
+  const netAfterDiscount = parseFloat(
+    Math.max(0, itemsTotal - (unattachedDiscountTotal || 0)).toFixed(2)
+  );
   const netDifference = parseFloat(
     Math.abs(cleanReceiptTotal - netAfterDiscount).toFixed(2)
   );
-  const effectiveDifference = discountTotal > 0 ? Math.min(rawDifference, netDifference) : rawDifference;
+  const effectiveDifference =
+    unattachedDiscountTotal > 0 ? Math.min(rawDifference, netDifference) : rawDifference;
 
   const differencePercent =
     cleanReceiptTotal > 0
@@ -1854,26 +2014,39 @@ export function validateReceiptTotals(
 }
 
 /**
- * Formats extracted receipt items into clean multi-line notes preserving quantity:
+ * Formats extracted receipt items into clean multi-line notes preserving quantity and discounts:
  * Example:
  * 2 x Coca Cola - €4.80
- * 1 x Water - €1.20
- * 1 x Chips - €3.50
+ * 1 x Снакс с фъстъци - €2.04 (ориг. €3.06, -€1.02 Lidl Plus)
  */
 export function formatReceiptNotes(
-  items: Array<{ name: string; price: number; quantity?: number }>,
+  items: Array<{
+    name: string;
+    price: number;
+    quantity?: number;
+    originalPrice?: number;
+    discount?: number;
+    finalPrice?: number;
+    discountLabel?: string;
+  }>,
   currency: string = "€"
 ): string {
   if (!items || items.length === 0) return "";
 
+  const isBgn = currency === "лв." || currency === "BGN";
+  const sym = currency || "€";
+  const fmt = (val: number) => (isBgn ? `${val.toFixed(2)} лв.` : `${sym}${val.toFixed(2)}`);
+
   return items
     .map((it) => {
       const qty = it.quantity && it.quantity >= 1 ? it.quantity : 1;
-      if (currency === "лв." || currency === "BGN") {
-        return `${qty} x ${it.name} - ${it.price.toFixed(2)} лв.`;
+      const netPrice = it.finalPrice ?? it.price;
+      const base = `${qty} x ${it.name} - ${fmt(netPrice)}`;
+      if (it.discount && it.discount > 0 && it.originalPrice !== undefined) {
+        const label = it.discountLabel ? ` ${it.discountLabel}` : "";
+        return `${base} (ориг. ${fmt(it.originalPrice)}, -${fmt(it.discount)}${label})`;
       }
-      const sym = currency || "€";
-      return `${qty} x ${it.name} - ${sym}${it.price.toFixed(2)}`;
+      return base;
     })
     .join("\n");
 }
@@ -1892,6 +2065,7 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
   const extracted = extractItems(lines, totalResult.total, currency);
   let items = extracted.items;
   let discountTotal = extracted.discountTotal;
+  let unattachedDiscountTotal = extracted.unattachedDiscountTotal;
 
   let finalTotal = totalResult.total;
   let finalConfidence = totalResult.confidence;
@@ -1899,25 +2073,43 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
 
   // Reconcile 2025/2026 Bulgarian dual-display receipts where items were printed in BGN and footer shows EUR total (ratio ≈ 1.95583)
   if (currency === "€" && finalTotal > 0 && items.length >= 2) {
-    const rawItemsSum = items.reduce((sum, item) => sum + item.price, 0);
-    const netRawSum = Math.max(0, rawItemsSum - discountTotal);
+    const rawItemsSum = items.reduce((sum, item) => sum + (item.finalPrice ?? item.price), 0);
+    const netRawSum = Math.max(0, rawItemsSum - unattachedDiscountTotal);
     const BGN_PER_EUR = 1.95583;
     const itemsAreBgnVsEurTotal =
       Math.abs(rawItemsSum / finalTotal - BGN_PER_EUR) < 0.04 ||
-      (discountTotal > 0 && Math.abs(netRawSum / finalTotal - BGN_PER_EUR) < 0.04);
+      (unattachedDiscountTotal > 0 && Math.abs(netRawSum / finalTotal - BGN_PER_EUR) < 0.04);
 
     if (itemsAreBgnVsEurTotal) {
-      items = items.map((it) => ({
-        ...it,
-        price: parseFloat((it.price / BGN_PER_EUR).toFixed(2)),
-      }));
+      items = items.map((it) => {
+        const nextPrice = parseFloat((it.price / BGN_PER_EUR).toFixed(2));
+        if (it.discount && it.discount > 0 && it.originalPrice !== undefined) {
+          const nextOrig = parseFloat((it.originalPrice / BGN_PER_EUR).toFixed(2));
+          const nextDisc = parseFloat((it.discount / BGN_PER_EUR).toFixed(2));
+          const nextFinal = parseFloat(Math.max(0, nextOrig - nextDisc).toFixed(2));
+          return {
+            ...it,
+            originalPrice: nextOrig,
+            discount: nextDisc,
+            finalPrice: nextFinal,
+            price: nextFinal,
+          };
+        }
+        return {
+          ...it,
+          price: nextPrice,
+        };
+      });
       if (discountTotal > 0) {
         discountTotal = parseFloat((discountTotal / BGN_PER_EUR).toFixed(2));
+      }
+      if (unattachedDiscountTotal > 0) {
+        unattachedDiscountTotal = parseFloat((unattachedDiscountTotal / BGN_PER_EUR).toFixed(2));
       }
       finalRule = `${finalRule || "EUR Total"} (reconciled BGN item lines ÷ 1.95583)`;
     } else if (
       Math.abs(finalTotal / rawItemsSum - BGN_PER_EUR) < 0.04 ||
-      (discountTotal > 0 && netRawSum > 0 && Math.abs(finalTotal / netRawSum - BGN_PER_EUR) < 0.04)
+      (unattachedDiscountTotal > 0 && netRawSum > 0 && Math.abs(finalTotal / netRawSum - BGN_PER_EUR) < 0.04)
     ) {
       finalTotal = parseFloat((finalTotal / BGN_PER_EUR).toFixed(2));
       finalRule = `${finalRule || "Total"} (converted BGN total ÷ 1.95583 to match EUR items)`;
@@ -1926,13 +2118,19 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
 
   if (finalTotal <= 0 && items.length > 0) {
     finalTotal = parseFloat(
-      items.reduce((sum, item) => sum + item.price, 0).toFixed(2)
+      items.reduce((sum, item) => sum + (item.finalPrice ?? item.price), 0).toFixed(2)
     );
     finalConfidence = "medium";
     finalRule = `Sum of ${items.length} extracted items`;
   }
 
-  const validation = validateReceiptTotals(items, finalTotal, expectedItemsCount, discountTotal, currency);
+  const validation = validateReceiptTotals(
+    items,
+    finalTotal,
+    expectedItemsCount,
+    unattachedDiscountTotal,
+    currency
+  );
   const notesFormatted = formatReceiptNotes(items, currency);
 
   const warnings: string[] = [];

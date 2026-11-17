@@ -699,6 +699,7 @@ const AppContent: React.FC = () => {
           <AiAnalysisTab
             monthlyData={monthlyData}
             globalSavings={globalSavings}
+            currentMonth={currentMonth}
             onNavigateTab={setActiveTab}
           />
         )}

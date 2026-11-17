@@ -7,6 +7,10 @@ export interface GeminiReceiptItem {
   name: string;
   price: number;
   quantity: number;
+  originalPrice?: number;
+  discount?: number;
+  finalPrice?: number;
+  discountLabel?: string;
 }
 
 export interface GeminiReceiptData {
@@ -65,9 +69,9 @@ export function buildBulgarianReceiptPrompt(ocrText?: string): string {
   "currency": "€",
   "suggestedCategory": "One of: храна, ресторант, гориво, кино, козметика, аптека, кола, дрехи, фризьор, домашни любимци, почистване, други",
   "items": [
-    { "name": "Readable Item Name", "price": 4.80, "quantity": 2 }
+    { "name": "Readable Item Name", "price": 2.04, "quantity": 1, "originalPrice": 3.06, "discount": 1.02, "finalPrice": 2.04, "discountLabel": "Lidl Plus" }
   ],
-  "notesFormatted": "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"
+  "notesFormatted": "2 x Coca Cola - €4.80\\n1 x Снакс с фъстъци - €2.04 (ориг. €3.06, -€1.02 Lidl Plus)"
 }
 Important rules for Bulgarian & international receipts (especially long 15-30 item supermarket receipts):
 - "merchantName": Extract the store/restaurant/company name. IGNORE EIK/BULSTAT (ЕИК, БУЛСТАТ), VAT numbers (BG...), fiscal device IDs (ФУ, ФП, УНП, КАСА), and street addresses (гр., ул., бул.).
@@ -75,7 +79,9 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
 - "totalAmount": MUST be the final amount paid in the receipt's primary currency (ОБЩО, ОБЩА СУМА, КРАЙНА СУМА, ЗА ПЛАЩАНЕ, СУМА ЗА ПЛАЩАНЕ, TOTAL, GRAND TOTAL). NEVER pick VAT (ДДС), discount (ОТСТЪПКА), subtotal (МЕЖДИННА СУМА), or change (РЕСТО).
 - "expectedItemsCount": Integer count if printed on receipt (e.g. "17 АРТИКУЛА", "ITEMS SOLD: 17"), otherwise null.
 - "currency": Bulgaria uses the Euro (€, EUR). Prefer "€" whenever € or EUR appears (including dual-display receipts). Do NOT assume BGN and NEVER convert currencies — use the exact printed price values. Only return "лв." if the receipt is exclusively in BGN/лв. with no € or EUR values, or "$" / "£" if explicitly shown.
-- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item prices matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola", "2 x 2.40  4.80", or when "2 x 1.20" appears right above/below "ПРЯСНО МЛЯКО 2.40"; default 1) and the line total price ("price"). Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
+- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item "price" matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola", "2 x 2.40  4.80", or when "2 x 1.20" appears right above/below "ПРЯСНО МЛЯКО 2.40"; default 1) and the final line price ("price").
+  * DISCOUNTS (e.g. Lidl "#Lidl Plus промоция" / "ОТСТЪПКИ 1,02-" / "-1.02" / "ОТСТЪПКА"): NEVER output a discount line as a standalone item! Instead, attach it directly to the PRECEDING item: set "originalPrice" to the item's printed pre-discount price (e.g. 3.06), "discount" to the positive discount amount (e.g. 1.02), "finalPrice" and "price" BOTH to originalPrice - discount (e.g. 2.04), and "discountLabel" (e.g. "Lidl Plus" or "Отстъпка"). If an item has no discount, omit discount fields or leave discount=0.
+  * Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
 - "notesFormatted": Multi-line list, one item per line strictly formatted as "<quantity> x <Item Name> - <currency><price>" (e.g. "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"). Never put all items on a single line.
 - "suggestedCategory": Lidl/Kaufland/Billa/Fantastico/T Market/Metro -> "храна"; Shell/OMV/Lukoil/Eko/Rompetrol -> "гориво"; Happy/Raffy/KFC/McDonald's -> "ресторант"; Cinema City/Kino Arena -> "кино"; Lilly/DM -> "козметика"; Sopharmacy/Subra -> "аптека".
 - Raw OCR text hint (may contain Cyrillic/Latin OCR artifacts): ${ocrText ? JSON.stringify(ocrText.slice(0, 6000)) : "None"}
@@ -361,15 +367,53 @@ export async function analyzeReceiptWithGemini(input: {
 
         const normalizedItems: GeminiReceiptItem[] = Array.isArray(parsedData?.items)
           ? parsedData.items
-              .map((it: any) => ({
-                name: typeof it?.name === "string" ? it.name.trim() : "",
-                price: parseFloat(parseGeminiNum(it?.price).toFixed(2)),
-                quantity: Math.max(
-                  1,
-                  Math.round(parseGeminiNum(it?.quantity) || 1)
-                ),
-              }))
-              .filter((it: GeminiReceiptItem) => it.name.length > 0 && it.price > 0)
+              .map((it: any) => {
+                const rawPrice = parseFloat(parseGeminiNum(it?.price).toFixed(2));
+                const rawOrig = parseFloat(parseGeminiNum(it?.originalPrice).toFixed(2));
+                const rawDisc = parseFloat(Math.abs(parseGeminiNum(it?.discount)).toFixed(2));
+                const rawFinal = parseFloat(parseGeminiNum(it?.finalPrice).toFixed(2));
+                const discLabel =
+                  typeof it?.discountLabel === "string" && it.discountLabel.trim()
+                    ? it.discountLabel.trim()
+                    : undefined;
+
+                const hasDiscount = rawDisc > 0 && (rawOrig > rawDisc || rawPrice > 0);
+                const originalPrice = hasDiscount
+                  ? rawOrig > 0
+                    ? rawOrig
+                    : parseFloat(((rawFinal || rawPrice) + rawDisc).toFixed(2))
+                  : undefined;
+                const finalPrice = hasDiscount
+                  ? rawFinal > 0
+                    ? rawFinal
+                    : originalPrice !== undefined
+                    ? parseFloat(Math.max(0, originalPrice - rawDisc).toFixed(2))
+                    : rawPrice
+                  : undefined;
+                const effectivePrice =
+                  finalPrice !== undefined
+                    ? finalPrice
+                    : rawPrice > 0
+                    ? rawPrice
+                    : rawOrig;
+
+                const item: GeminiReceiptItem = {
+                  name: typeof it?.name === "string" ? it.name.trim() : "",
+                  price: parseFloat((effectivePrice || 0).toFixed(2)),
+                  quantity: Math.max(
+                    1,
+                    Math.round(parseGeminiNum(it?.quantity) || 1)
+                  ),
+                };
+                if (hasDiscount && originalPrice !== undefined && finalPrice !== undefined) {
+                  item.originalPrice = originalPrice;
+                  item.discount = rawDisc;
+                  item.finalPrice = finalPrice;
+                  if (discLabel) item.discountLabel = discLabel;
+                }
+                return item;
+              })
+              .filter((it: GeminiReceiptItem) => it.name.length > 0 && it.price >= 0 && (it.price > 0 || (it.originalPrice ?? 0) > 0))
           : [];
 
         const normalizedData: GeminiReceiptData = {

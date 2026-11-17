@@ -98,7 +98,29 @@ export function parseExpenseNote(
     }
 
     for (let i = startIndex; i < lines.length; i++) {
-      const line = lines[i];
+      let line = lines[i];
+      let discountMeta:
+        | { originalPrice?: number; discount?: number; finalPrice?: number; discountLabel?: string }
+        | undefined;
+
+      // Extract optional discount annotation e.g. "(ориг. €3.06, -€1.02 Lidl Plus)"
+      const discSuffixMatch = line.match(
+        /\s*\((?:ориг\.|orig\.?)\s*[$€£лв.]?\s*(\d+[.,]\d{2})\s*(?:лв\.?|€|\$|£)?\s*,\s*-\s*[$€£лв.]?\s*(\d+[.,]\d{2})\s*(?:лв\.?|€|\$|£)?(?:\s+([^)]+))?\)\s*$/i
+      );
+      if (discSuffixMatch) {
+        const orig = parseFloat(discSuffixMatch[1].replace(",", "."));
+        const disc = parseFloat(discSuffixMatch[2].replace(",", "."));
+        const label = discSuffixMatch[3]?.trim();
+        if (!isNaN(orig) && !isNaN(disc) && disc > 0) {
+          discountMeta = {
+            originalPrice: parseFloat(orig.toFixed(2)),
+            discount: parseFloat(disc.toFixed(2)),
+            ...(label ? { discountLabel: label } : {}),
+          };
+        }
+        line = line.slice(0, discSuffixMatch.index).trim();
+      }
+
       // Regex matching: name ... separator ... price
       // e.g. "2 x Coca Cola - €4.80", "1 x Хляб бял - €1.20", "Beer €5.00"
       const match = line.match(
@@ -108,11 +130,17 @@ export function parseExpenseNote(
       if (match) {
         const parsedName = splitQuantityAndName(match[1]);
         const priceInfo = parsePriceAndCurrency(match[2]);
-        if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price > 0) {
+        if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price >= 0 && (priceInfo.price > 0 || discountMeta)) {
           items.push({
             name: parsedName.name,
             price: priceInfo.price,
             ...(parsedName.quantity ? { quantity: parsedName.quantity } : {}),
+            ...(discountMeta
+              ? {
+                  ...discountMeta,
+                  finalPrice: priceInfo.price,
+                }
+              : {}),
           });
           if (priceInfo.currency) detectedCurrency = priceInfo.currency;
         }
@@ -124,11 +152,17 @@ export function parseExpenseNote(
         if (looseMatch) {
           const parsedName = splitQuantityAndName(looseMatch[1]);
           const priceInfo = parsePriceAndCurrency(looseMatch[2]);
-          if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price > 0) {
+          if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price >= 0 && (priceInfo.price > 0 || discountMeta)) {
             items.push({
               name: parsedName.name,
               price: priceInfo.price,
               ...(parsedName.quantity ? { quantity: parsedName.quantity } : {}),
+              ...(discountMeta
+                ? {
+                    ...discountMeta,
+                    finalPrice: priceInfo.price,
+                  }
+                : {}),
             });
             if (priceInfo.currency) detectedCurrency = priceInfo.currency;
           }
@@ -252,13 +286,21 @@ export function parseExpenseNote(
  * Formats an array of receipt items into a clean multiline text string.
  */
 export function formatReceiptItemsToText(items: ReceiptItemDetail[], currency = "€"): string {
+  const fmt = (val: number) =>
+    currency === "$" || currency === "€" || currency === "£"
+      ? `${currency}${val.toFixed(2)}`
+      : `${val.toFixed(2)} ${currency}`;
+
   return items
     .map((item) => {
-      const formattedPrice = item.price.toFixed(2);
+      const netPrice = item.finalPrice ?? item.price;
       const qty = item.quantity && item.quantity >= 1 ? item.quantity : 1;
-      return currency === "$" || currency === "€" || currency === "£"
-        ? `• ${qty} x ${item.name} - ${currency}${formattedPrice}`
-        : `• ${qty} x ${item.name} - ${formattedPrice} ${currency}`;
+      const base = `• ${qty} x ${item.name} - ${fmt(netPrice)}`;
+      if (item.discount && item.discount > 0 && item.originalPrice !== undefined) {
+        const label = item.discountLabel ? ` ${item.discountLabel}` : "";
+        return `${base} (ориг. ${fmt(item.originalPrice)}, -${fmt(item.discount)}${label})`;
+      }
+      return base;
     })
     .join("\n");
 }

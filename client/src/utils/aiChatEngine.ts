@@ -1,0 +1,1642 @@
+import { MonthlyRecord, IncomeItem, ExpenseItem, ReceiptItemDetail } from "@/types";
+import { parseExpenseNote } from "./expenseFormatter";
+import { loadBudgets, calculateAllBudgetsStatus } from "./budgetStorage";
+import { loadStoredCategories } from "./categoryStorage";
+import { getStoredElectricityHistory } from "./electricityStorage";
+import {
+  MONTHS_BG,
+  getPreviousMonthAndYear,
+  calculateMonthExpenses,
+  calculateMonthIncome,
+  calculateMonthSavings,
+  calculateMonthElectricity,
+} from "./comparisonStorage";
+
+export interface AiChatMatchedExpense {
+  id: string;
+  monthKey: string;
+  date: string;
+  merchantOrCategory: string;
+  categoryName: string;
+  expenseAmount: number;
+  matchedAmount: number;
+  matchedKind:
+    | "item"
+    | "note"
+    | "merchant"
+    | "category"
+    | "fixed"
+    | "saving"
+    | "income"
+    | "electricity";
+  matchedSnippet?: string;
+}
+
+export interface AiChatResponse {
+  answer: string;
+  calculation: string;
+  timeRangeLabel: string;
+  matchedExpenses: AiChatMatchedExpense[];
+  totalMatchedAmount?: number;
+  followUpSuggestions?: string[];
+}
+
+interface MonthEntry {
+  key: string;
+  month: string;
+  year: number;
+  monthIndex: number;
+  record: MonthlyRecord;
+}
+
+interface IndexedExpense {
+  id: string;
+  monthKey: string;
+  month: string;
+  year: number;
+  monthIndex: number;
+  date: string;
+  isFixed: boolean;
+  isRecurring: boolean;
+  categoryId: string;
+  categoryName: string;
+  merchantName: string;
+  note: string;
+  amount: number;
+  parsedItems: ReceiptItemDetail[];
+  unpricedNoteLines: string[];
+  rawSearchText: string;
+}
+
+interface SynonymGroup {
+  id: string;
+  labelBg: string;
+  labelEn: string;
+  terms: string[];
+}
+
+const SYNONYM_GROUPS: SynonymGroup[] = [
+  {
+    id: "cigarettes",
+    labelBg: "цигари / тютюневи изделия",
+    labelEn: "cigarettes / tobacco",
+    terms: [
+      "цигар",
+      "сигар",
+      "cigaret",
+      "cigar",
+      "tobacco",
+      "тютюн",
+      "iqos",
+      "икос",
+      "heets",
+      "хийтс",
+      "terea",
+      "тереа",
+      "vape",
+      "вейп",
+      "glo",
+      "гло",
+      "marlboro",
+      "марлборо",
+      "karelia",
+      "карелия",
+      "parliament",
+      "парламент",
+      "dunhill",
+      "дънхил",
+      "kent",
+      "кент",
+      "winston",
+      "уинстън",
+      "sobranie",
+      "собрание",
+      "davidoff",
+      "давидоф",
+      "rothmans",
+      "ротманс",
+      "camel",
+      "lucky strike",
+      "victory",
+      "виктори",
+      "никотин",
+      "nicotine",
+    ],
+  },
+  {
+    id: "coffee",
+    labelBg: "кафе и кафе напитки",
+    labelEn: "coffee",
+    terms: [
+      "кафе",
+      "coffee",
+      "espresso",
+      "еспресо",
+      "cappuccino",
+      "капучино",
+      "latte",
+      "лате",
+      "nescafe",
+      "нескафе",
+      "lavazza",
+      "лаваца",
+      "jacobs",
+      "якобс",
+      "illy",
+      "starbucks",
+      "costa",
+      "macchiato",
+      "макиато",
+      "americano",
+      "американо",
+      "кафене",
+      "café",
+    ],
+  },
+  {
+    id: "fuel",
+    labelBg: "гориво",
+    labelEn: "fuel",
+    terms: [
+      "горив",
+      "fuel",
+      "бензин",
+      "дизел",
+      "газ",
+      "petrol",
+      "diesel",
+      "gasoline",
+      "lpg",
+      "cng",
+      "shell",
+      "шел",
+      "omv",
+      "омв",
+      "lukoil",
+      "лукойл",
+      "eko",
+      "еко",
+      "rompetrol",
+      "ромпетрол",
+      "gazprom",
+      "газпром",
+      "бензиностанц",
+      "зареждане",
+    ],
+  },
+  {
+    id: "food",
+    labelBg: "храна и хранителни стоки",
+    labelEn: "food / groceries",
+    terms: [
+      "храна",
+      "хранител",
+      "food",
+      "grocer",
+      "супермаркет",
+      "supermarket",
+    ],
+  },
+  {
+    id: "alcohol",
+    labelBg: "алкохол / напитки",
+    labelEn: "alcohol / beer / wine",
+    terms: [
+      "алкохол",
+      "alcohol",
+      "бира",
+      "beer",
+      "вино",
+      "wine",
+      "уиски",
+      "whisky",
+      "whiskey",
+      "водка",
+      "vodka",
+      "ракия",
+      "rakia",
+    ],
+  },
+  {
+    id: "restaurant",
+    labelBg: "ресторанти и заведения",
+    labelEn: "restaurants / dining",
+    terms: [
+      "ресторант",
+      "restaurant",
+      "dining",
+      "обяд",
+      "вечеря",
+      "lunch",
+      "dinner",
+      "pizza",
+      "пица",
+      "happy",
+      "хепи",
+      "kfc",
+      "mcdonald",
+      "макдоналдс",
+      "дюнер",
+      "бургер",
+      "burger",
+    ],
+  },
+  {
+    id: "pharmacy",
+    labelBg: "аптека и лекарства",
+    labelEn: "pharmacy / medicine",
+    terms: [
+      "аптека",
+      "pharmacy",
+      "лекарств",
+      "медикамент",
+      "medicine",
+      "хапчет",
+      "витамин",
+      "sopharmacy",
+      "софармаси",
+      "subra",
+      "субра",
+      "remedium",
+      "ремедиум",
+    ],
+  },
+  {
+    id: "electricity",
+    labelBg: "ток / електроенергия",
+    labelEn: "electricity",
+    terms: [
+      "ток",
+      "електроенерг",
+      "електро",
+      "electric",
+      "evn",
+      "евн",
+      "energo",
+      "енерго",
+      "kwh",
+      "квт",
+    ],
+  },
+  {
+    id: "lidl",
+    labelBg: "Lidl",
+    labelEn: "Lidl",
+    terms: ["lidl", "лидл", "лидъл"],
+  },
+  {
+    id: "kaufland",
+    labelBg: "Kaufland",
+    labelEn: "Kaufland",
+    terms: ["kaufland", "кауфланд"],
+  },
+  {
+    id: "billa",
+    labelBg: "Billa",
+    labelEn: "Billa",
+    terms: ["billa", "билла", "била"],
+  },
+  {
+    id: "fantastico",
+    labelBg: "Fantastico",
+    labelEn: "Fantastico",
+    terms: ["fantastico", "фантастико"],
+  },
+];
+
+const MONTHS_EN_TO_IDX: Record<string, number> = {
+  january: 0,
+  jan: 0,
+  february: 1,
+  feb: 1,
+  march: 2,
+  mar: 2,
+  april: 3,
+  apr: 3,
+  may: 4,
+  june: 5,
+  jun: 5,
+  july: 6,
+  jul: 6,
+  august: 7,
+  aug: 7,
+  september: 8,
+  sep: 8,
+  sept: 8,
+  october: 9,
+  oct: 9,
+  november: 10,
+  nov: 10,
+  december: 11,
+  dec: 11,
+};
+
+const MONTHS_BG_LOWER_TO_IDX: Record<string, number> = {
+  януари: 0,
+  яну: 0,
+  февруари: 1,
+  фев: 1,
+  март: 2,
+  мар: 2,
+  април: 3,
+  апр: 3,
+  май: 4,
+  юни: 5,
+  юли: 6,
+  август: 7,
+  авг: 7,
+  септември: 8,
+  сеп: 8,
+  октомври: 9,
+  окт: 9,
+  ноември: 10,
+  ное: 10,
+  декември: 11,
+  дек: 11,
+};
+
+const STOP_WORDS = new Set([
+  // English question/filler words
+  "how",
+  "much",
+  "many",
+  "did",
+  "do",
+  "does",
+  "was",
+  "were",
+  "is",
+  "are",
+  "have",
+  "has",
+  "i",
+  "me",
+  "my",
+  "money",
+  "spent",
+  "spend",
+  "spending",
+  "pay",
+  "paid",
+  "cost",
+  "on",
+  "in",
+  "at",
+  "for",
+  "from",
+  "to",
+  "of",
+  "the",
+  "a",
+  "an",
+  "about",
+  "what",
+  "which",
+  "when",
+  "where",
+  "show",
+  "tell",
+  "find",
+  "total",
+  "this",
+  "last",
+  "current",
+  "selected",
+  "month",
+  "months",
+  "year",
+  "years",
+  "all",
+  "time",
+  "compared",
+  "compare",
+  "during",
+  "past",
+  "with",
+  "and",
+  "or",
+  // Bulgarian question/filler words
+  "колко",
+  "каква",
+  "какъв",
+  "какво",
+  "какви",
+  "кои",
+  "кой",
+  "коя",
+  "кое",
+  "пари",
+  "похарчих",
+  "харча",
+  "похарчено",
+  "похарчени",
+  "платих",
+  "струва",
+  "за",
+  "в",
+  "във",
+  "на",
+  "от",
+  "до",
+  "с",
+  "със",
+  "по",
+  "през",
+  "този",
+  "тази",
+  "тези",
+  "миналия",
+  "миналата",
+  "предходния",
+  "текущия",
+  "избрания",
+  "месец",
+  "месеца",
+  "месеци",
+  "година",
+  "годината",
+  "общо",
+  "всички",
+  "спрямо",
+  "има",
+  "имам",
+  "имаме",
+  "ми",
+  "си",
+  "са",
+  "е",
+  "ли",
+  "се",
+  "покажи",
+  "намери",
+  "кажи",
+  "дай",
+  "разход",
+  "разходи",
+  "разходите",
+  "сума",
+  "цената",
+  // Month words
+  ...Object.keys(MONTHS_EN_TO_IDX),
+  ...Object.keys(MONTHS_BG_LOWER_TO_IDX),
+]);
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[?!.,;:"'()[\]{}«»„“]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isEnglishQuery(question: string): boolean {
+  const latCount = (question.match(/[a-zA-Z]/g) || []).length;
+  const cyrCount = (question.match(/[а-яА-Я]/g) || []).length;
+  return latCount > cyrCount;
+}
+
+function parseMonthEntries(monthlyData: Record<string, MonthlyRecord>): MonthEntry[] {
+  const entries: MonthEntry[] = [];
+  Object.entries(monthlyData || {}).forEach(([key, record]) => {
+    const parts = key.trim().split(/\s+/);
+    if (parts.length < 2) return;
+    const month = parts[0];
+    const year = parseInt(parts[1], 10);
+    const monthIndex = MONTHS_BG.indexOf(month);
+    if (isNaN(year) || monthIndex === -1 || !record) return;
+    entries.push({ key, month, year, monthIndex, record });
+  });
+  entries.sort((a, b) => (a.year !== b.year ? a.year - b.year : a.monthIndex - b.monthIndex));
+  return entries;
+}
+
+function parseSelectedMonthFallback(
+  selectedMonth: string | undefined,
+  entries: MonthEntry[]
+): { month: string; year: number; monthIndex: number; key: string } {
+  if (selectedMonth) {
+    const parts = selectedMonth.trim().split(/\s+/);
+    const m = parts[0];
+    const y = parseInt(parts[1], 10);
+    const idx = MONTHS_BG.indexOf(m);
+    if (!isNaN(y) && idx !== -1) {
+      return { month: m, year: y, monthIndex: idx, key: `${m} ${y}` };
+    }
+  }
+  const now = new Date();
+  const curIdx = now.getMonth();
+  const curMonth = MONTHS_BG[curIdx];
+  const curYear = now.getFullYear();
+  const curKey = `${curMonth} ${curYear}`;
+  if (entries.some((e) => e.key === curKey) || entries.length === 0) {
+    return { month: curMonth, year: curYear, monthIndex: curIdx, key: curKey };
+  }
+  const latest = entries[entries.length - 1];
+  return {
+    month: latest.month,
+    year: latest.year,
+    monthIndex: latest.monthIndex,
+    key: latest.key,
+  };
+}
+
+function buildIndexedExpenses(entries: MonthEntry[]): IndexedExpense[] {
+  const result: IndexedExpense[] = [];
+
+  const pushItem = (
+    entry: MonthEntry,
+    item: ExpenseItem,
+    isFixed: boolean,
+    idxFallback: number
+  ) => {
+    const parsed = parseExpenseNote(item.note, item.merchantName, item.receiptItems);
+    const noteText = (item.note || "").trim();
+    const merchant = (parsed.merchantName || item.merchantName || "").trim();
+
+    // Extract unpriced lines from multi-line notes (e.g. "Lidl €42\nBread\nWater\nCigarettes")
+    const unpricedNoteLines: string[] = [];
+    if (noteText) {
+      noteText.split(/\r?\n/).forEach((rawLine) => {
+        const line = rawLine.trim();
+        if (!line) return;
+        const alreadyPriced = /\d+[.,]\d{2}/.test(line);
+        if (!alreadyPriced) {
+          unpricedNoteLines.push(line);
+        }
+      });
+    }
+
+    const itemsSearchParts = parsed.items.map((it) => it.name);
+    const rawSearchText = [
+      item.categoryName,
+      merchant,
+      noteText,
+      ...itemsSearchParts,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    result.push({
+      id: item.id || `${entry.key}_${isFixed ? "fix" : "var"}_${idxFallback}`,
+      monthKey: entry.key,
+      month: entry.month,
+      year: entry.year,
+      monthIndex: entry.monthIndex,
+      date: item.date || `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
+      isFixed,
+      isRecurring: Boolean(item.isRecurring || isFixed),
+      categoryId: item.categoryId || "",
+      categoryName: item.categoryName || "Други",
+      merchantName: merchant,
+      note: noteText,
+      amount: Number(item.amount) || 0,
+      parsedItems: parsed.items.map((it) => ({
+        ...it,
+        price: Number(it.finalPrice ?? it.price) || 0,
+      })),
+      unpricedNoteLines,
+      rawSearchText,
+    });
+  };
+
+  entries.forEach((entry) => {
+    const exp = entry.record.expenses;
+    if (!exp) return;
+
+    if (Array.isArray(exp.fixed_expenses)) {
+      exp.fixed_expenses.forEach((item, idx) => pushItem(entry, item, true, idx));
+    } else if (exp.fixed_expenses) {
+      const leg = exp.fixed_expenses as any;
+      if (leg.credit_eur > 0) {
+        pushItem(
+          entry,
+          {
+            id: `${entry.key}_leg_credit`,
+            categoryId: "credit",
+            categoryName: "Кредит",
+            categoryIcon: "CreditCard",
+            categoryColor: "",
+            amount: Number(leg.credit_eur),
+            date: `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
+            isRecurring: true,
+          },
+          true,
+          0
+        );
+      }
+      if (leg.phone_eur > 0) {
+        pushItem(
+          entry,
+          {
+            id: `${entry.key}_leg_phone`,
+            categoryId: "phone",
+            categoryName: "Телефон",
+            categoryIcon: "Smartphone",
+            categoryColor: "",
+            amount: Number(leg.phone_eur),
+            date: `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
+            isRecurring: true,
+          },
+          true,
+          1
+        );
+      }
+      if (leg.internet_eur > 0) {
+        pushItem(
+          entry,
+          {
+            id: `${entry.key}_leg_net`,
+            categoryId: "internet",
+            categoryName: "Интернет",
+            categoryIcon: "Wifi",
+            categoryColor: "",
+            amount: Number(leg.internet_eur),
+            date: `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
+            isRecurring: true,
+          },
+          true,
+          2
+        );
+      }
+    }
+
+    if (Array.isArray(exp.additional_expenses)) {
+      exp.additional_expenses.forEach((item, idx) => pushItem(entry, item, false, idx));
+    }
+  });
+
+  return result;
+}
+
+interface ResolvedTimeRange {
+  kind: "single_month" | "last_n_months" | "year" | "all_months";
+  label: string;
+  entries: MonthEntry[];
+  targetMonth?: { month: string; year: number; monthIndex: number; key: string };
+  lastNCount?: number;
+}
+
+function parseQueryTimeRange(
+  question: string,
+  entries: MonthEntry[],
+  activeMonth: { month: string; year: number; monthIndex: number; key: string },
+  defaultToAll: boolean
+): ResolvedTimeRange {
+  const norm = normalizeText(question);
+  const tokens = norm.split(" ");
+
+  // Explicit year check (e.g. 2025, 2026)
+  const yearMatch = norm.match(/\b(20\d{2})\b/);
+  const explicitYear = yearMatch ? parseInt(yearMatch[1], 10) : undefined;
+
+  // 1. "last N months" / "последните N месеца"
+  const lastNMatch =
+    norm.match(/(?:last|past)\s+(\d{1,2})\s+months?/) ||
+    norm.match(/(?:последните|миналите)\s+(\d{1,2})\s+(?:месец|месеца|месеци)/);
+  if (lastNMatch) {
+    const n = Math.max(1, Math.min(36, parseInt(lastNMatch[1], 10)));
+    const anchor = activeMonth;
+    const anchorAbs = anchor.year * 12 + anchor.monthIndex;
+    const minAbs = anchorAbs - (n - 1);
+    const matchingEntries = entries.filter((e) => {
+      const abs = e.year * 12 + e.monthIndex;
+      return abs >= minAbs && abs <= anchorAbs;
+    });
+    const startYear = Math.floor(minAbs / 12);
+    const startIdx = ((minAbs % 12) + 12) % 12;
+    return {
+      kind: "last_n_months",
+      label: `Последните ${n} месеца (${MONTHS_BG[startIdx]} ${startYear} – ${anchor.month} ${anchor.year})`,
+      entries: matchingEntries,
+      lastNCount: n,
+    };
+  }
+
+  // 2. "all time" / "all months" / "всички месеци" / "общо"
+  if (
+    /\b(?:all\s*time|all\s*months|overall|ever|total\s*history|всички\s*месеци|от\s*началото|цялата\s*история)\b/.test(
+      norm
+    )
+  ) {
+    return {
+      kind: "all_months",
+      label: `Всички месеци (${entries.length})`,
+      entries,
+    };
+  }
+
+  // 3. Specific month name (EN or BG)
+  let detectedMonthIdx: number | undefined;
+  for (const t of tokens) {
+    if (t in MONTHS_EN_TO_IDX) {
+      detectedMonthIdx = MONTHS_EN_TO_IDX[t];
+      break;
+    }
+    if (t in MONTHS_BG_LOWER_TO_IDX) {
+      detectedMonthIdx = MONTHS_BG_LOWER_TO_IDX[t];
+      break;
+    }
+  }
+  if (detectedMonthIdx !== undefined) {
+    const mName = MONTHS_BG[detectedMonthIdx];
+    let targetYear = explicitYear ?? activeMonth.year;
+    if (!explicitYear) {
+      const matchingYears = entries
+        .filter((e) => e.monthIndex === detectedMonthIdx)
+        .sort((a, b) => b.year - a.year);
+      if (
+        !entries.some((e) => e.monthIndex === detectedMonthIdx && e.year === targetYear) &&
+        matchingYears.length > 0
+      ) {
+        targetYear = matchingYears[0].year;
+      }
+    }
+    const key = `${mName} ${targetYear}`;
+    return {
+      kind: "single_month",
+      label: key,
+      entries: entries.filter((e) => e.key === key),
+      targetMonth: { month: mName, year: targetYear, monthIndex: detectedMonthIdx, key },
+    };
+  }
+
+  // 4. "last month" / "previous month" / "миналия месец"
+  // (Careful: "compared to last month" is handled cleanly when calculating comparison)
+  const isComparedToLastMonth =
+    /(?:compar|more\s+than|vs|спрямо|от\s+миналия)/.test(norm);
+  if (
+    !isComparedToLastMonth &&
+    /(?:\b(?:last|previous)\s+month\b|миналия\s+месец|предходния\s+месец)/.test(norm)
+  ) {
+    const prev = getPreviousMonthAndYear(activeMonth.month, activeMonth.year);
+    const key = `${prev.prevMonth} ${prev.prevYear}`;
+    return {
+      kind: "single_month",
+      label: key,
+      entries: entries.filter((e) => e.key === key),
+      targetMonth: {
+        month: prev.prevMonth,
+        year: prev.prevYear,
+        monthIndex: MONTHS_BG.indexOf(prev.prevMonth),
+        key,
+      },
+    };
+  }
+
+  // 5. "this month" / "current month" / "selected month" / "този месец"
+  if (
+    /(?:\b(?:this|current|selected)\s+month\b|този\s+месец|текущия\s+месец|настоящия\s+месец|избрания\s+месец)/.test(
+      norm
+    )
+  ) {
+    return {
+      kind: "single_month",
+      label: activeMonth.key,
+      entries: entries.filter((e) => e.key === activeMonth.key),
+      targetMonth: activeMonth,
+    };
+  }
+
+  // 6. "this year" / "last year" / explicit year
+  if (/(?:\bthis\s+year\b|тази\s+година|текущата\s+година)/.test(norm)) {
+    const y = new Date().getFullYear();
+    const yearEntries = entries.filter((e) => e.year === y);
+    return {
+      kind: "year",
+      label: `${y} г.`,
+      entries: yearEntries,
+    };
+  }
+  if (/(?:\blast\s+year\b|миналата\s+година)/.test(norm)) {
+    const y = new Date().getFullYear() - 1;
+    const yearEntries = entries.filter((e) => e.year === y);
+    return {
+      kind: "year",
+      label: `${y} г.`,
+      entries: yearEntries,
+    };
+  }
+  if (explicitYear) {
+    const yearEntries = entries.filter((e) => e.year === explicitYear);
+    return {
+      kind: "year",
+      label: `${explicitYear} г.`,
+      entries: yearEntries,
+    };
+  }
+
+  // 7. Default fallback
+  if (defaultToAll) {
+    return {
+      kind: "all_months",
+      label: entries.length > 0 ? `Всички месеци (${entries.length})` : activeMonth.key,
+      entries,
+    };
+  }
+  return {
+    kind: "single_month",
+    label: activeMonth.key,
+    entries: entries.filter((e) => e.key === activeMonth.key),
+    targetMonth: activeMonth,
+  };
+}
+
+function extractSearchTermsFromQuestion(question: string): {
+  terms: string[];
+  matchedGroups: SynonymGroup[];
+  displayTopic: string;
+} {
+  const norm = normalizeText(question);
+  const rawTokens = norm.split(" ").filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
+
+  const matchedGroups: SynonymGroup[] = [];
+  const expandedTerms = new Set<string>();
+
+  for (const group of SYNONYM_GROUPS) {
+    const hit =
+      group.terms.some((term) => norm.includes(term)) ||
+      rawTokens.some((tok) =>
+        group.terms.some((term) => tok.includes(term) || term.includes(tok))
+      );
+    if (hit) {
+      matchedGroups.push(group);
+      group.terms.forEach((t) => expandedTerms.add(t));
+    }
+  }
+
+  rawTokens.forEach((tok) => {
+    expandedTerms.add(tok);
+    // Light plural/stem helper for English & Bulgarian suffixes
+    if (tok.length > 4 && tok.endsWith("s")) {
+      expandedTerms.add(tok.slice(0, -1));
+    }
+  });
+
+  const displayTopic =
+    matchedGroups.length > 0
+      ? matchedGroups.map((g) => g.labelBg).join(", ")
+      : rawTokens.join(" ");
+
+  return {
+    terms: Array.from(expandedTerms),
+    matchedGroups,
+    displayTopic: displayTopic || question.trim(),
+  };
+}
+
+function textMatchesAnyTerm(text: string, terms: string[]): boolean {
+  const lower = text.toLowerCase();
+  return terms.some((term) => {
+    if (!term) return false;
+    if (term.length <= 3) {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(?:^|[^а-яА-Яa-zA-Z0-9])${escaped}`, "i");
+      return re.test(lower);
+    }
+    return lower.includes(term);
+  });
+}
+
+function fmtEur(n: number): string {
+  return `€${n.toFixed(2)}`;
+}
+
+function formatDateShort(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("bg-BG");
+}
+
+function buildSuggestions(en: boolean): string[] {
+  return en
+    ? [
+        "How much money was spent on cigarettes this month?",
+        "What was my largest expense this month?",
+        "What categories increased compared to last month?",
+        "How much did I save during the last 3 months?",
+        "What was my average monthly spending?",
+      ]
+    : [
+        "Колко пари са похарчени за цигари този месец?",
+        "Кой беше най-големият ми разход този месец?",
+        "Кои категории се увеличиха спрямо миналия месец?",
+        "Колко спестих през последните 3 месеца?",
+        "Какъв е средният ми месечен разход?",
+      ];
+}
+
+export function answerFinancialChatQuestion(
+  question: string,
+  monthlyData: Record<string, MonthlyRecord>,
+  globalSavings: IncomeItem[],
+  selectedMonth?: string
+): AiChatResponse {
+  const trimmed = question.trim();
+  const en = isEnglishQuery(trimmed);
+  const norm = normalizeText(trimmed);
+
+  const entries = parseMonthEntries(monthlyData);
+  const activeMonth = parseSelectedMonthFallback(selectedMonth, entries);
+  const allExpenses = buildIndexedExpenses(entries);
+  const storedCategories = loadStoredCategories();
+  const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
+  const electricityHistory = getStoredElectricityHistory();
+
+  if (!trimmed) {
+    return {
+      answer: en
+        ? "Please enter a question about your expenses, receipts, savings, budgets, or income."
+        : "Моля, въведете въпрос за вашите разходи, касови бележки, спестявания, бюджети или приходи.",
+      calculation: "—",
+      timeRangeLabel: activeMonth.key,
+      matchedExpenses: [],
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 1: Savings over period / total savings balance
+  // ------------------------------------------------------------------
+  if (
+    /(?:\bsave|\bsaved|\bsavings\b|спест|спестяван|спестих|налични\s*средства)/.test(norm)
+  ) {
+    const hasExplicitRange =
+      /(?:last|past|this|year|month|all|последн|този|минал|годин|всички)/.test(norm) ||
+      Object.keys(MONTHS_EN_TO_IDX).some((m) => norm.includes(m)) ||
+      Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m));
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, !hasExplicitRange);
+
+    const lifetimeNet = globalSavings.reduce(
+      (s, tx) => s + (tx.type === "expense" ? -Number(tx.amount) : Number(tx.amount)),
+      0
+    );
+
+    let filteredTx = globalSavings;
+    if (range.kind === "single_month" && range.targetMonth) {
+      const { year, monthIndex } = range.targetMonth;
+      filteredTx = globalSavings.filter((tx) => {
+        const d = new Date(tx.date);
+        return !isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === monthIndex;
+      });
+    } else if (range.kind === "last_n_months" && range.lastNCount) {
+      const anchor = activeMonth;
+      const anchorAbs = anchor.year * 12 + anchor.monthIndex;
+      const minAbs = anchorAbs - (range.lastNCount - 1);
+      filteredTx = globalSavings.filter((tx) => {
+        const d = new Date(tx.date);
+        if (isNaN(d.getTime())) return false;
+        const abs = d.getFullYear() * 12 + d.getMonth();
+        return abs >= minAbs && abs <= anchorAbs;
+      });
+    } else if (range.kind === "year") {
+      const yMatch = range.label.match(/\d{4}/);
+      const y = yMatch ? parseInt(yMatch[0], 10) : activeMonth.year;
+      filteredTx = globalSavings.filter((tx) => {
+        const d = new Date(tx.date);
+        return !isNaN(d.getTime()) && d.getFullYear() === y;
+      });
+    }
+
+    const deposits = filteredTx
+      .filter((t) => t.type !== "expense")
+      .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const withdrawals = filteredTx
+      .filter((t) => t.type === "expense")
+      .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const netInRange = deposits - withdrawals;
+
+    // Also calculate cashflow surplus (Income - Expenses) across the entries in range
+    const periodIncome = range.entries.reduce(
+      (s, e) => s + calculateMonthIncome(e.month, e.year, e.record),
+      0
+    );
+    const periodExp = range.entries.reduce((s, e) => s + calculateMonthExpenses(e.record), 0);
+
+    const matched: AiChatMatchedExpense[] = filteredTx.slice(0, 12).map((tx) => ({
+      id: tx.id,
+      monthKey: range.label,
+      date: formatDateShort(tx.date),
+      merchantOrCategory: tx.categoryName || "Спестяване",
+      categoryName: tx.type === "expense" ? "Теглене" : "Вноска",
+      expenseAmount: Number(tx.amount) || 0,
+      matchedAmount: tx.type === "expense" ? -Number(tx.amount) : Number(tx.amount),
+      matchedKind: "saving",
+      matchedSnippet: tx.note || undefined,
+    }));
+
+    return {
+      answer: en
+        ? `Net savings recorded in ${range.label}: ${fmtEur(netInRange)} (${filteredTx.length} transactions). Total lifetime savings balance: ${fmtEur(lifetimeNet)}.`
+        : `Нетни спестявания за ${range.label}: ${fmtEur(netInRange)} (${filteredTx.length} трансакции). Общ баланс в „Спестявания“: ${fmtEur(lifetimeNet)}.`,
+      calculation: `${fmtEur(deposits)} (вноски) − ${fmtEur(withdrawals)} (тегления) = ${fmtEur(netInRange)} | Нетен паричен поток (Приходи ${fmtEur(periodIncome)} − Разходи ${fmtEur(periodExp)} = ${fmtEur(periodIncome - periodExp)})`,
+      timeRangeLabel: range.label,
+      matchedExpenses: matched,
+      totalMatchedAmount: parseFloat(netInRange.toFixed(2)),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 2: Categories increased compared to last month
+  // ------------------------------------------------------------------
+  if (
+    /(?:increas|more\s+than\s+last|grew\s+compared|увелич|нарасн|повече\s+от\s+минал|спрямо\s+минал)/.test(
+      norm
+    )
+  ) {
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const target = range.targetMonth || activeMonth;
+    const prev = getPreviousMonthAndYear(target.month, target.year);
+    const prevKey = `${prev.prevMonth} ${prev.prevYear}`;
+
+    const curItems = allExpenses.filter((e) => e.monthKey === target.key);
+    const prevItems = allExpenses.filter((e) => e.monthKey === prevKey);
+
+    const curByCat: Record<string, number> = {};
+    const prevByCat: Record<string, number> = {};
+    curItems.forEach((e) => {
+      curByCat[e.categoryName] = (curByCat[e.categoryName] || 0) + e.amount;
+    });
+    prevItems.forEach((e) => {
+      prevByCat[e.categoryName] = (prevByCat[e.categoryName] || 0) + e.amount;
+    });
+
+    const allCats = new Set([...Object.keys(curByCat), ...Object.keys(prevByCat)]);
+    const increased = Array.from(allCats)
+      .map((cat) => {
+        const curVal = curByCat[cat] || 0;
+        const prevVal = prevByCat[cat] || 0;
+        const diff = curVal - prevVal;
+        const pct = prevVal > 0 ? (diff / prevVal) * 100 : curVal > 0 ? 100 : 0;
+        return { cat, curVal, prevVal, diff, pct };
+      })
+      .filter((x) => x.diff > 0.01)
+      .sort((a, b) => b.diff - a.diff);
+
+    const matched: AiChatMatchedExpense[] = increased.map((row, idx) => ({
+      id: `inc_${idx}_${row.cat}`,
+      monthKey: target.key,
+      date: target.key,
+      merchantOrCategory: row.cat,
+      categoryName: `${fmtEur(row.prevVal)} → ${fmtEur(row.curVal)}`,
+      expenseAmount: row.curVal,
+      matchedAmount: parseFloat(row.diff.toFixed(2)),
+      matchedKind: "category",
+      matchedSnippet: `+${fmtEur(row.diff)} (${row.prevVal > 0 ? `+${row.pct.toFixed(0)}%` : "нова категория"})`,
+    }));
+
+    return {
+      answer:
+        increased.length > 0
+          ? en
+            ? `${increased.length} ${increased.length === 1 ? "category" : "categories"} increased in ${target.key} compared to ${prevKey}: ${increased
+                .slice(0, 4)
+                .map((x) => `${x.cat} (+${fmtEur(x.diff)})`)
+                .join(", ")}.`
+            : `${increased.length} категории са с по-висок разход през ${target.key} спрямо ${prevKey}: ${increased
+                .slice(0, 4)
+                .map((x) => `${x.cat} (+${fmtEur(x.diff)})`)
+                .join(", ")}.`
+          : en
+          ? `No categories increased in ${target.key} compared to ${prevKey}.`
+          : `Няма категории с увеличение през ${target.key} спрямо ${prevKey}.`,
+      calculation:
+        increased.length > 0
+          ? increased
+              .slice(0, 5)
+              .map(
+                (x) =>
+                  `${x.cat}: ${fmtEur(x.curVal)} − ${fmtEur(x.prevVal)} = +${fmtEur(x.diff)} (${x.prevVal > 0 ? `+${x.pct.toFixed(0)}%` : "нов"})`
+              )
+              .join(" · ")
+          : `Сравнени ${curItems.length} записа (${target.key}) спрямо ${prevItems.length} записа (${prevKey})`,
+      timeRangeLabel: `${prevKey} → ${target.key}`,
+      matchedExpenses: matched,
+      totalMatchedAmount: parseFloat(
+        increased.reduce((s, r) => s + r.diff, 0).toFixed(2)
+      ),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 3: Which expenses / categories are growing the fastest?
+  // ------------------------------------------------------------------
+  if (/(?:fastest|grow|growing|раст|най-бързо|поскъп)/.test(norm)) {
+    const activeEntries = entries.filter((e) => calculateMonthExpenses(e.record) > 0);
+    if (activeEntries.length < 2) {
+      return {
+        answer: en
+          ? `At least 2 months with expense data are needed to measure spending growth (currently ${activeEntries.length} month recorded).`
+          : `Необходими са данни за поне 2 месеца, за да се изчисли темпът на растеж на разходите (текущо: ${activeEntries.length} месец).`,
+        calculation: `Налични активни месеци: ${activeEntries.map((e) => e.key).join(", ") || "няма"}`,
+        timeRangeLabel: `Всички месеци (${entries.length})`,
+        matchedExpenses: [],
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    const latestEntry = activeEntries[activeEntries.length - 1];
+    const baselineEntries = activeEntries.slice(0, -1);
+    const catStats: Record<string, { prevSum: number; prevMonths: number; latest: number }> = {};
+
+    baselineEntries.forEach((entry) => {
+      const items = allExpenses.filter((e) => e.monthKey === entry.key);
+      const perMonth: Record<string, number> = {};
+      items.forEach((it) => {
+        perMonth[it.categoryName] = (perMonth[it.categoryName] || 0) + it.amount;
+      });
+      Object.entries(perMonth).forEach(([cat, val]) => {
+        if (!catStats[cat]) catStats[cat] = { prevSum: 0, prevMonths: 0, latest: 0 };
+        catStats[cat].prevSum += val;
+        catStats[cat].prevMonths += 1;
+      });
+    });
+
+    allExpenses
+      .filter((e) => e.monthKey === latestEntry.key)
+      .forEach((it) => {
+        if (!catStats[it.categoryName]) {
+          catStats[it.categoryName] = { prevSum: 0, prevMonths: 0, latest: 0 };
+        }
+        catStats[it.categoryName].latest += it.amount;
+      });
+
+    const growthRows = Object.entries(catStats)
+      .map(([cat, st]) => {
+        const avgPrev = st.prevMonths > 0 ? st.prevSum / st.prevMonths : 0;
+        const diff = st.latest - avgPrev;
+        const pct = avgPrev > 0 ? (diff / avgPrev) * 100 : st.latest > 0 ? 100 : 0;
+        return { cat, avgPrev, latest: st.latest, diff, pct };
+      })
+      .filter((r) => r.diff > 0.01)
+      .sort((a, b) => b.pct - a.pct || b.diff - a.diff);
+
+    return {
+      answer:
+        growthRows.length > 0
+          ? en
+            ? `Fastest growing expense category in ${latestEntry.key}: ${growthRows[0].cat} (+${growthRows[0].pct.toFixed(0)}%, +${fmtEur(growthRows[0].diff)} vs prior monthly average).`
+            : `Най-бързо растяща категория през ${latestEntry.key}: „${growthRows[0].cat}“ (+${growthRows[0].pct.toFixed(0)}%, +${fmtEur(growthRows[0].diff)} спрямо средното за предходните месеци).`
+          : en
+          ? `No expense categories showed upward growth in ${latestEntry.key} compared to previous months.`
+          : `Няма категории с ръст през ${latestEntry.key} спрямо предходните месеци.`,
+      calculation: growthRows
+        .slice(0, 4)
+        .map(
+          (r) =>
+            `${r.cat}: ср. ${fmtEur(r.avgPrev)} → ${fmtEur(r.latest)} (+${fmtEur(r.diff)} / +${r.pct.toFixed(0)}%)`
+        )
+        .join(" · "),
+      timeRangeLabel: `${activeEntries[0].key} – ${latestEntry.key} (${activeEntries.length} месеца)`,
+      matchedExpenses: growthRows.slice(0, 8).map((r, i) => ({
+        id: `grow_${i}_${r.cat}`,
+        monthKey: latestEntry.key,
+        date: latestEntry.key,
+        merchantOrCategory: r.cat,
+        categoryName: `Ср. ${fmtEur(r.avgPrev)} → ${fmtEur(r.latest)}`,
+        expenseAmount: r.latest,
+        matchedAmount: parseFloat(r.diff.toFixed(2)),
+        matchedKind: "category",
+        matchedSnippet: `+${r.pct.toFixed(0)}% (+${fmtEur(r.diff)})`,
+      })),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 4: Recurring expenses
+  // ------------------------------------------------------------------
+  if (/(?:recurr|subscription|fixed\s+expense|периодич|повтарящ|фиксиран|абонамент)/.test(norm)) {
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const targetEntries = range.entries.length > 0 ? range.entries : entries;
+    const recurringInRange = allExpenses.filter(
+      (e) => targetEntries.some((te) => te.key === e.monthKey) && e.isRecurring
+    );
+
+    const totalRec = recurringInRange.reduce((s, e) => s + e.amount, 0);
+    return {
+      answer:
+        recurringInRange.length > 0
+          ? en
+            ? `Found ${recurringInRange.length} recurring/fixed expenses in ${range.label} totaling ${fmtEur(totalRec)}.`
+            : `Открити са ${recurringInRange.length} периодични и фиксирани разхода за ${range.label} на обща стойност ${fmtEur(totalRec)}.`
+          : en
+          ? `No recurring or fixed expenses recorded in ${range.label}.`
+          : `Няма записани периодични или фиксирани разходи за ${range.label}.`,
+      calculation:
+        recurringInRange.length > 0
+          ? recurringInRange
+              .slice(0, 8)
+              .map((e) => `${e.categoryName}: ${fmtEur(e.amount)}`)
+              .join(" + ") + ` = ${fmtEur(totalRec)}`
+          : "0 записа",
+      timeRangeLabel: range.label,
+      matchedExpenses: recurringInRange.map((e) => ({
+        id: e.id,
+        monthKey: e.monthKey,
+        date: formatDateShort(e.date),
+        merchantOrCategory: e.merchantName || e.categoryName,
+        categoryName: e.categoryName,
+        expenseAmount: e.amount,
+        matchedAmount: e.amount,
+        matchedKind: e.isFixed ? "fixed" : "category",
+        matchedSnippet: e.note || (e.isFixed ? "Фиксиран разход" : "Периодичен разход"),
+      })),
+      totalMatchedAmount: parseFloat(totalRec.toFixed(2)),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 5: Average monthly spending
+  // ------------------------------------------------------------------
+  if (/(?:average|avg|mean|среден|средно\s*месеч|средния\s*разход)/.test(norm)) {
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, true);
+    const activeInRange = range.entries.filter((e) => calculateMonthExpenses(e.record) > 0);
+    const calcSet = activeInRange.length > 0 ? activeInRange : range.entries;
+
+    const perMonthTotals = calcSet.map((e) => ({
+      key: e.key,
+      total: calculateMonthExpenses(e.record),
+    }));
+    const grandTotal = perMonthTotals.reduce((s, m) => s + m.total, 0);
+    const avg = calcSet.length > 0 ? grandTotal / calcSet.length : 0;
+
+    return {
+      answer:
+        calcSet.length > 0
+          ? en
+            ? `Your average monthly spending is ${fmtEur(avg)} across ${calcSet.length} active ${calcSet.length === 1 ? "month" : "months"} (total ${fmtEur(grandTotal)}).`
+            : `Средният ви месечен разход е ${fmtEur(avg)} за ${calcSet.length} ${calcSet.length === 1 ? "активен месец" : "активни месеца"} (общо ${fmtEur(grandTotal)}).`
+          : en
+          ? "No monthly expense records found yet."
+          : "Все още няма въведени месечни разходи.",
+      calculation:
+        calcSet.length > 0
+          ? `${fmtEur(grandTotal)} ÷ ${calcSet.length} мес. = ${fmtEur(avg)}/мес.`
+          : "0.00 ÷ 0 = €0.00",
+      timeRangeLabel: range.label,
+      matchedExpenses: perMonthTotals.map((m, idx) => ({
+        id: `avg_${idx}_${m.key}`,
+        monthKey: m.key,
+        date: m.key,
+        merchantOrCategory: m.key,
+        categoryName: "Месечен разход",
+        expenseAmount: m.total,
+        matchedAmount: m.total,
+        matchedKind: "category",
+      })),
+      totalMatchedAmount: parseFloat(avg.toFixed(2)),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 6: Largest / Biggest expense
+  // ------------------------------------------------------------------
+  if (/(?:largest|biggest|highest|most\s+expensive|max\s+expense|най-голям|най-висок|най-скъп)/.test(norm)) {
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const scopedKeys = new Set(range.entries.map((e) => e.key));
+    const scopedExpenses = allExpenses
+      .filter((e) => (scopedKeys.size > 0 ? scopedKeys.has(e.monthKey) : e.monthKey === range.label))
+      .sort((a, b) => b.amount - a.amount);
+
+    if (scopedExpenses.length === 0) {
+      return {
+        answer: en
+          ? `No expenses recorded in ${range.label}.`
+          : `Няма записани разходи за ${range.label}.`,
+        calculation: "0 разхода",
+        timeRangeLabel: range.label,
+        matchedExpenses: [],
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    const top = scopedExpenses[0];
+    return {
+      answer: en
+        ? `Your largest expense in ${range.label} was ${fmtEur(top.amount)} (${top.merchantName || top.categoryName}, ${formatDateShort(top.date)}).`
+        : `Най-големият ви разход за ${range.label} е ${fmtEur(top.amount)} (${top.merchantName ? `${top.merchantName} · ` : ""}${top.categoryName}, ${formatDateShort(top.date)}).`,
+      calculation: `Максимум от ${scopedExpenses.length} разхода: ${fmtEur(top.amount)} (${top.categoryName}${top.merchantName ? ` — ${top.merchantName}` : ""})`,
+      timeRangeLabel: range.label,
+      matchedExpenses: scopedExpenses.slice(0, 5).map((e) => ({
+        id: e.id,
+        monthKey: e.monthKey,
+        date: formatDateShort(e.date),
+        merchantOrCategory: e.merchantName || e.categoryName,
+        categoryName: e.categoryName,
+        expenseAmount: e.amount,
+        matchedAmount: e.amount,
+        matchedKind: e.merchantName ? "merchant" : "category",
+        matchedSnippet: e.note ? e.note.split("\n").slice(0, 3).join(", ") : undefined,
+      })),
+      totalMatchedAmount: top.amount,
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 7: Budget utilization & limits
+  // ------------------------------------------------------------------
+  if (/(?:budget|limit|utilization|overspent|бюджет|лимит|усвояван|надвиш)/.test(norm)) {
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const target = range.targetMonth || activeMonth;
+    const record = monthlyData[target.key];
+    const status = calculateAllBudgetsStatus(record, totalMonthlyBudget, categoryBudgets);
+
+    const exceeded = status.categoryStatuses.filter((c) => c.isExceeded);
+    return {
+      answer: en
+        ? `Budget utilization for ${target.key}: ${fmtEur(status.totalSpent)} of ${fmtEur(status.totalMonthlyLimit)} (${status.totalPercentage.toFixed(1)}%). ${exceeded.length > 0 ? `Exceeded: ${exceeded.map((e) => e.budget.categoryName).join(", ")}.` : "All category budgets are within limits."}`
+        : `Усвояване на бюджета за ${target.key}: ${fmtEur(status.totalSpent)} от ${fmtEur(status.totalMonthlyLimit)} (${status.totalPercentage.toFixed(1)}%). ${exceeded.length > 0 ? `Надвишени категории: ${exceeded.map((e) => e.budget.categoryName).join(", ")}.` : "Всички категорийни бюджети са в рамките на лимита."}`,
+      calculation: `${fmtEur(status.totalSpent)} / ${fmtEur(status.totalMonthlyLimit)} = ${status.totalPercentage.toFixed(1)}% · Остатък: ${fmtEur(status.totalRemaining)}`,
+      timeRangeLabel: target.key,
+      matchedExpenses: status.categoryStatuses.map((cs) => ({
+        id: cs.budget.id,
+        monthKey: target.key,
+        date: `${cs.percentage.toFixed(0)}%`,
+        merchantOrCategory: cs.budget.categoryName,
+        categoryName: `Лимит ${fmtEur(cs.limit)}`,
+        expenseAmount: cs.spent,
+        matchedAmount: cs.spent,
+        matchedKind: "category",
+        matchedSnippet: cs.isExceeded
+          ? `Надвишен с ${fmtEur(cs.overspentAmount)}`
+          : `Остават ${fmtEur(cs.remaining)}`,
+      })),
+      totalMatchedAmount: status.totalSpent,
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 8: Income queries
+  // ------------------------------------------------------------------
+  if (/(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(norm)) {
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const totalInc = range.entries.reduce(
+      (s, e) => s + calculateMonthIncome(e.month, e.year, e.record),
+      0
+    );
+    const matchedIncomes: AiChatMatchedExpense[] = [];
+    const seen = new Set<string>();
+    range.entries.forEach((e) => {
+      (e.record.incomes || []).forEach((inc) => {
+        if (!inc || inc.type === "expense" || seen.has(inc.id)) return;
+        seen.add(inc.id);
+        matchedIncomes.push({
+          id: inc.id,
+          monthKey: e.key,
+          date: formatDateShort(inc.date),
+          merchantOrCategory: inc.categoryName || "Приход",
+          categoryName: "Приход",
+          expenseAmount: Number(inc.amount) || 0,
+          matchedAmount: Number(inc.amount) || 0,
+          matchedKind: "income",
+          matchedSnippet: inc.note || undefined,
+        });
+      });
+    });
+
+    return {
+      answer: en
+        ? `Total income in ${range.label}: ${fmtEur(totalInc)} across ${matchedIncomes.length} entries.`
+        : `Общи приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа).`,
+      calculation:
+        matchedIncomes.length > 0
+          ? matchedIncomes
+              .slice(0, 6)
+              .map((i) => `${i.merchantOrCategory}: ${fmtEur(i.matchedAmount)}`)
+              .join(" + ") + ` = ${fmtEur(totalInc)}`
+          : "0.00",
+      timeRangeLabel: range.label,
+      matchedExpenses: matchedIncomes,
+      totalMatchedAmount: parseFloat(totalInc.toFixed(2)),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 9: Deep Search across Expenses, Categories, Merchants, Notes, Receipt Items, Electricity
+  // ------------------------------------------------------------------
+  const hasExplicitRange =
+    /(?:last|past|this|year|month|all|selected|последн|този|минал|предход|текущ|избран|годин|всички)/.test(
+      norm
+    ) ||
+    Object.keys(MONTHS_EN_TO_IDX).some((m) => norm.includes(m)) ||
+    Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m)) ||
+    /\b20\d{2}\b/.test(norm);
+
+  const range = parseQueryTimeRange(trimmed, entries, activeMonth, !hasExplicitRange);
+  const scopedKeys = new Set(range.entries.map((e) => e.key));
+  const scopedExpenses =
+    range.kind === "all_months"
+      ? allExpenses
+      : allExpenses.filter((e) => scopedKeys.has(e.monthKey));
+
+  const { terms, matchedGroups, displayTopic } = extractSearchTermsFromQuestion(trimmed);
+
+  // Special Electricity check if user asks specifically about electricity/power
+  if (matchedGroups.some((g) => g.id === "electricity") && electricityHistory.length > 0) {
+    const scopedElec = range.entries.map((e) => ({
+      key: e.key,
+      cost: calculateMonthElectricity(e.month, e.year, e.record),
+    }));
+    const elecTotal = scopedElec.reduce((s, x) => s + x.cost, 0);
+    if (elecTotal > 0) {
+      return {
+        answer: en
+          ? `Electricity cost in ${range.label}: ${fmtEur(elecTotal)}.`
+          : `Разходи за електроенергия за ${range.label}: ${fmtEur(elecTotal)}.`,
+        calculation: scopedElec.map((x) => `${x.key}: ${fmtEur(x.cost)}`).join(" + ") + ` = ${fmtEur(elecTotal)}`,
+        timeRangeLabel: range.label,
+        matchedExpenses: scopedElec
+          .filter((x) => x.cost > 0)
+          .map((x, idx) => ({
+            id: `elec_${idx}_${x.key}`,
+            monthKey: x.key,
+            date: x.key,
+            merchantOrCategory: "Сметка ТОК",
+            categoryName: "Електроенергия",
+            expenseAmount: x.cost,
+            matchedAmount: x.cost,
+            matchedKind: "electricity",
+          })),
+        totalMatchedAmount: parseFloat(elecTotal.toFixed(2)),
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+  }
+
+  // If no meaningful search terms (e.g. "total spending this month" / "колко похарчих общо")
+  if (terms.length === 0) {
+    const totalExp = scopedExpenses.reduce((s, e) => s + e.amount, 0);
+    const totalInc = range.entries.reduce(
+      (s, e) => s + calculateMonthIncome(e.month, e.year, e.record),
+      0
+    );
+    return {
+      answer: en
+        ? `Total spending in ${range.label}: ${fmtEur(totalExp)} (${scopedExpenses.length} expenses). Income: ${fmtEur(totalInc)}.`
+        : `Общи разходи за ${range.label}: ${fmtEur(totalExp)} (${scopedExpenses.length} записа). Приходи: ${fmtEur(totalInc)}.`,
+      calculation: `Разходи (${scopedExpenses.length} записа) = ${fmtEur(totalExp)} | Нетен баланс = ${fmtEur(totalInc - totalExp)}`,
+      timeRangeLabel: range.label,
+      matchedExpenses: scopedExpenses
+        .slice()
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 8)
+        .map((e) => ({
+          id: e.id,
+          monthKey: e.monthKey,
+          date: formatDateShort(e.date),
+          merchantOrCategory: e.merchantName || e.categoryName,
+          categoryName: e.categoryName,
+          expenseAmount: e.amount,
+          matchedAmount: e.amount,
+          matchedKind: e.isFixed ? "fixed" : "category",
+          matchedSnippet: e.note ? e.note.split("\n").slice(0, 2).join(", ") : undefined,
+        })),
+      totalMatchedAmount: parseFloat(totalExp.toFixed(2)),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // Deep Match across category, merchant, priced receiptItems (using finalPrice), and unpriced note lines
+  const matchedList: AiChatMatchedExpense[] = [];
+  let itemizedSum = 0;
+  let merchantOrCatSum = 0;
+  let unitemizedNoteSum = 0;
+  const calculationParts: string[] = [];
+
+  for (const exp of scopedExpenses) {
+    const merchantMatch = Boolean(exp.merchantName && textMatchesAnyTerm(exp.merchantName, terms));
+    const categoryMatch = textMatchesAnyTerm(exp.categoryName, terms);
+
+    // Check itemized receipt lines first (using finalPrice ?? price after discount!)
+    const matchedReceiptItems = exp.parsedItems.filter((it) =>
+      textMatchesAnyTerm(it.name, terms)
+    );
+
+    // If user asked directly for a merchant (e.g. "Lidl") or category (e.g. "Fuel"), sum full expense once
+    if (merchantMatch || categoryMatch) {
+      merchantOrCatSum += exp.amount;
+      calculationParts.push(`${exp.merchantName || exp.categoryName} (${fmtEur(exp.amount)})`);
+      matchedList.push({
+        id: exp.id,
+        monthKey: exp.monthKey,
+        date: formatDateShort(exp.date),
+        merchantOrCategory: exp.merchantName || exp.categoryName,
+        categoryName: exp.categoryName,
+        expenseAmount: exp.amount,
+        matchedAmount: exp.amount,
+        matchedKind: merchantMatch ? "merchant" : "category",
+        matchedSnippet:
+          exp.parsedItems.length > 0
+            ? `${exp.parsedItems.length} артикула`
+            : exp.note || undefined,
+      });
+      continue;
+    }
+
+    if (matchedReceiptItems.length > 0) {
+      const itemsSubtotal = matchedReceiptItems.reduce(
+        (s, it) => s + (Number(it.finalPrice ?? it.price) || 0),
+        0
+      );
+      itemizedSum += itemsSubtotal;
+      const snippet = matchedReceiptItems
+        .map((it) => {
+          const p = it.finalPrice ?? it.price;
+          const q = it.quantity && it.quantity >= 1 ? `${it.quantity} x ` : "";
+          return `${q}${it.name} (${fmtEur(p)})`;
+        })
+        .join(", ");
+      calculationParts.push(`${snippet} [${exp.merchantName || exp.categoryName}]`);
+      matchedList.push({
+        id: exp.id,
+        monthKey: exp.monthKey,
+        date: formatDateShort(exp.date),
+        merchantOrCategory: exp.merchantName || exp.categoryName,
+        categoryName: exp.categoryName,
+        expenseAmount: exp.amount,
+        matchedAmount: parseFloat(itemsSubtotal.toFixed(2)),
+        matchedKind: "item",
+        matchedSnippet: snippet,
+      });
+      continue;
+    }
+
+    // Check unpriced plain text lines in notes (e.g. "Lidl €42\nBread\nWater\nCigarettes")
+    const matchedPlainLines = exp.unpricedNoteLines.filter((line) =>
+      textMatchesAnyTerm(line, terms)
+    );
+    const noteWholeMatch =
+      matchedPlainLines.length === 0 && exp.note && textMatchesAnyTerm(exp.note, terms);
+
+    if (matchedPlainLines.length > 0 || noteWholeMatch) {
+      unitemizedNoteSum += exp.amount;
+      const snippetText =
+        matchedPlainLines.length > 0 ? matchedPlainLines.join(", ") : exp.note;
+      calculationParts.push(
+        `${exp.merchantName || exp.categoryName} (${fmtEur(exp.amount)} — бележка: „${snippetText}“)`
+      );
+      matchedList.push({
+        id: exp.id,
+        monthKey: exp.monthKey,
+        date: formatDateShort(exp.date),
+        merchantOrCategory: exp.merchantName || exp.categoryName,
+        categoryName: exp.categoryName,
+        expenseAmount: exp.amount,
+        matchedAmount: exp.amount,
+        matchedKind: "note",
+        matchedSnippet: snippetText,
+      });
+    }
+  }
+
+  const totalMatched = parseFloat(
+    (itemizedSum + merchantOrCatSum + unitemizedNoteSum).toFixed(2)
+  );
+
+  if (matchedList.length === 0) {
+    const knownCatMatch = storedCategories.find((c) => textMatchesAnyTerm(c.name, terms));
+    return {
+      answer: en
+        ? `No expenses, receipt items, or notes matching "${displayTopic}" were found in ${range.label}.`
+        : `Не бяха открити разходи, артикули от касови бележки или бележки за „${displayTopic}“ през ${range.label}.`,
+      calculation: `Проверени ${scopedExpenses.length} разхода (категории, търговци, артикули и бележки)${knownCatMatch ? ` · Категория „${knownCatMatch.name}“ има €0.00 за периода` : ""}.`,
+      timeRangeLabel: range.label,
+      matchedExpenses: [],
+      totalMatchedAmount: 0,
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  const hasMixedUnitemizedNote = unitemizedNoteSum > 0 && matchedList.some((m) => m.matchedKind === "note");
+  let answerText = "";
+  if (en) {
+    answerText = hasMixedUnitemizedNote && itemizedSum === 0 && merchantOrCatSum === 0
+      ? `Found ${matchedList.length} ${matchedList.length === 1 ? "expense" : "expenses"} mentioning "${displayTopic}" in notes during ${range.label} (note total: ${fmtEur(totalMatched)}, since no per-item price was listed in the note).`
+      : `Total spent on "${displayTopic}" in ${range.label}: ${fmtEur(totalMatched)} across ${matchedList.length} ${matchedList.length === 1 ? "match" : "matches"}.`;
+  } else {
+    answerText = hasMixedUnitemizedNote && itemizedSum === 0 && merchantOrCatSum === 0
+      ? `Открити са ${matchedList.length} разхода с „${displayTopic}“ в бележката за ${range.label} (обща стойност на бележките: ${fmtEur(totalMatched)}, тъй като в бележката няма единична цена на артикула).`
+      : `Общо похарчено за „${displayTopic}“ за ${range.label}: ${fmtEur(totalMatched)} (${matchedList.length} ${matchedList.length === 1 ? "съвпадение" : "съвпадения"}).`;
+  }
+
+  const calcFormula =
+    calculationParts.length <= 6
+      ? `${calculationParts.join(" + ")} = ${fmtEur(totalMatched)}`
+      : `${calculationParts.slice(0, 5).join(" + ")} + още ${calculationParts.length - 5} = ${fmtEur(totalMatched)}`;
+
+  return {
+    answer: answerText,
+    calculation: calcFormula,
+    timeRangeLabel: range.label,
+    matchedExpenses: matchedList,
+    totalMatchedAmount: totalMatched,
+    followUpSuggestions: buildSuggestions(en),
+  };
+}
