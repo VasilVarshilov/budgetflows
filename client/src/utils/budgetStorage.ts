@@ -10,6 +10,7 @@ import {
   STORAGE_BASE_TOTAL_BUDGET,
   STORAGE_BASE_MONTHLY,
 } from "./userStorage";
+import { isCompletedExpense } from "./expenseStatus";
 
 export const STORAGE_KEY_BUDGETS = "HomeBudget_Budgets";
 export const STORAGE_KEY_TOTAL_BUDGET = "HomeBudget_TotalMonthlyBudget";
@@ -665,10 +666,10 @@ export function calculateCategorySpent(
   let total = 0;
   const budgetCatNameNorm = budget.categoryName.trim().toLowerCase();
 
-  // Fixed expenses
+  // Fixed expenses (completed only)
   if (Array.isArray(record.expenses.fixed_expenses)) {
     record.expenses.fixed_expenses.forEach((item) => {
-      if (isExpenseMatchingBudget(item, budget)) {
+      if (isCompletedExpense(item) && isExpenseMatchingBudget(item, budget)) {
         total += item.amount;
       }
     });
@@ -685,10 +686,10 @@ export function calculateCategorySpent(
     }
   }
 
-  // Additional / variable expenses
+  // Additional / variable expenses (completed only)
   if (Array.isArray(record.expenses.additional_expenses)) {
     record.expenses.additional_expenses.forEach((item) => {
-      if (isExpenseMatchingBudget(item, budget)) {
+      if (isCompletedExpense(item) && isExpenseMatchingBudget(item, budget)) {
         total += item.amount;
       }
     });
@@ -698,7 +699,7 @@ export function calculateCategorySpent(
 }
 
 /**
- * Returns all individual ExpenseItems matching a category budget
+ * Returns all individual completed ExpenseItems matching a category budget
  */
 export function getCategoryExpenses(
   record: MonthlyRecord | undefined,
@@ -710,13 +711,17 @@ export function getCategoryExpenses(
 
   if (Array.isArray(record.expenses.fixed_expenses)) {
     record.expenses.fixed_expenses.forEach((item) => {
-      if (isExpenseMatchingBudget(item, budget)) matched.push(item);
+      if (isCompletedExpense(item) && isExpenseMatchingBudget(item, budget)) {
+        matched.push(item);
+      }
     });
   }
 
   if (Array.isArray(record.expenses.additional_expenses)) {
     record.expenses.additional_expenses.forEach((item) => {
-      if (isExpenseMatchingBudget(item, budget)) matched.push(item);
+      if (isCompletedExpense(item) && isExpenseMatchingBudget(item, budget)) {
+        matched.push(item);
+      }
     });
   }
 
@@ -743,12 +748,12 @@ export function calculateAllBudgetsStatus(
   totalMonthlyLimit: number,
   categoryBudgets: BudgetConfig[]
 ): OverallBudgetCalculation {
-  // Compute total monthly expenses
+  // Compute total monthly completed expenses
   let totalSpent = 0;
   if (monthlyRecord && monthlyRecord.expenses) {
     if (Array.isArray(monthlyRecord.expenses.fixed_expenses)) {
       totalSpent += monthlyRecord.expenses.fixed_expenses.reduce(
-        (sum, item) => sum + item.amount,
+        (sum, item) => sum + (isCompletedExpense(item) ? item.amount : 0),
         0
       );
     } else if (monthlyRecord.expenses.fixed_expenses) {
@@ -758,7 +763,7 @@ export function calculateAllBudgetsStatus(
 
     if (Array.isArray(monthlyRecord.expenses.additional_expenses)) {
       totalSpent += monthlyRecord.expenses.additional_expenses.reduce(
-        (sum, item) => sum + item.amount,
+        (sum, item) => sum + (isCompletedExpense(item) ? item.amount : 0),
         0
       );
     }

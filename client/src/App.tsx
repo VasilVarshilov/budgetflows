@@ -39,6 +39,9 @@ import {
   STORAGE_BASE_MONTHLY,
   STORAGE_BASE_SAVINGS,
 } from "@/utils/userStorage";
+import { toggleRecordCompletion } from "@/utils/expenseStatus";
+import { upsertElectricityRecordFromExpense } from "@/utils/electricityStorage";
+import { generateDueRecurringInstances } from "@/utils/recurrenceEngine";
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 
 type Tab = "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
@@ -183,9 +186,20 @@ const AppContent: React.FC = () => {
 
   const displayUser = user || storedProfile;
 
+  // Save helpers strictly scoped to the current activeUid (never capturing stale guest UID)
+  const saveMonthlyToStorage = useCallback(
+    (updated: Record<string, MonthlyRecord>, explicitUid?: string) => {
+      const targetUid = explicitUid || userStorage.getActiveUid();
+      userStorage.setJSON(STORAGE_BASE_MONTHLY, updated, targetUid);
+      userStorage.markLocalModified(targetUid);
+    },
+    []
+  );
+
   // Reload isolated data for the active user account
   const loadAccountWorkspaceData = useCallback((targetUid: string) => {
-    setCurrentMonth((prev) => prev || getCurrentMonthBulgarian());
+    const activeMonth = getCurrentMonthBulgarian();
+    setCurrentMonth((prev) => prev || activeMonth);
     const storedMonthly = userStorage.getJSON<Record<string, MonthlyRecord>>(
       STORAGE_BASE_MONTHLY,
       {},
@@ -196,8 +210,15 @@ const AppContent: React.FC = () => {
       [],
       targetUid
     );
-    const normalizedMonthly =
+    const rawMonthly =
       storedMonthly && typeof storedMonthly === "object" ? storedMonthly : {};
+    const { updatedMonthlyData: normalizedMonthly, generatedCount } =
+      generateDueRecurringInstances(rawMonthly, {
+        activeMonthKey: activeMonth,
+      });
+    if (generatedCount > 0) {
+      userStorage.setJSON(STORAGE_BASE_MONTHLY, normalizedMonthly, targetUid);
+    }
     monthlyDataRef.current = normalizedMonthly;
     setMonthlyData(normalizedMonthly);
     setGlobalSavings(Array.isArray(storedSavings) ? storedSavings : []);
@@ -216,15 +237,28 @@ const AppContent: React.FC = () => {
     loadAccountWorkspaceData(activeUid);
   }, [activeUid, isAuthLoading, isSwitchingAccount, loadAccountWorkspaceData]);
 
-  // Save helpers strictly scoped to the current activeUid (never capturing stale guest UID)
-  const saveMonthlyToStorage = useCallback(
-    (updated: Record<string, MonthlyRecord>, explicitUid?: string) => {
-      const targetUid = explicitUid || userStorage.getActiveUid();
-      userStorage.setJSON(STORAGE_BASE_MONTHLY, updated, targetUid);
-      userStorage.markLocalModified(targetUid);
-    },
-    []
-  );
+  // Automatically materialize due recurring Expenses & Incomes when viewing/switching months or editing recurring sources
+  useEffect(() => {
+    if (isAuthLoading || isSwitchingAccount) return;
+    const { updatedMonthlyData, generatedCount } = generateDueRecurringInstances(
+      monthlyDataRef.current,
+      { activeMonthKey: currentMonth }
+    );
+    if (generatedCount > 0) {
+      monthlyDataRef.current = updatedMonthlyData;
+      const targetUid = userStorage.getActiveUid();
+      saveMonthlyToStorage(updatedMonthlyData, targetUid);
+      setMonthlyData(updatedMonthlyData);
+      triggerAutoSync();
+    }
+  }, [
+    monthlyData,
+    currentMonth,
+    isAuthLoading,
+    isSwitchingAccount,
+    saveMonthlyToStorage,
+    triggerAutoSync,
+  ]);
 
   const saveSavingsToStorage = useCallback(
     (updated: IncomeItem[], explicitUid?: string) => {
@@ -284,6 +318,10 @@ const AppContent: React.FC = () => {
         date: nowIso,
         createdAt: nowIso,
         timestamp: nowMs,
+        completed: true,
+        status: "completed",
+        repeat: "never",
+        completedAt: nowIso,
       };
 
       const em2Ms = nowMs + 1;
@@ -299,6 +337,10 @@ const AppContent: React.FC = () => {
         date: em2Iso,
         createdAt: em2Iso,
         timestamp: em2Ms,
+        completed: true,
+        status: "completed",
+        repeat: "never",
+        completedAt: em2Iso,
       };
 
       const updated: MonthlyRecord = {
@@ -349,6 +391,10 @@ const AppContent: React.FC = () => {
         createdAt: entry.createdAt,
         timestamp: entry.timestamp,
         sourceMonth: monthKey,
+        completed: true,
+        status: "completed",
+        repeat: "never",
+        completedAt: entry.createdAt,
       };
 
       const updated: MonthlyRecord = {
@@ -411,6 +457,90 @@ const AppContent: React.FC = () => {
       triggerAutoSync();
     },
     [currentMonth, activeUid, saveMonthlyToStorage, triggerAutoSync]
+  );
+
+  // Toggle completion status (Изпълнено: true <-> false) for Expenses or Incomes from Dashboard
+  const handleToggleRecordCompletion = useCallback(
+    (
+      monthKey: string,
+      kind: "fixed" | "additional" | "income",
+      recordId: string,
+      nextCompleted?: boolean
+    ) => {
+      const targetUid = userStorage.getActiveUid();
+      const prev = monthlyDataRef.current;
+      const existing = prev[monthKey];
+      if (!existing) return;
+
+      if (kind === "income") {
+        if (!Array.isArray(existing.incomes)) return;
+        let changedIncome = false;
+        const updatedIncomes = existing.incomes.map((inc) => {
+          if (inc.id === recordId) {
+            changedIncome = true;
+            return toggleRecordCompletion(inc, nextCompleted);
+          }
+          return inc;
+        });
+        if (!changedIncome) return;
+
+        const updated: MonthlyRecord = {
+          ...existing,
+          incomes: updatedIncomes,
+        };
+        const newData = { ...prev, [monthKey]: updated };
+        monthlyDataRef.current = newData;
+        saveMonthlyToStorage(newData, targetUid);
+        setMonthlyData(newData);
+        triggerAutoSync();
+        return;
+      }
+
+      if (!existing.expenses) return;
+
+      let toggledExpense: ExpenseItem | null = null;
+
+      const updatedFixed =
+        kind === "fixed" && Array.isArray(existing.expenses.fixed_expenses)
+          ? existing.expenses.fixed_expenses.map((item) => {
+              if (item.id === recordId) {
+                toggledExpense = toggleRecordCompletion(item, nextCompleted);
+                return toggledExpense;
+              }
+              return item;
+            })
+          : existing.expenses.fixed_expenses;
+
+      const updatedAdditional =
+        kind === "additional" && Array.isArray(existing.expenses.additional_expenses)
+          ? existing.expenses.additional_expenses.map((item) => {
+              if (item.id === recordId) {
+                toggledExpense = toggleRecordCompletion(item, nextCompleted);
+                return toggledExpense;
+              }
+              return item;
+            })
+          : existing.expenses.additional_expenses;
+
+      if (!toggledExpense) return;
+
+      const updated: MonthlyRecord = {
+        ...existing,
+        expenses: {
+          ...existing.expenses,
+          fixed_expenses: updatedFixed,
+          additional_expenses: updatedAdditional,
+        },
+      };
+
+      const newData = { ...prev, [monthKey]: updated };
+      monthlyDataRef.current = newData;
+      saveMonthlyToStorage(newData, targetUid);
+      setMonthlyData(newData);
+      upsertElectricityRecordFromExpense(toggledExpense, monthKey);
+      triggerAutoSync();
+    },
+    [saveMonthlyToStorage, triggerAutoSync]
   );
 
   // Monthly Incomes Save (for any monthKey)
@@ -643,6 +773,7 @@ const AppContent: React.FC = () => {
             globalSavings={globalSavings}
             onNavigateTab={setActiveTab}
             onTriggerSync={triggerAutoSync}
+            onToggleRecordCompletion={handleToggleRecordCompletion}
           />
         )}
 

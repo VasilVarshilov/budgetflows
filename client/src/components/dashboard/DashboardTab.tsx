@@ -22,6 +22,8 @@ import {
   AlertCircle,
   ArrowRight,
   Sparkles,
+  Clock,
+  CheckCircle2,
 } from "lucide-react";
 import { ExportCenterModal } from "@/components/export/ExportCenterModal";
 import {
@@ -39,7 +41,7 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
+import { MonthlyRecord, IncomeItem, ExpenseItem, RepeatFrequency } from "@/types";
 import {
   SYSTEM_CATEGORY_COLORS,
   getHexFromTailwindClass,
@@ -56,12 +58,35 @@ import { computeMonthToMonthComparison } from "@/utils/comparisonStorage";
 import { generateLocalFinancialAnalysis } from "@/utils/aiAnalysisEngine";
 import { useTheme } from "@/utils/themeContext";
 import { loadAppSettings, saveAppSettings } from "@/utils/incomeStorage";
+import { isCompletedExpense, isPlannedExpense, isRecordCompleted } from "@/utils/expenseStatus";
+import { formatRepeatLabel } from "@/utils/recurrenceEngine";
+import { CompletionSwitch } from "@/components/ui/RecurrenceCompletionRows";
+
+interface UpcomingDashboardItem {
+  id: string;
+  monthKey: string;
+  kind: "fixed" | "additional" | "income";
+  categoryName: string;
+  categoryIcon?: string;
+  categoryColor?: string;
+  note?: string;
+  merchantName?: string;
+  date: string;
+  amount: number;
+  repeat?: RepeatFrequency;
+}
 
 interface DashboardTabProps {
   monthlyData: Record<string, MonthlyRecord>;
   globalSavings: IncomeItem[];
   onNavigateTab?: (tab: "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "backup" | "budgets" | "ai-analysis") => void;
   onTriggerSync?: () => void;
+  onToggleRecordCompletion?: (
+    monthKey: string,
+    kind: "fixed" | "additional" | "income",
+    recordId: string,
+    nextCompleted?: boolean
+  ) => void;
 }
 
 type PeriodType = "current" | "month" | "year" | "custom";
@@ -123,6 +148,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   globalSavings,
   onNavigateTab,
   onTriggerSync,
+  onToggleRecordCompletion,
 }) => {
   const now = new Date();
   const currentMonthName = now.toLocaleDateString("bg-BG", { month: "long" });
@@ -284,103 +310,155 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   ]);
 
   // 3. Compute KPI Aggregations
-  // Expenses from monthlyData
-  const { totalFixed, totalVariable, totalExpenses, categoryBreakdown } =
-    useMemo(() => {
-      let fixed = 0;
-      let variable = 0;
-      const catMap: Record<string, { value: number; color?: string }> = {};
+  // Expenses from monthlyData (completed only; planned isolated into upcoming summary)
+  const {
+    totalFixed,
+    totalVariable,
+    totalExpenses,
+    totalPlannedExpenses,
+    upcomingExpenseItems,
+    categoryBreakdown,
+  } = useMemo(() => {
+    let fixed = 0;
+    let variable = 0;
+    let plannedSum = 0;
+    const plannedList: UpcomingDashboardItem[] = [];
+    const catMap: Record<string, { value: number; color?: string }> = {};
 
-      activeMonthsList.forEach(({ record }) => {
-        const exp = record.expenses;
-        if (!exp) return;
+    activeMonthsList.forEach(({ key, record }) => {
+      const exp = record.expenses;
+      if (!exp) return;
 
-        // Fixed expenses
-        if (Array.isArray(exp.fixed_expenses)) {
-          exp.fixed_expenses.forEach((item: ExpenseItem) => {
-            fixed += item.amount;
-            if (!catMap[item.categoryName]) {
-              catMap[item.categoryName] = {
-                value: 0,
-                color:
-                  SYSTEM_CATEGORY_COLORS[item.categoryName] ||
-                  getHexFromTailwindClass(item.categoryColor),
-              };
-            }
-            catMap[item.categoryName].value += item.amount;
-          });
-        } else if (exp.fixed_expenses) {
-          const legacy = exp.fixed_expenses as any;
-          if (legacy.credit_eur) {
-            fixed += legacy.credit_eur;
-            catMap["Кредит"] = {
-              value: (catMap["Кредит"]?.value || 0) + legacy.credit_eur,
-              color: SYSTEM_CATEGORY_COLORS["Кредит"],
+      // Fixed expenses
+      if (Array.isArray(exp.fixed_expenses)) {
+        exp.fixed_expenses.forEach((item: ExpenseItem) => {
+          if (isPlannedExpense(item)) {
+            const amt = Number(item.amount) || 0;
+            plannedSum += amt;
+            plannedList.push({
+              id: item.id,
+              monthKey: key,
+              kind: "fixed",
+              categoryName: item.categoryName,
+              categoryIcon: item.categoryIcon,
+              categoryColor: item.categoryColor,
+              note: item.note,
+              merchantName: item.merchantName,
+              date: item.date || "",
+              amount: amt,
+              repeat: item.repeat,
+            });
+            return;
+          }
+          if (!isCompletedExpense(item)) return;
+
+          fixed += item.amount;
+          if (!catMap[item.categoryName]) {
+            catMap[item.categoryName] = {
+              value: 0,
+              color:
+                SYSTEM_CATEGORY_COLORS[item.categoryName] ||
+                getHexFromTailwindClass(item.categoryColor),
             };
           }
-          if (legacy.phone_eur) {
-            fixed += legacy.phone_eur;
-            catMap["Телефон"] = {
-              value: (catMap["Телефон"]?.value || 0) + legacy.phone_eur,
-              color: SYSTEM_CATEGORY_COLORS["Телефон"],
-            };
-          }
-          if (legacy.internet_eur) {
-            fixed += legacy.internet_eur;
-            catMap["Интернет"] = {
-              value: (catMap["Интернет"]?.value || 0) + legacy.internet_eur,
-              color: SYSTEM_CATEGORY_COLORS["Интернет"],
-            };
-          }
+          catMap[item.categoryName].value += item.amount;
+        });
+      } else if (exp.fixed_expenses) {
+        const legacy = exp.fixed_expenses as any;
+        if (legacy.credit_eur) {
+          fixed += legacy.credit_eur;
+          catMap["Кредит"] = {
+            value: (catMap["Кредит"]?.value || 0) + legacy.credit_eur,
+            color: SYSTEM_CATEGORY_COLORS["Кредит"],
+          };
         }
-
-        // Additional / Variable expenses
-        if (Array.isArray(exp.additional_expenses)) {
-          exp.additional_expenses.forEach((item: ExpenseItem) => {
-            // If in custom date range, filter by exact date if available
-            if (periodType === "custom" && item.date) {
-              const itemDate = new Date(item.date);
-              const start = new Date(customStartDate + "T00:00:00");
-              const end = new Date(customEndDate + "T23:59:59");
-              if (itemDate < start || itemDate > end) return;
-            }
-
-            variable += item.amount;
-            if (!catMap[item.categoryName]) {
-              catMap[item.categoryName] = {
-                value: 0,
-                color: getHexFromTailwindClass(item.categoryColor),
-              };
-            }
-            catMap[item.categoryName].value += item.amount;
-          });
+        if (legacy.phone_eur) {
+          fixed += legacy.phone_eur;
+          catMap["Телефон"] = {
+            value: (catMap["Телефон"]?.value || 0) + legacy.phone_eur,
+            color: SYSTEM_CATEGORY_COLORS["Телефон"],
+          };
         }
-      });
+        if (legacy.internet_eur) {
+          fixed += legacy.internet_eur;
+          catMap["Интернет"] = {
+            value: (catMap["Интернет"]?.value || 0) + legacy.internet_eur,
+            color: SYSTEM_CATEGORY_COLORS["Интернет"],
+          };
+        }
+      }
 
-      const categoriesArray = Object.entries(catMap)
-        .map(([name, data], idx) => ({
-          name,
-          value: parseFloat(data.value.toFixed(2)),
-          color: data.color || PALETTE[idx % PALETTE.length],
-        }))
-        .filter((c) => c.value > 0)
-        .sort((a, b) => b.value - a.value);
+      // Additional / Variable expenses
+      if (Array.isArray(exp.additional_expenses)) {
+        exp.additional_expenses.forEach((item: ExpenseItem) => {
+          // If in custom date range, filter by exact date if available
+          if (periodType === "custom" && item.date) {
+            const itemDate = new Date(item.date);
+            const start = new Date(customStartDate + "T00:00:00");
+            const end = new Date(customEndDate + "T23:59:59");
+            if (itemDate < start || itemDate > end) return;
+          }
 
-      return {
-        totalFixed: fixed,
-        totalVariable: variable,
-        totalExpenses: fixed + variable,
-        categoryBreakdown: categoriesArray,
-      };
-    }, [activeMonthsList, periodType, customStartDate, customEndDate]);
+          if (isPlannedExpense(item)) {
+            const amt = Number(item.amount) || 0;
+            plannedSum += amt;
+            plannedList.push({
+              id: item.id,
+              monthKey: key,
+              kind: "additional",
+              categoryName: item.categoryName,
+              categoryIcon: item.categoryIcon,
+              categoryColor: item.categoryColor,
+              note: item.note,
+              merchantName: item.merchantName,
+              date: item.date || "",
+              amount: amt,
+              repeat: item.repeat,
+            });
+            return;
+          }
+          if (!isCompletedExpense(item)) return;
 
-  // Income from monthly records ONLY (Savings are NOT income)
-  const { totalIncome, incomeCount } = useMemo(() => {
+          variable += item.amount;
+          if (!catMap[item.categoryName]) {
+            catMap[item.categoryName] = {
+              value: 0,
+              color: getHexFromTailwindClass(item.categoryColor),
+            };
+          }
+          catMap[item.categoryName].value += item.amount;
+        });
+      }
+    });
+
+    const categoriesArray = Object.entries(catMap)
+      .map(([name, data], idx) => ({
+        name,
+        value: parseFloat(data.value.toFixed(2)),
+        color: data.color || PALETTE[idx % PALETTE.length],
+      }))
+      .filter((c) => c.value > 0)
+      .sort((a, b) => b.value - a.value);
+
+    return {
+      totalFixed: fixed,
+      totalVariable: variable,
+      totalExpenses: fixed + variable,
+      totalPlannedExpenses: plannedSum,
+      upcomingExpenseItems: plannedList,
+      categoryBreakdown: categoriesArray,
+    };
+  }, [activeMonthsList, periodType, customStartDate, customEndDate]);
+
+  // Income from monthly records ONLY (completed only; upcoming isolated into upcoming widget)
+  const { totalIncome, incomeCount, totalExpectedIncome, upcomingIncomeItems } = useMemo(() => {
     let sum = 0;
     let count = 0;
+    let expectedSum = 0;
+    const expectedList: UpcomingDashboardItem[] = [];
     const seenIds = new Set<string>();
 
-    activeMonthsList.forEach(({ record }) => {
+    activeMonthsList.forEach(({ key, record }) => {
       if (record?.incomes && Array.isArray(record.incomes)) {
         record.incomes.forEach((inc) => {
           if (!inc || inc.type === "expense" || seenIds.has(inc.id)) return;
@@ -391,14 +469,45 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             if (itemDate < start || itemDate > end) return;
           }
           seenIds.add(inc.id);
-          sum += Number(inc.amount) || 0;
+          const amt = Number(inc.amount) || 0;
+          if (!isRecordCompleted(inc)) {
+            expectedSum += amt;
+            expectedList.push({
+              id: inc.id,
+              monthKey: key,
+              kind: "income",
+              categoryName: inc.categoryName || "Приход",
+              categoryIcon: inc.categoryIcon,
+              categoryColor: inc.categoryColor,
+              note: inc.note,
+              merchantName: inc.merchantName,
+              date: inc.date || "",
+              amount: amt,
+              repeat: inc.repeat,
+            });
+            return;
+          }
+          sum += amt;
           count += 1;
         });
       }
     });
 
-    return { totalIncome: sum, incomeCount: count };
+    return {
+      totalIncome: sum,
+      incomeCount: count,
+      totalExpectedIncome: expectedSum,
+      upcomingIncomeItems: expectedList,
+    };
   }, [activeMonthsList, periodType, customStartDate, customEndDate]);
+
+  const upcomingItems = useMemo(() => {
+    return [...upcomingExpenseItems, ...upcomingIncomeItems].sort((a, b) => {
+      const ta = a.date ? new Date(a.date).getTime() : 0;
+      const tb = b.date ? new Date(b.date).getTime() : 0;
+      return tb - ta;
+    });
+  }, [upcomingExpenseItems, upcomingIncomeItems]);
 
   // Savings in period (income - expense in savings ledger)
   const periodSavings = useMemo(() => {
@@ -443,14 +552,18 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         let sum = 0;
         if (exp?.fixed_expenses) {
           if (Array.isArray(exp.fixed_expenses)) {
-            sum += exp.fixed_expenses.reduce((s, i) => s + i.amount, 0);
+            sum += exp.fixed_expenses
+              .filter((i: ExpenseItem) => isCompletedExpense(i))
+              .reduce((s, i) => s + i.amount, 0);
           } else {
             const leg = exp.fixed_expenses as any;
             sum += (leg.credit_eur || 0) + (leg.phone_eur || 0) + (leg.internet_eur || 0);
           }
         }
         if (exp?.additional_expenses) {
-          sum += exp.additional_expenses.reduce((s, i) => s + i.amount, 0);
+          sum += exp.additional_expenses
+            .filter((i: ExpenseItem) => isCompletedExpense(i))
+            .reduce((s, i) => s + i.amount, 0);
         }
         if (monthMap[monthIndex]) {
           monthMap[monthIndex].expenses += sum;
@@ -458,7 +571,14 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
         if (record.incomes && Array.isArray(record.incomes)) {
           record.incomes.forEach((inc) => {
-            if (!inc || inc.type === "expense" || seenIncomeIds.has(inc.id)) return;
+            if (
+              !inc ||
+              inc.type === "expense" ||
+              !isRecordCompleted(inc) ||
+              seenIncomeIds.has(inc.id)
+            ) {
+              return;
+            }
             if (periodType === "custom" && inc.date) {
               const d = new Date(inc.date);
               const start = new Date(customStartDate + "T00:00:00");
@@ -519,7 +639,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           let sum = 0;
           if (exp?.fixed_expenses) {
             if (Array.isArray(exp.fixed_expenses)) {
-              sum += exp.fixed_expenses.reduce((s, i) => s + i.amount, 0);
+              sum += exp.fixed_expenses
+                .filter((i: ExpenseItem) => isCompletedExpense(i))
+                .reduce((s, i) => s + i.amount, 0);
             } else {
               const leg = exp.fixed_expenses as any;
               sum +=
@@ -529,13 +651,22 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             }
           }
           if (exp?.additional_expenses) {
-            sum += exp.additional_expenses.reduce((s, i) => s + i.amount, 0);
+            sum += exp.additional_expenses
+              .filter((i: ExpenseItem) => isCompletedExpense(i))
+              .reduce((s, i) => s + i.amount, 0);
           }
           trend[mIndex].expenses += sum;
 
           if (record.incomes && Array.isArray(record.incomes)) {
             record.incomes.forEach((inc) => {
-              if (!inc || inc.type === "expense" || seenIncomeIds.has(inc.id)) return;
+              if (
+                !inc ||
+                inc.type === "expense" ||
+                !isRecordCompleted(inc) ||
+                seenIncomeIds.has(inc.id)
+              ) {
+                return;
+              }
               seenIncomeIds.add(inc.id);
               trend[mIndex].income += Number(inc.amount) || 0;
             });
@@ -932,6 +1063,213 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Additional Summary: Realized vs Upcoming & Expected Totals */}
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <span>Реализирани и предстоящи</span>
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Само записите с включено „Изпълнено“ влизат в реалния баланс, бюджетите и отчетите
+            </p>
+          </div>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Очаквани = Реализирани + Предстоящи
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-4">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
+              Похарчени
+            </span>
+            <span className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-1 block">
+              €{totalExpenses.toFixed(2)}
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/70">
+            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block">
+              Предстоящи разходи
+            </span>
+            <span className="text-xl font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-1 block">
+              €{totalPlannedExpenses.toFixed(2)}
+            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
+              Очаквани: €{(totalExpenses + totalPlannedExpenses).toFixed(2)}
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/70">
+            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 block">
+              Реализирани приходи
+            </span>
+            <span className="text-xl font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums mt-1 block">
+              €{totalIncome.toFixed(2)}
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/70">
+            <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 block">
+              Очаквани приходи
+            </span>
+            <span className="text-xl font-extrabold text-indigo-700 dark:text-indigo-300 tabular-nums mt-1 block">
+              €{totalExpectedIncome.toFixed(2)}
+            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
+              Общо очаквани: €{(totalIncome + totalExpectedIncome).toFixed(2)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Dedicated Upcoming Payments & Income Widget */}
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4 transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                Предстоящи плащания и приходи
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {upcomingItems.length > 0
+                  ? `${upcomingExpenseItems.length} ${upcomingExpenseItems.length === 1 ? "разход" : "разхода"} · ${upcomingIncomeItems.length} ${upcomingIncomeItems.length === 1 ? "приход" : "прихода"} за ${currentPeriodLabel}`
+                  : `Няма предстоящи плащания и приходи за ${currentPeriodLabel}`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 self-end sm:self-center text-right">
+            {totalPlannedExpenses > 0 && (
+              <div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 mr-1">
+                  Разходи:
+                </span>
+                <span className="text-sm sm:text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums">
+                  -€{totalPlannedExpenses.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {totalExpectedIncome > 0 && (
+              <div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 mr-1">
+                  Приходи:
+                </span>
+                <span className="text-sm sm:text-base font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
+                  +€{totalExpectedIncome.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {totalPlannedExpenses === 0 && totalExpectedIncome === 0 && (
+              <span className="text-sm font-bold text-slate-400 dark:text-slate-500 tabular-nums">
+                €0.00
+              </span>
+            )}
+          </div>
+        </div>
+
+        {upcomingItems.length > 0 ? (
+          <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/70 dark:border-slate-800 rounded-xl overflow-hidden">
+            {upcomingItems.map((item) => {
+              const isIncome = item.kind === "income";
+              const IconComponent =
+                (item.categoryIcon && AVAILABLE_ICONS_MAP[item.categoryIcon]) ||
+                (isIncome ? ArrowDownLeft : Clock);
+              const detailParts: string[] = [];
+              detailParts.push(isIncome ? "Очакван приход" : item.kind === "fixed" ? "Фиксиран разход" : "Предстоящ разход");
+              if (item.merchantName) detailParts.push(item.merchantName);
+              if (item.note) detailParts.push(item.note);
+              if (item.repeat && item.repeat !== "never") {
+                detailParts.push(formatRepeatLabel(item.repeat));
+              }
+              if (periodType === "year" || periodType === "custom") {
+                detailParts.push(item.monthKey);
+              }
+
+              return (
+                <div
+                  key={`${item.kind}_${item.monthKey}_${item.id}`}
+                  className="px-4 py-3 flex items-center justify-between gap-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        isIncome
+                          ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
+                          : "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300"
+                      }`}
+                    >
+                      <IconComponent className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">
+                        {item.categoryName}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        {detailParts.join(" · ")}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span
+                      className={`font-bold text-sm sm:text-base tabular-nums ${
+                        isIncome
+                          ? "text-emerald-700 dark:text-emerald-300"
+                          : "text-slate-900 dark:text-white"
+                      }`}
+                    >
+                      {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="hidden sm:inline text-xs font-medium text-slate-500 dark:text-slate-400">
+                        Изпълнено
+                      </span>
+                      <CompletionSwitch
+                        checked={false}
+                        onChange={() =>
+                          onToggleRecordCompletion?.(item.monthKey, item.kind, item.id, true)
+                        }
+                        ariaLabel={`Отбележи „${item.categoryName}“ като изпълнено`}
+                        size="sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="py-5 px-4 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              Всички записи за периода са изпълнени или няма добавени предстоящи плащания и приходи.
+            </span>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.("monthly")}
+                className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer whitespace-nowrap shrink-0"
+              >
+                + Разход
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.("income")}
+                className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline cursor-pointer whitespace-nowrap shrink-0"
+              >
+                + Приход
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Automatic Savings Suggestions Card */}

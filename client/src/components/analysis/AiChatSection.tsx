@@ -23,6 +23,7 @@ import {
   getPreviousMonthAndYear,
   calculateMonthExpenses,
 } from "@/utils/comparisonStorage";
+import { isCompletedExpense } from "@/utils/expenseStatus";
 
 interface AiChatSectionProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -51,11 +52,11 @@ interface MessageUiState {
 
 const SUGGESTED_QUESTIONS = [
   "Колко похарчих за цигари този месец?",
-  "Колко похарчих в Lidl?",
+  "Какви предстоящи разходи имам?",
+  "Какви приходи очаквам?",
   "Коя категория ми струва най-много?",
   "Колко спестих тази година?",
   "Покажи най-големите ми разходи",
-  "Колко дадох за ток през последните 6 месеца?",
 ];
 
 function fmtEur(n: number): string {
@@ -68,6 +69,7 @@ function getAllExpensesFromRecord(record: MonthlyRecord | undefined): AiChatMatc
 
   if (Array.isArray(record.expenses.fixed_expenses)) {
     record.expenses.fixed_expenses.forEach((exp, idx) => {
+      if (!isCompletedExpense(exp)) return;
       items.push({
         id: exp.id || `fix_${idx}`,
         monthKey: "",
@@ -84,6 +86,7 @@ function getAllExpensesFromRecord(record: MonthlyRecord | undefined): AiChatMatc
 
   if (Array.isArray(record.expenses.additional_expenses)) {
     record.expenses.additional_expenses.forEach((exp, idx) => {
+      if (!isCompletedExpense(exp)) return;
       items.push({
         id: exp.id || `var_${idx}`,
         monthKey: "",
@@ -127,7 +130,25 @@ function deriveResponsePresentation(
   const qLower = question.toLowerCase();
 
   let title = "Финансов отговор";
-  if (/цигар|cigaret|tobacco|iqos|heets|vape|тютюн/.test(qLower)) {
+  if (
+    /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending)|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|предсто|планиран))/.test(
+      qLower
+    )
+  ) {
+    title = "Очаквани приходи";
+  } else if (
+    /(?:колко\s+ще\s+похарча|\bще\s+похарча\b|колко\s+се\s+очаква|очаквани\s+разходи|предвидени\s+разходи|expected\s+(?:to\s+)?spend|projected\s+spend)/.test(
+      qLower
+    )
+  ) {
+    title = "Очаквани разходи";
+  } else if (
+    /(?:планиран|предстоящ|предстои\s+да\s+плат|planned\s+(?:expense|payment)|upcoming\s+(?:expense|payment)|pending\s+(?:expense|payment)|(?:expenses?|payments?|разходи|плащания)\s+(?:are\s+)?(?:upcoming|planned|pending))/.test(
+      qLower
+    )
+  ) {
+    title = "Предстоящи разходи";
+  } else if (/цигар|cigaret|tobacco|iqos|heets|vape|тютюн/.test(qLower)) {
     title = "Разходи за цигари";
   } else if (/ток|електро|electric|kwh/.test(qLower)) {
     title = "Разходи за електроенергия";

@@ -1,5 +1,6 @@
 import { ElectricityRecord, ExpenseItem, MonthlyRecord } from "@/types";
 import { userStorage, STORAGE_BASE_ELECTRICITY_HISTORY } from "./userStorage";
+import { isCompletedExpense } from "./expenseStatus";
 
 export const STORAGE_KEY_ELECTRICITY_HISTORY = "HomeBudget_ElectricityHistory";
 export const STORAGE_BASE_ELECTRICITY_DELETED_EXPENSES = "ElectricityDeletedExpenseIds";
@@ -359,7 +360,7 @@ export function upsertElectricityRecordFromExpense(
   expense: ExpenseItem,
   fallbackMonthKey?: string
 ): ElectricityRecord[] {
-  if (!isManualElectricityExpense(expense)) {
+  if (!isManualElectricityExpense(expense) || !isCompletedExpense(expense)) {
     return deleteElectricityRecordByExpenseId(expense.id);
   }
 
@@ -484,6 +485,7 @@ export function mergeElectricityHistoryWithManualExpenses(
 
     allItems.forEach((exp) => {
       if (
+        isCompletedExpense(exp) &&
         isManualElectricityExpense(exp) &&
         !seenExpenseIds.has(exp.id) &&
         !deletedIds.has(exp.id)

@@ -1,5 +1,6 @@
 import { MonthlyRecord, ExpenseItem, IncomeItem } from "@/types";
 import { SYSTEM_CATEGORY_COLORS, getHexFromTailwindClass } from "@/utils/colors";
+import { isCompletedExpense, isRecordCompleted } from "@/utils/expenseStatus";
 
 export type ExportPeriodType = "month" | "year" | "custom";
 
@@ -211,12 +212,12 @@ export function aggregateExportData(params: {
     }
   });
 
-  // Also include explicit monthly incomes from MonthlyRecord.incomes (Income Tab)
+  // Also include explicit realized monthly incomes from MonthlyRecord.incomes (Income Tab)
   // Note: MonthlyRecord.incomes are income entries, NOT savings fund deposits.
   activeMonths.forEach(({ record }) => {
     if (record.incomes && Array.isArray(record.incomes)) {
       record.incomes.forEach((inc) => {
-        if (!inc || inc.amount <= 0) return;
+        if (!inc || inc.amount <= 0 || !isRecordCompleted(inc)) return;
 
         if (periodType === "custom" && inc.date && sCustomDate && eCustomDate) {
           const incDate = new Date(inc.date);
@@ -271,9 +272,10 @@ export function aggregateExportData(params: {
       fixedExpensesTotal += exp.saved_em2_eur;
     }
 
-    // Fixed expenses
+    // Fixed expenses (Completed only)
     if (Array.isArray(exp.fixed_expenses)) {
       exp.fixed_expenses.forEach((item: ExpenseItem) => {
+        if (!isCompletedExpense(item)) return;
         fixedExpensesTotal += item.amount;
         if (!categoryMap[item.categoryName]) {
           categoryMap[item.categoryName] = {
@@ -327,9 +329,10 @@ export function aggregateExportData(params: {
       }
     }
 
-    // Additional expenses
+    // Additional expenses (Completed only)
     if (Array.isArray(exp.additional_expenses)) {
       exp.additional_expenses.forEach((item: ExpenseItem) => {
+        if (!isCompletedExpense(item)) return;
         if (periodType === "custom" && item.date) {
           const itemDate = new Date(item.date);
           const sDate = new Date(customStartDate + "T00:00:00");
@@ -399,13 +402,13 @@ export function aggregateExportData(params: {
         const exp = recItem.record.expenses;
         if (exp.saved_em2_eur) mExp += exp.saved_em2_eur;
         if (Array.isArray(exp.fixed_expenses)) {
-          mExp += exp.fixed_expenses.reduce((s, i) => s + i.amount, 0);
+          mExp += exp.fixed_expenses.reduce((s, i) => s + (isCompletedExpense(i) ? i.amount : 0), 0);
         } else if (exp.fixed_expenses) {
           const leg = exp.fixed_expenses as any;
           mExp += (leg.credit_eur || 0) + (leg.phone_eur || 0) + (leg.internet_eur || 0);
         }
         if (Array.isArray(exp.additional_expenses)) {
-          mExp += exp.additional_expenses.reduce((s, i) => s + i.amount, 0);
+          mExp += exp.additional_expenses.reduce((s, i) => s + (isCompletedExpense(i) ? i.amount : 0), 0);
         }
       }
 
@@ -425,7 +428,13 @@ export function aggregateExportData(params: {
       });
       if (recItem?.record.incomes && Array.isArray(recItem.record.incomes)) {
         recItem.record.incomes.forEach((inc) => {
-          if (inc && inc.amount > 0 && inc.type !== "expense" && !seenMonthIncIds.has(inc.id)) {
+          if (
+            inc &&
+            inc.amount > 0 &&
+            inc.type !== "expense" &&
+            isRecordCompleted(inc) &&
+            !seenMonthIncIds.has(inc.id)
+          ) {
             seenMonthIncIds.add(inc.id);
             mInc += inc.amount;
           }
@@ -451,13 +460,14 @@ export function aggregateExportData(params: {
         const exp = m.record.expenses;
         if (exp.saved_em2_eur) mExp += exp.saved_em2_eur;
         if (Array.isArray(exp.fixed_expenses)) {
-          mExp += exp.fixed_expenses.reduce((s, i) => s + i.amount, 0);
+          mExp += exp.fixed_expenses.reduce((s, i) => s + (isCompletedExpense(i) ? i.amount : 0), 0);
         } else if (exp.fixed_expenses) {
           const leg = exp.fixed_expenses as any;
           mExp += (leg.credit_eur || 0) + (leg.phone_eur || 0) + (leg.internet_eur || 0);
         }
         if (Array.isArray(exp.additional_expenses)) {
           exp.additional_expenses.forEach((item) => {
+            if (!isCompletedExpense(item)) return;
             if (periodType === "custom" && item.date && sCustomDate && eCustomDate) {
               const itemDate = new Date(item.date);
               if (itemDate < sCustomDate || itemDate > eCustomDate) return;
@@ -482,7 +492,7 @@ export function aggregateExportData(params: {
       });
       if (m.record.incomes && Array.isArray(m.record.incomes)) {
         m.record.incomes.forEach((inc) => {
-          if (!inc || inc.amount <= 0 || inc.type === "expense") return;
+          if (!inc || inc.amount <= 0 || inc.type === "expense" || !isRecordCompleted(inc)) return;
           if (periodType === "custom" && inc.date && sCustomDate && eCustomDate) {
             const incDate = new Date(inc.date);
             if (!isNaN(incDate.getTime()) && (incDate < sCustomDate || incDate > eCustomDate)) {
@@ -618,9 +628,12 @@ export function exportTxtReport(data: ExportReportData): void {
       lines.push(`\n>>> МЕСЕЦ: ${key.toUpperCase()}`);
       const exp = record.expenses;
 
-      if (Array.isArray(record.incomes) && record.incomes.length > 0) {
+      const completedIncomes = Array.isArray(record.incomes)
+        ? record.incomes.filter((inc) => inc && inc.type !== "expense" && isRecordCompleted(inc))
+        : [];
+      if (completedIncomes.length > 0) {
         lines.push("   [Приходи]:");
-        record.incomes.forEach((inc) => {
+        completedIncomes.forEach((inc) => {
           const catLabel = inc.categoryName || "Приход";
           const noteText = inc.note ? ` (${inc.note})` : "";
           const dateText = inc.date ? ` [${new Date(inc.date).toLocaleDateString("bg-BG")}]` : "";
@@ -632,16 +645,22 @@ export function exportTxtReport(data: ExportReportData): void {
         lines.push(`   [Ток - Електроенергия] : €${exp.saved_em2_eur.toFixed(2)}`);
       }
 
-      if (Array.isArray(exp?.fixed_expenses) && exp.fixed_expenses.length > 0) {
+      const completedFixed = Array.isArray(exp?.fixed_expenses)
+        ? exp.fixed_expenses.filter((item) => isCompletedExpense(item))
+        : [];
+      if (completedFixed.length > 0) {
         lines.push("   [Фиксирани разходи]:");
-        exp.fixed_expenses.forEach((item) => {
+        completedFixed.forEach((item) => {
           lines.push(`     • ${item.categoryName.padEnd(24)}: €${item.amount.toFixed(2)}`);
         });
       }
 
-      if (Array.isArray(exp?.additional_expenses) && exp.additional_expenses.length > 0) {
+      const completedAdditional = Array.isArray(exp?.additional_expenses)
+        ? exp.additional_expenses.filter((item) => isCompletedExpense(item))
+        : [];
+      if (completedAdditional.length > 0) {
         lines.push("   [Допълнителни разходи]:");
-        exp.additional_expenses.forEach((item) => {
+        completedAdditional.forEach((item) => {
           const noteText = item.note ? ` (${item.note})` : "";
           const dateText = item.date ? ` [${new Date(item.date).toLocaleDateString("bg-BG")}]` : "";
           lines.push(`     • ${(item.categoryName + noteText).padEnd(28)}: €${item.amount.toFixed(2)}${dateText}`);

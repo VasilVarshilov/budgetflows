@@ -74,6 +74,18 @@ export interface ReceiptItemDetail {
   discountLabel?: string;
 }
 
+export type ExpenseStatus = "planned" | "completed";
+
+export type RepeatFrequency =
+  | "never"
+  | "daily"
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "quarterly"
+  | "semiannual"
+  | "yearly";
+
 export interface ExpenseItem {
   id: string;
   categoryId: string;
@@ -85,9 +97,21 @@ export interface ExpenseItem {
   date: string;
   createdAt?: string;
   timestamp?: number;
+  /** Universal completion status. Default when undefined: resolves via isRecordCompleted(). */
+  completed?: boolean;
+  /** Legacy v1 status mirror kept in sync with completed for backward compatibility. */
+  status?: ExpenseStatus;
+  completedAt?: string; // ISO timestamp when marked completed
   merchantName?: string;
   receiptItems?: ReceiptItemDetail[];
-  isRecurring?: boolean; // When enabled, marked as a recurring expense (e.g., Rent, Internet, Mobile Plan, Insurance)
+  /** Legacy recurring marker / UI indicator (kept synced when repeat !== "never"). */
+  isRecurring?: boolean;
+  /** Explicit recurring schedule frequency for automatic future instance generation. */
+  repeat?: RepeatFrequency;
+  /** Parent record ID for auto-generated future recurring occurrences. */
+  recurrenceSourceId?: string;
+  /** Occurrence key (YYYY-MM-DD) for idempotent generation & dismissal tracking. */
+  recurrenceOccurrenceKey?: string;
   isFixedItem?: boolean;
   sourceMonth?: string;
   budgetCategoryId?: string; // Unique budget category ID (e.g. 'b_food', 'b_entertainment') or 'none'

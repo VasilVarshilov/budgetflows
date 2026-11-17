@@ -1,5 +1,6 @@
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 import { getStoredElectricityHistory } from "./electricityStorage";
+import { isCompletedExpense, isRecordCompleted } from "./expenseStatus";
 
 export const MONTHS_BG = [
   "Януари",
@@ -67,7 +68,7 @@ export function calculateMonthExpenses(record: MonthlyRecord | undefined): numbe
 
   if (Array.isArray(record.expenses.fixed_expenses)) {
     total += record.expenses.fixed_expenses.reduce(
-      (sum, item) => sum + (Number(item.amount) || 0),
+      (sum, item) => sum + (isCompletedExpense(item) ? Number(item.amount) || 0 : 0),
       0
     );
   } else if (record.expenses.fixed_expenses) {
@@ -77,7 +78,7 @@ export function calculateMonthExpenses(record: MonthlyRecord | undefined): numbe
 
   if (Array.isArray(record.expenses.additional_expenses)) {
     total += record.expenses.additional_expenses.reduce(
-      (sum, item) => sum + (Number(item.amount) || 0),
+      (sum, item) => sum + (isCompletedExpense(item) ? Number(item.amount) || 0 : 0),
       0
     );
   }
@@ -97,10 +98,16 @@ export function calculateMonthIncome(
   let total = 0;
   const seenIds = new Set<string>();
 
-  // Incomes recorded inside monthlyRecord
+  // Incomes recorded inside monthlyRecord (Completed only)
   if (record && record.incomes && Array.isArray(record.incomes)) {
     record.incomes.forEach((inc) => {
-      if (inc && inc.amount > 0 && inc.type !== "expense" && !seenIds.has(inc.id)) {
+      if (
+        inc &&
+        inc.amount > 0 &&
+        inc.type !== "expense" &&
+        isRecordCompleted(inc) &&
+        !seenIds.has(inc.id)
+      ) {
         seenIds.add(inc.id);
         total += Number(inc.amount) || 0;
       }
@@ -181,8 +188,9 @@ export function calculateMonthElectricity(
       if (Array.isArray(record.expenses.additional_expenses)) {
         const elecItems = record.expenses.additional_expenses.filter(
           (e) =>
-            e.categoryId === "electricity" ||
-            e.categoryName.toLowerCase().includes("ток")
+            isCompletedExpense(e) &&
+            (e.categoryId === "electricity" ||
+              e.categoryName.toLowerCase().includes("ток"))
         );
         if (elecItems.length > 0) {
           const sum = elecItems.reduce((acc, curr) => acc + curr.amount, 0);

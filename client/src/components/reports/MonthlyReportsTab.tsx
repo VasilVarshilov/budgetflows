@@ -26,6 +26,7 @@ import {
   calculateMonthIncome,
   calculateMonthSavings,
 } from "@/utils/comparisonStorage";
+import { isCompletedExpense, isRecordCompleted } from "@/utils/expenseStatus";
 
 interface MonthlyReportsTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -109,26 +110,26 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
       });
     }
 
-    // 2. Fixed Expenses
+    // 2. Fixed Expenses (Completed only)
     // Handle both new array format and legacy object format
     if (Array.isArray(exp.fixed_expenses)) {
-      // Aggregate by category just in case there are duplicates, though usually unique
       const fixedMap: Record<string, number> = {};
       exp.fixed_expenses.forEach((item) => {
+        if (!isCompletedExpense(item)) return;
         fixedMap[item.categoryName] =
           (fixedMap[item.categoryName] || 0) + item.amount;
       });
 
       Object.entries(fixedMap).forEach(([name, amount]) => {
-        // Try to map system colors if possible
         let color = "#94a3b8"; // slate
         if (name === "Кредит") color = SYSTEM_CATEGORY_COLORS["Кредит"];
         else if (name === "Телефон") color = SYSTEM_CATEGORY_COLORS["Телефон"];
         else if (name === "Интернет")
           color = SYSTEM_CATEGORY_COLORS["Интернет"];
         else {
-          // Attempt to find the item to extract its color class
-          const item = exp.fixed_expenses.find((i) => i.categoryName === name);
+          const item = exp.fixed_expenses.find(
+            (i) => isCompletedExpense(i) && i.categoryName === name
+          );
           if (item) color = getHexFromTailwindClass(item.categoryColor);
         }
 
@@ -163,12 +164,13 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
       }
     }
 
-    // 3. Additional Expenses (Grouped)
+    // 3. Additional Expenses (Grouped, Completed only)
     const groupedAdditional: Record<string, { value: number; color: string }> =
       {};
 
     if (exp.additional_expenses) {
       exp.additional_expenses.forEach((item: ExpenseItem) => {
+        if (!isCompletedExpense(item)) return;
         if (!groupedAdditional[item.categoryName]) {
           groupedAdditional[item.categoryName] = {
             value: 0,
@@ -225,7 +227,15 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
     const seenIds = new Set<string>();
 
     const addItem = (item: IncomeItem, fallbackName: string) => {
-      if (!item || item.amount <= 0 || item.type === "expense" || seenIds.has(item.id)) return;
+      if (
+        !item ||
+        item.amount <= 0 ||
+        item.type === "expense" ||
+        !isRecordCompleted(item) ||
+        seenIds.has(item.id)
+      ) {
+        return;
+      }
       seenIds.add(item.id);
       const name = item.categoryName || fallbackName;
       if (!map[name]) {

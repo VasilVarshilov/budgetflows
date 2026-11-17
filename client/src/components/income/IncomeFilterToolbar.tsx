@@ -10,11 +10,15 @@ import {
   SlidersHorizontal,
   ChevronDown,
   CalendarRange,
+  CheckCircle2,
+  Clock,
 } from "lucide-react";
 import { ExpenseCategory } from "@/types";
 import { sanitizeDecimalInput } from "@/utils/formatting";
 
 export type IncomeSortOption = "newest" | "oldest" | "highest" | "lowest";
+
+export type IncomeStatusFilterOption = "all" | "completed" | "planned";
 
 export interface IncomeFiltersState {
   searchTerm: string;
@@ -25,6 +29,7 @@ export interface IncomeFiltersState {
   minAmount: string;
   maxAmount: string;
   sortBy: IncomeSortOption;
+  statusFilter: IncomeStatusFilterOption;
 }
 
 export const DEFAULT_INCOME_FILTERS: IncomeFiltersState = {
@@ -36,6 +41,7 @@ export const DEFAULT_INCOME_FILTERS: IncomeFiltersState = {
   minAmount: "",
   maxAmount: "",
   sortBy: "newest",
+  statusFilter: "all",
 };
 
 interface IncomeFilterToolbarProps {
@@ -47,6 +53,7 @@ interface IncomeFilterToolbarProps {
   categories: ExpenseCategory[];
   totalResultsCount: number;
   totalFilteredSum: number;
+  totalFilteredUpcomingSum?: number;
 }
 
 export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
@@ -58,6 +65,7 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
   categories,
   totalResultsCount,
   totalFilteredSum,
+  totalFilteredUpcomingSum = 0,
 }) => {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
@@ -71,6 +79,7 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
     if (filters.categoryId !== "all") count++;
     if (filters.minAmount !== "" || filters.maxAmount !== "") count++;
     if (filters.sortBy !== "newest") count++;
+    if (filters.statusFilter && filters.statusFilter !== "all") count++;
     return count;
   }, [filters]);
 
@@ -165,6 +174,51 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
                 isFilterPanelOpen ? "rotate-180" : ""
               }`}
             />
+          </button>
+        </div>
+      </div>
+
+      {/* Quick Status Segmented Filter */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div
+          className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-700/70"
+          role="group"
+          aria-label="Филтър по статус на приход"
+        >
+          <button
+            type="button"
+            onClick={() => updateFilter("statusFilter", "all")}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              (filters.statusFilter || "all") === "all"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            Всички
+          </button>
+          <button
+            type="button"
+            onClick={() => updateFilter("statusFilter", "completed")}
+            className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              filters.statusFilter === "completed"
+                ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            <CheckCircle2 className="w-3 h-3" />
+            <span>Изпълнени</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => updateFilter("statusFilter", "planned")}
+            className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              filters.statusFilter === "planned"
+                ? "bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            <Clock className="w-3 h-3" />
+            <span>Предстоящи</span>
           </button>
         </div>
       </div>
@@ -334,11 +388,18 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
             {totalResultsCount === 1 ? "приход" : "прихода"}
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span>Общо за извадката:</span>
-          <strong className="text-emerald-600 dark:text-emerald-400 font-bold tabular-nums">
-            +€{totalFilteredSum.toFixed(2)}
-          </strong>
+        <div className="flex flex-wrap items-center gap-3 tabular-nums">
+          <div className="flex items-center gap-1.5">
+            <span>Реализирани:</span>
+            <strong className="text-emerald-600 dark:text-emerald-400 font-bold">
+              +€{totalFilteredSum.toFixed(2)}
+            </strong>
+          </div>
+          {totalFilteredUpcomingSum > 0 && (
+            <span className="text-amber-700 dark:text-amber-300 font-semibold">
+              · Очаквани: +€{totalFilteredUpcomingSum.toFixed(2)}
+            </span>
+          )}
         </div>
       </div>
     </div>

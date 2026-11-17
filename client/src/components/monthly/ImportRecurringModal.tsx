@@ -11,6 +11,7 @@ import {
   DollarSign,
   Layers,
   ChevronDown,
+  Clock,
 } from "lucide-react";
 import { MonthlyRecord, ExpenseItem } from "@/types";
 import { getCategoryBadgeClasses } from "@/utils/categoryStorage";
@@ -269,8 +270,8 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
     return candidateItems.filter((c) => c.isDuplicate).length;
   }, [candidateItems]);
 
-  // Confirmation state
-  const [showConfirmNotice, setShowConfirmNotice] = useState(false);
+  // Import as Planned toggle (ideal for Rent, Internet, Electricity, Insurance, Subscriptions)
+  const [importAsPlanned, setImportAsPlanned] = useState(false);
 
   const handleExecuteImport = () => {
     if (selectedItems.length === 0) return;
@@ -283,6 +284,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
     selectedItems.forEach((c, idx) => {
       const itemMs = baseMs + idx;
       const itemIso = new Date(itemMs).toISOString();
+      const completed = !importAsPlanned;
       const clonedItem: ExpenseItem = {
         ...c.item,
         id: `${c.sourceType}_rec_${itemMs}_${Math.random().toString(36).substring(2, 7)}`,
@@ -290,6 +292,12 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
         createdAt: itemIso,
         timestamp: itemMs,
         isRecurring: true,
+        repeat: "never",
+        recurrenceSourceId: undefined,
+        recurrenceOccurrenceKey: undefined,
+        completed,
+        status: completed ? "completed" : "planned",
+        completedAt: completed ? itemIso : undefined,
       };
 
       if (c.sourceType === "fixed") {
@@ -510,28 +518,89 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
             )}
           </div>
 
+          {/* Import as Planned Toggle */}
+          {selectedItems.length > 0 && (
+            <label className="flex items-start gap-3 p-3.5 rounded-xl border border-amber-200/80 dark:border-amber-800/70 bg-amber-50/60 dark:bg-amber-950/30 cursor-pointer select-none transition-colors">
+              <input
+                type="checkbox"
+                checked={importAsPlanned}
+                onChange={(e) => setImportAsPlanned(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer mt-0.5 shrink-0"
+              />
+              <div className="flex-1 space-y-0.5">
+                <span className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  Импортирай като предстоящи (Изпълнено = изкл.)
+                </span>
+                <span className="block text-[11px] text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+                  Подходящо за Наем, Интернет, Ток, Застраховки и Абонаменти. Разходите няма да влизат в отчетените харчове, докато не включите „Изпълнено“.
+                </span>
+              </div>
+            </label>
+          )}
+
           {/* Import Summary Confirmation Box */}
           {selectedItems.length > 0 && (
-            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center justify-between animate-in fade-in">
+            <div
+              className={`p-4 rounded-xl border flex items-center justify-between animate-in fade-in ${
+                importAsPlanned
+                  ? "bg-amber-50/80 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800"
+                  : "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800"
+              }`}
+            >
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                  <CheckCircle2 className="w-5 h-5" />
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    importAsPlanned
+                      ? "bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300"
+                      : "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {importAsPlanned ? (
+                    <Clock className="w-4 h-4" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5" />
+                  )}
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
-                    Готови за импортиране: {selectedItems.length}{" "}
+                  <p
+                    className={`text-xs font-bold ${
+                      importAsPlanned
+                        ? "text-amber-900 dark:text-amber-200"
+                        : "text-emerald-900 dark:text-emerald-200"
+                    }`}
+                  >
+                    Готови за импортиране ({importAsPlanned ? "Предстоящи" : "Изпълнени"}): {selectedItems.length}{" "}
                     {selectedItems.length === 1 ? "разход" : "разхода"}
                   </p>
-                  <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                  <p
+                    className={`text-xs ${
+                      importAsPlanned
+                        ? "text-amber-700 dark:text-amber-300"
+                        : "text-emerald-700 dark:text-emerald-400"
+                    }`}
+                  >
                     Разходите ще бъдат добавени към месец {currentMonth}
                   </p>
                 </div>
               </div>
-              <div className="text-right">
-                <span className="text-xs text-emerald-700 dark:text-emerald-400 uppercase font-semibold block">
+              <div className="text-right tabular-nums">
+                <span
+                  className={`text-xs uppercase font-semibold block ${
+                    importAsPlanned
+                      ? "text-amber-700 dark:text-amber-300"
+                      : "text-emerald-700 dark:text-emerald-400"
+                  }`}
+                >
                   Общо
                 </span>
-                <span className="text-lg font-bold text-emerald-900 dark:text-emerald-100">
+                <span
+                  className={`text-lg font-bold ${
+                    importAsPlanned
+                      ? "text-amber-900 dark:text-amber-100"
+                      : "text-emerald-900 dark:text-emerald-100"
+                  }`}
+                >
                   €{totalAmountToImport.toFixed(2)}
                 </span>
               </div>

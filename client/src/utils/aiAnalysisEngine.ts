@@ -3,6 +3,7 @@ import { getStoredElectricityHistory } from "./electricityStorage";
 import { loadBudgets } from "./budgetStorage";
 import { computeMonthToMonthComparison, MONTHS_BG } from "./comparisonStorage";
 import { loadAppSettings } from "./incomeStorage";
+import { isCompletedExpense, isRecordCompleted } from "./expenseStatus";
 
 export type InsightType =
   | "income"
@@ -74,6 +75,7 @@ export function generateLocalFinancialAnalysis(
 
     if (Array.isArray(exp.fixed_expenses)) {
       exp.fixed_expenses.forEach((item) => {
+        if (!isCompletedExpense(item)) return;
         allExpenses.push(item);
         totalFixedExpenses += item.amount;
         totalExpenses += item.amount;
@@ -101,6 +103,7 @@ export function generateLocalFinancialAnalysis(
 
     if (Array.isArray(exp.additional_expenses)) {
       exp.additional_expenses.forEach((item) => {
+        if (!isCompletedExpense(item)) return;
         allExpenses.push(item);
         totalVariableExpenses += item.amount;
         totalExpenses += item.amount;
@@ -118,7 +121,15 @@ export function generateLocalFinancialAnalysis(
   allMonthlyRecords.forEach((r) => {
     if (r.incomes && Array.isArray(r.incomes)) {
       r.incomes.forEach((inc) => {
-        if (!inc || inc.amount <= 0 || inc.type === "expense" || seenIncomeIds.has(inc.id)) return;
+        if (
+          !inc ||
+          inc.amount <= 0 ||
+          inc.type === "expense" ||
+          !isRecordCompleted(inc) ||
+          seenIncomeIds.has(inc.id)
+        ) {
+          return;
+        }
         seenIncomeIds.add(inc.id);
         totalIncome += inc.amount;
         const cat = inc.categoryName || "Други приходи";

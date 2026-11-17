@@ -22,8 +22,22 @@ import {
   MonthlyRecord,
   RecurrenceFrequency,
   RecurringIncomeTemplate,
+  RepeatFrequency,
 } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
+import {
+  RecurrenceCompletionRows,
+  CompletionSwitch,
+} from "@/components/ui/RecurrenceCompletionRows";
+import {
+  isRecordCompleted,
+  toggleRecordCompletion,
+} from "@/utils/expenseStatus";
+import {
+  formatRepeatLabel,
+  markRecurrenceDismissed,
+  resolveItemRepeat,
+} from "@/utils/recurrenceEngine";
 import {
   AVAILABLE_ICONS_MAP,
   loadStoredIncomeCategories,
@@ -33,7 +47,6 @@ import {
   loadRecurringIncomes,
   saveRecurringIncomes,
   getDueExpectedIncomes,
-  getCurrentCycleOccurrence,
   getMonthKeyFromDate,
   formatRecurrenceSchedule,
   toLocalYyyyMmDd,
@@ -95,7 +108,6 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   );
   const [formDate, setFormDate] = useState(() => toLocalYyyyMmDd(new Date()));
   const [formNote, setFormNote] = useState("");
-  const [formIsRecurring, setFormIsRecurring] = useState(false);
   const [formFrequency, setFormFrequency] =
     useState<RecurrenceFrequency>("monthly");
   const [formDayOfMonth, setFormDayOfMonth] = useState<number>(
@@ -105,6 +117,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     () => new Date().getDay()
   );
   const [formScheduleOnly, setFormScheduleOnly] = useState(false);
+  const [formRepeat, setFormRepeat] = useState<RepeatFrequency>("never");
+  const [formCompleted, setFormCompleted] = useState<boolean>(true);
+  const [formIsGenerated, setFormIsGenerated] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // Category Picker Modal State
@@ -210,11 +225,23 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     return entries;
   }, [allMonthlyData]);
 
-  // Total income for the currently viewed month (for top summary header)
-  const currentMonthTotal = useMemo(() => {
+  // Total income for the currently viewed month (realized vs upcoming)
+  const { currentMonthTotal, currentMonthUpcomingTotal } = useMemo(() => {
     const rec = allMonthlyData[currentMonth];
-    if (!rec || !Array.isArray(rec.incomes)) return 0;
-    return rec.incomes.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+    if (!rec || !Array.isArray(rec.incomes)) {
+      return { currentMonthTotal: 0, currentMonthUpcomingTotal: 0 };
+    }
+    let realized = 0;
+    let upcoming = 0;
+    rec.incomes.forEach((i) => {
+      const amt = Number(i.amount) || 0;
+      if (isRecordCompleted(i)) {
+        realized += amt;
+      } else {
+        upcoming += amt;
+      }
+    });
+    return { currentMonthTotal: realized, currentMonthUpcomingTotal: upcoming };
   }, [allMonthlyData, currentMonth]);
 
   // Filtered & sorted list
@@ -275,6 +302,14 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         if (!noteMatch && !catMatch && !amtMatch) return false;
       }
 
+      // Status filter
+      if (filters.statusFilter === "completed" && !isRecordCompleted(item)) {
+        return false;
+      }
+      if (filters.statusFilter === "planned" && isRecordCompleted(item)) {
+        return false;
+      }
+
       return true;
     });
 
@@ -304,11 +339,18 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     return indexedList.map(({ entry }) => entry);
   }, [allFlattenedIncomes, filters, currentMonth]);
 
-  const filteredTotalSum = useMemo(() => {
-    return filteredEntries.reduce(
-      (sum, entry) => sum + (Number(entry.item.amount) || 0),
-      0
-    );
+  const { filteredTotalSum, filteredUpcomingSum } = useMemo(() => {
+    let realized = 0;
+    let upcoming = 0;
+    filteredEntries.forEach(({ item }) => {
+      const amt = Number(item.amount) || 0;
+      if (isRecordCompleted(item)) {
+        realized += amt;
+      } else {
+        upcoming += amt;
+      }
+    });
+    return { filteredTotalSum: realized, filteredUpcomingSum: upcoming };
   }, [filteredEntries]);
 
   // --- Handlers: Open Add / Edit Form ---
@@ -319,11 +361,13 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormCategory(incomeCategories[0] || null);
     setFormDate(toLocalYyyyMmDd(new Date()));
     setFormNote("");
-    setFormIsRecurring(scheduleTemplateOnly);
     setFormFrequency("monthly");
     setFormDayOfMonth(new Date().getDate());
     setFormDayOfWeek(new Date().getDay());
     setFormScheduleOnly(scheduleTemplateOnly);
+    setFormRepeat("never");
+    setFormCompleted(true);
+    setFormIsGenerated(false);
     setFormError(null);
     setIsFormOpen(true);
   };
@@ -347,7 +391,6 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         : toLocalYyyyMmDd(new Date())
     );
     setFormNote(entry.item.note || "");
-    setFormIsRecurring(Boolean(entry.item.isRecurring));
     setFormFrequency(entry.item.frequency || "monthly");
     setFormDayOfMonth(
       !isNaN(parsedDate.getTime()) ? parsedDate.getDate() : new Date().getDate()
@@ -356,6 +399,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       !isNaN(parsedDate.getTime()) ? parsedDate.getDay() : new Date().getDay()
     );
     setFormScheduleOnly(false);
+    setFormRepeat(resolveItemRepeat(entry.item));
+    setFormCompleted(isRecordCompleted(entry.item));
+    setFormIsGenerated(Boolean(entry.item.recurrenceSourceId));
     setFormError(null);
     setIsFormOpen(true);
   };
@@ -374,11 +420,13 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormCategory(matchedCat);
     setFormDate(tpl.startDate || toLocalYyyyMmDd(new Date()));
     setFormNote(tpl.note || "");
-    setFormIsRecurring(true);
     setFormFrequency(tpl.frequency);
     setFormDayOfMonth(tpl.dayOfMonth || 1);
     setFormDayOfWeek(typeof tpl.dayOfWeek === "number" ? tpl.dayOfWeek : 1);
     setFormScheduleOnly(true);
+    setFormRepeat("never");
+    setFormCompleted(true);
+    setFormIsGenerated(false);
     setFormError(null);
     setIsFormOpen(true);
   };
@@ -398,9 +446,6 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
     const safeDateStr = formDate || toLocalYyyyMmDd(new Date());
     const selectedDateObj = new Date(safeDateStr + "T12:00:00");
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-    const isFutureDate = selectedDateObj.getTime() > todayEnd.getTime();
 
     // Case A: Editing an existing Recurring Template
     if (editingTemplateId) {
@@ -435,6 +480,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     // Case B: Editing an existing IncomeItem
     if (editingEntry) {
       const targetMonthKey = getMonthKeyFromDate(selectedDateObj);
+      const nowIso = new Date().toISOString();
+      const effectiveRepeat = editingEntry.item.recurrenceSourceId ? "never" : formRepeat;
       const updatedItem: IncomeItem = {
         ...editingEntry.item,
         categoryId: formCategory.id,
@@ -444,8 +491,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         amount: parseFloat(numericAmount.toFixed(2)),
         note: formNote.trim(),
         date: selectedDateObj.toISOString(),
-        isRecurring: formIsRecurring,
-        frequency: formIsRecurring ? formFrequency : undefined,
+        repeat: effectiveRepeat,
+        isRecurring: effectiveRepeat !== "never",
+        completed: formCompleted,
+        status: formCompleted ? "completed" : "planned",
+        completedAt: formCompleted ? editingEntry.item.completedAt || nowIso : undefined,
         type: "income",
       };
 
@@ -466,43 +516,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         onSaveIncomesForMonth(targetMonthKey, [...newMonthList, updatedItem]);
       }
 
+      onTriggerSync?.();
       setIsFormOpen(false);
       showToast("Приходът беше обновен.");
       return;
     }
 
-    // Case C: Creating a new Income (and optional Recurring Template)
-    const templateId = formIsRecurring ? `rec_inc_${Date.now()}` : undefined;
-    const shouldCreateRealIncomeNow = !(
-      formIsRecurring &&
-      (formScheduleOnly || isFutureDate)
-    );
-
-    if (shouldCreateRealIncomeNow) {
-      const targetMonthKey = getMonthKeyFromDate(selectedDateObj);
-      const nowMs = Date.now();
-      const nowIso = new Date(nowMs).toISOString();
-      const newIncome: IncomeItem = {
-        id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
-        categoryId: formCategory.id,
-        categoryName: formCategory.name,
-        categoryIcon: formCategory.iconName,
-        categoryColor: formCategory.colorClass,
-        amount: parseFloat(numericAmount.toFixed(2)),
-        note: formNote.trim(),
-        date: selectedDateObj.toISOString(),
-        createdAt: nowIso,
-        timestamp: nowMs,
-        type: "income",
-        isRecurring: formIsRecurring,
-        frequency: formIsRecurring ? formFrequency : undefined,
-        recurringTemplateId: templateId,
-      };
-      const existingList = allMonthlyData[targetMonthKey]?.incomes || [];
-      onSaveIncomesForMonth(targetMonthKey, [...existingList, newIncome]);
-    }
-
-    if (formIsRecurring && templateId) {
+    // Case C1: Creating a legacy Recurring Income Template (via Templates panel -> "Нов шаблон")
+    if (formScheduleOnly) {
+      const templateId = `rec_inc_${Date.now()}`;
       const newTemplate: RecurringIncomeTemplate = {
         id: templateId,
         categoryId: formCategory.id,
@@ -524,28 +546,49 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         handledOccurrences: {},
       };
 
-      // If we just logged the real income entry for today/past cycle, mark that cycle confirmed so it isn't prompted twice
-      if (shouldCreateRealIncomeNow) {
-        const cycle = getCurrentCycleOccurrence(newTemplate, selectedDateObj);
-        newTemplate.handledOccurrences = {
-          [cycle.occurrenceKey]: "confirmed",
-        };
-      }
-
       const updatedTemplates = [...recurringTemplates, newTemplate];
       setRecurringTemplates(updatedTemplates);
       saveRecurringIncomes(updatedTemplates);
       onTriggerSync?.();
+      setIsFormOpen(false);
+      showToast(
+        "Повтарящият се шаблон е създаден и ще се появи в „Очаквани приходи“ на датата на падеж."
+      );
+      return;
     }
 
+    // Case C2: Creating a new IncomeItem with universal Repeat + Изпълнено switch
+    const targetMonthKey = getMonthKeyFromDate(selectedDateObj);
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const newIncome: IncomeItem = {
+      id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
+      categoryId: formCategory.id,
+      categoryName: formCategory.name,
+      categoryIcon: formCategory.iconName,
+      categoryColor: formCategory.colorClass,
+      amount: parseFloat(numericAmount.toFixed(2)),
+      note: formNote.trim(),
+      date: selectedDateObj.toISOString(),
+      createdAt: nowIso,
+      timestamp: nowMs,
+      type: "income",
+      repeat: formRepeat,
+      isRecurring: formRepeat !== "never",
+      completed: formCompleted,
+      status: formCompleted ? "completed" : "planned",
+      completedAt: formCompleted ? nowIso : undefined,
+    };
+    const existingList = allMonthlyData[targetMonthKey]?.incomes || [];
+    onSaveIncomesForMonth(targetMonthKey, [...existingList, newIncome]);
+    onTriggerSync?.();
+
     setIsFormOpen(false);
-    if (!shouldCreateRealIncomeNow) {
-      showToast(
-        "Повтарящият се приход е планиран и ще се появи в „Очаквани приходи“ на датата на падеж."
-      );
-    } else {
-      showToast("Приходът беше добавен успешно.");
-    }
+    showToast(
+      formCompleted
+        ? "Приходът беше добавен успешно."
+        : "Предстоящият приход беше добавен."
+    );
   };
 
   // --- Confirm Expected Income (creates real IncomeItem + marks cycle confirmed) ---
@@ -574,6 +617,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       isRecurring: true,
       frequency: template.frequency,
       recurringTemplateId: template.id,
+      repeat: "never",
+      completed: true,
+      status: "completed",
+      completedAt: nowIso,
     };
 
     const existingList = allMonthlyData[targetMonthKey]?.incomes || [];
@@ -620,10 +667,26 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     showToast(`Пропуснат очакван приход: ${template.categoryName}.`);
   };
 
+  // --- Toggle Completion Status on an Income Entry ---
+  const handleToggleIncomeCompletion = (
+    entry: FlattenedIncomeEntry,
+    nextCompleted: boolean
+  ) => {
+    const existingList = allMonthlyData[entry.monthKey]?.incomes || [];
+    const updatedList = existingList.map((i) =>
+      i.id === entry.item.id ? toggleRecordCompletion(i, nextCompleted) : i
+    );
+    onSaveIncomesForMonth(entry.monthKey, updatedList);
+    onTriggerSync?.();
+  };
+
   // --- Delete Income Entry ---
   const handleConfirmDeleteEntry = () => {
     if (!pendingDeleteEntry) return;
     const { item, monthKey } = pendingDeleteEntry;
+    if (item.recurrenceSourceId && item.recurrenceOccurrenceKey) {
+      markRecurrenceDismissed(item.recurrenceSourceId, item.recurrenceOccurrenceKey);
+    }
     const existingList = allMonthlyData[monthKey]?.incomes || [];
     const updatedList = existingList.filter((i) => i.id !== item.id);
     onSaveIncomesForMonth(monthKey, updatedList);
@@ -733,11 +796,16 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Общо приходи за {currentMonth}
+              Реализирани приходи за {currentMonth}
             </span>
             <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
               +€{currentMonthTotal.toFixed(2)}
             </span>
+            {currentMonthUpcomingTotal > 0 && (
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block tabular-nums mt-0.5">
+                Очаквани: +€{currentMonthUpcomingTotal.toFixed(2)}
+              </span>
+            )}
           </div>
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
@@ -999,6 +1067,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         categories={incomeCategories}
         totalResultsCount={filteredEntries.length}
         totalFilteredSum={filteredTotalSum}
+        totalFilteredUpcomingSum={filteredUpcomingSum}
       />
 
       {/* Income List */}
@@ -1031,11 +1100,16 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
             const formattedDate = item.date
               ? new Date(item.date).toLocaleDateString("bg-BG")
               : monthKey;
+            const isCompleted = isRecordCompleted(item);
 
             return (
               <div
                 key={`${monthKey}_${item.id}`}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/85 dark:border-slate-800 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-emerald-200 dark:hover:border-emerald-800/80 transition-colors"
+                className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                  isCompleted
+                    ? "bg-white dark:bg-slate-900 border-slate-200/85 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/80"
+                    : "bg-amber-50/40 dark:bg-amber-950/20 border-amber-300/80 dark:border-amber-800/70"
+                }`}
               >
                 <div className="flex items-start sm:items-center gap-3.5 min-w-0">
                   <div
@@ -1047,10 +1121,22 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   </div>
 
                   <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
                       <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base truncate">
                         {item.categoryName}
                       </span>
+                      {!isCompleted && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                          <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                          Предстоящ
+                        </span>
+                      )}
+                      {item.repeat && item.repeat !== "never" && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800">
+                          <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
+                          {formatRepeatLabel(item.repeat)}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -1061,7 +1147,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <span>{monthKey}</span>
                         </>
                       )}
-                      {item.isRecurring && (
+                      {item.isRecurring && !(item.repeat && item.repeat !== "never") && (
                         <>
                           <span aria-hidden="true">·</span>
                           <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
@@ -1087,11 +1173,24 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
-                  <span className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  <span
+                    className={`text-lg font-extrabold tabular-nums ${
+                      isCompleted
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-amber-700 dark:text-amber-300"
+                    }`}
+                  >
                     +€{Number(item.amount).toFixed(2)}
                   </span>
 
                   <div className="flex items-center gap-1.5">
+                    <CompletionSwitch
+                      checked={isCompleted}
+                      onChange={(val) => handleToggleIncomeCompletion(entry, val)}
+                      ariaLabel={`Изпълнено за ${item.categoryName}`}
+                      size="sm"
+                    />
+
                     <button
                       type="button"
                       onClick={() => handleOpenEditEntry(entry)}
@@ -1281,105 +1380,94 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 />
               </div>
 
-              {/* Recurring Income Checkbox & Schedule Options */}
-              {!editingEntry && (
-                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3">
-                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={formIsRecurring}
-                      onChange={(e) => setFormIsRecurring(e.target.checked)}
-                      disabled={Boolean(editingTemplateId)}
-                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                    />
-                    <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                      <Repeat className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                      <span>Повтарящ се приход (Recurring Income)</span>
-                    </div>
-                  </label>
+              {/* Universal Repeat & Completion Controls (for regular Add / Edit Income) */}
+              {(editingEntry || (!editingTemplateId && !formScheduleOnly)) && (
+                <RecurrenceCompletionRows
+                  repeat={formRepeat}
+                  onRepeatChange={setFormRepeat}
+                  completed={formCompleted}
+                  onCompletedChange={setFormCompleted}
+                  hideRepeatRow={formIsGenerated}
+                  completedHint={
+                    formIsGenerated
+                      ? "Автоматично генериран повтарящ се приход"
+                      : undefined
+                  }
+                />
+              )}
 
-                  {formIsRecurring && (
-                    <div className="space-y-3 pt-2 border-t border-slate-200/80 dark:border-slate-700">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Legacy Recurring Template Options (only when adding/editing a Template directly) */}
+              {!editingEntry && (editingTemplateId || formScheduleOnly) && (
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    <Repeat className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Настройки на повтарящ се шаблон</span>
+                  </div>
+
+                  <div className="space-y-3 pt-2 border-t border-slate-200/80 dark:border-slate-700">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                          Честота
+                        </label>
+                        <select
+                          value={formFrequency}
+                          onChange={(e) =>
+                            setFormFrequency(
+                              e.target.value as RecurrenceFrequency
+                            )
+                          }
+                          className="w-full px-3 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="monthly">Месечен (Monthly)</option>
+                          <option value="weekly">Седмичен (Weekly)</option>
+                          <option value="yearly">Годишен (Yearly)</option>
+                        </select>
+                      </div>
+
+                      {formFrequency === "weekly" ? (
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            Честота
+                            Ден от седмицата
                           </label>
                           <select
-                            value={formFrequency}
+                            value={formDayOfWeek}
                             onChange={(e) =>
-                              setFormFrequency(
-                                e.target.value as RecurrenceFrequency
-                              )
+                              setFormDayOfWeek(Number(e.target.value))
                             }
                             className="w-full px-3 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           >
-                            <option value="monthly">Месечен (Monthly)</option>
-                            <option value="weekly">Седмичен (Weekly)</option>
-                            <option value="yearly">Годишен (Yearly)</option>
+                            {WEEKDAYS_BG.map((dayName, idx) => (
+                              <option key={dayName} value={idx}>
+                                {dayName}
+                              </option>
+                            ))}
                           </select>
                         </div>
-
-                        {formFrequency === "weekly" ? (
-                          <div>
-                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                              Ден от седмицата
-                            </label>
-                            <select
-                              value={formDayOfWeek}
-                              onChange={(e) =>
-                                setFormDayOfWeek(Number(e.target.value))
-                              }
-                              className="w-full px-3 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            >
-                              {WEEKDAYS_BG.map((dayName, idx) => (
-                                <option key={dayName} value={idx}>
-                                  {dayName}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          <div>
-                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                              Ден от месеца (1–31)
-                            </label>
-                            <input
-                              type="number"
-                              min={1}
-                              max={31}
-                              value={formDayOfMonth}
-                              onChange={(e) =>
-                                setFormDayOfMonth(
-                                  Math.min(
-                                    31,
-                                    Math.max(1, Number(e.target.value) || 1)
-                                  )
-                                )
-                              }
-                              className="w-full px-3 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums"
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {!editingTemplateId && (
-                        <label className="flex items-start gap-2 cursor-pointer text-xs text-slate-600 dark:text-slate-300">
+                      ) : (
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Ден от месеца (1–31)
+                          </label>
                           <input
-                            type="checkbox"
-                            checked={formScheduleOnly}
+                            type="number"
+                            min={1}
+                            max={31}
+                            value={formDayOfMonth}
                             onChange={(e) =>
-                              setFormScheduleOnly(e.target.checked)
+                              setFormDayOfMonth(
+                                Math.min(
+                                  31,
+                                  Math.max(1, Number(e.target.value) || 1)
+                                )
+                              )
                             }
-                            className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                            className="w-full px-3 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums"
                           />
-                          <span>
-                            Запази само като очакван шаблон (не добавяй реален приход веднага — ще изисква потвърждение в „Очаквани приходи“)
-                          </span>
-                        </label>
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
 

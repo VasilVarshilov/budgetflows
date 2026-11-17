@@ -1,8 +1,9 @@
-import { MonthlyRecord, IncomeItem, ExpenseItem, ReceiptItemDetail } from "@/types";
+import { MonthlyRecord, IncomeItem, ExpenseItem, ExpenseStatus, ReceiptItemDetail } from "@/types";
 import { parseExpenseNote } from "./expenseFormatter";
 import { loadBudgets, calculateAllBudgetsStatus } from "./budgetStorage";
 import { loadStoredCategories } from "./categoryStorage";
 import { getStoredElectricityHistory } from "./electricityStorage";
+import { getExpenseStatus, isRecordCompleted } from "./expenseStatus";
 import {
   MONTHS_BG,
   getPreviousMonthAndYear,
@@ -58,6 +59,7 @@ interface IndexedExpense {
   date: string;
   isFixed: boolean;
   isRecurring: boolean;
+  status: ExpenseStatus;
   categoryId: string;
   categoryName: string;
   merchantName: string;
@@ -66,6 +68,21 @@ interface IndexedExpense {
   parsedItems: ReceiptItemDetail[];
   unpricedNoteLines: string[];
   rawSearchText: string;
+}
+
+interface IndexedIncome {
+  id: string;
+  monthKey: string;
+  month: string;
+  year: number;
+  monthIndex: number;
+  date: string;
+  completed: boolean;
+  isRecurring: boolean;
+  categoryId: string;
+  categoryName: string;
+  note: string;
+  amount: number;
 }
 
 interface SynonymGroup {
@@ -427,10 +444,19 @@ const STOP_WORDS = new Set([
   "кое",
   "пари",
   "похарчих",
+  "похарчил",
+  "похарчила",
+  "похарчи",
+  "похарча",
   "харча",
   "похарчено",
   "похарчени",
   "платих",
+  "платил",
+  "платила",
+  "платя",
+  "съм",
+  "ще",
   "струва",
   "за",
   "в",
@@ -585,6 +611,7 @@ function buildIndexedExpenses(entries: MonthEntry[]): IndexedExpense[] {
       date: item.date || `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
       isFixed,
       isRecurring: Boolean(item.isRecurring || isFixed),
+      status: getExpenseStatus(item),
       categoryId: item.categoryId || "",
       categoryName: item.categoryName || "Други",
       merchantName: merchant,
@@ -663,6 +690,38 @@ function buildIndexedExpenses(entries: MonthEntry[]): IndexedExpense[] {
     if (Array.isArray(exp.additional_expenses)) {
       exp.additional_expenses.forEach((item, idx) => pushItem(entry, item, false, idx));
     }
+  });
+
+  return result;
+}
+
+function buildIndexedIncomes(entries: MonthEntry[]): IndexedIncome[] {
+  const result: IndexedIncome[] = [];
+  const seen = new Set<string>();
+
+  entries.forEach((entry) => {
+    const incomes = entry.record.incomes;
+    if (!Array.isArray(incomes)) return;
+    incomes.forEach((inc, idx) => {
+      if (!inc || inc.type === "expense") return;
+      const id = inc.id || `${entry.key}_inc_${idx}`;
+      if (seen.has(id)) return;
+      seen.add(id);
+      result.push({
+        id,
+        monthKey: entry.key,
+        month: entry.month,
+        year: entry.year,
+        monthIndex: entry.monthIndex,
+        date: inc.date || `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
+        completed: isRecordCompleted(inc),
+        isRecurring: Boolean(inc.isRecurring || (inc.repeat && inc.repeat !== "never")),
+        categoryId: inc.categoryId || "",
+        categoryName: inc.categoryName || "Приход",
+        note: (inc.note || "").trim(),
+        amount: Number(inc.amount) || 0,
+      });
+    });
   });
 
   return result;
@@ -910,18 +969,20 @@ function formatDateShort(iso: string): string {
 function buildSuggestions(en: boolean): string[] {
   return en
     ? [
+        "How much have I spent?",
+        "What expenses are upcoming?",
+        "What income am I expecting?",
         "How much money was spent on cigarettes this month?",
         "What was my largest expense this month?",
-        "What categories increased compared to last month?",
         "How much did I save during the last 3 months?",
-        "What was my average monthly spending?",
       ]
     : [
+        "Колко съм похарчил този месец?",
+        "Какви предстоящи разходи имам?",
+        "Какви приходи очаквам?",
         "Колко пари са похарчени за цигари този месец?",
         "Кой беше най-големият ми разход този месец?",
-        "Кои категории се увеличиха спрямо миналия месец?",
         "Колко спестих през последните 3 месеца?",
-        "Какъв е средният ми месечен разход?",
       ];
 }
 
@@ -938,6 +999,11 @@ export function answerFinancialChatQuestion(
   const entries = parseMonthEntries(monthlyData);
   const activeMonth = parseSelectedMonthFallback(selectedMonth, entries);
   const allExpenses = buildIndexedExpenses(entries);
+  const completedExpenses = allExpenses.filter((e) => e.status === "completed");
+  const plannedExpenses = allExpenses.filter((e) => e.status === "planned");
+  const allIncomes = buildIndexedIncomes(entries);
+  const completedIncomes = allIncomes.filter((i) => i.completed);
+  const upcomingIncomes = allIncomes.filter((i) => !i.completed);
   const storedCategories = loadStoredCategories();
   const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
   const electricityHistory = getStoredElectricityHistory();
@@ -950,6 +1016,219 @@ export function answerFinancialChatQuestion(
       calculation: "—",
       timeRangeLabel: activeMonth.key,
       matchedExpenses: [],
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 0A: Upcoming / Expected Income (completed = false incomes)
+  // ------------------------------------------------------------------
+  const isExpectedIncomeQuery =
+    /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending)|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|предсто|планиран))/.test(
+      norm
+    );
+
+  if (isExpectedIncomeQuery) {
+    const hasExplicitRange =
+      /(?:last|past|this|year|month|all|selected|последн|този|минал|предход|текущ|избран|годин|всички)/.test(
+        norm
+      ) ||
+      Object.keys(MONTHS_EN_TO_IDX).some((m) => norm.includes(m)) ||
+      Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m)) ||
+      /\b20\d{2}\b/.test(norm);
+
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const scopedKeys = new Set(range.entries.map((e) => e.key));
+    let scopedUpcoming = upcomingIncomes.filter((inc) =>
+      range.kind === "all_months"
+        ? true
+        : scopedKeys.size > 0
+        ? scopedKeys.has(inc.monthKey)
+        : inc.monthKey === range.label
+    );
+    let effectiveLabel = range.label;
+
+    if (!hasExplicitRange && scopedUpcoming.length === 0 && upcomingIncomes.length > 0) {
+      scopedUpcoming = upcomingIncomes;
+      effectiveLabel =
+        entries.length > 0 ? `Всички месеци (${entries.length})` : range.label;
+    }
+
+    const expectedSum = scopedUpcoming.reduce((s, inc) => s + inc.amount, 0);
+
+    return {
+      answer:
+        scopedUpcoming.length > 0
+          ? en
+            ? `You are expecting ${scopedUpcoming.length} upcoming ${scopedUpcoming.length === 1 ? "income" : "incomes"} in ${effectiveLabel} totaling ${fmtEur(expectedSum)}: ${scopedUpcoming
+                .slice(0, 5)
+                .map((i) => `${i.categoryName} (${fmtEur(i.amount)})`)
+                .join(", ")}.`
+            : `Очаквате ${scopedUpcoming.length} ${scopedUpcoming.length === 1 ? "предстоящ приход" : "предстоящи прихода"} за ${effectiveLabel} на обща стойност ${fmtEur(expectedSum)}: ${scopedUpcoming
+                .slice(0, 5)
+                .map((i) => `${i.categoryName} (${fmtEur(i.amount)})`)
+                .join(", ")}.`
+          : en
+          ? `You have no upcoming or expected income in ${effectiveLabel}.`
+          : `Нямате очаквани или предстоящи приходи за ${effectiveLabel}.`,
+      calculation:
+        scopedUpcoming.length > 0
+          ? scopedUpcoming
+              .slice(0, 6)
+              .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+              .join(" + ") + ` = ${fmtEur(expectedSum)}`
+          : "0 очаквани прихода = €0.00",
+      timeRangeLabel: effectiveLabel,
+      matchedExpenses: scopedUpcoming.map((inc) => ({
+        id: inc.id,
+        monthKey: inc.monthKey,
+        date: formatDateShort(inc.date),
+        merchantOrCategory: inc.categoryName,
+        categoryName: "Очакван приход",
+        expenseAmount: inc.amount,
+        matchedAmount: inc.amount,
+        matchedKind: "income",
+        matchedSnippet: inc.note ? `Предстоящ · ${inc.note}` : "Предстоящ приход",
+      })),
+      totalMatchedAmount: parseFloat(expectedSum.toFixed(2)),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 0B: Upcoming / Planned Expenses & Expected Spending
+  // ------------------------------------------------------------------
+  const isExpectedSpendQuery =
+    /(?:колко\s+ще\s+похарча|\bще\s+похарча\b|колко\s+се\s+очаква|очаквани\s+разходи|предвидени\s+разходи|how\s+much\s+(?:will|am\s+i\s+(?:going|expected)\s+to)\s+spend|expected\s+(?:to\s+)?spend|projected\s+spend)/.test(
+      norm
+    );
+
+  const isPlannedOnlyQuery =
+    !isExpectedSpendQuery &&
+    /(?:планиран|предстоящ|предстои\s+да\s+плат|очаква\s+се\s+да\s+плат|planned\s+(?:expense|payment)|upcoming\s+(?:expense|payment)|pending\s+(?:expense|payment)|scheduled\s+(?:expense|payment)|what\s+(?:payments|expenses)\s+(?:are|do\s+i\s+have)\s+(?:planned|pending|upcoming)|(?:expenses?|payments?|разходи|плащания)\s+(?:are\s+)?(?:upcoming|planned|pending)|how\s+much\s+(?:is\s+)?(?:planned|pending|upcoming))/.test(
+      norm
+    );
+
+  if (isExpectedSpendQuery) {
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const scopedKeys = new Set(range.entries.map((e) => e.key));
+    const inScope = (e: IndexedExpense) =>
+      range.kind === "all_months"
+        ? true
+        : scopedKeys.size > 0
+        ? scopedKeys.has(e.monthKey)
+        : e.monthKey === range.label;
+
+    const scopedCompleted = completedExpenses.filter(inScope);
+    const scopedPlanned = plannedExpenses.filter(inScope);
+
+    const completedSum = scopedCompleted.reduce((s, e) => s + e.amount, 0);
+    const plannedSum = scopedPlanned.reduce((s, e) => s + e.amount, 0);
+    const expectedTotal = completedSum + plannedSum;
+
+    const matched: AiChatMatchedExpense[] = [
+      ...scopedPlanned.map((e) => ({
+        id: e.id,
+        monthKey: e.monthKey,
+        date: formatDateShort(e.date),
+        merchantOrCategory: e.merchantName || e.categoryName,
+        categoryName: e.categoryName,
+        expenseAmount: e.amount,
+        matchedAmount: e.amount,
+        matchedKind: (e.isFixed ? "fixed" : "category") as AiChatMatchedExpense["matchedKind"],
+        matchedSnippet: `Предстоящ${e.note ? ` · ${e.note}` : ""}`,
+      })),
+      ...scopedCompleted
+        .slice()
+        .sort((a, b) => b.amount - a.amount)
+        .map((e) => ({
+          id: e.id,
+          monthKey: e.monthKey,
+          date: formatDateShort(e.date),
+          merchantOrCategory: e.merchantName || e.categoryName,
+          categoryName: e.categoryName,
+          expenseAmount: e.amount,
+          matchedAmount: e.amount,
+          matchedKind: (e.isFixed ? "fixed" : "category") as AiChatMatchedExpense["matchedKind"],
+          matchedSnippet: `Изпълнен${e.note ? ` · ${e.note}` : ""}`,
+        })),
+    ];
+
+    return {
+      answer: en
+        ? `Expected total spending for ${range.label}: ${fmtEur(expectedTotal)} (Completed: ${fmtEur(completedSum)} + Upcoming: ${fmtEur(plannedSum)} across ${scopedPlanned.length} upcoming items).`
+        : `Очаквани общи разходи за ${range.label}: ${fmtEur(expectedTotal)} — Изпълнени ${fmtEur(completedSum)} (${scopedCompleted.length} бр.) + Предстоящи ${fmtEur(plannedSum)} (${scopedPlanned.length} бр.).`,
+      calculation: `Похарчени ${fmtEur(completedSum)} + Предстоящи ${fmtEur(plannedSum)} = Очаквани ${fmtEur(expectedTotal)}`,
+      timeRangeLabel: range.label,
+      matchedExpenses: matched,
+      totalMatchedAmount: parseFloat(expectedTotal.toFixed(2)),
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  if (isPlannedOnlyQuery) {
+    const hasExplicitRange =
+      /(?:last|past|this|year|month|all|selected|последн|този|минал|предход|текущ|избран|годин|всички)/.test(
+        norm
+      ) ||
+      Object.keys(MONTHS_EN_TO_IDX).some((m) => norm.includes(m)) ||
+      Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m)) ||
+      /\b20\d{2}\b/.test(norm);
+
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const scopedKeys = new Set(range.entries.map((e) => e.key));
+    let scopedPlanned = plannedExpenses.filter((e) =>
+      range.kind === "all_months"
+        ? true
+        : scopedKeys.size > 0
+        ? scopedKeys.has(e.monthKey)
+        : e.monthKey === range.label
+    );
+    let effectiveLabel = range.label;
+
+    if (!hasExplicitRange && scopedPlanned.length === 0 && plannedExpenses.length > 0) {
+      scopedPlanned = plannedExpenses;
+      effectiveLabel =
+        entries.length > 0 ? `Всички месеци (${entries.length})` : range.label;
+    }
+
+    const plannedSum = scopedPlanned.reduce((s, e) => s + e.amount, 0);
+
+    return {
+      answer:
+        scopedPlanned.length > 0
+          ? en
+            ? `You have ${scopedPlanned.length} upcoming ${scopedPlanned.length === 1 ? "expense" : "expenses"} in ${effectiveLabel} totaling ${fmtEur(plannedSum)}: ${scopedPlanned
+                .slice(0, 5)
+                .map((e) => `${e.categoryName} (${fmtEur(e.amount)})`)
+                .join(", ")}.`
+            : `Имате ${scopedPlanned.length} ${scopedPlanned.length === 1 ? "предстоящ разход" : "предстоящи разхода"} за ${effectiveLabel} на обща стойност ${fmtEur(plannedSum)}: ${scopedPlanned
+                .slice(0, 5)
+                .map((e) => `${e.categoryName} (${fmtEur(e.amount)})`)
+                .join(", ")}.`
+          : en
+          ? `You have no upcoming expenses in ${effectiveLabel}.`
+          : `Нямате предстоящи разходи за ${effectiveLabel}.`,
+      calculation:
+        scopedPlanned.length > 0
+          ? scopedPlanned
+              .slice(0, 6)
+              .map((e) => `${e.categoryName}: ${fmtEur(e.amount)}`)
+              .join(" + ") + ` = ${fmtEur(plannedSum)}`
+          : "0 предстоящи разхода = €0.00",
+      timeRangeLabel: effectiveLabel,
+      matchedExpenses: scopedPlanned.map((e) => ({
+        id: e.id,
+        monthKey: e.monthKey,
+        date: formatDateShort(e.date),
+        merchantOrCategory: e.merchantName || e.categoryName,
+        categoryName: e.categoryName,
+        expenseAmount: e.amount,
+        matchedAmount: e.amount,
+        matchedKind: e.isFixed ? "fixed" : "category",
+        matchedSnippet: e.note ? `Предстоящ · ${e.note}` : "Предстоящ разход",
+      })),
+      totalMatchedAmount: parseFloat(plannedSum.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
     };
   }
@@ -1049,8 +1328,8 @@ export function answerFinancialChatQuestion(
     const prev = getPreviousMonthAndYear(target.month, target.year);
     const prevKey = `${prev.prevMonth} ${prev.prevYear}`;
 
-    const curItems = allExpenses.filter((e) => e.monthKey === target.key);
-    const prevItems = allExpenses.filter((e) => e.monthKey === prevKey);
+    const curItems = completedExpenses.filter((e) => e.monthKey === target.key);
+    const prevItems = completedExpenses.filter((e) => e.monthKey === prevKey);
 
     const curByCat: Record<string, number> = {};
     const prevByCat: Record<string, number> = {};
@@ -1141,7 +1420,7 @@ export function answerFinancialChatQuestion(
     const catStats: Record<string, { prevSum: number; prevMonths: number; latest: number }> = {};
 
     baselineEntries.forEach((entry) => {
-      const items = allExpenses.filter((e) => e.monthKey === entry.key);
+      const items = completedExpenses.filter((e) => e.monthKey === entry.key);
       const perMonth: Record<string, number> = {};
       items.forEach((it) => {
         perMonth[it.categoryName] = (perMonth[it.categoryName] || 0) + it.amount;
@@ -1153,7 +1432,7 @@ export function answerFinancialChatQuestion(
       });
     });
 
-    allExpenses
+    completedExpenses
       .filter((e) => e.monthKey === latestEntry.key)
       .forEach((it) => {
         if (!catStats[it.categoryName]) {
@@ -1210,7 +1489,7 @@ export function answerFinancialChatQuestion(
   if (/(?:recurr|subscription|fixed\s+expense|периодич|повтарящ|фиксиран|абонамент)/.test(norm)) {
     const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
     const targetEntries = range.entries.length > 0 ? range.entries : entries;
-    const recurringInRange = allExpenses.filter(
+    const recurringInRange = completedExpenses.filter(
       (e) => targetEntries.some((te) => te.key === e.monthKey) && e.isRecurring
     );
 
@@ -1298,7 +1577,7 @@ export function answerFinancialChatQuestion(
   if (/(?:largest|biggest|highest|most\s+expensive|max\s+expense|най-голям|най-висок|най-скъп)/.test(norm)) {
     const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
     const scopedKeys = new Set(range.entries.map((e) => e.key));
-    const scopedExpenses = allExpenses
+    const scopedExpenses = completedExpenses
       .filter((e) => (scopedKeys.size > 0 ? scopedKeys.has(e.monthKey) : e.monthKey === range.label))
       .sort((a, b) => b.amount - a.amount);
 
@@ -1372,7 +1651,7 @@ export function answerFinancialChatQuestion(
   }
 
   // ------------------------------------------------------------------
-  // INTENT 8: Income queries
+  // INTENT 8: Income queries (Completed / Realized incomes only)
   // ------------------------------------------------------------------
   if (/(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(norm)) {
     const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
@@ -1380,30 +1659,27 @@ export function answerFinancialChatQuestion(
       (s, e) => s + calculateMonthIncome(e.month, e.year, e.record),
       0
     );
-    const matchedIncomes: AiChatMatchedExpense[] = [];
-    const seen = new Set<string>();
-    range.entries.forEach((e) => {
-      (e.record.incomes || []).forEach((inc) => {
-        if (!inc || inc.type === "expense" || seen.has(inc.id)) return;
-        seen.add(inc.id);
-        matchedIncomes.push({
-          id: inc.id,
-          monthKey: e.key,
-          date: formatDateShort(inc.date),
-          merchantOrCategory: inc.categoryName || "Приход",
-          categoryName: "Приход",
-          expenseAmount: Number(inc.amount) || 0,
-          matchedAmount: Number(inc.amount) || 0,
-          matchedKind: "income",
-          matchedSnippet: inc.note || undefined,
-        });
-      });
-    });
+    const scopedKeys = new Set(range.entries.map((e) => e.key));
+    const matchedIncomes: AiChatMatchedExpense[] = completedIncomes
+      .filter((inc) =>
+        range.kind === "all_months" ? true : scopedKeys.has(inc.monthKey)
+      )
+      .map((inc) => ({
+        id: inc.id,
+        monthKey: inc.monthKey,
+        date: formatDateShort(inc.date),
+        merchantOrCategory: inc.categoryName || "Приход",
+        categoryName: "Приход",
+        expenseAmount: inc.amount,
+        matchedAmount: inc.amount,
+        matchedKind: "income",
+        matchedSnippet: inc.note || undefined,
+      }));
 
     return {
       answer: en
-        ? `Total income in ${range.label}: ${fmtEur(totalInc)} across ${matchedIncomes.length} entries.`
-        : `Общи приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа).`,
+        ? `Total income in ${range.label}: ${fmtEur(totalInc)} across ${matchedIncomes.length} completed entries.`
+        : `Общи реализирани приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа).`,
       calculation:
         matchedIncomes.length > 0
           ? matchedIncomes
@@ -1433,8 +1709,8 @@ export function answerFinancialChatQuestion(
   const scopedKeys = new Set(range.entries.map((e) => e.key));
   const scopedExpenses =
     range.kind === "all_months"
-      ? allExpenses
-      : allExpenses.filter((e) => scopedKeys.has(e.monthKey));
+      ? completedExpenses
+      : completedExpenses.filter((e) => scopedKeys.has(e.monthKey));
 
   const { terms, matchedGroups, displayTopic } = extractSearchTermsFromQuestion(trimmed);
 

@@ -14,13 +14,15 @@ import {
   CalendarRange,
   ChevronLeft,
   ChevronRight,
-  TrendingUp,
+  Clock,
+  CheckCircle2,
   Layers,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem, BudgetConfig } from "@/types";
 import { sanitizeDecimalInput } from "@/utils/formatting";
 
 export type ExpenseSortOption = "newest" | "oldest" | "highest" | "lowest";
+export type ExpenseStatusFilter = "all" | "completed" | "planned";
 
 export interface ExpenseFiltersState {
   searchTerm: string; // matches note, category, or amount
@@ -33,6 +35,7 @@ export interface ExpenseFiltersState {
   maxAmount: string; // '' or number
   sortBy: ExpenseSortOption;
   includeFixed: boolean; // include fixed expenses in search/filter
+  statusFilter: ExpenseStatusFilter;
 }
 
 export const DEFAULT_FILTERS: ExpenseFiltersState = {
@@ -46,6 +49,7 @@ export const DEFAULT_FILTERS: ExpenseFiltersState = {
   maxAmount: "",
   sortBy: "newest",
   includeFixed: false,
+  statusFilter: "all",
 };
 
 interface ExpenseFilterToolbarProps {
@@ -57,6 +61,7 @@ interface ExpenseFilterToolbarProps {
   budgetCategories?: BudgetConfig[];
   totalResultsCount: number;
   totalFilteredSum: number;
+  totalFilteredPlannedSum?: number;
   isFullWidthMode?: boolean;
   onToggleFullWidthMode?: () => void;
 }
@@ -70,6 +75,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
   budgetCategories = [],
   totalResultsCount,
   totalFilteredSum,
+  totalFilteredPlannedSum = 0,
   isFullWidthMode = false,
   onToggleFullWidthMode,
 }) => {
@@ -86,6 +92,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
     if (filters.minAmount !== "" || filters.maxAmount !== "") count++;
     if (filters.sortBy !== "newest") count++;
     if (filters.includeFixed) count++;
+    if (filters.statusFilter && filters.statusFilter !== "all") count++;
     return count;
   }, [filters]);
 
@@ -201,7 +208,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             <button
               type="button"
               onClick={onToggleFullWidthMode}
-              className={`hidden sm:flex items-center gap-1 px-2.5 py-2 min-h-[38px] rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
+              className={`hidden sm:flex items-center gap-1 px-2.5 py-2 min-h-[38px] rounded-xl text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                 isFullWidthMode
                   ? "bg-slate-800 dark:bg-indigo-600 text-white border-slate-800 dark:border-indigo-500"
                   : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
@@ -216,6 +223,51 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
               <span>{isFullWidthMode ? "Стандартен" : "Цял екран"}</span>
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Quick Status Segmented Filter */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div
+          className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-700/70"
+          role="group"
+          aria-label="Филтър по статус на разход"
+        >
+          <button
+            type="button"
+            onClick={() => updateFilter("statusFilter", "all")}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              (filters.statusFilter || "all") === "all"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            Всички
+          </button>
+          <button
+            type="button"
+            onClick={() => updateFilter("statusFilter", "completed")}
+            className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              filters.statusFilter === "completed"
+                ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            <CheckCircle2 className="w-3 h-3" />
+            <span>Изпълнени</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => updateFilter("statusFilter", "planned")}
+            className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              filters.statusFilter === "planned"
+                ? "bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            <Clock className="w-3 h-3" />
+            <span>Предстоящи</span>
+          </button>
         </div>
       </div>
 
@@ -513,6 +565,18 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             </span>
           )}
 
+          {filters.statusFilter && filters.statusFilter !== "all" && (
+            <span className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 font-semibold">
+              Статус: {filters.statusFilter === "planned" ? "Предстоящи" : "Изпълнени"}
+              <button
+                onClick={() => updateFilter("statusFilter", "all")}
+                className="hover:text-amber-900 dark:hover:text-amber-100 cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
           <button
             onClick={handleResetFilters}
             className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 underline font-medium ml-1 cursor-pointer"
@@ -523,10 +587,10 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
       )}
 
       {/* Summary KPI Results Ribbon */}
-      <div className="flex items-center justify-between text-xs pt-1 text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1 text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-slate-700 dark:text-slate-300">
-            Намерени: <strong className="text-indigo-600 dark:text-indigo-400">{totalResultsCount}</strong>{" "}
+            Намерени: <strong className="text-indigo-600 dark:text-indigo-400 tabular-nums">{totalResultsCount}</strong>{" "}
             {totalResultsCount === 1 ? "разход" : "разхода"}
           </span>
           {activeFiltersCount > 0 && (
@@ -535,16 +599,16 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 tabular-nums">
           <span>
-            Обща сума:{" "}
+            Похарчени:{" "}
             <strong className="text-slate-900 dark:text-white font-black">
               €{totalFilteredSum.toFixed(2)}
             </strong>
           </span>
-          {totalResultsCount > 0 && (
-            <span className="hidden sm:inline text-slate-500 dark:text-slate-400">
-              • Средно: €{(totalFilteredSum / totalResultsCount).toFixed(2)}
+          {totalFilteredPlannedSum > 0 && (
+            <span className="text-amber-700 dark:text-amber-300 font-semibold">
+              · Предстоящи: €{totalFilteredPlannedSum.toFixed(2)}
             </span>
           )}
         </div>
