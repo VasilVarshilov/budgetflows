@@ -24,6 +24,10 @@ import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { getHexFromTailwindClass } from "@/utils/colors";
 import { getCategoryBadgeClasses } from "@/utils/categoryStorage";
 import { useTheme } from "@/utils/themeContext";
+import {
+  parseDecimalInput,
+  compareExpensesChronologically,
+} from "@/utils/formatting";
 
 // Map за lucide-react иконките (използва се по iconName)
 const ICON_MAP: Record<string, any> = {
@@ -182,9 +186,11 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
 
         return true;
       })
-      .sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-      );
+      .map((item, idx) => ({ item, idx }))
+      .sort((a, b) =>
+        compareExpensesChronologically(a.item, b.item, "desc", a.idx, b.idx)
+      )
+      .map(({ item }) => item);
   };
 
   const handleExportTxt = () => {
@@ -318,15 +324,23 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   const handleAddTransaction = () => {
     if (!selectedCategory || !amount) return;
 
+    const parsedAmount = parseDecimalInput(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
+
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
     const newTransaction: IncomeItem = {
-      id: Date.now().toString(),
+      id: nowMs.toString(),
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
       categoryIcon: selectedCategory.iconName,
       categoryColor: selectedCategory.colorClass,
-      amount: parseFloat(amount),
+      amount: parsedAmount,
       note: note,
-      date: new Date().toISOString(),
+      date: nowIso,
+      createdAt: nowIso,
+      timestamp: nowMs,
       type: transactionType,
     };
 
@@ -637,7 +651,12 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 <div className="flex gap-3 pt-2">
                   <button
                     onClick={handleAddTransaction}
-                    disabled={!selectedCategory || !amount}
+                    disabled={
+                      !selectedCategory ||
+                      !amount ||
+                      isNaN(parseDecimalInput(amount)) ||
+                      parseDecimalInput(amount) <= 0
+                    }
                     className={`
                       flex-1 text-white py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors
                       ${transactionType === "income" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}
@@ -653,9 +672,11 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
           {/* Transactions List */}
           <div className="space-y-3">
             {savingsData
-              .slice()
-              .reverse()
-              .map((item) => (
+              .map((item, idx) => ({ item, idx }))
+              .sort((a, b) =>
+                compareExpensesChronologically(a.item, b.item, "desc", a.idx, b.idx)
+              )
+              .map(({ item }) => (
                 <div
                   key={item.id}
                   className="group flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-md dark:hover:bg-slate-800/40 transition-all"

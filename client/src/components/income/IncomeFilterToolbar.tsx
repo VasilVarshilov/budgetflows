@@ -12,6 +12,7 @@ import {
   CalendarRange,
 } from "lucide-react";
 import { ExpenseCategory } from "@/types";
+import { sanitizeDecimalInput } from "@/utils/formatting";
 
 export type IncomeSortOption = "newest" | "oldest" | "highest" | "lowest";
 
@@ -226,11 +227,10 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
                 <span>Мин. сума (€)</span>
               </label>
               <input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={filters.minAmount}
-                onChange={(e) => updateFilter("minAmount", e.target.value)}
+                onChange={(e) => updateFilter("minAmount", sanitizeDecimalInput(e.target.value))}
                 placeholder="0.00"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[40px] text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
@@ -243,11 +243,10 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
                 <span>Макс. сума (€)</span>
               </label>
               <input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={filters.maxAmount}
-                onChange={(e) => updateFilter("maxAmount", e.target.value)}
+                onChange={(e) => updateFilter("maxAmount", sanitizeDecimalInput(e.target.value))}
                 placeholder="∞"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[40px] text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />

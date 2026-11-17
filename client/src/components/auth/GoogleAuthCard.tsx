@@ -220,7 +220,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       setShowDisconnectModal(false);
       setFeedback({
         type: "success",
-        text: "Google Drive бе успешно разкачен. Автоматичният архив е изключен, а локалните ви данни остават непокътнати.",
+        text: "Google Drive бе успешно разкачен. Синхронизацията в активната сесия е изключена, а локалните ви данни остават непокътнати.",
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
@@ -309,7 +309,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               {isAuthenticated && !isRestoringDriveSession && !hasDriveAccessToken && driveSessionStatus === "standby" && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   <CheckCircle2 className="w-3 h-3" />
-                  <span>Автоматичен архив активен</span>
+                  <span>Синхронизирано</span>
                 </span>
               )}
               {isAuthenticated && !isRestoringDriveSession && !hasDriveAccessToken && driveSessionStatus === "needs_reauth" && (
@@ -600,12 +600,12 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
         <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-5 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row items-center justify-between gap-5">
           <div className="space-y-1 text-center sm:text-left">
             <h3 className="font-bold text-slate-800 dark:text-white text-sm sm:text-base">
-              Влезте с Google, за да активирате автоматично облачно архивиране
+              Влезте с Google, за да синхронизирате архива си с Google Drive
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-lg leading-relaxed">
-              Вашите данни се съхраняват в личния ви Google Drive в изолираната папка{" "}
+              Вашите данни се съхраняват локално и в личния ви Google Drive в изолираната папка{" "}
               <code className="text-indigo-600 dark:text-indigo-400 font-mono">appDataFolder</code>.
-              Файловете са видими само за приложението и не заемат място в основния ви списък с документи.
+              Докато Drive сесията е активна, промените се качват при всяка редакция; след презареждане браузърът изисква 1 клик за нов Drive достъп.
             </p>
           </div>
 
@@ -690,7 +690,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDisconnectModal(true)}
-                title="Прекъсва връзката с Google Drive, изчиства токените и деактивира автоматичния архив"
+                title="Прекъсва връзката с Google Drive, изчиства токените и деактивира синхронизацията в активната сесия"
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300 hover:text-amber-800 dark:hover:text-amber-200 bg-amber-50 hover:bg-amber-100/80 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-800/80 rounded-xl transition-all cursor-pointer"
               >
                 <Unlink className="w-3.5 h-3.5" />
@@ -727,9 +727,9 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <div className="flex items-start gap-2.5 text-emerald-950 dark:text-emerald-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold block">Профилът е възстановен автоматично • Данните са в синхрон</span>
+                  <span className="font-bold block">Профилът е възстановен • Данните са в синхрон</span>
                   <span className="text-[11px] text-emerald-800/90 dark:text-emerald-300">
-                    Няма чакащи несинхронизирани промени. Натиснете „Архивирай сега“ или „Възстанови от Drive“ по всяко време за директен обмен с Google Drive.
+                    Поради сигурността на браузърите Drive достъпът не се пази след затваряне, но всички текущи записи вече са синхронизирани. При нова редакция можете да синхронизирате с 1 клик.
                   </span>
                 </div>
               </div>
@@ -751,9 +751,9 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <div className="flex items-start gap-2.5 text-amber-950 dark:text-amber-200">
                 <KeyRound className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold block">Има чакащи локални промени за синхронизация с Google Drive</span>
+                  <span className="font-bold block">Има несинхронизирани промени за Google Drive</span>
                   <span className="text-[11px] text-amber-900/90 dark:text-amber-300">
-                    За ваша сигурност браузърите не пазят сурови Drive токени след затваряне. Натиснете бутона, за да изпратите новите записи в облака — локалните данни са запазени.
+                    Браузърите блокират фоново подновяване на OAuth токени след презареждане/затваряне. Натиснете бутона за 1-клик разрешение и незабавно качване — локалните ви данни са запазени.
                   </span>
                 </div>
               </div>
@@ -843,15 +843,15 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
 
           {/* Cloud Info & Version Timestamps Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-4 border-t border-slate-200/80 dark:border-slate-700/80 text-xs">
-            {/* Auto Backup Toggle */}
-            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+            {/* Session Auto Sync Toggle */}
+            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
               <div>
                 <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>Автоматичен архив</span>
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span>Синхронизация в активната сесия</span>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Синхронизиране при промяна
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                  Качва автоматично докато Drive е активен в таба. След презареждане браузърът изисква 1 клик за сигурен токен.
                 </p>
               </div>
 
@@ -1143,7 +1143,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5 list-disc list-inside bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/80">
               <li>Ще излезете от профила си в Google.</li>
               <li>Запазените OAuth токени ще бъдат изтрити.</li>
-              <li>Автоматичният облачен архив ще бъде изключен.</li>
+              <li>Синхронизацията в активната сесия ще бъде изключена.</li>
               <li className="text-emerald-700 dark:text-emerald-400 font-semibold">
                 Всички ваши локални приходи, разходи, спестявания и бюджети остават непокътнати.
               </li>

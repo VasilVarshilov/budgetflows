@@ -146,15 +146,20 @@ export function calculateMonthElectricity(
   year: number,
   record: MonthlyRecord | undefined
 ): number {
-  // 1. First check in Electricity History
+  // 1. First check in Electricity History (sum all matching entries for that month)
   const history = getStoredElectricityHistory();
-  const foundInHistory = history.find(
+  const matchingInHistory = history.filter(
     (h) =>
       h.month.toLowerCase() === monthName.toLowerCase() &&
-      Number(h.year) === year
+      Number(h.year) === year &&
+      h.totalCost > 0
   );
-  if (foundInHistory && foundInHistory.totalCost > 0) {
-    return parseFloat(foundInHistory.totalCost.toFixed(2));
+  if (matchingInHistory.length > 0) {
+    const totalHistoryCost = matchingInHistory.reduce(
+      (sum, h) => sum + (Number(h.totalCost) || 0),
+      0
+    );
+    return parseFloat(totalHistoryCost.toFixed(2));
   }
 
   // 2. Check in MonthlyRecord inputs or results

@@ -1,13 +1,14 @@
 import { ElectricityInputs, ElectricityResults } from '@/types';
+import { parseDecimalInput } from './formatting';
 
 export const calculateElectricity = (inputs: ElectricityInputs): ElectricityResults => {
-  const oldT1 = parseFloat(inputs.oldT1);
-  const newT1 = parseFloat(inputs.newT1);
-  const oldT2 = parseFloat(inputs.oldT2);
-  const newT2 = parseFloat(inputs.newT2);
-  const priceT1 = parseFloat(inputs.priceT1);
-  const priceT2 = parseFloat(inputs.priceT2);
-  const invoiceTotal = parseFloat(inputs.invoiceTotal);
+  const oldT1 = parseDecimalInput(inputs.oldT1);
+  const newT1 = parseDecimalInput(inputs.newT1);
+  const oldT2 = parseDecimalInput(inputs.oldT2);
+  const newT2 = parseDecimalInput(inputs.newT2);
+  const priceT1 = parseDecimalInput(inputs.priceT1);
+  const priceT2 = parseDecimalInput(inputs.priceT2);
+  const invoiceTotal = parseDecimalInput(inputs.invoiceTotal);
 
   const errors: string[] = [];
   const warnings: string[] = [];

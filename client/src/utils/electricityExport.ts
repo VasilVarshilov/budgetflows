@@ -47,10 +47,18 @@ export function exportElectricityHistoryToTxt(
   const totalCostEm1 = records.reduce((sum, r) => sum + r.costEm1, 0);
   const totalCostEm2 = records.reduce((sum, r) => sum + r.em2Remainder, 0);
 
-  const avgConsumption = totalRecords > 0 ? totalConsumption / totalRecords : 0;
+  const recordsWithConsumption = records.filter((r) => r.consumption > 0);
+  const costForMeasured = recordsWithConsumption.reduce(
+    (sum, r) => sum + r.totalCost,
+    0
+  );
+  const avgConsumption =
+    recordsWithConsumption.length > 0
+      ? totalConsumption / recordsWithConsumption.length
+      : 0;
   const avgCost = totalRecords > 0 ? totalCost / totalRecords : 0;
   const avgUnitPrice =
-    totalConsumption > 0 ? totalCost / totalConsumption : 0;
+    totalConsumption > 0 ? costForMeasured / totalConsumption : 0;
 
   const totalCostBgn = totalCost * BGN_EUR_RATE;
   const avgCostBgn = avgCost * BGN_EUR_RATE;
@@ -88,13 +96,25 @@ export function exportElectricityHistoryToTxt(
     lines.push("Няма намерени записи за избрания период.");
   } else {
     records.forEach((r, idx) => {
-      lines.push(`Отчет #${idx + 1} - Период: ${r.periodLabel}`);
-      lines.push(`  • Старо показание:  Т1: ${r.prevT1.toFixed(1)} | Т2: ${r.prevT2.toFixed(1)} | Общо: ${r.previousReading.toFixed(1)}`);
-      lines.push(`  • Ново показание:   Т1: ${r.currT1.toFixed(1)} | Т2: ${r.currT2.toFixed(1)} | Общо: ${r.currentReading.toFixed(1)}`);
-      lines.push(`  • Потребление:      Т1: ${r.consT1.toFixed(3)} kWh | Т2: ${r.consT2.toFixed(3)} kWh | Общо: ${r.consumption.toFixed(3)} kWh`);
-      lines.push(`  • Единична цена:    Т1: €${r.priceT1.toFixed(5)} | Т2: €${r.priceT2.toFixed(5)} | Средна: €${r.unitPrice.toFixed(4)}`);
-      lines.push(`  • Стойност ЕМ 1:    €${r.costEm1.toFixed(2)} (${(r.costEm1 * BGN_EUR_RATE).toFixed(2)} лв.)`);
-      lines.push(`  • Стойност ЕМ 2:    €${r.em2Remainder.toFixed(2)} (${(r.em2Remainder * BGN_EUR_RATE).toFixed(2)} лв.)`);
+      const isManual =
+        r.source === "manual" ||
+        r.source === "receipt" ||
+        (r.consumption === 0 &&
+          r.previousReading === 0 &&
+          r.currentReading === 0 &&
+          r.costEm1 === 0 &&
+          r.em2Remainder === 0);
+      lines.push(`Отчет #${idx + 1} - Период: ${r.periodLabel}${isManual ? " [Ръчен запис]" : ""}`);
+      if (!isManual) {
+        lines.push(`  • Старо показание:  Т1: ${r.prevT1.toFixed(1)} | Т2: ${r.prevT2.toFixed(1)} | Общо: ${r.previousReading.toFixed(1)}`);
+        lines.push(`  • Ново показание:   Т1: ${r.currT1.toFixed(1)} | Т2: ${r.currT2.toFixed(1)} | Общо: ${r.currentReading.toFixed(1)}`);
+        lines.push(`  • Потребление:      Т1: ${r.consT1.toFixed(3)} kWh | Т2: ${r.consT2.toFixed(3)} kWh | Общо: ${r.consumption.toFixed(3)} kWh`);
+        lines.push(`  • Единична цена:    Т1: €${r.priceT1.toFixed(5)} | Т2: €${r.priceT2.toFixed(5)} | Средна: €${r.unitPrice.toFixed(4)}`);
+        lines.push(`  • Стойност ЕМ 1:    €${r.costEm1.toFixed(2)} (${(r.costEm1 * BGN_EUR_RATE).toFixed(2)} лв.)`);
+        lines.push(`  • Стойност ЕМ 2:    €${r.em2Remainder.toFixed(2)} (${(r.em2Remainder * BGN_EUR_RATE).toFixed(2)} лв.)`);
+      } else if (r.consumption > 0) {
+        lines.push(`  • Потребление:      ${r.consumption.toFixed(3)} kWh`);
+      }
       lines.push(`  • Обща фактура:     €${r.totalCost.toFixed(2)} (${(r.totalCost * BGN_EUR_RATE).toFixed(2)} лв.)`);
       if (r.note) {
         lines.push(`  • Забележка:        ${r.note}`);
@@ -141,7 +161,13 @@ export async function exportElectricityHistoryToPng(
   const totalConsT2 = records.reduce((sum, r) => sum + r.consT2, 0);
   const totalCost = records.reduce((sum, r) => sum + r.totalCost, 0);
   const avgCost = totalRecords > 0 ? totalCost / totalRecords : 0;
-  const avgUnitPrice = totalConsumption > 0 ? totalCost / totalConsumption : 0;
+  const recordsWithConsumption = records.filter((r) => r.consumption > 0);
+  const costForMeasured = recordsWithConsumption.reduce(
+    (sum, r) => sum + r.totalCost,
+    0
+  );
+  const avgUnitPrice =
+    totalConsumption > 0 ? costForMeasured / totalConsumption : 0;
 
   const width = 1100;
   const tableRowsCount = Math.max(records.length, 1);
@@ -243,6 +269,14 @@ export async function exportElectricityHistoryToPng(
 
   // Table rows
   records.forEach((r, idx) => {
+    const isManual =
+      r.source === "manual" ||
+      r.source === "receipt" ||
+      (r.consumption === 0 &&
+        r.previousReading === 0 &&
+        r.currentReading === 0 &&
+        r.costEm1 === 0 &&
+        r.em2Remainder === 0);
     const rowY = tableY + 42 + idx * 44;
     if (idx % 2 === 1) {
       ctx.fillStyle = "#f8fafc";
@@ -261,22 +295,22 @@ export async function exportElectricityHistoryToPng(
 
     ctx.fillStyle = "#475569";
     ctx.font = "12px monospace";
-    ctx.fillText(`${r.previousReading.toFixed(1)}`, 200, rowY + 27);
-    ctx.fillText(`${r.currentReading.toFixed(1)}`, 330, rowY + 27);
+    ctx.fillText(isManual ? "—" : `${r.previousReading.toFixed(1)}`, 200, rowY + 27);
+    ctx.fillText(isManual ? "—" : `${r.currentReading.toFixed(1)}`, 330, rowY + 27);
 
     ctx.fillStyle = "#b45309";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText(`${r.consumption.toFixed(2)} kWh`, 470, rowY + 27);
+    ctx.fillText(r.consumption > 0 ? `${r.consumption.toFixed(2)} kWh` : "—", 470, rowY + 27);
 
     ctx.fillStyle = "#64748b";
     ctx.font = "12px sans-serif";
-    ctx.fillText(`€${r.unitPrice.toFixed(4)}`, 640, rowY + 27);
+    ctx.fillText(r.unitPrice > 0 ? `€${r.unitPrice.toFixed(4)}` : "—", 640, rowY + 27);
 
     ctx.fillStyle = "#1e293b";
-    ctx.fillText(`€${r.costEm1.toFixed(2)}`, 770, rowY + 27);
+    ctx.fillText(isManual ? "—" : `€${r.costEm1.toFixed(2)}`, 770, rowY + 27);
 
     ctx.fillStyle = "#047857";
-    ctx.fillText(`€${r.em2Remainder.toFixed(2)}`, 880, rowY + 27);
+    ctx.fillText(isManual ? "—" : `€${r.em2Remainder.toFixed(2)}`, 880, rowY + 27);
 
     ctx.fillStyle = "#0f172a";
     ctx.font = "bold 13px sans-serif";

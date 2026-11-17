@@ -68,6 +68,16 @@ import {
   ExpenseFiltersState,
   DEFAULT_FILTERS,
 } from "@/components/monthly/ExpenseFilterToolbar";
+import {
+  sanitizeDecimalInput,
+  parseDecimalInput,
+  compareExpensesChronologically,
+} from "@/utils/formatting";
+import {
+  isManualElectricityExpense,
+  upsertElectricityRecordFromExpense,
+  deleteElectricityRecordByExpenseId,
+} from "@/utils/electricityStorage";
 
 // Map за иконките, поддържащ всички налични иконки и AI предложения
 const ICON_MAP: Record<string, any> = AVAILABLE_ICONS_MAP;
@@ -256,15 +266,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     icon: string,
     color: string,
     isRecurring: boolean = true,
+    timestampOffset: number = 0,
   ): ExpenseItem {
+    const nowMs = Date.now() + timestampOffset;
+    const nowIso = new Date(nowMs).toISOString();
     return {
-      id: `fix_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: `fix_${nowMs}_${Math.random().toString(36).substring(2, 9)}`,
       categoryId: name.toLowerCase(),
       categoryName: name,
       categoryIcon: icon,
       categoryColor: color,
       amount: amount,
-      date: new Date().toISOString(),
+      date: nowIso,
+      createdAt: nowIso,
+      timestamp: nowMs,
       isRecurring: isRecurring,
     };
   }
@@ -277,6 +292,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         "CreditCard",
         "bg-blue-100 text-blue-600",
         true,
+        0,
       ),
       createFixedItem(
         "Телефон",
@@ -284,6 +300,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         "Phone",
         "bg-indigo-100 text-indigo-600",
         true,
+        1,
       ),
       createFixedItem(
         "Интернет",
@@ -291,6 +308,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         "Wifi",
         "bg-cyan-100 text-cyan-600",
         true,
+        2,
       ),
     ];
   }
@@ -482,9 +500,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   } | null>(null);
 
   const handleExpenseFromReceipt = (newExpense: ExpenseItem) => {
-    setExpenses((prev) => [...prev, newExpense]);
+    const nowMs = Date.now();
+    const enrichedExpense: ExpenseItem = {
+      ...newExpense,
+      createdAt: newExpense.createdAt || new Date(nowMs).toISOString(),
+      timestamp: newExpense.timestamp || nowMs,
+    };
+    setExpenses((prev) => [...prev, enrichedExpense]);
+    if (isManualElectricityExpense(enrichedExpense)) {
+      upsertElectricityRecordFromExpense(enrichedExpense, currentMonth);
+    }
     setImportNotification({
-      message: `Добавен е разход "${newExpense.categoryName}" (${newExpense.amount.toFixed(2)} €) от касова бележка.`,
+      message: `Добавен е разход "${enrichedExpense.categoryName}" (${enrichedExpense.amount.toFixed(2)} €) от касова бележка.`,
       type: "success",
     });
     setTimeout(() => {
@@ -617,14 +644,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const filteredExpenses = useMemo(() => {
     const term = expenseFilters.searchTerm.trim().toLowerCase();
     const hasCategoryFilter = expenseFilters.categoryId !== "all";
-    const minVal = expenseFilters.minAmount !== "" ? parseFloat(expenseFilters.minAmount) : null;
-    const maxVal = expenseFilters.maxAmount !== "" ? parseFloat(expenseFilters.maxAmount) : null;
+    const minVal = expenseFilters.minAmount !== "" ? parseDecimalInput(expenseFilters.minAmount) : null;
+    const maxVal = expenseFilters.maxAmount !== "" ? parseDecimalInput(expenseFilters.maxAmount) : null;
     const isCustomDate = expenseFilters.monthFilter === "custom";
     const startIso = expenseFilters.startDate ? expenseFilters.startDate + "T00:00:00" : null;
     const endIso = expenseFilters.endDate ? expenseFilters.endDate + "T23:59:59" : null;
 
     return candidateExpenses
-      .filter((item) => {
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => {
         // Smart Search by Note, Category, Amount
         if (term) {
           const noteMatch = item.note && item.note.toLowerCase().includes(term);
@@ -684,16 +712,23 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       .sort((a, b) => {
         switch (expenseFilters.sortBy) {
           case "oldest":
-            return new Date(a.date).getTime() - new Date(b.date).getTime();
+            return compareExpensesChronologically(a.item, b.item, "asc", a.idx, b.idx);
           case "highest":
-            return b.amount - a.amount;
+            return (
+              b.item.amount - a.item.amount ||
+              compareExpensesChronologically(a.item, b.item, "desc", a.idx, b.idx)
+            );
           case "lowest":
-            return a.amount - b.amount;
+            return (
+              a.item.amount - b.item.amount ||
+              compareExpensesChronologically(a.item, b.item, "desc", a.idx, b.idx)
+            );
           case "newest":
           default:
-            return new Date(b.date).getTime() - new Date(a.date).getTime();
+            return compareExpensesChronologically(a.item, b.item, "desc", a.idx, b.idx);
         }
-      });
+      })
+      .map(({ item }) => item);
   }, [candidateExpenses, expenseFilters, budgetCategories]);
 
   // Pagination for large dataset optimization
@@ -728,15 +763,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleAddExpense = () => {
     if (!selectedCategory || !amount) return;
 
-    const parsedAmount = parseFloat(amount);
+    const parsedAmount = parseDecimalInput(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) return;
 
     const chosenBudget = budgetCategories.find(
       (b) => b.id === selectedBudgetCategoryId
     );
 
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
     const newExpense: ExpenseItem = {
-      id: Date.now().toString(),
+      id: nowMs.toString(),
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
       categoryIcon: selectedCategory.iconName,
@@ -745,11 +783,16 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsedAmount,
       note: note.trim() || undefined,
-      date: new Date().toISOString(),
+      date: nowIso,
+      createdAt: nowIso,
+      timestamp: nowMs,
       isRecurring: isRecurringExpense,
     };
 
     setExpenses((prev) => [...prev, newExpense]);
+    if (isManualElectricityExpense(newExpense)) {
+      upsertElectricityRecordFromExpense(newExpense, currentMonth);
+    }
 
     // Reset form
     setIsAddingExpense(false);
@@ -762,6 +805,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   const handleDeleteExpense = (id: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
+    deleteElectricityRecordByExpenseId(id);
     if (editingExpenseId === id) {
       setEditingExpenseId(null);
     }
@@ -790,6 +834,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           targetMonth
         );
       }
+      deleteElectricityRecordByExpenseId(expense.id);
     }
   };
 
@@ -806,7 +851,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   };
 
   const handleSaveEditExpense = (id: string) => {
-    const val = parseFloat(editExpenseAmount);
+    const val = parseDecimalInput(editExpenseAmount);
     if (isNaN(val) || val < 0) return;
 
     const targetMonth = editingExpenseSourceMonth || currentMonth;
@@ -816,24 +861,49 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     );
 
     if (editingExpenseIsFixed) {
+      const existingItem = fixedExpenses.find((item) => item.id === id);
+      const updatedItem: ExpenseItem | null = existingItem
+        ? {
+            ...existingItem,
+            amount: val,
+            budgetCategoryId: editExpenseBudgetCategoryId || undefined,
+            budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
+            isRecurring: editExpenseRecurring,
+          }
+        : null;
       setFixedExpenses((prev) =>
-        prev.map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                amount: val,
-                budgetCategoryId: editExpenseBudgetCategoryId || undefined,
-                budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
-                isRecurring: editExpenseRecurring,
-              }
-            : item
-        )
+        prev.map((item) => (item.id === id && updatedItem ? updatedItem : item))
       );
+      if (updatedItem) {
+        upsertElectricityRecordFromExpense(updatedItem, targetMonth);
+      }
     } else if (targetMonth === currentMonth) {
+      const existingItem = expenses.find((item) => item.id === id);
+      const updatedItem: ExpenseItem | null = existingItem
+        ? {
+            ...existingItem,
+            amount: val,
+            note: editExpenseNote.trim() || undefined,
+            merchantName: parsedNote.merchantName || existingItem.merchantName,
+            receiptItems: parsedNote.items.length > 0 ? parsedNote.items : existingItem.receiptItems,
+            budgetCategoryId: editExpenseBudgetCategoryId || undefined,
+            budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
+            isRecurring: editExpenseRecurring,
+          }
+        : null;
       setExpenses((prev) =>
-        prev.map((item) => {
+        prev.map((item) => (item.id === id && updatedItem ? updatedItem : item))
+      );
+      if (updatedItem) {
+        upsertElectricityRecordFromExpense(updatedItem, targetMonth);
+      }
+    } else {
+      const record = allMonthlyData[targetMonth];
+      if (record && record.expenses) {
+        let updatedTargetItem: ExpenseItem | null = null;
+        const updatedAdd = (record.expenses.additional_expenses || []).map((item) => {
           if (item.id === id) {
-            return {
+            updatedTargetItem = {
               ...item,
               amount: val,
               note: editExpenseNote.trim() || undefined,
@@ -843,27 +913,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
               isRecurring: editExpenseRecurring,
             };
+            return updatedTargetItem;
           }
           return item;
-        })
-      );
-    } else {
-      const record = allMonthlyData[targetMonth];
-      if (record && record.expenses) {
-        const updatedAdd = (record.expenses.additional_expenses || []).map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                amount: val,
-                note: editExpenseNote.trim() || undefined,
-                merchantName: parsedNote.merchantName || item.merchantName,
-                receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
-                budgetCategoryId: editExpenseBudgetCategoryId || undefined,
-                budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
-                isRecurring: editExpenseRecurring,
-              }
-            : item
-        );
+        });
         onSaveExpenses(
           {
             ...record.expenses,
@@ -871,6 +924,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           },
           targetMonth
         );
+        if (updatedTargetItem) {
+          upsertElectricityRecordFromExpense(updatedTargetItem, targetMonth);
+        }
       }
     }
     setEditingExpenseId(null);
@@ -905,15 +961,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleAddFixedExpense = () => {
     if (!selectedFixedCategory || !fixedAmount) return;
 
-    const parsed = parseFloat(fixedAmount);
+    const parsed = parseDecimalInput(fixedAmount);
     if (isNaN(parsed) || parsed <= 0) return;
 
     const chosenBudget = budgetCategories.find(
       (b) => b.id === selectedFixedBudgetCategoryId
     );
 
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
     const newFixed: ExpenseItem = {
-      id: `fix_${Date.now()}`,
+      id: `fix_${nowMs}`,
       categoryId: selectedFixedCategory.id,
       categoryName: selectedFixedCategory.name,
       categoryIcon: selectedFixedCategory.iconName,
@@ -921,11 +980,16 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryId: selectedFixedBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsed,
-      date: new Date().toISOString(),
+      date: nowIso,
+      createdAt: nowIso,
+      timestamp: nowMs,
       isRecurring: isRecurringFixed,
     };
 
     setFixedExpenses((prev) => [...prev, newFixed]);
+    if (isManualElectricityExpense(newFixed)) {
+      upsertElectricityRecordFromExpense(newFixed, currentMonth);
+    }
 
     // Reset form
     setIsAddingFixed(false);
@@ -937,6 +1001,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   const handleDeleteFixedExpense = (id: string) => {
     setFixedExpenses((prev) => prev.filter((e) => e.id !== id));
+    deleteElectricityRecordByExpenseId(id);
     if (editingFixedId === id) {
       setEditingFixedId(null);
     }
@@ -951,28 +1016,31 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   };
 
   const handleSaveEditFixed = (id: string) => {
-    const val = parseFloat(editFixedAmount);
+    const val = parseDecimalInput(editFixedAmount);
     if (isNaN(val) || val < 0) return;
 
     const chosenBudget = budgetCategories.find(
       (b) => b.id === editFixedBudgetCategoryId
     );
 
-    setFixedExpenses((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          return {
-            ...item,
-            categoryName: editFixedName.trim() || item.categoryName,
-            amount: val,
-            budgetCategoryId: editFixedBudgetCategoryId || undefined,
-            budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
-            isRecurring: editFixedRecurring,
-          };
+    const existingItem = fixedExpenses.find((item) => item.id === id);
+    const updatedItem: ExpenseItem | null = existingItem
+      ? {
+          ...existingItem,
+          categoryName: editFixedName.trim() || existingItem.categoryName,
+          amount: val,
+          budgetCategoryId: editFixedBudgetCategoryId || undefined,
+          budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
+          isRecurring: editFixedRecurring,
         }
-        return item;
-      }),
+      : null;
+
+    setFixedExpenses((prev) =>
+      prev.map((item) => (item.id === id && updatedItem ? updatedItem : item))
     );
+    if (updatedItem) {
+      upsertElectricityRecordFromExpense(updatedItem, currentMonth);
+    }
     setEditingFixedId(null);
   };
 
@@ -990,12 +1058,22 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     if (imported.fixed.length > 0) {
       setFixedExpenses((prev) => [...prev, ...imported.fixed]);
+      imported.fixed.forEach((item) => {
+        if (isManualElectricityExpense(item)) {
+          upsertElectricityRecordFromExpense(item, currentMonth);
+        }
+      });
       totalImported += imported.fixed.length;
       totalSum += imported.fixed.reduce((sum, item) => sum + item.amount, 0);
     }
 
     if (imported.variable.length > 0) {
       setExpenses((prev) => [...prev, ...imported.variable]);
+      imported.variable.forEach((item) => {
+        if (isManualElectricityExpense(item)) {
+          upsertElectricityRecordFromExpense(item, currentMonth);
+        }
+      });
       totalImported += imported.variable.length;
       totalSum += imported.variable.reduce((sum, item) => sum + item.amount, 0);
     }
@@ -1265,7 +1343,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <div className="flex gap-3 pt-1">
             <button
               onClick={handleAddExpense}
-              disabled={!selectedCategory || !amount}
+              disabled={
+                !selectedCategory ||
+                !amount ||
+                isNaN(parseDecimalInput(amount)) ||
+                parseDecimalInput(amount) <= 0
+              }
               className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
             >
               Добави разход
@@ -1373,16 +1456,21 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
               <div className="flex gap-2">
                 <input
-                  type="number"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   value={fixedAmount}
-                  onChange={(e) => setFixedAmount(e.target.value)}
+                  onChange={(e) => setFixedAmount(sanitizeDecimalInput(e.target.value))}
                   placeholder="Сума €"
                   className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 />
                 <button
                   onClick={handleAddFixedExpense}
-                  disabled={!selectedFixedCategory || !fixedAmount}
+                  disabled={
+                    !selectedFixedCategory ||
+                    !fixedAmount ||
+                    isNaN(parseDecimalInput(fixedAmount)) ||
+                    parseDecimalInput(fixedAmount) <= 0
+                  }
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
                 >
                   Добави
@@ -1452,11 +1540,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           Сума (€)
                         </label>
                         <input
-                          type="number"
-                          step="any"
+                          type="text"
                           inputMode="decimal"
                           value={editFixedAmount}
-                          onChange={(e) => setEditFixedAmount(e.target.value)}
+                          onChange={(e) => setEditFixedAmount(sanitizeDecimalInput(e.target.value))}
                           className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 dark:text-white"
                           placeholder="Сума €"
                         />
@@ -1509,7 +1596,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </button>
                       <button
                         onClick={() => handleSaveEditFixed(item.id)}
-                        disabled={!editFixedAmount}
+                        disabled={
+                          !editFixedAmount ||
+                          isNaN(parseDecimalInput(editFixedAmount)) ||
+                          parseDecimalInput(editFixedAmount) < 0
+                        }
                         className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"
                       >
                         <Check className="w-3.5 h-3.5" />
@@ -1713,12 +1804,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             Сума (€)
                           </label>
                           <input
-                            type="number"
-                            step="any"
+                            type="text"
                             inputMode="decimal"
                             value={editExpenseAmount}
                             onChange={(e) =>
-                              setEditExpenseAmount(e.target.value)
+                              setEditExpenseAmount(sanitizeDecimalInput(e.target.value))
                             }
                             className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
                             placeholder="Сума €"
@@ -1790,7 +1880,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         </button>
                         <button
                           onClick={() => handleSaveEditExpense(expense.id)}
-                          disabled={!editExpenseAmount}
+                          disabled={
+                            !editExpenseAmount ||
+                            isNaN(parseDecimalInput(editExpenseAmount)) ||
+                            parseDecimalInput(editExpenseAmount) < 0
+                          }
                           className="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"
                         >
                           <Check className="w-3.5 h-3.5" />

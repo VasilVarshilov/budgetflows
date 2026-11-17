@@ -278,13 +278,17 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
     const newFixed: ExpenseItem[] = [];
     const newVariable: ExpenseItem[] = [];
 
-    const nowIso = new Date().toISOString();
+    const baseMs = Date.now();
 
-    selectedItems.forEach((c) => {
+    selectedItems.forEach((c, idx) => {
+      const itemMs = baseMs + idx;
+      const itemIso = new Date(itemMs).toISOString();
       const clonedItem: ExpenseItem = {
         ...c.item,
-        id: `${c.sourceType}_rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        date: nowIso,
+        id: `${c.sourceType}_rec_${itemMs}_${Math.random().toString(36).substring(2, 7)}`,
+        date: itemIso,
+        createdAt: itemIso,
+        timestamp: itemMs,
         isRecurring: true,
       };
 

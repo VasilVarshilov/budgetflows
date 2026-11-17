@@ -271,26 +271,34 @@ const AppContent: React.FC = () => {
       );
 
       // Create two new electricity expense items
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
       const em1Expense: ExpenseItem = {
-        id: `electricity_em1_${Date.now()}`,
+        id: `electricity_em1_${nowMs}`,
         categoryId: "electricity",
         categoryName: "Сметка Ток - Електромер 1",
         categoryIcon: "Zap",
         categoryColor: "bg-yellow-100 text-yellow-600",
         amount: em1Amount,
         note: "",
-        date: new Date().toISOString(),
+        date: nowIso,
+        createdAt: nowIso,
+        timestamp: nowMs,
       };
 
+      const em2Ms = nowMs + 1;
+      const em2Iso = new Date(em2Ms).toISOString();
       const em2Expense: ExpenseItem = {
-        id: `electricity_em2_${Date.now() + 1}`,
+        id: `electricity_em2_${em2Ms}`,
         categoryId: "electricity",
         categoryName: "Сметка Ток - Електромер 2",
         categoryIcon: "Zap",
         categoryColor: "bg-yellow-100 text-yellow-600",
         amount: em2Amount,
         note: "",
-        date: new Date().toISOString(),
+        date: em2Iso,
+        createdAt: em2Iso,
+        timestamp: em2Ms,
       };
 
       const updated: MonthlyRecord = {
@@ -300,6 +308,55 @@ const AppContent: React.FC = () => {
           // Keep existing fixed expenses
           fixed_expenses: existing.expenses?.fixed_expenses || [],
           additional_expenses: [...filteredExpenses, em1Expense, em2Expense],
+        },
+      };
+
+      const newData = { ...prev, [monthKey]: updated };
+      monthlyDataRef.current = newData;
+      saveMonthlyToStorage(newData, targetUid);
+      setMonthlyData(newData);
+      triggerAutoSync();
+    },
+    [activeUid, saveMonthlyToStorage, triggerAutoSync]
+  );
+
+  // Add manual electricity bill entry to Monthly Expenses as well as Electricity History
+  const handleAddManualElectricityExpense = useCallback(
+    (entry: {
+      amount: number;
+      month: string;
+      year: string;
+      note?: string;
+      expenseId: string;
+      createdAt: string;
+      timestamp: number;
+    }) => {
+      const targetUid = userStorage.getActiveUid();
+      const prev = monthlyDataRef.current;
+      const monthKey = `${entry.month} ${entry.year}`;
+      const existing = prev[monthKey] || createEmptyMonthlyRecord(monthKey);
+      const existingExpenses = existing.expenses?.additional_expenses || [];
+
+      const newExpense: ExpenseItem = {
+        id: entry.expenseId,
+        categoryId: "electricity",
+        categoryName: "Ток",
+        categoryIcon: "Zap",
+        categoryColor: "bg-yellow-100 text-yellow-600",
+        amount: entry.amount,
+        note: entry.note,
+        date: entry.createdAt,
+        createdAt: entry.createdAt,
+        timestamp: entry.timestamp,
+        sourceMonth: monthKey,
+      };
+
+      const updated: MonthlyRecord = {
+        ...existing,
+        expenses: {
+          saved_em2_eur: existing.expenses?.saved_em2_eur || 0,
+          fixed_expenses: existing.expenses?.fixed_expenses || [],
+          additional_expenses: [...existingExpenses, newExpense],
         },
       };
 
@@ -610,7 +667,11 @@ const AppContent: React.FC = () => {
         )}
 
         {activeTab === "electricity" && (
-          <ElectricityTab onAddToExpenses={handleAddElectricityToExpenses} />
+          <ElectricityTab
+            onAddToExpenses={handleAddElectricityToExpenses}
+            monthlyData={monthlyData}
+            onAddManualElectricityExpense={handleAddManualElectricityExpense}
+          />
         )}
 
         {activeTab === "savings" && (

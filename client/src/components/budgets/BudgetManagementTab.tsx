@@ -39,7 +39,11 @@ import {
   getAiSuggestedIconAndColor,
   getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
-import { getCurrentMonthBulgarian } from "@/utils/formatting";
+import {
+  getCurrentMonthBulgarian,
+  sanitizeDecimalInput,
+  parseDecimalInput,
+} from "@/utils/formatting";
 
 interface BudgetManagementTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -153,7 +157,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
   // Handle Save Total Monthly Budget
   const handleSaveTotalBudget = () => {
-    const val = parseFloat(totalBudgetInput);
+    const val = parseDecimalInput(totalBudgetInput);
     if (isNaN(val) || val <= 0) return;
     saveTotalMonthlyBudget(val);
     setTotalMonthlyBudget(val);
@@ -225,7 +229,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       setFormError("Моля, посочете име на категорията.");
       return;
     }
-    const limit = parseFloat(formData.monthlyLimit);
+    const limit = parseDecimalInput(formData.monthlyLimit);
     if (isNaN(limit) || limit <= 0) {
       setFormError("Моля, въведете валиден положителен бюджет.");
       return;
@@ -407,11 +411,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       €
                     </span>
                     <input
-                      type="number"
-                      step="10"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       value={totalBudgetInput}
-                      onChange={(e) => setTotalBudgetInput(e.target.value)}
+                      onChange={(e) => setTotalBudgetInput(sanitizeDecimalInput(e.target.value))}
                       className="w-36 pl-7 pr-2.5 py-1 text-lg font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                       autoFocus
                     />
@@ -969,14 +972,13 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     €
                   </span>
                   <input
-                    type="number"
-                    step="1"
-                    min="1"
+                    type="text"
+                    inputMode="decimal"
                     value={formData.monthlyLimit}
                     onChange={(e) =>
                       setFormData((prev) => ({
                         ...prev,
-                        monthlyLimit: e.target.value,
+                        monthlyLimit: sanitizeDecimalInput(e.target.value),
                       }))
                     }
                     placeholder="напр. 400"

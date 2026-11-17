@@ -18,6 +18,7 @@ import {
   Layers,
 } from "lucide-react";
 import { ExpenseCategory, ExpenseItem, BudgetConfig } from "@/types";
+import { sanitizeDecimalInput } from "@/utils/formatting";
 
 export type ExpenseSortOption = "newest" | "oldest" | "highest" | "lowest";
 
@@ -294,12 +295,10 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 Мин. сума (€)
               </label>
               <input
-                type="number"
-                step="any"
-                min="0"
+                type="text"
                 inputMode="decimal"
                 value={filters.minAmount}
-                onChange={(e) => updateFilter("minAmount", e.target.value)}
+                onChange={(e) => updateFilter("minAmount", sanitizeDecimalInput(e.target.value))}
                 placeholder="0.00"
                 className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
               />
@@ -312,12 +311,10 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 Макс. сума (€)
               </label>
               <input
-                type="number"
-                step="any"
-                min="0"
+                type="text"
                 inputMode="decimal"
                 value={filters.maxAmount}
-                onChange={(e) => updateFilter("maxAmount", e.target.value)}
+                onChange={(e) => updateFilter("maxAmount", sanitizeDecimalInput(e.target.value))}
                 placeholder="Без лимит"
                 className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
               />

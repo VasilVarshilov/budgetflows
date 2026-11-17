@@ -52,6 +52,8 @@ export interface ElectricityRecord {
   em2Remainder: number;
   
   note?: string;
+  source?: "calculator" | "manual" | "receipt" | "imported";
+  sourceExpenseId?: string;
 }
 
 export interface ExpenseCategory {
@@ -77,6 +79,8 @@ export interface ExpenseItem {
   amount: number;
   note?: string;
   date: string;
+  createdAt?: string;
+  timestamp?: number;
   merchantName?: string;
   receiptItems?: ReceiptItemDetail[];
   isRecurring?: boolean; // When enabled, marked as a recurring expense (e.g., Rent, Internet, Mobile Plan, Insurance)

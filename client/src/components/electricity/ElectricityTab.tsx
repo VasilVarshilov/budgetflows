@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Zap,
   Calculator,
@@ -14,16 +14,20 @@ import {
   History,
   ArrowRight,
   Calendar,
+  PlusCircle,
+  X,
 } from 'lucide-react';
 import { InputGroup } from '@/components/ui/InputGroup';
 import { calculateElectricity } from '@/utils/calculations';
-import { ElectricityInputs, ElectricityResults, ElectricityRecord } from '@/types';
-import { getCurrentMonthBulgarian } from '@/utils/formatting';
+import { ElectricityInputs, ElectricityResults, ElectricityRecord, MonthlyRecord } from '@/types';
+import { getCurrentMonthBulgarian, parseDecimalInput } from '@/utils/formatting';
 import { ElectricityHistoryTab } from './ElectricityHistoryTab';
 import {
   getStoredElectricityHistory,
   addElectricityRecord,
   deleteElectricityRecord,
+  mergeElectricityHistoryWithManualExpenses,
+  ELECTRICITY_UPDATED_EVENT,
   MONTHS_BG_LIST,
 } from '@/utils/electricityStorage';
 import {
@@ -31,11 +35,27 @@ import {
   STORAGE_BASE_ELECTRICITY_LAST,
 } from '@/utils/userStorage';
 
-interface ElectricityTabProps {
-  onAddToExpenses: (em1: number, em2: number) => void;
+interface ManualElectricityExpensePayload {
+  amount: number;
+  month: string;
+  year: string;
+  note?: string;
+  expenseId: string;
+  createdAt: string;
+  timestamp: number;
 }
 
-export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses }) => {
+interface ElectricityTabProps {
+  onAddToExpenses: (em1: number, em2: number) => void;
+  monthlyData?: Record<string, MonthlyRecord>;
+  onAddManualElectricityExpense?: (entry: ManualElectricityExpensePayload) => void;
+}
+
+export const ElectricityTab: React.FC<ElectricityTabProps> = ({
+  onAddToExpenses,
+  monthlyData,
+  onAddManualElectricityExpense,
+}) => {
   const [activeSubTab, setActiveSubTab] = useState<'calculator' | 'history'>('calculator');
   const [historyRecords, setHistoryRecords] = useState<ElectricityRecord[]>(() =>
     getStoredElectricityHistory()
@@ -84,7 +104,16 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
   const [results, setResults] = useState<ElectricityResults | null>(null);
   const [isAdded, setIsAdded] = useState(false);
 
-  // Refresh history & readings on mount, restore, or account switch
+  // Manual Entry Modal State
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [manualMonth, setManualMonth] = useState<string>(currentMonthName);
+  const [manualYear, setManualYear] = useState<string>(currentYearStr);
+  const [manualCost, setManualCost] = useState<string>('');
+  const [manualConsumption, setManualConsumption] = useState<string>('');
+  const [manualNote, setManualNote] = useState<string>('');
+  const [manualError, setManualError] = useState<string | null>(null);
+
+  // Refresh history & readings on mount, restore, account switch, or electricity updates
   useEffect(() => {
     const reload = () => {
       setHistoryRecords(getStoredElectricityHistory());
@@ -92,14 +121,23 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
       setResults(null);
       setIsAdded(false);
     };
+    const reloadHistoryOnly = () => {
+      setHistoryRecords(getStoredElectricityHistory());
+    };
     reload();
     window.addEventListener("homebudget:data-restored", reload);
     window.addEventListener("budgetflows:account-changed", reload);
+    window.addEventListener(ELECTRICITY_UPDATED_EVENT, reloadHistoryOnly);
     return () => {
       window.removeEventListener("homebudget:data-restored", reload);
       window.removeEventListener("budgetflows:account-changed", reload);
+      window.removeEventListener(ELECTRICITY_UPDATED_EVENT, reloadHistoryOnly);
     };
   }, []);
+
+  const mergedHistoryRecords = useMemo(() => {
+    return mergeElectricityHistoryWithManualExpenses(historyRecords, monthlyData);
+  }, [historyRecords, monthlyData]);
 
   const handleCalculate = () => {
     const res = calculateElectricity(inputs);
@@ -109,14 +147,14 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
 
     // If calculation is valid, automatically store every calculated electricity bill into history
     if (res.isValid) {
-      const oldT1Num = parseFloat(inputs.oldT1) || 0;
-      const oldT2Num = parseFloat(inputs.oldT2) || 0;
-      const newT1Num = parseFloat(inputs.newT1) || 0;
-      const newT2Num = parseFloat(inputs.newT2) || 0;
-      const priceT1Num = parseFloat(inputs.priceT1) || 0;
-      const priceT2Num = parseFloat(inputs.priceT2) || 0;
+      const oldT1Num = parseDecimalInput(inputs.oldT1) || 0;
+      const oldT2Num = parseDecimalInput(inputs.oldT2) || 0;
+      const newT1Num = parseDecimalInput(inputs.newT1) || 0;
+      const newT2Num = parseDecimalInput(inputs.newT2) || 0;
+      const priceT1Num = parseDecimalInput(inputs.priceT1) || 0;
+      const priceT2Num = parseDecimalInput(inputs.priceT2) || 0;
       const invoiceTotalNum =
-        parseFloat(inputs.invoiceTotal) || (res.costEm1 + res.em2Remainder);
+        parseDecimalInput(inputs.invoiceTotal) || (res.costEm1 + res.em2Remainder);
 
       const unitPriceAvg =
         res.totalCons > 0
@@ -145,6 +183,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
         em2Remainder: res.em2Remainder,
         totalCost: invoiceTotalNum,
         note: calcNote.trim() || undefined,
+        source: "calculator",
       };
 
       // Save to localStorage history
@@ -188,6 +227,81 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
   const handleDeleteHistoryRecord = (id: string) => {
     const updated = deleteElectricityRecord(id);
     setHistoryRecords(updated);
+  };
+
+  const handleOpenManualModal = () => {
+    setManualMonth(calcMonth || currentMonthName);
+    setManualYear(calcYear || currentYearStr);
+    setManualCost('');
+    setManualConsumption('');
+    setManualNote('');
+    setManualError(null);
+    setIsManualModalOpen(true);
+  };
+
+  const handleSaveManualEntry = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsedCost = parseDecimalInput(manualCost);
+    if (isNaN(parsedCost) || parsedCost <= 0) {
+      setManualError('Моля, въведете валидна сума по-голяма от 0.');
+      return;
+    }
+
+    const parsedCons = manualConsumption.trim()
+      ? parseDecimalInput(manualConsumption)
+      : 0;
+    if (manualConsumption.trim() && (isNaN(parsedCons) || parsedCons < 0)) {
+      setManualError('Моля, въведете валидна консумация (kWh) или оставете празно.');
+      return;
+    }
+
+    const safeCons = isNaN(parsedCons) || parsedCons < 0 ? 0 : parsedCons;
+    const safeYear = manualYear.trim() || currentYearStr;
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const expenseId = `elec_manual_exp_${nowMs}`;
+
+    const newRecord: ElectricityRecord = {
+      id: `elec_exp_${expenseId}`,
+      createdAt: nowIso,
+      month: manualMonth,
+      year: safeYear,
+      periodLabel: `${manualMonth} ${safeYear}`,
+      previousReading: 0,
+      prevT1: 0,
+      prevT2: 0,
+      currentReading: 0,
+      currT1: 0,
+      currT2: 0,
+      consumption: safeCons,
+      consT1: 0,
+      consT2: 0,
+      priceT1: 0,
+      priceT2: 0,
+      unitPrice: safeCons > 0 ? parsedCost / safeCons : 0,
+      costEm1: 0,
+      em2Remainder: 0,
+      totalCost: Number(parsedCost.toFixed(2)),
+      note: manualNote.trim() || 'Ръчен запис (Ток)',
+      source: 'manual',
+      sourceExpenseId: expenseId,
+    };
+
+    const updatedHistory = addElectricityRecord(newRecord);
+    setHistoryRecords(updatedHistory);
+
+    onAddManualElectricityExpense?.({
+      amount: Number(parsedCost.toFixed(2)),
+      month: manualMonth,
+      year: safeYear,
+      note: manualNote.trim() || 'Ръчен запис (Ток)',
+      expenseId,
+      createdAt: nowIso,
+      timestamp: nowMs,
+    });
+
+    setIsManualModalOpen(false);
+    setActiveSubTab('history');
   };
 
   const handleAddToExpenses = () => {
@@ -279,7 +393,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
         >
           <History className="w-4 h-4" />
           <span>История на тока</span>
-          {historyRecords.length > 0 && (
+          {mergedHistoryRecords.length > 0 && (
             <span
               className={`text-xs px-2 py-0.5 rounded-full font-bold ml-1 ${
                 activeSubTab === 'history'
@@ -287,7 +401,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
                   : 'bg-yellow-100 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300'
               }`}
             >
-              {historyRecords.length}
+              {mergedHistoryRecords.length}
             </span>
           )}
         </button>
@@ -301,13 +415,23 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
               <Zap className="w-6 h-6 text-yellow-500" />
               Електроенергия Калкулатор
             </h2>
-            <button
-              onClick={() => setActiveSubTab('history')}
-              className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 flex items-center gap-1.5 self-start sm:self-auto bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <History className="w-4 h-4" />
-              Преглед на историята ({historyRecords.length})
-            </button>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={handleOpenManualModal}
+                className="text-xs font-semibold text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/60 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                Ръчен запис (без показания)
+              </button>
+              <button
+                onClick={() => setActiveSubTab('history')}
+                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+              >
+                <History className="w-4 h-4" />
+                Преглед на историята ({mergedHistoryRecords.length})
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -552,7 +676,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
                           <span>Обща сума по фактурата:</span>
                         </div>
                         <span className="font-bold text-lg text-white">
-                          €{parseFloat(inputs.invoiceTotal || '0').toFixed(2)}
+                          €{(parseDecimalInput(inputs.invoiceTotal || '0') || 0).toFixed(2)}
                         </span>
                       </div>
 
@@ -610,10 +734,129 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({ onAddToExpenses 
       {/* Tab 2: Electricity History */}
       {activeSubTab === 'history' && (
         <ElectricityHistoryTab
-          records={historyRecords}
+          records={mergedHistoryRecords}
           onDeleteRecord={handleDeleteHistoryRecord}
           onSwitchToCalculator={() => setActiveSubTab('calculator')}
+          onOpenManualEntry={handleOpenManualModal}
         />
+      )}
+
+      {/* Manual Electricity Entry Modal */}
+      {isManualModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 rounded-xl">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    Ръчен запис за ток
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Добавя се към Разходи и История на тока
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManualModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveManualEntry} className="p-5 space-y-4">
+              {manualError && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs rounded-xl font-medium">
+                  {manualError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
+                    Месец
+                  </label>
+                  <select
+                    value={manualMonth}
+                    onChange={(e) => setManualMonth(e.target.value)}
+                    className="w-full text-sm font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-yellow-500/30"
+                  >
+                    {MONTHS_BG_LIST.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
+                    Година
+                  </label>
+                  <input
+                    type="number"
+                    value={manualYear}
+                    onChange={(e) => setManualYear(e.target.value)}
+                    className="w-full text-sm font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-yellow-500/30"
+                  />
+                </div>
+              </div>
+
+              <InputGroup
+                label="Сума на сметката (€)"
+                value={manualCost}
+                onChange={(v) => {
+                  setManualCost(v);
+                  setManualError(null);
+                }}
+                placeholder="0.00"
+              />
+
+              <InputGroup
+                label="Консумация kWh (опционално)"
+                value={manualConsumption}
+                onChange={(v) => {
+                  setManualConsumption(v);
+                  setManualError(null);
+                }}
+                placeholder="напр. 320"
+              />
+
+              <div>
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
+                  Бележка (опционално)
+                </label>
+                <input
+                  type="text"
+                  value={manualNote}
+                  onChange={(e) => setManualNote(e.target.value)}
+                  placeholder="напр. Месечна фактура EVN"
+                  className="w-full text-sm bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-yellow-500/30"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsManualModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                >
+                  Отказ
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-bold text-slate-950 bg-yellow-500 hover:bg-yellow-400 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  Запази в Разходи и История
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

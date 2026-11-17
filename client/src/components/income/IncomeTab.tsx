@@ -45,6 +45,11 @@ import {
   IncomeFiltersState,
   DEFAULT_INCOME_FILTERS,
 } from "./IncomeFilterToolbar";
+import {
+  sanitizeDecimalInput,
+  parseDecimalInput,
+  compareExpensesChronologically,
+} from "@/utils/formatting";
 
 const ICON_MAP: Record<string, React.ElementType> = AVAILABLE_ICONS_MAP;
 
@@ -216,9 +221,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   const filteredEntries = useMemo(() => {
     const search = filters.searchTerm.trim().toLowerCase();
     const minVal =
-      filters.minAmount !== "" ? parseFloat(filters.minAmount) : null;
+      filters.minAmount !== "" ? parseDecimalInput(filters.minAmount) : null;
     const maxVal =
-      filters.maxAmount !== "" ? parseFloat(filters.maxAmount) : null;
+      filters.maxAmount !== "" ? parseDecimalInput(filters.maxAmount) : null;
 
     const list = allFlattenedIncomes.filter(({ item, monthKey }) => {
       // Period filter
@@ -273,15 +278,30 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       return true;
     });
 
-    list.sort((a, b) => {
-      if (filters.sortBy === "highest") return b.item.amount - a.item.amount;
-      if (filters.sortBy === "lowest") return a.item.amount - b.item.amount;
-      const tA = new Date(a.item.date).getTime() || 0;
-      const tB = new Date(b.item.date).getTime() || 0;
-      return filters.sortBy === "oldest" ? tA - tB : tB - tA;
+    const indexedList = list.map((entry, idx) => ({ entry, idx }));
+    indexedList.sort((a, b) => {
+      if (filters.sortBy === "highest") {
+        return (
+          b.entry.item.amount - a.entry.item.amount ||
+          compareExpensesChronologically(a.entry.item, b.entry.item, "desc", a.idx, b.idx)
+        );
+      }
+      if (filters.sortBy === "lowest") {
+        return (
+          a.entry.item.amount - b.entry.item.amount ||
+          compareExpensesChronologically(a.entry.item, b.entry.item, "desc", a.idx, b.idx)
+        );
+      }
+      return compareExpensesChronologically(
+        a.entry.item,
+        b.entry.item,
+        filters.sortBy === "oldest" ? "asc" : "desc",
+        a.idx,
+        b.idx
+      );
     });
 
-    return list;
+    return indexedList.map(({ entry }) => entry);
   }, [allFlattenedIncomes, filters, currentMonth]);
 
   const filteredTotalSum = useMemo(() => {
@@ -366,7 +386,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   // --- Save Income / Template ---
   const handleSaveForm = (e: React.FormEvent) => {
     e.preventDefault();
-    const numericAmount = parseFloat(formAmount.replace(",", "."));
+    const numericAmount = parseDecimalInput(formAmount);
     if (isNaN(numericAmount) || numericAmount <= 0) {
       setFormError("Моля, въведете валидна сума по-голяма от 0.");
       return;
@@ -460,8 +480,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
     if (shouldCreateRealIncomeNow) {
       const targetMonthKey = getMonthKeyFromDate(selectedDateObj);
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
       const newIncome: IncomeItem = {
-        id: `inc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
         categoryId: formCategory.id,
         categoryName: formCategory.name,
         categoryIcon: formCategory.iconName,
@@ -469,6 +491,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         amount: parseFloat(numericAmount.toFixed(2)),
         note: formNote.trim(),
         date: selectedDateObj.toISOString(),
+        createdAt: nowIso,
+        timestamp: nowMs,
         type: "income",
         isRecurring: formIsRecurring,
         frequency: formIsRecurring ? formFrequency : undefined,
@@ -533,8 +557,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     const dueDateObj = new Date(dueDateIso + "T12:00:00");
     const targetMonthKey = getMonthKeyFromDate(dueDateObj);
 
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const confirmedIncome: IncomeItem = {
-      id: `inc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
       categoryId: template.categoryId,
       categoryName: template.categoryName,
       categoryIcon: template.categoryIcon,
@@ -542,6 +568,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       amount: template.amount,
       note: template.note || "",
       date: dueDateObj.toISOString(),
+      createdAt: nowIso,
+      timestamp: nowMs,
       type: "income",
       isRecurring: true,
       frequency: template.frequency,
@@ -1139,14 +1167,13 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   Сума (€)
                 </label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
+                  type="text"
+                  inputMode="decimal"
                   required
                   autoFocus
                   value={formAmount}
                   onChange={(e) => {
-                    setFormAmount(e.target.value);
+                    setFormAmount(sanitizeDecimalInput(e.target.value));
                     setFormError(null);
                   }}
                   placeholder="0.00"
