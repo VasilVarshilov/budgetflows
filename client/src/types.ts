@@ -153,7 +153,7 @@ export interface MonthlyRecord {
 }
 
 export interface AppSettings {
-  currency: string; // 'EUR' | 'BGN'
+  currency: string; // 'EUR'
   language: string; // 'bg' | 'en'
   theme: 'light' | 'dark' | 'system';
   autoSaveElectricity: boolean;

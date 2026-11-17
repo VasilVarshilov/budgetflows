@@ -1,7 +1,5 @@
 import { ElectricityRecord } from "@/types";
 
-const BGN_EUR_RATE = 1.95583;
-
 export interface ElectricityFilterInfo {
   selectedYear: string; // "all" or "2026"
   selectedMonth: string; // "all" or "Ноември"
@@ -60,9 +58,6 @@ export function exportElectricityHistoryToTxt(
   const avgUnitPrice =
     totalConsumption > 0 ? costForMeasured / totalConsumption : 0;
 
-  const totalCostBgn = totalCost * BGN_EUR_RATE;
-  const avgCostBgn = avgCost * BGN_EUR_RATE;
-
   const lines: string[] = [
     "=======================================================================",
     "                    BUDGETFLOWS - ИСТОРИЯ НА ТОКА                      ",
@@ -81,11 +76,11 @@ export function exportElectricityHistoryToTxt(
     `    - Нощна тарифа (Т2):      ${totalConsT2.toFixed(3)} kWh (${
       totalConsumption > 0 ? ((totalConsT2 / totalConsumption) * 100).toFixed(1) : 0
     }%)`,
-    `• Общ разход (Фактури):       €${totalCost.toFixed(2)} (${totalCostBgn.toFixed(2)} лв.)`,
-    `    - Електромер 1:           €${totalCostEm1.toFixed(2)} (${(totalCostEm1 * BGN_EUR_RATE).toFixed(2)} лв.)`,
-    `    - Електромер 2 (Остатък): €${totalCostEm2.toFixed(2)} (${(totalCostEm2 * BGN_EUR_RATE).toFixed(2)} лв.)`,
+    `• Общ разход (Фактури):       €${totalCost.toFixed(2)}`,
+    `    - Електромер 1:           €${totalCostEm1.toFixed(2)}`,
+    `    - Електромер 2 (Остатък): €${totalCostEm2.toFixed(2)}`,
     `• Средно потребление/отчет:   ${avgConsumption.toFixed(3)} kWh`,
-    `• Средна сметка/отчет:        €${avgCost.toFixed(2)} (${avgCostBgn.toFixed(2)} лв.)`,
+    `• Средна сметка/отчет:        €${avgCost.toFixed(2)}`,
     `• Средна цена за kWh:         €${avgUnitPrice.toFixed(4)} / kWh`,
     "-----------------------------------------------------------------------",
     "ПОДРОБЕН ОПИС НА ВСИЧКИ ОТЧЕТИ",
@@ -109,13 +104,13 @@ export function exportElectricityHistoryToTxt(
         lines.push(`  • Старо показание:  Т1: ${r.prevT1.toFixed(1)} | Т2: ${r.prevT2.toFixed(1)} | Общо: ${r.previousReading.toFixed(1)}`);
         lines.push(`  • Ново показание:   Т1: ${r.currT1.toFixed(1)} | Т2: ${r.currT2.toFixed(1)} | Общо: ${r.currentReading.toFixed(1)}`);
         lines.push(`  • Потребление:      Т1: ${r.consT1.toFixed(3)} kWh | Т2: ${r.consT2.toFixed(3)} kWh | Общо: ${r.consumption.toFixed(3)} kWh`);
-        lines.push(`  • Единична цена:    Т1: €${r.priceT1.toFixed(5)} | Т2: €${r.priceT2.toFixed(5)} | Средна: €${r.unitPrice.toFixed(4)}`);
-        lines.push(`  • Стойност ЕМ 1:    €${r.costEm1.toFixed(2)} (${(r.costEm1 * BGN_EUR_RATE).toFixed(2)} лв.)`);
-        lines.push(`  • Стойност ЕМ 2:    €${r.em2Remainder.toFixed(2)} (${(r.em2Remainder * BGN_EUR_RATE).toFixed(2)} лв.)`);
+        lines.push(`  • Единична цена:    Т1: €${r.priceT1.toFixed(5)}/kWh | Т2: €${r.priceT2.toFixed(5)}/kWh | Средна: €${r.unitPrice.toFixed(4)}/kWh`);
+        lines.push(`  • Стойност ЕМ 1:    €${r.costEm1.toFixed(2)}`);
+        lines.push(`  • Стойност ЕМ 2:    €${r.em2Remainder.toFixed(2)}`);
       } else if (r.consumption > 0) {
         lines.push(`  • Потребление:      ${r.consumption.toFixed(3)} kWh`);
       }
-      lines.push(`  • Обща фактура:     €${r.totalCost.toFixed(2)} (${(r.totalCost * BGN_EUR_RATE).toFixed(2)} лв.)`);
+      lines.push(`  • Обща фактура:     €${r.totalCost.toFixed(2)}`);
       if (r.note) {
         lines.push(`  • Забележка:        ${r.note}`);
       }
@@ -123,7 +118,7 @@ export function exportElectricityHistoryToTxt(
     });
   }
 
-  lines.push("Бележка: Фиксиран курс за конвертиране: 1 EUR = 1.95583 BGN.");
+  lines.push("Бележка: Всички суми и тарифи са в EUR (€).");
   lines.push("Генерирано автоматично от BudgetFlows. Всички права запазени.");
   lines.push("=======================================================================");
 
@@ -212,9 +207,9 @@ export async function exportElectricityHistoryToPng(
 
   const kpis = [
     { title: "ОБЩО ПОТРЕБЛЕНИЕ", val: `${totalConsumption.toFixed(1)} kWh`, sub: `Т1: ${totalConsT1.toFixed(0)} | Т2: ${totalConsT2.toFixed(0)}`, color: "#b45309" },
-    { title: "ОБЩ РАЗХОД", val: `€${totalCost.toFixed(2)}`, sub: `${(totalCost * BGN_EUR_RATE).toFixed(2)} лв.`, color: "#047857" },
-    { title: "СРЕДНА СМЕТКА", val: `€${avgCost.toFixed(2)}`, sub: `${(avgCost * BGN_EUR_RATE).toFixed(2)} лв./отчет`, color: "#4338ca" },
-    { title: "СРЕДНА ЦЕНА / KWH", val: `€${avgUnitPrice.toFixed(4)}`, sub: "Ефективна цена", color: "#0369a1" },
+    { title: "ОБЩ РАЗХОД", val: `€${totalCost.toFixed(2)}`, sub: `${totalRecords} отчета (EUR)`, color: "#047857" },
+    { title: "СРЕДНА СМЕТКА", val: `€${avgCost.toFixed(2)}`, sub: "Средно на отчет (EUR)", color: "#4338ca" },
+    { title: "СРЕДНА ЦЕНА / KWH", val: `€${avgUnitPrice.toFixed(4)}/kWh`, sub: "Ефективна цена (€/kWh)", color: "#0369a1" },
   ];
 
   kpis.forEach((kpi, i) => {
@@ -321,7 +316,7 @@ export async function exportElectricityHistoryToPng(
   ctx.fillStyle = "#94a3b8";
   ctx.font = "12px sans-serif";
   ctx.fillText(
-    `BudgetFlows • Всички цени са в EUR с включен ДДС (1 EUR = 1.95583 BGN) • Общо ${totalRecords} записа`,
+    `BudgetFlows • Всички цени са в EUR (€) с включен ДДС • Общо ${totalRecords} записа`,
     40,
     height - 30
   );

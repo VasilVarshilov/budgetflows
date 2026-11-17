@@ -21,7 +21,7 @@ function parsePriceAndCurrency(str: string): { price: number; currency?: string 
   if (clean.includes("$")) currency = "$";
   else if (clean.includes("€")) currency = "€";
   else if (clean.includes("£")) currency = "£";
-  else if (/лв|bgn/i.test(clean)) currency = "лв.";
+  else if (/лв|bgn/i.test(clean)) currency = "€";
 
   const numMatch = clean.match(/(\d+[.,]\d{1,2}|\d+)/);
   const price = numMatch ? parseFloat(numMatch[1].replace(",", ".")) : 0;
@@ -286,10 +286,11 @@ export function parseExpenseNote(
  * Formats an array of receipt items into a clean multiline text string.
  */
 export function formatReceiptItemsToText(items: ReceiptItemDetail[], currency = "€"): string {
+  const sym = currency === "лв." || currency === "BGN" ? "€" : currency || "€";
   const fmt = (val: number) =>
-    currency === "$" || currency === "€" || currency === "£"
-      ? `${currency}${val.toFixed(2)}`
-      : `${val.toFixed(2)} ${currency}`;
+    sym === "$" || sym === "€" || sym === "£"
+      ? `${sym}${val.toFixed(2)}`
+      : `${val.toFixed(2)} ${sym}`;
 
   return items
     .map((item) => {

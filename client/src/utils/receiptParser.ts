@@ -868,21 +868,17 @@ export function extractDate(lines: string[]): {
   };
 }
 
-// Extract Currency (Euro-first for Bulgaria, never assumes BGN unless explicitly BGN-only)
+// Extract Currency (EUR-first for Bulgaria; never outputs BGN/лв.)
 export function extractCurrency(rawText: string): string {
   const normalized = normalizeBulgarianOcrText(rawText);
   const hasEur = /(?:€|\beur\b|евро)/i.test(normalized);
-  const hasBgn = /(?:лв\.?|лева|лев|\bbgn\b)/i.test(normalized);
   const hasUsd = /(?:\$|\busd\b)/i.test(normalized);
   const hasGbp = /(?:£|\bgbp\b)/i.test(normalized);
 
-  // Bulgaria uses EUR: whenever € / EUR appears (even alongside legacy BGN info), use €
   if (hasEur) return "€";
-  if (hasBgn) return "лв.";
   if (hasUsd) return "$";
   if (hasGbp) return "£";
 
-  // Default to € (never assume BGN)
   return "€";
 }
 
@@ -1992,8 +1988,7 @@ export function validateReceiptTotals(
     ((items.length > 0 && (differencePercent > 5 || (hasCountMismatch && effectiveDifference > 0.05))) ||
       (items.length === 0 && cleanReceiptTotal > 0));
 
-  const fmtVal = (n: number) =>
-    currency === "лв." || currency === "BGN" ? `${n.toFixed(2)} лв.` : `${currency || "€"}${n.toFixed(2)}`;
+  const fmtVal = (n: number) => `${currency === "лв." || currency === "BGN" ? "€" : currency || "€"}${n.toFixed(2)}`;
 
   let warningMessage: string | undefined;
   if (isMismatch) {
@@ -2033,9 +2028,8 @@ export function formatReceiptNotes(
 ): string {
   if (!items || items.length === 0) return "";
 
-  const isBgn = currency === "лв." || currency === "BGN";
-  const sym = currency || "€";
-  const fmt = (val: number) => (isBgn ? `${val.toFixed(2)} лв.` : `${sym}${val.toFixed(2)}`);
+  const sym = currency === "лв." || currency === "BGN" ? "€" : currency || "€";
+  const fmt = (val: number) => `${sym}${val.toFixed(2)}`;
 
   return items
     .map((it) => {

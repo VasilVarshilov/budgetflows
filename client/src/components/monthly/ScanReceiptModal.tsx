@@ -1080,7 +1080,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
     // 3. Deterministic Local Parsing (Bulgarian-first + Euro-first)
     const localParsed: ParsedReceiptData = parseReceiptTextLocally(ocrRawText);
-    const localCurrency = localParsed.currency || "€";
+    const localCurrency =
+      localParsed.currency === "лв." || localParsed.currency === "BGN"
+        ? "€"
+        : localParsed.currency || "€";
     setReceiptCurrency(localCurrency);
 
     const ocrDateValue = localParsed.dateDetected ? localParsed.date : null;
@@ -1320,12 +1323,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
         if (json.success && json.data) {
           const gData = json.data;
-          // Bulgaria uses Euro (€) - do not let AI flip an explicitly detected Euro receipt back to BGN
-          const hasExplicitEuroInOcr = /€|\bEUR\b|\bЕУР\b/i.test(ocrRawText);
+          const rawAiCurrency = gData.currency || localCurrency || "€";
           const resolvedCurrency =
-            hasExplicitEuroInOcr && gData.currency === "лв."
+            rawAiCurrency === "лв." || rawAiCurrency === "лв" || rawAiCurrency.toUpperCase() === "BGN"
               ? "€"
-              : gData.currency || localCurrency || "€";
+              : rawAiCurrency;
           setReceiptCurrency(resolvedCurrency);
 
           let finalTotal = localParsed.totalAmount;
@@ -1835,9 +1837,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   };
 
   const formatDisplayPrice = (val: number) =>
-    receiptCurrency === "лв." || receiptCurrency === "BGN"
-      ? `${val.toFixed(2)} лв.`
-      : `${receiptCurrency || "€"}${val.toFixed(2)}`;
+    `${receiptCurrency || "€"}${val.toFixed(2)}`;
 
   // Computed receipt totals, Selection Mode total, and >5% consistency validation
   const itemsFullSum = parseFloat(
@@ -2522,7 +2522,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     </div>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg sm:text-xl font-black text-slate-600 dark:text-slate-300">
-                        {receiptCurrency === "лв." || receiptCurrency === "BGN" ? "лв." : receiptCurrency || "€"}
+                        {receiptCurrency || "€"}
                       </span>
                       <input
                         type="number"
@@ -2530,9 +2530,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         placeholder="0.00"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
-                        className={`w-full pr-4 py-2 text-2xl sm:text-3xl font-black text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-400 ${
-                          receiptCurrency === "лв." || receiptCurrency === "BGN" ? "pl-13" : "pl-9"
-                        }`}
+                        className="w-full pr-4 pl-9 py-2 text-2xl sm:text-3xl font-black text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-400"
                         required
                         autoFocus
                       />

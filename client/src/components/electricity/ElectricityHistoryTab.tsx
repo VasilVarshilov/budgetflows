@@ -43,8 +43,6 @@ import {
 } from "@/utils/electricityExport";
 import { useTheme } from "@/utils/themeContext";
 
-const BGN_EUR_RATE = 1.95583;
-
 function isManualOrNoReadingsRecord(r: ElectricityRecord): boolean {
   return Boolean(
     r.source === "manual" ||
@@ -306,13 +304,13 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
               <CreditCard className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-800 dark:text-white">
+          <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
             €{stats.totalCost.toFixed(2)}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
-            <span>В лева:</span>
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-              {(stats.totalCost * BGN_EUR_RATE).toFixed(2)} лв.
+            <span>Средно/отчет:</span>
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+              €{stats.avgCost.toFixed(2)}
             </span>
           </div>
         </div>
@@ -359,13 +357,14 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
               <TrendingUp className="w-5 h-5 text-sky-600 dark:text-sky-400" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-800 dark:text-white">
-            €{stats.avgPrice.toFixed(4)}
+          <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
+            €{stats.avgPrice.toFixed(4)}{" "}
+            <span className="text-sm font-normal text-slate-500 dark:text-slate-400">/kWh</span>
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
-            <span>В лева за kWh:</span>
+            <span>Тарифна единица:</span>
             <span className="font-semibold text-sky-700 dark:text-sky-400">
-              {(stats.avgPrice * BGN_EUR_RATE).toFixed(4)} лв.
+              €/kWh (EUR)
             </span>
           </div>
         </div>
@@ -501,7 +500,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                             <p className="text-slate-300">
                               Обща фактура:{" "}
                               <span className="font-mono font-bold text-white">
-                                €{d.totalCost} ({(d.totalCost * BGN_EUR_RATE).toFixed(2)} лв.)
+                                €{Number(d.totalCost).toFixed(2)}
                               </span>
                             </p>
                             {d.costEm1 !== null ? (
@@ -667,11 +666,11 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-base font-extrabold text-slate-900 dark:text-white font-mono">
+                        <div className="text-base font-extrabold text-slate-900 dark:text-white font-mono tabular-nums">
                           €{r.totalCost.toFixed(2)}
                         </div>
-                        <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                          {(r.totalCost * BGN_EUR_RATE).toFixed(2)} лв.
+                        <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                          EUR
                         </div>
                       </div>
                     </div>
@@ -916,11 +915,8 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
 
                         {/* Total Cost */}
                         <td className="py-3.5 px-4">
-                          <div className="text-base font-bold text-slate-900 dark:text-white font-mono">
+                          <div className="text-base font-bold text-slate-900 dark:text-white font-mono tabular-nums">
                             €{r.totalCost.toFixed(2)}
-                          </div>
-                          <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                            {(r.totalCost * BGN_EUR_RATE).toFixed(2)} лв.
                           </div>
                         </td>
 

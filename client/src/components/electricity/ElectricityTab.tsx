@@ -519,12 +519,12 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
               <div className="grid grid-cols-2 gap-4 pt-2">
                 <InputGroup
-                  label="Цена Т1 (Дневна)"
+                  label="Цена Т1 (Дневна, €/kWh)"
                   value={inputs.priceT1}
                   onChange={(v) => setInputs((prev) => ({ ...prev, priceT1: v }))}
                 />
                 <InputGroup
-                  label="Цена Т2 (Нощна)"
+                  label="Цена Т2 (Нощна, €/kWh)"
                   value={inputs.priceT2}
                   onChange={(v) => setInputs((prev) => ({ ...prev, priceT2: v }))}
                 />
