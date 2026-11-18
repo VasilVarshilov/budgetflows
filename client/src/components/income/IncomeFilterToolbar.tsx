@@ -1,17 +1,19 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Search,
   ArrowUpDown,
   X,
   Calendar,
   Tag,
-  DollarSign,
+  Banknote,
   RotateCcw,
   SlidersHorizontal,
-  ChevronDown,
   CalendarRange,
   CheckCircle2,
   Clock,
+  Check,
+  Repeat,
 } from "lucide-react";
 import { ExpenseCategory } from "@/types";
 import { sanitizeDecimalInput } from "@/utils/formatting";
@@ -60,6 +62,38 @@ interface IncomeFilterToolbarProps {
   totalFilteredUpcomingSum?: number;
 }
 
+const SORT_LABELS: Record<IncomeSortOption, string> = {
+  newest: "Най-нови първо",
+  oldest: "Най-стари първо",
+  highest: "Най-висока сума (€)",
+  lowest: "Най-ниска сума (€)",
+};
+
+const SORT_SHORT_LABELS: Record<IncomeSortOption, string> = {
+  newest: "Най-нови",
+  oldest: "Най-стари",
+  highest: "Най-висока сума",
+  lowest: "Най-ниска сума",
+};
+
+const formatCompactDate = (isoDate: string): string => {
+  if (!isoDate) return "...";
+  const parts = isoDate.split("-");
+  if (parts.length !== 3) return isoDate;
+  return `${parts[2]}.${parts[1]}`;
+};
+
+const countModalFilters = (state: IncomeFiltersState): number => {
+  let count = 0;
+  if (state.statusFilter && state.statusFilter !== "all") count++;
+  if (state.typeFilter && state.typeFilter !== "all") count++;
+  if (state.sortBy !== "newest") count++;
+  if (state.monthFilter !== "current") count++;
+  if (state.categoryId !== "all") count++;
+  if (state.minAmount !== "" || state.maxAmount !== "") count++;
+  return count;
+};
+
 export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
   filters,
   onChangeFilters,
@@ -71,24 +105,58 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
   totalFilteredSum,
   totalFilteredUpcomingSum = 0,
 }) => {
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<IncomeFiltersState>(filters);
 
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    if (filters.searchTerm.trim() !== "") count++;
-    if (filters.monthFilter !== "current") count++;
-    if (filters.monthFilter === "custom" && (filters.startDate || filters.endDate)) {
-      count++;
-    }
-    if (filters.categoryId !== "all") count++;
-    if (filters.minAmount !== "" || filters.maxAmount !== "") count++;
-    if (filters.sortBy !== "newest") count++;
-    if (filters.statusFilter && filters.statusFilter !== "all") count++;
-    if (filters.typeFilter && filters.typeFilter !== "all") count++;
-    return count;
-  }, [filters]);
+  const activeFiltersCount = useMemo(() => countModalFilters(filters), [filters]);
+  const draftFiltersCount = useMemo(() => countModalFilters(draftFilters), [draftFilters]);
 
-  const updateFilter = <K extends keyof IncomeFiltersState>(
+  const handleOpenModal = () => {
+    setDraftFilters(filters);
+    setIsFilterModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsFilterModalOpen(false);
+  };
+
+  const handleApplyFilters = () => {
+    onChangeFilters(draftFilters);
+    setIsFilterModalOpen(false);
+  };
+
+  const handleResetAll = () => {
+    onChangeFilters(DEFAULT_INCOME_FILTERS);
+    setDraftFilters(DEFAULT_INCOME_FILTERS);
+  };
+
+  const handleResetDraft = () => {
+    setDraftFilters({
+      ...DEFAULT_INCOME_FILTERS,
+      searchTerm: filters.searchTerm,
+    });
+  };
+
+  useEffect(() => {
+    if (!isFilterModalOpen) return;
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsFilterModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isFilterModalOpen]);
+
+  const updateLiveFilter = <K extends keyof IncomeFiltersState>(
     key: K,
     value: IncomeFiltersState[K]
   ) => {
@@ -98,355 +166,617 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
     });
   };
 
-  const handleResetFilters = () => {
-    onChangeFilters(DEFAULT_INCOME_FILTERS);
+  const updateDraftFilter = <K extends keyof IncomeFiltersState>(
+    key: K,
+    value: IncomeFiltersState[K]
+  ) => {
+    setDraftFilters((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   };
 
-  const handleSetDatePreset = (daysBack: number) => {
+  const handleSetDraftDatePreset = (daysBack: number) => {
     const end = new Date();
     const start = new Date();
     start.setDate(end.getDate() - daysBack);
 
-    onChangeFilters({
-      ...filters,
+    setDraftFilters((prev) => ({
+      ...prev,
       monthFilter: "custom",
       startDate: start.toISOString().split("T")[0],
       endDate: end.toISOString().split("T")[0],
+    }));
+  };
+
+  const handleSetDraftAmountPreset = (min: string, max: string) => {
+    setDraftFilters((prev) => {
+      const isAlreadySelected = prev.minAmount === min && prev.maxAmount === max;
+      return {
+        ...prev,
+        minAmount: isAlreadySelected ? "" : min,
+        maxAmount: isAlreadySelected ? "" : max,
+      };
     });
   };
 
-  return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs p-3.5 sm:p-4 space-y-3 transition-colors">
-      {/* Top Search & Action Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={filters.searchTerm}
-            onChange={(e) => updateFilter("searchTerm", e.target.value)}
-            placeholder="Търси по бележка, категория или сума (€)..."
-            className="w-full pl-9 pr-8 py-2 min-h-[44px] sm:min-h-[38px] bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
-          />
-          {filters.searchTerm && (
-            <button
-              type="button"
-              onClick={() => updateFilter("searchTerm", "")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
-              title="Изчисти търсенето"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+  const selectedCategoryName = useMemo(() => {
+    if (filters.categoryId === "all") return "";
+    return (
+      categories.find((c) => c.id === filters.categoryId || c.name === filters.categoryId)
+        ?.name || filters.categoryId
+    );
+  }, [filters.categoryId, categories]);
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 sm:flex-none">
-            <select
-              value={filters.sortBy}
-              onChange={(e) =>
-                updateFilter("sortBy", e.target.value as IncomeSortOption)
-              }
-              className="w-full appearance-none bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 pl-3 pr-7 py-2 min-h-[44px] sm:min-h-[38px] focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer transition-colors"
-              title="Сортиране на приходите"
-            >
-              <option value="newest">Най-нови първо</option>
-              <option value="oldest">Най-стари първо</option>
-              <option value="highest">Най-висока сума (€)</option>
-              <option value="lowest">Най-ниска сума (€)</option>
-            </select>
-            <ArrowUpDown className="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+  const periodChipLabel = useMemo(() => {
+    if (filters.monthFilter === "all") return "Всички месеци";
+    if (filters.monthFilter.startsWith("year:")) {
+      return `Цяла ${filters.monthFilter.replace("year:", "")} г.`;
+    }
+    if (filters.monthFilter === "custom") {
+      return `${formatCompactDate(filters.startDate)} – ${formatCompactDate(filters.endDate)}`;
+    }
+    return filters.monthFilter;
+  }, [filters.monthFilter, filters.startDate, filters.endDate]);
+
+  return (
+    <>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs p-2.5 sm:p-3 space-y-2 transition-colors">
+        {/* Default Visible Controls ONLY: 1. Search bar, 2. Filter button */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
+            <Search className="w-4 h-4 text-slate-400 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={filters.searchTerm}
+              onChange={(e) => updateLiveFilter("searchTerm", e.target.value)}
+              placeholder="Търси по бележка, категория или сума (€)..."
+              aria-label="Търси приходи"
+              className="w-full pl-9 pr-9 py-2 min-h-[44px] sm:min-h-[40px] bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+            />
+            {filters.searchTerm && (
+              <button
+                type="button"
+                onClick={() => updateLiveFilter("searchTerm", "")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
+                title="Изчисти търсенето"
+                aria-label="Изчисти търсенето"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           <button
             type="button"
-            onClick={() => setIsFilterPanelOpen((prev) => !prev)}
-            className={`flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] sm:min-h-[38px] rounded-xl text-xs font-semibold transition-all border cursor-pointer shrink-0 whitespace-nowrap ${
-              isFilterPanelOpen || activeFiltersCount > 0
+            onClick={handleOpenModal}
+            className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[44px] sm:min-h-[40px] rounded-xl text-xs sm:text-sm font-semibold transition-all border cursor-pointer shrink-0 whitespace-nowrap ${
+              activeFiltersCount > 0
                 ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 shadow-xs"
-                : "bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                : "bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
             }`}
+            aria-label="Отвори филтри"
+            aria-expanded={isFilterModalOpen}
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <SlidersHorizontal className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>Филтри</span>
             {activeFiltersCount > 0 && (
-              <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] flex items-center justify-center font-bold tabular-nums">
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-600 text-white text-[10px] flex items-center justify-center font-bold tabular-nums">
                 {activeFiltersCount}
               </span>
             )}
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
-                isFilterPanelOpen ? "rotate-180" : ""
-              }`}
-            />
-          </button>
-        </div>
-      </div>
-
-      {/* Quick Status Segmented Filter */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div
-          className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-700/70"
-          role="group"
-          aria-label="Филтър по статус на приход"
-        >
-          <button
-            type="button"
-            onClick={() => updateFilter("statusFilter", "all")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              (filters.statusFilter || "all") === "all"
-                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            Всички
-          </button>
-          <button
-            type="button"
-            onClick={() => updateFilter("statusFilter", "completed")}
-            className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              filters.statusFilter === "completed"
-                ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-2xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <CheckCircle2 className="w-3 h-3" />
-            <span>Изпълнени</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => updateFilter("statusFilter", "planned")}
-            className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              filters.statusFilter === "planned"
-                ? "bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 shadow-2xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <Clock className="w-3 h-3" />
-            <span>Предстоящи</span>
           </button>
         </div>
 
-        <div
-          className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-700/70"
-          role="group"
-          aria-label="Филтър по вид на приход"
-        >
-          <button
-            type="button"
-            onClick={() => updateFilter("typeFilter", "all")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              (filters.typeFilter || "all") === "all"
-                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            Всички видове
-          </button>
-          <button
-            type="button"
-            onClick={() => updateFilter("typeFilter", "fixed")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              filters.typeFilter === "fixed"
-                ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-2xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            Повтарящи се
-          </button>
-          <button
-            type="button"
-            onClick={() => updateFilter("typeFilter", "additional")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              filters.typeFilter === "additional"
-                ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-2xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            Допълнителни
-          </button>
-        </div>
-      </div>
-
-      {/* Expandable Filter Panel */}
-      {isFilterPanelOpen && (
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3 animate-in fade-in duration-150">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Period Filter */}
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1">
-                <Calendar className="w-3 h-3" />
-                <span>Период / Месец / Година</span>
-              </label>
-              <select
-                value={filters.monthFilter}
-                onChange={(e) => updateFilter("monthFilter", e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-              >
-                <option value="current">Текущ месец ({currentMonth})</option>
-                <option value="all">Всички месеци</option>
-                {availableYears.map((y) => (
-                  <option key={y} value={`year:${y}`}>
-                    Цяла {y} г.
-                  </option>
-                ))}
-                {availableMonths.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-                <option value="custom">Период от дата до дата</option>
-              </select>
-            </div>
-
-            {/* Category Filter */}
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1">
-                <Tag className="w-3 h-3" />
-                <span>Категория</span>
-              </label>
-              <select
-                value={filters.categoryId}
-                onChange={(e) => updateFilter("categoryId", e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-              >
-                <option value="all">Всички категории</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Min Amount */}
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1">
-                <DollarSign className="w-3 h-3" />
-                <span>Мин. сума (€)</span>
-              </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={filters.minAmount}
-                onChange={(e) => updateFilter("minAmount", sanitizeDecimalInput(e.target.value))}
-                placeholder="0.00"
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[40px] text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            {/* Max Amount */}
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1">
-                <DollarSign className="w-3 h-3" />
-                <span>Макс. сума (€)</span>
-              </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={filters.maxAmount}
-                onChange={(e) => updateFilter("maxAmount", sanitizeDecimalInput(e.target.value))}
-                placeholder="∞"
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[40px] text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-          </div>
-
-          {/* Custom Date Range Inputs */}
-          {filters.monthFilter === "custom" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1">
-                  <CalendarRange className="w-3 h-3" />
-                  <span>От дата</span>
-                </label>
-                <input
-                  type="date"
-                  value={filters.startDate}
-                  onChange={(e) => updateFilter("startDate", e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1">
-                  <CalendarRange className="w-3 h-3" />
-                  <span>До дата</span>
-                </label>
-                <input
-                  type="date"
-                  value={filters.endDate}
-                  onChange={(e) => updateFilter("endDate", e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Quick Presets & Reset */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            <div className="flex flex-wrap items-center gap-1.5">
+        {/* Active Filter Chips (only visible when filters are applied) */}
+        {activeFiltersCount > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-1">
+            {filters.statusFilter && filters.statusFilter !== "all" && (
               <button
                 type="button"
-                onClick={() => handleSetDatePreset(7)}
-                className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                onClick={() => updateLiveFilter("statusFilter", "all")}
+                className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="Премахни филтър за статус"
               >
-                Последните 7 дни
+                <span>{filters.statusFilter === "planned" ? "Предстоящи" : "Изпълнени"}</span>
+                <X className="w-3 h-3 opacity-75" />
               </button>
-              <button
-                type="button"
-                onClick={() => handleSetDatePreset(30)}
-                className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              >
-                Последните 30 дни
-              </button>
-              <button
-                type="button"
-                onClick={() => updateFilter("monthFilter", "all")}
-                className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              >
-                Цялата история
-              </button>
-            </div>
+            )}
 
-            {activeFiltersCount > 0 && (
+            {filters.typeFilter && filters.typeFilter !== "all" && (
               <button
                 type="button"
-                onClick={handleResetFilters}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                onClick={() => updateLiveFilter("typeFilter", "all")}
+                className="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 px-2.5 py-1 rounded-lg border border-indigo-200/80 dark:border-indigo-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="Премахни филтър за вид приход"
               >
-                <RotateCcw className="w-3 h-3" />
-                <span>Нулирай филтрите</span>
+                <span>{filters.typeFilter === "fixed" ? "Повтарящи се" : "Допълнителни"}</span>
+                <X className="w-3 h-3 opacity-75" />
+              </button>
+            )}
+
+            {filters.sortBy !== "newest" && (
+              <button
+                type="button"
+                onClick={() => updateLiveFilter("sortBy", "newest")}
+                className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="Върни сортиране по подразбиране"
+              >
+                <span>{SORT_SHORT_LABELS[filters.sortBy]}</span>
+                <X className="w-3 h-3 opacity-75" />
+              </button>
+            )}
+
+            {filters.monthFilter !== "current" && (
+              <button
+                type="button"
+                onClick={() =>
+                  onChangeFilters({
+                    ...filters,
+                    monthFilter: "current",
+                    startDate: "",
+                    endDate: "",
+                  })
+                }
+                className="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-2.5 py-1 rounded-lg border border-blue-200/80 dark:border-blue-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="Премахни филтър за период"
+              >
+                <span>{periodChipLabel}</span>
+                <X className="w-3 h-3 opacity-75" />
+              </button>
+            )}
+
+            {filters.categoryId !== "all" && (
+              <button
+                type="button"
+                onClick={() => updateLiveFilter("categoryId", "all")}
+                className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-lg border border-emerald-200/80 dark:border-emerald-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="Премахни филтър за категория"
+              >
+                <span>{selectedCategoryName}</span>
+                <X className="w-3 h-3 opacity-75" />
+              </button>
+            )}
+
+            {(filters.minAmount !== "" || filters.maxAmount !== "") && (
+              <button
+                type="button"
+                onClick={() =>
+                  onChangeFilters({ ...filters, minAmount: "", maxAmount: "" })
+                }
+                className="inline-flex items-center gap-1 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-700 dark:text-teal-300 px-2.5 py-1 rounded-lg border border-teal-200/80 dark:border-teal-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 tabular-nums"
+                title="Премахни филтър за сума"
+              >
+                <span>
+                  {filters.minAmount === "" && filters.maxAmount !== ""
+                    ? `до €${filters.maxAmount}`
+                    : filters.minAmount !== "" && filters.maxAmount === ""
+                    ? `над €${filters.minAmount}`
+                    : `€${filters.minAmount} – €${filters.maxAmount}`}
+                </span>
+                <X className="w-3 h-3 opacity-75" />
+              </button>
+            )}
+
+            {activeFiltersCount > 1 && (
+              <button
+                type="button"
+                onClick={handleResetAll}
+                className="px-2 py-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                Изчисти
               </button>
             )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Compact Results Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-        <div className="flex items-center gap-2">
-          <span>
-            Намерени:{" "}
-            <strong className="text-slate-800 dark:text-slate-200 tabular-nums">
-              {totalResultsCount}
-            </strong>{" "}
-            {totalResultsCount === 1 ? "приход" : "прихода"}
+        {/* Compact Single-Line Summary Bar */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+          <span className="font-semibold text-slate-700 dark:text-slate-200">
+            {totalResultsCount} {totalResultsCount === 1 ? "приход" : "прихода"}
           </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 tabular-nums">
-          <div className="flex items-center gap-1.5">
-            <span>Реализирани:</span>
+          <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+            •
+          </span>
+          <span>
             <strong className="text-emerald-600 dark:text-emerald-400 font-bold">
               +€{totalFilteredSum.toFixed(2)}
-            </strong>
-          </div>
+            </strong>{" "}
+            реализирани
+          </span>
           {totalFilteredUpcomingSum > 0 && (
-            <span className="text-amber-700 dark:text-amber-300 font-semibold">
-              · Очаквани: +€{totalFilteredUpcomingSum.toFixed(2)}
-            </span>
+            <>
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+                •
+              </span>
+              <span className="text-amber-700 dark:text-amber-300 font-semibold">
+                +€{totalFilteredUpcomingSum.toFixed(2)} очаквани
+              </span>
+            </>
           )}
         </div>
       </div>
-    </div>
+
+      {/* Filter Bottom Sheet (Mobile) / Centered Modal (Desktop) */}
+      {isFilterModalOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/55 dark:bg-black/75 backdrop-blur-xs sm:p-4 animate-in fade-in duration-150"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) handleCloseModal();
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="income-filter-modal-title"
+          >
+            <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[88vh] sm:max-h-[85vh] overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200">
+              {/* Mobile Drag Handle */}
+              <div className="sm:hidden pt-2.5 pb-1 flex justify-center shrink-0">
+                <span className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+              </div>
+
+              {/* Sticky Modal Header */}
+              <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <h2
+                    id="income-filter-modal-title"
+                    className="text-base font-bold text-slate-900 dark:text-white"
+                  >
+                    Филтри и сортиране
+                  </h2>
+                  {draftFiltersCount > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold tabular-nums">
+                      {draftFiltersCount}
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  aria-label="Затвори филтрите"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Scrollable Filter Controls Body */}
+              <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-5">
+                {/* 1. Status (Realized vs Upcoming / Future) */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Статус</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateDraftFilter("statusFilter", "all")}
+                      className={`min-h-[44px] px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        (draftFilters.statusFilter || "all") === "all"
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Всички
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateDraftFilter("statusFilter", "completed")}
+                      className={`min-h-[44px] px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        draftFilters.statusFilter === "completed"
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Изпълнени</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateDraftFilter("statusFilter", "planned")}
+                      className={`min-h-[44px] px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        draftFilters.statusFilter === "planned"
+                          ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                      <span>Предстоящи</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Income Type (All / Recurring / Additional) */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Repeat className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Вид приход</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateDraftFilter("typeFilter", "all")}
+                      className={`min-h-[44px] px-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center ${
+                        (draftFilters.typeFilter || "all") === "all"
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Всички
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateDraftFilter("typeFilter", "fixed")}
+                      className={`min-h-[44px] px-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center ${
+                        draftFilters.typeFilter === "fixed"
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Повтарящи се
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateDraftFilter("typeFilter", "additional")}
+                      className={`min-h-[44px] px-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center ${
+                        draftFilters.typeFilter === "additional"
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Допълнителни
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Sorting */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Сортиране</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Object.keys(SORT_LABELS) as IncomeSortOption[]).map((option) => {
+                      const active = draftFilters.sortBy === option;
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => updateDraftFilter("sortBy", option)}
+                          className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                            active
+                              ? "bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-200 border-emerald-400 dark:border-emerald-700"
+                              : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                          }`}
+                        >
+                          <span className="truncate">{SORT_LABELS[option]}</span>
+                          {active && <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Period / Month / Year / Custom Date Range */}
+                <div className="space-y-2.5">
+                  <label
+                    htmlFor="income-filter-month-select"
+                    className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5"
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Период / Месец / Година</span>
+                  </label>
+                  <select
+                    id="income-filter-month-select"
+                    value={draftFilters.monthFilter}
+                    onChange={(e) => updateDraftFilter("monthFilter", e.target.value)}
+                    className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                  >
+                    <option value="current">Текущ месец ({currentMonth})</option>
+                    <option value="all">Всички месеци (Цяла история и бъдещи)</option>
+                    {availableYears.map((y) => (
+                      <option key={y} value={`year:${y}`}>
+                        Цяла {y} г.
+                      </option>
+                    ))}
+                    <option value="custom">Период от дата до дата</option>
+                    {availableMonths.length > 0 && (
+                      <optgroup label="Конкретен месец:">
+                        {availableMonths.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSetDraftDatePreset(7)}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                    >
+                      Последните 7 дни
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetDraftDatePreset(30)}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                    >
+                      Последните 30 дни
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateDraftFilter("monthFilter", "all")}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                        draftFilters.monthFilter === "all"
+                          ? "bg-emerald-600 text-white border-emerald-600"
+                          : "bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      Цялата история
+                    </button>
+                  </div>
+
+                  {draftFilters.monthFilter === "custom" && (
+                    <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/60">
+                      <div>
+                        <label className="text-[11px] font-semibold text-emerald-900 dark:text-emerald-200 flex items-center gap-1 mb-1">
+                          <CalendarRange className="w-3 h-3" />
+                          <span>От дата</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={draftFilters.startDate}
+                          onChange={(e) => updateDraftFilter("startDate", e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 min-h-[42px] text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-emerald-900 dark:text-emerald-200 flex items-center gap-1 mb-1">
+                          <CalendarRange className="w-3 h-3" />
+                          <span>До дата</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={draftFilters.endDate}
+                          onChange={(e) => updateDraftFilter("endDate", e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 min-h-[42px] text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Category */}
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="income-filter-category-select"
+                    className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5"
+                  >
+                    <Tag className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Категория</span>
+                  </label>
+                  <select
+                    id="income-filter-category-select"
+                    value={draftFilters.categoryId}
+                    onChange={(e) => updateDraftFilter("categoryId", e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 min-h-[44px] text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                  >
+                    <option value="all">Всички категории</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 6. Amount Range */}
+                <div className="space-y-2.5">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Banknote className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Диапазон на сумата (€)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={draftFilters.minAmount}
+                      onChange={(e) =>
+                        updateDraftFilter("minAmount", sanitizeDecimalInput(e.target.value))
+                      }
+                      placeholder="Мин. € (напр. 100)"
+                      aria-label="Минимална сума в евро"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[44px] text-xs sm:text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium tabular-nums"
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={draftFilters.maxAmount}
+                      onChange={(e) =>
+                        updateDraftFilter("maxAmount", sanitizeDecimalInput(e.target.value))
+                      }
+                      placeholder="Макс. € (без лимит)"
+                      aria-label="Максимална сума в евро"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 min-h-[44px] text-xs sm:text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium tabular-nums"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSetDraftAmountPreset("", "200")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer tabular-nums ${
+                        draftFilters.minAmount === "" && draftFilters.maxAmount === "200"
+                          ? "bg-emerald-600 text-white border-emerald-600"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      до €200
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetDraftAmountPreset("200", "1000")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer tabular-nums ${
+                        draftFilters.minAmount === "200" && draftFilters.maxAmount === "1000"
+                          ? "bg-emerald-600 text-white border-emerald-600"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      €200 – €1000
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetDraftAmountPreset("1000", "")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer tabular-nums ${
+                        draftFilters.minAmount === "1000" && draftFilters.maxAmount === ""
+                          ? "bg-emerald-600 text-white border-emerald-600"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      над €1000
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sticky Modal Footer */}
+              <div className="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetDraft}
+                  disabled={draftFiltersCount === 0}
+                  className="min-h-[44px] px-3.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Изчисти</span>
+                </button>
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={handleCloseModal}
+                    className="min-h-[44px] px-4 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    Отказ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApplyFilters}
+                    className="min-h-[44px] px-5 rounded-xl text-xs sm:text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                  >
+                    Приложи{draftFiltersCount > 0 ? ` (${draftFiltersCount})` : ""}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 };
