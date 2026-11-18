@@ -61,9 +61,17 @@ import {
   isRepeatingFrequency,
   markRecurrenceDismissed,
   normalizeRepeatValue,
+  parseMonthKeyToYearMonth,
   partitionExpensesByRepeat,
   resolveItemRepeat,
 } from "@/utils/recurrenceEngine";
+import {
+  dateKeyToStableIso,
+  getMonthKeyFromDateKey,
+  parseLocalDateKey,
+  resolveRecordDateKey,
+  toLocalDateKey,
+} from "@/utils/calendarEngine";
 import {
   RecurrenceCompletionRows,
   CompletionSwitch,
@@ -441,6 +449,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     setFixedExpenses(nextFixed);
     setExpenses(nextAdditional);
+    const nextDefaultDate = getDefaultDateKeyForMonth(currentMonth);
+    setExpenseDate(nextDefaultDate);
+    setFixedDate(nextDefaultDate);
   }, [currentMonth, initialData]);
 
   // UI State - initialized from persistent storage
@@ -474,6 +485,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     };
   }, []);
 
+  const getDefaultDateKeyForMonth = (monthKey: string): string => {
+    const today = new Date();
+    const ym = parseMonthKeyToYearMonth(monthKey);
+    if (!ym) return toLocalDateKey(today);
+    if (ym.year === today.getFullYear() && ym.monthIndex === today.getMonth()) {
+      return toLocalDateKey(today);
+    }
+    const lastDay = new Date(ym.year, ym.monthIndex + 1, 0).getDate();
+    const clampedDay = Math.min(today.getDate(), lastDay);
+    return toLocalDateKey(new Date(ym.year, ym.monthIndex, clampedDay, 12, 0, 0, 0));
+  };
+
   // Add Variable Expense Form State
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -482,6 +505,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [selectedBudgetCategoryId, setSelectedBudgetCategoryId] = useState<string>("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [expenseDate, setExpenseDate] = useState<string>(() =>
+    getDefaultDateKeyForMonth(currentMonth)
+  );
   const [expenseRepeat, setExpenseRepeat] = useState<RepeatFrequency>("never");
   const [expenseCompleted, setExpenseCompleted] = useState<boolean>(true);
 
@@ -489,6 +515,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [editExpenseAmount, setEditExpenseAmount] = useState("");
   const [editExpenseNote, setEditExpenseNote] = useState("");
+  const [editExpenseDate, setEditExpenseDate] = useState<string>(() =>
+    getDefaultDateKeyForMonth(currentMonth)
+  );
   const [editExpenseBudgetCategoryId, setEditExpenseBudgetCategoryId] = useState<string>("");
   const [editExpenseRepeat, setEditExpenseRepeat] = useState<RepeatFrequency>("never");
   const [editExpenseCompleted, setEditExpenseCompleted] = useState<boolean>(true);
@@ -522,6 +551,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     useState<ExpenseCategory | null>(null);
   const [selectedFixedBudgetCategoryId, setSelectedFixedBudgetCategoryId] = useState<string>("");
   const [fixedAmount, setFixedAmount] = useState("");
+  const [fixedDate, setFixedDate] = useState<string>(() =>
+    getDefaultDateKeyForMonth(currentMonth)
+  );
   const [fixedRepeat, setFixedRepeat] = useState<RepeatFrequency>("monthly");
   const [fixedCompleted, setFixedCompleted] = useState<boolean>(true);
 
@@ -529,6 +561,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editingFixedId, setEditingFixedId] = useState<string | null>(null);
   const [editFixedName, setEditFixedName] = useState("");
   const [editFixedAmount, setEditFixedAmount] = useState("");
+  const [editFixedDate, setEditFixedDate] = useState<string>(() =>
+    getDefaultDateKeyForMonth(currentMonth)
+  );
   const [editFixedBudgetCategoryId, setEditFixedBudgetCategoryId] = useState<string>("");
   const [editFixedRepeat, setEditFixedRepeat] = useState<RepeatFrequency>("monthly");
   const [editFixedCompleted, setEditFixedCompleted] = useState<boolean>(true);
@@ -839,6 +874,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const safeDateKey =
+      expenseDate && /^\d{4}-\d{2}-\d{2}$/.test(expenseDate)
+        ? expenseDate
+        : getDefaultDateKeyForMonth(currentMonth);
+    const targetMonthKey = getMonthKeyFromDateKey(safeDateKey);
     const normalizedRepeat = normalizeRepeatValue(expenseRepeat);
     const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
@@ -852,7 +892,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsedAmount,
       note: note.trim() || undefined,
-      date: nowIso,
+      date: dateKeyToStableIso(safeDateKey),
+      expectedDate: safeDateKey,
       createdAt: nowIso,
       timestamp: nowMs,
       repeat: normalizedRepeat,
@@ -863,13 +904,35 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       completedAt: expenseCompleted ? nowIso : undefined,
     };
 
-    if (goesToFixed) {
-      setFixedExpenses((prev) => [...prev, newExpense]);
+    if (targetMonthKey === currentMonth) {
+      if (goesToFixed) {
+        setFixedExpenses((prev) => [...prev, newExpense]);
+      } else {
+        setExpenses((prev) => [...prev, newExpense]);
+      }
     } else {
-      setExpenses((prev) => [...prev, newExpense]);
+      const targetRecord = allMonthlyData[targetMonthKey];
+      const existingExpenses = targetRecord?.expenses || {
+        saved_em2_eur: 0,
+        fixed_expenses: [],
+        additional_expenses: [],
+      };
+      onSaveExpenses(
+        {
+          ...existingExpenses,
+          fixed_expenses: goesToFixed
+            ? [...(existingExpenses.fixed_expenses || []), newExpense]
+            : existingExpenses.fixed_expenses || [],
+          additional_expenses: goesToFixed
+            ? existingExpenses.additional_expenses || []
+            : [...(existingExpenses.additional_expenses || []), newExpense],
+        },
+        targetMonthKey
+      );
     }
+
     if (isRecordCompleted(newExpense) && isManualElectricityExpense(newExpense)) {
-      upsertElectricityRecordFromExpense(newExpense, currentMonth);
+      upsertElectricityRecordFromExpense(newExpense, targetMonthKey);
     }
 
     // Reset form
@@ -878,6 +941,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setSelectedBudgetCategoryId("");
     setAmount("");
     setNote("");
+    setExpenseDate(getDefaultDateKeyForMonth(currentMonth));
     setExpenseRepeat("never");
     setExpenseCompleted(true);
   };
@@ -935,14 +999,16 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleStartEditExpense = (
     expense: ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean }
   ) => {
+    const resolvedMonth = expense.sourceMonth || currentMonth;
     setEditingExpenseId(expense.id);
     setEditExpenseAmount(expense.amount.toString());
     setEditExpenseNote(expense.note || "");
+    setEditExpenseDate(resolveRecordDateKey(expense, resolvedMonth));
     setEditExpenseBudgetCategoryId(expense.budgetCategoryId || "");
     setEditExpenseRepeat(resolveItemRepeat(expense));
     setEditExpenseCompleted(isRecordCompleted(expense));
     setEditExpenseIsGenerated(Boolean(expense.recurrenceSourceId));
-    setEditingExpenseSourceMonth(expense.sourceMonth || currentMonth);
+    setEditingExpenseSourceMonth(resolvedMonth);
     setEditingExpenseIsFixed(
       Boolean(expense.isFixedItem) || isRepeatingFrequency(expense.repeat)
     );
@@ -952,7 +1018,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const val = parseDecimalInput(editExpenseAmount);
     if (isNaN(val) || val < 0) return;
 
-    const targetMonth = editingExpenseSourceMonth || currentMonth;
+    const oldMonth = editingExpenseSourceMonth || currentMonth;
+    const safeDateKey =
+      editExpenseDate && /^\d{4}-\d{2}-\d{2}$/.test(editExpenseDate)
+        ? editExpenseDate
+        : getDefaultDateKeyForMonth(oldMonth);
+    const targetMonth = getMonthKeyFromDateKey(safeDateKey);
     const parsedNote = parseExpenseNote(editExpenseNote);
     const chosenBudget = budgetCategories.find(
       (b) => b.id === editExpenseBudgetCategoryId
@@ -967,6 +1038,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       note: editExpenseNote.trim() || item.note,
       merchantName: parsedNote.merchantName || item.merchantName,
       receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
+      date: dateKeyToStableIso(safeDateKey),
+      expectedDate: safeDateKey,
       budgetCategoryId: editExpenseBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       repeat: effectiveRepeat,
@@ -977,71 +1050,109 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       completedAt: editExpenseCompleted ? item.completedAt || nowIso : undefined,
     });
 
-    if (targetMonth === currentMonth) {
-      const existingItem =
-        fixedExpenses.find((item) => item.id === id) ||
-        expenses.find((item) => item.id === id);
-
-      if (existingItem) {
-        const updatedItem = buildUpdated(existingItem);
-        if (willBeFixed) {
-          setExpenses((prev) => prev.filter((item) => item.id !== id));
-          setFixedExpenses((prev) =>
-            prev.some((item) => item.id === id)
-              ? prev.map((item) => (item.id === id ? updatedItem : item))
-              : [...prev, updatedItem]
+    const sourceItem =
+      oldMonth === currentMonth
+        ? fixedExpenses.find((item) => item.id === id) ||
+          expenses.find((item) => item.id === id)
+        : (allMonthlyData[oldMonth]?.expenses?.fixed_expenses || []).find(
+            (i) => i.id === id
+          ) ||
+          (allMonthlyData[oldMonth]?.expenses?.additional_expenses || []).find(
+            (i) => i.id === id
           );
+
+    if (sourceItem) {
+      const updatedItem = buildUpdated(sourceItem);
+
+      if (oldMonth === targetMonth) {
+        if (targetMonth === currentMonth) {
+          if (willBeFixed) {
+            setExpenses((prev) => prev.filter((item) => item.id !== id));
+            setFixedExpenses((prev) =>
+              prev.some((item) => item.id === id)
+                ? prev.map((item) => (item.id === id ? updatedItem : item))
+                : [...prev, updatedItem]
+            );
+          } else {
+            setFixedExpenses((prev) => prev.filter((item) => item.id !== id));
+            setExpenses((prev) =>
+              prev.some((item) => item.id === id)
+                ? prev.map((item) => (item.id === id ? updatedItem : item))
+                : [...prev, updatedItem]
+            );
+          }
         } else {
-          setFixedExpenses((prev) => prev.filter((item) => item.id !== id));
-          setExpenses((prev) =>
-            prev.some((item) => item.id === id)
-              ? prev.map((item) => (item.id === id ? updatedItem : item))
-              : [...prev, updatedItem]
-          );
-        }
-
-        if (isRecordCompleted(updatedItem)) {
-          upsertElectricityRecordFromExpense(updatedItem, targetMonth);
-        } else if (isManualElectricityExpense(updatedItem)) {
-          deleteElectricityRecordByExpenseId(updatedItem.id);
-        }
-      }
-    } else {
-      const record = allMonthlyData[targetMonth];
-      if (record && record.expenses) {
-        const oldFixed = Array.isArray(record.expenses.fixed_expenses)
-          ? record.expenses.fixed_expenses
-          : [];
-        const oldAdd = Array.isArray(record.expenses.additional_expenses)
-          ? record.expenses.additional_expenses
-          : [];
-        const sourceItem =
-          oldFixed.find((i) => i.id === id) || oldAdd.find((i) => i.id === id);
-
-        if (sourceItem) {
-          const updatedTargetItem = buildUpdated(sourceItem);
-          const remainingFixed = oldFixed.filter((i) => i.id !== id);
-          const remainingAdd = oldAdd.filter((i) => i.id !== id);
-
+          const record = allMonthlyData[targetMonth];
+          const oldFixed = record?.expenses?.fixed_expenses || [];
+          const oldAdd = record?.expenses?.additional_expenses || [];
           onSaveExpenses(
             {
-              ...record.expenses,
+              saved_em2_eur: record?.expenses?.saved_em2_eur || 0,
               fixed_expenses: willBeFixed
-                ? [...remainingFixed, updatedTargetItem]
-                : remainingFixed,
+                ? [...oldFixed.filter((i) => i.id !== id), updatedItem]
+                : oldFixed.filter((i) => i.id !== id),
               additional_expenses: willBeFixed
-                ? remainingAdd
-                : [...remainingAdd, updatedTargetItem],
+                ? oldAdd.filter((i) => i.id !== id)
+                : [...oldAdd.filter((i) => i.id !== id), updatedItem],
             },
             targetMonth
           );
-
-          if (isRecordCompleted(updatedTargetItem)) {
-            upsertElectricityRecordFromExpense(updatedTargetItem, targetMonth);
-          } else if (isManualElectricityExpense(updatedTargetItem)) {
-            deleteElectricityRecordByExpenseId(updatedTargetItem.id);
+        }
+      } else {
+        // Cross-month move due to Expected Date edit
+        if (oldMonth === currentMonth) {
+          setFixedExpenses((prev) => prev.filter((i) => i.id !== id));
+          setExpenses((prev) => prev.filter((i) => i.id !== id));
+        } else {
+          const oldRec = allMonthlyData[oldMonth];
+          if (oldRec?.expenses) {
+            onSaveExpenses(
+              {
+                ...oldRec.expenses,
+                fixed_expenses: (oldRec.expenses.fixed_expenses || []).filter(
+                  (i) => i.id !== id
+                ),
+                additional_expenses: (
+                  oldRec.expenses.additional_expenses || []
+                ).filter((i) => i.id !== id),
+              },
+              oldMonth
+            );
           }
         }
+
+        if (targetMonth === currentMonth) {
+          if (willBeFixed) {
+            setFixedExpenses((prev) => [...prev, updatedItem]);
+          } else {
+            setExpenses((prev) => [...prev, updatedItem]);
+          }
+        } else {
+          const targetRec = allMonthlyData[targetMonth];
+          const destExp = targetRec?.expenses || {
+            saved_em2_eur: 0,
+            fixed_expenses: [],
+            additional_expenses: [],
+          };
+          onSaveExpenses(
+            {
+              ...destExp,
+              fixed_expenses: willBeFixed
+                ? [...(destExp.fixed_expenses || []), updatedItem]
+                : destExp.fixed_expenses || [],
+              additional_expenses: willBeFixed
+                ? destExp.additional_expenses || []
+                : [...(destExp.additional_expenses || []), updatedItem],
+            },
+            targetMonth
+          );
+        }
+      }
+
+      if (isRecordCompleted(updatedItem)) {
+        upsertElectricityRecordFromExpense(updatedItem, targetMonth);
+      } else if (isManualElectricityExpense(updatedItem)) {
+        deleteElectricityRecordByExpenseId(updatedItem.id);
       }
     }
     setEditingExpenseId(null);
@@ -1139,6 +1250,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const safeDateKey =
+      fixedDate && /^\d{4}-\d{2}-\d{2}$/.test(fixedDate)
+        ? fixedDate
+        : getDefaultDateKeyForMonth(currentMonth);
+    const targetMonthKey = getMonthKeyFromDateKey(safeDateKey);
     const normalizedRepeat = normalizeRepeatValue(fixedRepeat);
     const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
@@ -1151,7 +1267,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryId: selectedFixedBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsed,
-      date: nowIso,
+      date: dateKeyToStableIso(safeDateKey),
+      expectedDate: safeDateKey,
       createdAt: nowIso,
       timestamp: nowMs,
       repeat: normalizedRepeat,
@@ -1162,13 +1279,35 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       completedAt: fixedCompleted ? nowIso : undefined,
     };
 
-    if (goesToFixed) {
-      setFixedExpenses((prev) => [...prev, newItem]);
+    if (targetMonthKey === currentMonth) {
+      if (goesToFixed) {
+        setFixedExpenses((prev) => [...prev, newItem]);
+      } else {
+        setExpenses((prev) => [...prev, newItem]);
+      }
     } else {
-      setExpenses((prev) => [...prev, newItem]);
+      const targetRec = allMonthlyData[targetMonthKey];
+      const existingExp = targetRec?.expenses || {
+        saved_em2_eur: 0,
+        fixed_expenses: [],
+        additional_expenses: [],
+      };
+      onSaveExpenses(
+        {
+          ...existingExp,
+          fixed_expenses: goesToFixed
+            ? [...(existingExp.fixed_expenses || []), newItem]
+            : existingExp.fixed_expenses || [],
+          additional_expenses: goesToFixed
+            ? existingExp.additional_expenses || []
+            : [...(existingExp.additional_expenses || []), newItem],
+        },
+        targetMonthKey
+      );
     }
+
     if (isRecordCompleted(newItem) && isManualElectricityExpense(newItem)) {
-      upsertElectricityRecordFromExpense(newItem, currentMonth);
+      upsertElectricityRecordFromExpense(newItem, targetMonthKey);
     }
 
     // Reset form (Fixed defaults back to "monthly")
@@ -1176,6 +1315,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setSelectedFixedCategory(null);
     setSelectedFixedBudgetCategoryId("");
     setFixedAmount("");
+    setFixedDate(getDefaultDateKeyForMonth(currentMonth));
     setFixedRepeat("monthly");
     setFixedCompleted(true);
   };
@@ -1196,6 +1336,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditingFixedId(item.id);
     setEditFixedName(item.categoryName);
     setEditFixedAmount(item.amount.toString());
+    setEditFixedDate(resolveRecordDateKey(item, currentMonth));
     setEditFixedBudgetCategoryId(item.budgetCategoryId || "");
     setEditFixedRepeat(resolveItemRepeat(item));
     setEditFixedCompleted(isRecordCompleted(item));
@@ -1217,6 +1358,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       return;
     }
 
+    const safeDateKey =
+      editFixedDate && /^\d{4}-\d{2}-\d{2}$/.test(editFixedDate)
+        ? editFixedDate
+        : getDefaultDateKeyForMonth(currentMonth);
+    const targetMonthKey = getMonthKeyFromDateKey(safeDateKey);
     const effectiveRepeat = normalizeRepeatValue(editFixedRepeat);
     const willStayFixed = isRepeatingFrequency(effectiveRepeat);
 
@@ -1224,6 +1370,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       ...existingItem,
       categoryName: editFixedName.trim() || existingItem.categoryName,
       amount: val,
+      date: dateKeyToStableIso(safeDateKey),
+      expectedDate: safeDateKey,
       budgetCategoryId: editFixedBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       repeat: effectiveRepeat,
@@ -1236,22 +1384,44 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         : undefined,
     };
 
-    if (willStayFixed) {
-      setFixedExpenses((prev) =>
-        prev.map((item) => (item.id === id ? updatedItem : item))
-      );
+    if (targetMonthKey === currentMonth) {
+      if (willStayFixed) {
+        setFixedExpenses((prev) =>
+          prev.map((item) => (item.id === id ? updatedItem : item))
+        );
+      } else {
+        // Repeat changed from Recurring -> Never: move automatically to Additional Expenses
+        setFixedExpenses((prev) => prev.filter((item) => item.id !== id));
+        setExpenses((prev) =>
+          prev.some((item) => item.id === id)
+            ? prev.map((item) => (item.id === id ? updatedItem : item))
+            : [...prev, updatedItem]
+        );
+      }
     } else {
-      // Repeat changed from Recurring -> Never: move automatically to Additional Expenses
       setFixedExpenses((prev) => prev.filter((item) => item.id !== id));
-      setExpenses((prev) =>
-        prev.some((item) => item.id === id)
-          ? prev.map((item) => (item.id === id ? updatedItem : item))
-          : [...prev, updatedItem]
+      const targetRec = allMonthlyData[targetMonthKey];
+      const destExp = targetRec?.expenses || {
+        saved_em2_eur: 0,
+        fixed_expenses: [],
+        additional_expenses: [],
+      };
+      onSaveExpenses(
+        {
+          ...destExp,
+          fixed_expenses: willStayFixed
+            ? [...(destExp.fixed_expenses || []), updatedItem]
+            : destExp.fixed_expenses || [],
+          additional_expenses: willStayFixed
+            ? destExp.additional_expenses || []
+            : [...(destExp.additional_expenses || []), updatedItem],
+        },
+        targetMonthKey
       );
     }
 
     if (isRecordCompleted(updatedItem)) {
-      upsertElectricityRecordFromExpense(updatedItem, currentMonth);
+      upsertElectricityRecordFromExpense(updatedItem, targetMonthKey);
     } else if (isManualElectricityExpense(updatedItem)) {
       deleteElectricityRecordByExpenseId(updatedItem.id);
     }
@@ -1536,17 +1706,31 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-              Бележка (опционално)
-            </label>
-            <input
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400"
-              placeholder="напр. пазаруване, вечеря, гориво, абонамент..."
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                {!expenseCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+              </label>
+              <input
+                type="date"
+                value={expenseDate}
+                onChange={(e) => setExpenseDate(e.target.value)}
+                className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                Бележка (опционално)
+              </label>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400"
+                placeholder="напр. пазаруване, вечеря, гориво, абонамент..."
+              />
+            </div>
           </div>
 
           <RecurrenceCompletionRows
@@ -1677,6 +1861,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  {!fixedCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+                </label>
+                <input
+                  type="date"
+                  value={fixedDate}
+                  onChange={(e) => setFixedDate(e.target.value)}
+                  className="w-full px-3 py-2 min-h-[44px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -1761,23 +1957,36 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
                     </div>
 
-                    <div>
-                      <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
-                        <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                        Бюджетна категория (Budget Category)
-                      </label>
-                      <select
-                        value={editFixedBudgetCategoryId}
-                        onChange={(e) => setEditFixedBudgetCategoryId(e.target.value)}
-                        className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="none">-- Без бюджетна категория (No Budget) --</option>
-                        {budgetCategories.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
-                          </option>
-                        ))}
-                      </select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
+                          <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                          Бюджетна категория (Budget Category)
+                        </label>
+                        <select
+                          value={editFixedBudgetCategoryId}
+                          onChange={(e) => setEditFixedBudgetCategoryId(e.target.value)}
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                          {budgetCategories.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                          {!editFixedCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+                        </label>
+                        <input
+                          type="date"
+                          value={editFixedDate}
+                          onChange={(e) => setEditFixedDate(e.target.value)}
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
                     </div>
 
                     <RecurrenceCompletionRows
@@ -1872,7 +2081,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         )}
                       </div>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Повтарящ се · {formatRepeatLabel(item.repeat)}
+                        Повтарящ се · {formatRepeatLabel(item.repeat)} ·{" "}
+                        {parseLocalDateKey(
+                          resolveRecordDateKey(item, currentMonth)
+                        ).toLocaleDateString("bg-BG")}
                       </span>
                     </div>
                   </div>
@@ -2058,29 +2270,37 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         </div>
                       </div>
 
-                      {/* Budget Category Selector in Edit Expense */}
-                      <div>
-                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
+                      {/* Expected Date & Budget Category Selector in Edit Expense */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                            {!editExpenseCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+                          </label>
+                          <input
+                            type="date"
+                            value={editExpenseDate}
+                            onChange={(e) => setEditExpenseDate(e.target.value)}
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
                             <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                             Бюджетна категория (Budget Category)
-                          </span>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
-                            Промяната обновява разхода в съответния бюджет
-                          </span>
-                        </label>
-                        <select
-                          value={editExpenseBudgetCategoryId}
-                          onChange={(e) => setEditExpenseBudgetCategoryId(e.target.value)}
-                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                          <option value="none">-- Без бюджетна категория (No Budget) --</option>
-                          {budgetCategories.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
-                            </option>
-                          ))}
-                        </select>
+                          </label>
+                          <select
+                            value={editExpenseBudgetCategoryId}
+                            onChange={(e) => setEditExpenseBudgetCategoryId(e.target.value)}
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                            {budgetCategories.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
 
                       <RecurrenceCompletionRows
@@ -2216,7 +2436,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-400">
                             <Calendar className="w-3.5 h-3.5 shrink-0" />
                             <span>
-                              {new Date(expense.date).toLocaleDateString("bg-BG")}
+                              {parseLocalDateKey(
+                                resolveRecordDateKey(
+                                  expense,
+                                  expense.sourceMonth || currentMonth
+                                )
+                              ).toLocaleDateString("bg-BG")}
                             </span>
                           </div>
                         </div>

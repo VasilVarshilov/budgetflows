@@ -5,6 +5,7 @@ import {
   PiggyBank,
   Scale,
   Calendar,
+  CalendarDays,
   ChevronDown,
   ArrowUpRight,
   ArrowDownLeft,
@@ -61,6 +62,7 @@ import { loadAppSettings, saveAppSettings } from "@/utils/incomeStorage";
 import { isCompletedExpense, isPlannedExpense, isRecordCompleted } from "@/utils/expenseStatus";
 import { formatRepeatLabel, isRepeatingFrequency } from "@/utils/recurrenceEngine";
 import { CompletionSwitch } from "@/components/ui/RecurrenceCompletionRows";
+import { parseLocalDateKey, resolveRecordDateKey } from "@/utils/calendarEngine";
 
 interface UpcomingDashboardItem {
   id: string;
@@ -72,6 +74,7 @@ interface UpcomingDashboardItem {
   note?: string;
   merchantName?: string;
   date: string;
+  dateKey: string;
   amount: number;
   repeat?: RepeatFrequency;
 }
@@ -79,7 +82,8 @@ interface UpcomingDashboardItem {
 interface DashboardTabProps {
   monthlyData: Record<string, MonthlyRecord>;
   globalSavings: IncomeItem[];
-  onNavigateTab?: (tab: "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "backup" | "budgets" | "ai-analysis") => void;
+  onNavigateTab?: (tab: "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "backup" | "budgets" | "ai-analysis") => void;
+  onOpenCalendar?: (dateKey?: string) => void;
   onTriggerSync?: () => void;
   onToggleRecordCompletion?: (
     monthKey: string,
@@ -147,6 +151,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   monthlyData,
   globalSavings,
   onNavigateTab,
+  onOpenCalendar,
   onTriggerSync,
   onToggleRecordCompletion,
 }) => {
@@ -345,6 +350,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               note: item.note,
               merchantName: item.merchantName,
               date: item.date || "",
+              dateKey: resolveRecordDateKey(item, key),
               amount: amt,
               repeat: item.repeat,
             });
@@ -412,6 +418,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               note: item.note,
               merchantName: item.merchantName,
               date: item.date || "",
+              dateKey: resolveRecordDateKey(item, key),
               amount: amt,
               repeat: item.repeat,
             });
@@ -491,6 +498,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               note: inc.note,
               merchantName: inc.merchantName,
               date: inc.date || "",
+              dateKey: resolveRecordDateKey(inc, key),
               amount: amt,
               repeat: inc.repeat,
             });
@@ -1193,6 +1201,18 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 €0.00
               </span>
             )}
+            <button
+              type="button"
+              onClick={() =>
+                onOpenCalendar
+                  ? onOpenCalendar(upcomingItems[0]?.dateKey)
+                  : onNavigateTab?.("calendar")
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>Отвори Календар</span>
+            </button>
           </div>
         </div>
 
@@ -1213,6 +1233,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   ? "Повтарящ се разход"
                   : "Предстоящ разход"
               );
+              detailParts.push(
+                parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG")
+              );
               if (item.merchantName) detailParts.push(item.merchantName);
               if (item.note) detailParts.push(item.note);
               if (item.repeat && item.repeat !== "never") {
@@ -1225,7 +1248,22 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               return (
                 <div
                   key={`${item.kind}_${item.monthKey}_${item.id}`}
-                  className="px-4 py-3 flex items-center justify-between gap-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                  onClick={() =>
+                    onOpenCalendar
+                      ? onOpenCalendar(item.dateKey)
+                      : onNavigateTab?.("calendar")
+                  }
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      if (onOpenCalendar) onOpenCalendar(item.dateKey);
+                      else onNavigateTab?.("calendar");
+                    }
+                  }}
+                  className="px-4 py-3 flex items-center justify-between gap-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  title="Отвори в Финансов календар"
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div
@@ -1257,7 +1295,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     >
                       {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div
+                      className="flex items-center gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <span className="hidden sm:inline text-xs font-medium text-slate-500 dark:text-slate-400">
                         Изпълнено
                       </span>

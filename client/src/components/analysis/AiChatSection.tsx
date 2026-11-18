@@ -51,12 +51,12 @@ interface MessageUiState {
 }
 
 const SUGGESTED_QUESTIONS = [
-  "Колко похарчих за цигари този месец?",
-  "Какви са повтарящите ми се приходи?",
-  "Какви предстоящи разходи имам?",
-  "Какви приходи очаквам?",
+  "Какви плащания предстоят следващата седмица?",
+  "Какви приходи се очакват този месец?",
+  "Покажи предстоящите повтарящи се разходи.",
+  "Колко неразпределени спестявания имам?",
+  "Колко процента от аварийния фонд е изпълнен?",
   "Коя категория ми струва най-много?",
-  "Покажи най-големите ми разходи",
 ];
 
 function fmtEur(n: number): string {
@@ -130,12 +130,24 @@ function deriveResponsePresentation(
   const qLower = question.toLowerCase();
 
   let title = "Финансов отговор";
-  if (
-    /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending)|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|предсто|планиран))/.test(
+  if (/emergency\s*fund|авариен\s*фонд|аварийния\s*фонд|авариен\s*резерв/.test(qLower)) {
+    title = "Авариен фонд";
+  } else if (/unallocated|неразпределен|free\s*savings/.test(qLower)) {
+    title = "Неразпределени спестявания";
+  } else if (/savings\s*goals?|jars?|цел[иа]?\s*(?:за\s+)?спестяван|касичк|saved\s+for|спестил\s+за/.test(qLower)) {
+    title = "Цели за спестяване";
+  } else if (
+    /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future|scheduled)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+|is\s+|are\s+|will\s+be\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending|scheduled|coming)|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|се\s+очаква|предсто|планиран))/.test(
       qLower
     )
   ) {
     title = "Очаквани приходи";
+  } else if (
+    /(?:next\s*week|следващата\s*седмица|next\s*month|следващия\s*месец|coming\s*(?:payments?|expenses?)|предстоят)/.test(
+      qLower
+    )
+  ) {
+    title = "Предстоящи плащания по календар";
   } else if (
     /(?:колко\s+ще\s+похарча|\bще\s+похарча\b|колко\s+се\s+очаква|очаквани\s+разходи|предвидени\s+разходи|expected\s+(?:to\s+)?spend|projected\s+spend)/.test(
       qLower

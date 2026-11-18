@@ -586,6 +586,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         amount: parseFloat(numericAmount.toFixed(2)),
         note: formNote.trim(),
         date: selectedDateObj.toISOString(),
+        expectedDate: safeDateStr,
         repeat: effectiveRepeat,
         isRecurring: isFixed,
         isFixedItem: isFixed,
@@ -668,6 +669,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       amount: parseFloat(numericAmount.toFixed(2)),
       note: formNote.trim(),
       date: selectedDateObj.toISOString(),
+      expectedDate: safeDateStr,
       createdAt: nowIso,
       timestamp: nowMs,
       type: "income",
@@ -713,6 +715,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       amount: template.amount,
       note: template.note || "",
       date: dueDateObj.toISOString(),
+      expectedDate: dueDateIso,
       createdAt: nowIso,
       timestamp: nowMs,
       type: "income",
@@ -1641,7 +1644,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   <span className="inline-flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-slate-400" />
                     <span>
-                      {editingTemplateId ? "Начална дата на шаблона" : "Дата"}
+                      {editingTemplateId
+                        ? "Начална дата на шаблона"
+                        : !formCompleted
+                        ? "Очаквана дата"
+                        : "Дата / Очаквана дата"}
                     </span>
                   </span>
                 </label>

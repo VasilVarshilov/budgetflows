@@ -6,6 +6,12 @@ import { getStoredElectricityHistory } from "./electricityStorage";
 import { getExpenseStatus, isRecordCompleted } from "./expenseStatus";
 import { isRepeatingFrequency, normalizeRepeatValue } from "./recurrenceEngine";
 import {
+  computeSavingsAllocationSummary,
+  getGoalProgressPercent,
+  loadSavingsGoals,
+} from "./savingsGoalsStorage";
+import { getCalendarEventsForRange, parseLocalDateKey } from "./calendarEngine";
+import {
   MONTHS_BG,
   getPreviousMonthAndYear,
   calculateMonthExpenses,
@@ -983,20 +989,20 @@ function formatDateShort(iso: string): string {
 function buildSuggestions(en: boolean): string[] {
   return en
     ? [
-        "How much have I spent?",
-        "What is my recurring income?",
-        "What income am I expecting?",
-        "What expenses are upcoming?",
-        "What was my largest expense this month?",
-        "How much did I save during the last 3 months?",
+        "What payments are coming next week?",
+        "What income is expected this month?",
+        "Show upcoming recurring expenses.",
+        "How much unallocated savings do I have?",
+        "What percentage of my Emergency Fund goal is completed?",
+        "How much have I spent this month?",
       ]
     : [
+        "Какви плащания предстоят следващата седмица?",
+        "Какви приходи се очакват този месец?",
+        "Покажи предстоящите повтарящи се разходи.",
+        "Колко неразпределени спестявания имам?",
+        "Колко процента от аварийния фонд е изпълнен?",
         "Колко съм похарчил този месец?",
-        "Какви са повтарящите ми се приходи?",
-        "Какви приходи очаквам?",
-        "Какви предстоящи разходи имам?",
-        "Кой беше най-големият ми разход този месец?",
-        "Колко спестих през последните 3 месеца?",
       ];
 }
 
@@ -1031,6 +1037,275 @@ export function answerFinancialChatQuestion(
       calculation: "—",
       timeRangeLabel: activeMonth.key,
       matchedExpenses: [],
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 00A: Savings Goals ("Jars"), Emergency Fund & Unallocated Savings
+  // ------------------------------------------------------------------
+  const savingsGoals = loadSavingsGoals();
+  const activeGoals = savingsGoals.filter((g) => !g.archived);
+  const normalizedGoalLookup = activeGoals.map((g) => ({
+    goal: g,
+    normName: normalizeText(g.name),
+  }));
+  const matchedGoalByName = normalizedGoalLookup.find(
+    ({ normName }) => normName.length >= 3 && norm.includes(normName)
+  )?.goal;
+
+  const isEmergencyFundQuery =
+    /(?:emergency\s*fund|авариен\s*фонд|аварийния\s*фонд|авариен\s*резерв|буфер|months?\s+(?:does|can|will).*cover|месеца\s+покрива)/.test(
+      norm
+    );
+  const isUnallocatedSavingsQuery =
+    /(?:unallocated|free\s*savings|неразпределен|свободн[иа]\s+спестявани)/.test(norm);
+  const isGoalsGenericQuery =
+    /(?:savings\s*goals?|jars?|цел[иа]?\s*(?:за\s+)?спестяван|касичк)/.test(norm);
+
+  if (
+    isEmergencyFundQuery ||
+    isUnallocatedSavingsQuery ||
+    isGoalsGenericQuery ||
+    Boolean(matchedGoalByName)
+  ) {
+    const summary = computeSavingsAllocationSummary(globalSavings, savingsGoals, monthlyData);
+    const goalMatchedEntries = (goalList = activeGoals): AiChatMatchedExpense[] =>
+      goalList.map((g) => {
+        const pct = getGoalProgressPercent(g);
+        return {
+          id: g.id,
+          monthKey: "Цели за спестяване",
+          date: formatDateShort(g.updatedAt),
+          merchantOrCategory: g.name,
+          categoryName: g.isEmergencyFund ? "Авариен фонд" : "Спестовна цел",
+          expenseAmount: g.targetAmount,
+          matchedAmount: g.allocatedAmount,
+          matchedKind: "saving",
+          matchedSnippet: `Цел: ${fmtEur(g.targetAmount)} · ${pct.toFixed(1)}%${
+            g.description ? ` · ${g.description}` : ""
+          }`,
+        };
+      });
+
+    if (isEmergencyFundQuery && (!matchedGoalByName || matchedGoalByName.isEmergencyFund)) {
+      const ef = summary.emergencyFundGoal;
+      if (!ef) {
+        return {
+          answer: en
+            ? `You do not have an active Emergency Fund goal yet. You have ${fmtEur(summary.unallocatedSavings)} in unallocated savings (Average Monthly Expenses: ${fmtEur(summary.averageMonthlyExpenses)}).`
+            : `Все още нямате създаден активен „Авариен фонд“. Имате ${fmtEur(summary.unallocatedSavings)} неразпределени спестявания (ср. месечни разходи: ${fmtEur(summary.averageMonthlyExpenses)}).`,
+          calculation: `Авариен фонд: €0.00 | Ср. месечни разходи: ${fmtEur(summary.averageMonthlyExpenses)}`,
+          timeRangeLabel: "Спестовни цели",
+          matchedExpenses: [],
+          totalMatchedAmount: 0,
+          followUpSuggestions: buildSuggestions(en),
+        };
+      }
+
+      const pct = getGoalProgressPercent(ef);
+      const coverageStr =
+        summary.emergencyCoverageMonths !== null
+          ? en
+            ? `${summary.emergencyCoverageMonths.toFixed(1)} months of expenses`
+            : `${summary.emergencyCoverageMonths.toFixed(1)} месеца разходи`
+          : en
+          ? "N/A (no completed expenses recorded)"
+          : "няма записани изпълнени разходи";
+
+      return {
+        answer: en
+          ? `Your Emergency Fund ("${ef.name}") is ${pct.toFixed(1)}% completed (${fmtEur(ef.allocatedAmount)} of ${fmtEur(ef.targetAmount)}). It currently covers ${coverageStr} (avg. monthly expenses: ${fmtEur(summary.averageMonthlyExpenses)}).`
+          : `Вашият „${ef.name}“ е изпълнен на ${pct.toFixed(1)}% (${fmtEur(ef.allocatedAmount)} от цел ${fmtEur(ef.targetAmount)}). Покрива ${coverageStr} (при средни месечни разходи ${fmtEur(summary.averageMonthlyExpenses)}).`,
+        calculation: `${fmtEur(ef.allocatedAmount)} ÷ ${fmtEur(ef.targetAmount)} = ${pct.toFixed(1)}% | Покритие: ${coverageStr}`,
+        timeRangeLabel: "Авариен фонд",
+        matchedExpenses: goalMatchedEntries([ef]),
+        totalMatchedAmount: ef.allocatedAmount,
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    if (isUnallocatedSavingsQuery) {
+      return {
+        answer: en
+          ? `You have ${fmtEur(summary.unallocatedSavings)} in unallocated savings out of ${fmtEur(summary.totalSavings)} total savings (${fmtEur(summary.totalAllocated)} allocated across ${activeGoals.length} goals).`
+          : `Имате ${fmtEur(summary.unallocatedSavings)} неразпределени спестявания от общо ${fmtEur(summary.totalSavings)} (${fmtEur(summary.totalAllocated)} разпределени в ${activeGoals.length} цели).`,
+        calculation: `Общо ${fmtEur(summary.totalSavings)} - Разпределени ${fmtEur(summary.totalAllocated)} = Неразпределени ${fmtEur(summary.unallocatedSavings)}`,
+        timeRangeLabel: "Спестявания и цели",
+        matchedExpenses: goalMatchedEntries(),
+        totalMatchedAmount: summary.unallocatedSavings,
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    if (matchedGoalByName) {
+      const pct = getGoalProgressPercent(matchedGoalByName);
+      const remaining = Math.max(
+        0,
+        matchedGoalByName.targetAmount - matchedGoalByName.allocatedAmount
+      );
+      return {
+        answer: en
+          ? `You have saved ${fmtEur(matchedGoalByName.allocatedAmount)} for "${matchedGoalByName.name}" out of a ${fmtEur(matchedGoalByName.targetAmount)} target (${pct.toFixed(1)}% completed, ${fmtEur(remaining)} remaining).`
+          : `Заделили сте ${fmtEur(matchedGoalByName.allocatedAmount)} за „${matchedGoalByName.name}“ от цел ${fmtEur(matchedGoalByName.targetAmount)} (${pct.toFixed(1)}% изпълнение, остават ${fmtEur(remaining)}).`,
+        calculation: `${fmtEur(matchedGoalByName.allocatedAmount)} / ${fmtEur(matchedGoalByName.targetAmount)} = ${pct.toFixed(1)}% (остават ${fmtEur(remaining)})`,
+        timeRangeLabel: `Цел: ${matchedGoalByName.name}`,
+        matchedExpenses: goalMatchedEntries([matchedGoalByName]),
+        totalMatchedAmount: matchedGoalByName.allocatedAmount,
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    return {
+      answer:
+        activeGoals.length > 0
+          ? en
+            ? `Across ${activeGoals.length} savings goals you have allocated ${fmtEur(summary.totalAllocated)} out of ${fmtEur(summary.totalSavings)} total savings (${fmtEur(summary.unallocatedSavings)} unallocated).`
+            : `В ${activeGoals.length} активни цели сте разпределили ${fmtEur(summary.totalAllocated)} от общо ${fmtEur(summary.totalSavings)} спестявания (неразпределени: ${fmtEur(summary.unallocatedSavings)}).`
+          : en
+          ? `You have ${fmtEur(summary.totalSavings)} in savings and no active savings goals yet.`
+          : `Имате ${fmtEur(summary.totalSavings)} общи спестявания и все още нямате активни цели за спестяване.`,
+      calculation: `Общо ${fmtEur(summary.totalSavings)} | Разпределени ${fmtEur(summary.totalAllocated)} | Неразпределени ${fmtEur(summary.unallocatedSavings)}`,
+      timeRangeLabel: "Цели за спестяване",
+      matchedExpenses: goalMatchedEntries(),
+      totalMatchedAmount: summary.totalAllocated,
+      followUpSuggestions: buildSuggestions(en),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // INTENT 00B: Calendar & Future Scheduled Payments / Expected Income
+  // ------------------------------------------------------------------
+  const isNextWeekFutureQuery =
+    /(?:next\s*week|coming\s*week|within\s*7\s*days|следващата\s*седмица|през\s*следващата\s*седмица|идната\s*седмица|тази\s*седмица)/.test(
+      norm
+    );
+  const isNextMonthFutureQuery =
+    /(?:next\s*month|coming\s*month|следващия\s*месец|идния\s*месец)/.test(norm);
+  const isUpcomingRecurringQuery =
+    /(?:upcoming|planned|scheduled|предстоящ|планиран|очакван)/.test(norm) &&
+    /(?:recurring|repeating|povtar|повтарящ|периодич|абонамент)/.test(norm);
+  const isComingPaymentsQuery =
+    /(?:what\s+(?:payments?|bills?|expenses?)\s+(?:are\s+)?(?:coming|due|scheduled)|какви\s+(?:плащания|разходи|сметки)\s+(?:предсто|идват|имам)|какво\s+предстои\s+да\s+плат)/.test(
+      norm
+    );
+  const isExpectedIncomeThisMonthCalendarQuery =
+    /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future|scheduled)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+|is\s+|are\s+|will\s+be\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending|scheduled|coming)|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|се\s+очаква|предсто|планиран))/.test(
+      norm
+    );
+
+  if (
+    isNextWeekFutureQuery ||
+    isNextMonthFutureQuery ||
+    isUpcomingRecurringQuery ||
+    isComingPaymentsQuery ||
+    isExpectedIncomeThisMonthCalendarQuery
+  ) {
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0, 0);
+    let rangeStart = todayStart;
+    let rangeEnd = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + 30, 12, 0, 0, 0);
+    let windowLabel = en ? "Next 30 days" : "Следващите 30 дни";
+
+    if (isNextWeekFutureQuery) {
+      rangeStart = todayStart;
+      rangeEnd = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + 7, 12, 0, 0, 0);
+      windowLabel = en
+        ? `Next 7 days (${formatDateShort(rangeStart.toISOString())} – ${formatDateShort(rangeEnd.toISOString())})`
+        : `Следващата седмица (${formatDateShort(rangeStart.toISOString())} – ${formatDateShort(rangeEnd.toISOString())})`;
+    } else if (isNextMonthFutureQuery) {
+      rangeStart = new Date(todayStart.getFullYear(), todayStart.getMonth() + 1, 1, 12, 0, 0, 0);
+      rangeEnd = new Date(todayStart.getFullYear(), todayStart.getMonth() + 2, 0, 12, 0, 0, 0);
+      windowLabel = `${MONTHS_BG[rangeStart.getMonth()]} ${rangeStart.getFullYear()}`;
+    } else if (
+      /(?:this\s*month|този\s*месец|текущ)/.test(norm) ||
+      isExpectedIncomeThisMonthCalendarQuery
+    ) {
+      // Check if an explicit historical month/last-N range was asked; if not, inspect current month (or activeMonth)
+      const explicitPastMonth =
+        /(?:last|past|previous|минал|предход)/.test(norm) ||
+        Object.keys(MONTHS_EN_TO_IDX).some((m) => norm.includes(m)) ||
+        Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m));
+      if (!explicitPastMonth) {
+        rangeStart = new Date(activeMonth.year, activeMonth.monthIndex, 1, 12, 0, 0, 0);
+        rangeEnd = new Date(activeMonth.year, activeMonth.monthIndex + 1, 0, 12, 0, 0, 0);
+        windowLabel = activeMonth.key;
+      }
+    } else if (isUpcomingRecurringQuery) {
+      rangeStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1, 12, 0, 0, 0);
+      rangeEnd = new Date(todayStart.getFullYear(), todayStart.getMonth() + 2, 0, 12, 0, 0, 0);
+      windowLabel = en ? "Upcoming recurring schedule (next 60 days)" : "Предстоящи повтарящи се (текущ и следващ месец)";
+    }
+
+    const calendarEvents = getCalendarEventsForRange(monthlyData, rangeStart, rangeEnd);
+
+    const wantsIncome =
+      isExpectedIncomeThisMonthCalendarQuery ||
+      /(?:\bincome\b|\bsalary\b|\bearnings\b|приход|доход|заплат)/.test(norm);
+    const wantsExpensesOnly = !wantsIncome;
+
+    const matchingCalendarEvents = calendarEvents.filter((ev) => {
+      if (!ev.isUpcoming) return false;
+      if (wantsIncome && ev.kind !== "income") return false;
+      if (wantsExpensesOnly && ev.kind !== "expense") return false;
+      if (isUpcomingRecurringQuery && !ev.isRecurring) return false;
+      return true;
+    });
+
+    const totalCalAmount = matchingCalendarEvents.reduce((s, ev) => s + ev.amount, 0);
+
+    return {
+      answer:
+        matchingCalendarEvents.length > 0
+          ? wantsIncome
+            ? en
+              ? `Expected income in ${windowLabel}: ${fmtEur(totalCalAmount)} across ${matchingCalendarEvents.length} scheduled/upcoming ${matchingCalendarEvents.length === 1 ? "entry" : "entries"} (${matchingCalendarEvents
+                  .slice(0, 5)
+                  .map((e) => `${e.categoryName} ${fmtEur(e.amount)} on ${parseLocalDateKey(e.dateKey).toLocaleDateString("en-GB")}`)
+                  .join(", ")}).`
+              : `Очаквани приходи за ${windowLabel}: ${fmtEur(totalCalAmount)} от ${matchingCalendarEvents.length} ${matchingCalendarEvents.length === 1 ? "запис" : "записа"} (${matchingCalendarEvents
+                  .slice(0, 5)
+                  .map((e) => `${e.categoryName} ${fmtEur(e.amount)} (${parseLocalDateKey(e.dateKey).toLocaleDateString("bg-BG")})`)
+                  .join(", ")}).`
+            : en
+            ? `You have ${matchingCalendarEvents.length} upcoming ${isUpcomingRecurringQuery ? "recurring " : ""}${matchingCalendarEvents.length === 1 ? "payment" : "payments"} in ${windowLabel} totaling ${fmtEur(totalCalAmount)}: ${matchingCalendarEvents
+                .slice(0, 5)
+                .map((e) => `${e.merchantName || e.categoryName} ${fmtEur(e.amount)} on ${parseLocalDateKey(e.dateKey).toLocaleDateString("en-GB")}`)
+                .join(", ")}.`
+            : `Имате ${matchingCalendarEvents.length} предстоящи ${isUpcomingRecurringQuery ? "повтарящи се " : ""}${matchingCalendarEvents.length === 1 ? "плащане" : "плащания"} за ${windowLabel} на обща стойност ${fmtEur(totalCalAmount)}: ${matchingCalendarEvents
+                .slice(0, 5)
+                .map((e) => `${e.merchantName || e.categoryName} ${fmtEur(e.amount)} (${parseLocalDateKey(e.dateKey).toLocaleDateString("bg-BG")})`)
+                .join(", ")}.`
+          : wantsIncome
+          ? en
+            ? `No upcoming or scheduled income found for ${windowLabel}.`
+            : `Няма очаквани приходи за ${windowLabel}.`
+          : en
+          ? `No upcoming${isUpcomingRecurringQuery ? " recurring" : ""} payments scheduled for ${windowLabel}.`
+          : `Няма предстоящи${isUpcomingRecurringQuery ? " повтарящи се" : ""} плащания за ${windowLabel}.`,
+      calculation:
+        matchingCalendarEvents.length > 0
+          ? matchingCalendarEvents
+              .slice(0, 6)
+              .map((e) => `${e.merchantName || e.categoryName}: ${fmtEur(e.amount)}`)
+              .join(" + ") + ` = ${fmtEur(totalCalAmount)}`
+          : "0 предстоящи записа = €0.00",
+      timeRangeLabel: windowLabel,
+      matchedExpenses: matchingCalendarEvents.map((ev) => ({
+        id: ev.id,
+        monthKey: ev.monthKey,
+        date: parseLocalDateKey(ev.dateKey).toLocaleDateString("bg-BG"),
+        merchantOrCategory: ev.merchantName || ev.categoryName,
+        categoryName: ev.kind === "income" ? "Очакван приход" : ev.categoryName,
+        expenseAmount: ev.amount,
+        matchedAmount: ev.amount,
+        matchedKind:
+          ev.kind === "income" ? "income" : ev.isRecurring ? "fixed" : "category",
+        matchedSnippet: `${ev.isProjected ? "По график" : "Предстоящ"}${
+          ev.note ? ` · ${ev.note}` : ""
+        }`,
+      })),
+      totalMatchedAmount: parseFloat(totalCalAmount.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
     };
   }

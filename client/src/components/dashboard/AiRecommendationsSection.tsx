@@ -4,7 +4,7 @@ import { FullAnalysisResult } from "@/utils/aiAnalysisEngine";
 
 interface AiRecommendationsSectionProps {
   aiAnalysis: FullAnalysisResult;
-  onNavigateTab?: (tab: "budgets" | "dashboard" | "monthly" | "electricity" | "reports" | "savings" | "backup" | "ai-analysis") => void;
+  onNavigateTab?: (tab: "budgets" | "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "backup" | "ai-analysis") => void;
 }
 
 export const AiRecommendationsSection: React.FC<AiRecommendationsSectionProps> = ({

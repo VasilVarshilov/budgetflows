@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Zap,
   Calendar,
+  CalendarDays,
   LayoutDashboard,
   PieChart,
   PiggyBank,
@@ -20,6 +21,7 @@ import { DashboardTab } from "@/components/dashboard/DashboardTab";
 import { ElectricityTab } from "@/components/electricity/ElectricityTab";
 import { MonthlyExpensesTab } from "@/components/monthly/MonthlyExpensesTab";
 import { IncomeTab } from "@/components/income/IncomeTab";
+import { CalendarTab } from "@/components/calendar/CalendarTab";
 import { MonthlyReportsTab } from "@/components/reports/MonthlyReportsTab";
 import { SavingsTab } from "@/components/savings/SavingsTab";
 import { BackupRestoreSection } from "@/components/backup/BackupRestoreSection";
@@ -33,7 +35,8 @@ import { Cloud, DownloadCloud, LogIn, UploadCloud, AlertTriangle } from "lucide-
 
 // Utils & Types
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
-import { createEmptyMonthlyRecord } from "@/utils/incomeStorage";
+import { createEmptyMonthlyRecord, loadRecurringIncomes, saveRecurringIncomes } from "@/utils/incomeStorage";
+import { CalendarEvent, dateKeyToStableIso } from "@/utils/calendarEngine";
 import {
   userStorage,
   STORAGE_BASE_MONTHLY,
@@ -49,7 +52,7 @@ import {
 } from "@/utils/recurrenceEngine";
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 
-type Tab = "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
+type Tab = "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
 
 interface NavTabItem {
   id: Tab;
@@ -89,6 +92,15 @@ const NAV_TABS: NavTabItem[] = [
     accentColor: "text-emerald-600 dark:text-emerald-400",
     drawerActiveClass: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900",
     drawerIconClass: "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300",
+  },
+  {
+    id: "calendar",
+    label: "Календар",
+    description: "Финансов календар по дати",
+    icon: CalendarDays,
+    accentColor: "text-indigo-600 dark:text-indigo-400",
+    drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
+    drawerIconClass: "bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300",
   },
   {
     id: "savings",
@@ -151,6 +163,7 @@ const MOBILE_MORE_TABS = NAV_TABS.slice(5);
 
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => getCurrentMonthBulgarian());
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
@@ -573,6 +586,121 @@ const AppContent: React.FC = () => {
     [saveMonthlyToStorage, triggerAutoSync]
   );
 
+  const handleOpenCalendar = useCallback((dateKey?: string) => {
+    setCalendarInitialDate(dateKey || null);
+    setActiveTab("calendar");
+  }, []);
+
+  const handleMaterializeProjectedEvent = useCallback(
+    (ev: CalendarEvent) => {
+      const targetUid = userStorage.getActiveUid();
+      const prev = monthlyDataRef.current;
+      const monthKey = ev.monthKey;
+      const existing = prev[monthKey] || createEmptyMonthlyRecord(monthKey);
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const stableIso = dateKeyToStableIso(ev.dateKey);
+
+      if (ev.kind === "income") {
+        const newIncome: IncomeItem = {
+          id: `inc_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+          categoryId: ev.categoryId,
+          categoryName: ev.categoryName,
+          categoryIcon: ev.categoryIcon,
+          categoryColor: ev.categoryColor,
+          amount: ev.amount,
+          note: ev.note,
+          date: stableIso,
+          expectedDate: ev.dateKey,
+          createdAt: nowIso,
+          timestamp: nowMs,
+          type: "income",
+          repeat: ev.repeat !== "never" ? ev.repeat : "monthly",
+          isRecurring: true,
+          isFixedItem: true,
+          recurringTemplateId: ev.templateId,
+          recurrenceSourceId: ev.recurrenceSourceId || ev.sourceId,
+          recurrenceOccurrenceKey: ev.recurrenceOccurrenceKey || ev.dateKey,
+          completed: true,
+          status: "completed",
+          completedAt: nowIso,
+        };
+
+        const updated: MonthlyRecord = {
+          ...existing,
+          incomes: [...(existing.incomes || []), newIncome],
+        };
+        const newData = { ...prev, [monthKey]: updated };
+        monthlyDataRef.current = newData;
+        saveMonthlyToStorage(newData, targetUid);
+        setMonthlyData(newData);
+
+        if (ev.templateId && ev.recurrenceOccurrenceKey) {
+          const templates = loadRecurringIncomes();
+          const nextTemplates = templates.map((t) =>
+            t.id === ev.templateId
+              ? {
+                  ...t,
+                  handledOccurrences: {
+                    ...(t.handledOccurrences || {}),
+                    [ev.recurrenceOccurrenceKey!]: "confirmed" as const,
+                  },
+                }
+              : t
+          );
+          saveRecurringIncomes(nextTemplates);
+        }
+
+        triggerAutoSync();
+        return;
+      }
+
+      const newExpense: ExpenseItem = {
+        id: `fix_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+        categoryId: ev.categoryId,
+        categoryName: ev.categoryName,
+        categoryIcon: ev.categoryIcon,
+        categoryColor: ev.categoryColor,
+        merchantName: ev.merchantName,
+        amount: ev.amount,
+        note: ev.note,
+        date: stableIso,
+        expectedDate: ev.dateKey,
+        createdAt: nowIso,
+        timestamp: nowMs,
+        sourceMonth: monthKey,
+        repeat: ev.repeat !== "never" ? ev.repeat : "monthly",
+        isRecurring: true,
+        isFixedItem: true,
+        recurrenceSourceId: ev.recurrenceSourceId || ev.sourceId,
+        recurrenceOccurrenceKey: ev.recurrenceOccurrenceKey || ev.dateKey,
+        completed: true,
+        status: "completed",
+        completedAt: nowIso,
+      };
+
+      const existingExpenses = existing.expenses || {
+        saved_em2_eur: 0,
+        fixed_expenses: [],
+        additional_expenses: [],
+      };
+      const updated: MonthlyRecord = {
+        ...existing,
+        expenses: {
+          ...existingExpenses,
+          fixed_expenses: [...(existingExpenses.fixed_expenses || []), newExpense],
+        },
+      };
+      const newData = { ...prev, [monthKey]: updated };
+      monthlyDataRef.current = newData;
+      saveMonthlyToStorage(newData, targetUid);
+      setMonthlyData(newData);
+      upsertElectricityRecordFromExpense(newExpense, monthKey);
+      triggerAutoSync();
+    },
+    [saveMonthlyToStorage, triggerAutoSync]
+  );
+
   // Monthly Incomes Save (for any monthKey)
   const handleSaveIncomesForMonth = useCallback(
     (targetMonthKey: string, incomes: IncomeItem[]) => {
@@ -763,7 +891,7 @@ const AppContent: React.FC = () => {
           <div className="py-2 hidden md:block">
             <nav
               aria-label="Основна навигация"
-              className="grid grid-cols-9 gap-1 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
+              className="grid grid-cols-10 gap-1 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
             >
               {NAV_TABS.map((tab) => {
                 const Icon = tab.icon;
@@ -806,6 +934,7 @@ const AppContent: React.FC = () => {
             monthlyData={monthlyData}
             globalSavings={globalSavings}
             onNavigateTab={setActiveTab}
+            onOpenCalendar={handleOpenCalendar}
             onTriggerSync={triggerAutoSync}
             onToggleRecordCompletion={handleToggleRecordCompletion}
           />
@@ -831,6 +960,19 @@ const AppContent: React.FC = () => {
           />
         )}
 
+        {activeTab === "calendar" && (
+          <CalendarTab
+            monthlyData={monthlyData}
+            initialDateKey={calendarInitialDate}
+            onConsumeInitialDate={() => setCalendarInitialDate(null)}
+            onToggleRecordCompletion={({ monthKey, recordType, id, nextCompleted }) =>
+              handleToggleRecordCompletion(monthKey, recordType, id, nextCompleted)
+            }
+            onMaterializeProjectedEvent={handleMaterializeProjectedEvent}
+            onNavigateTab={setActiveTab}
+          />
+        )}
+
         {activeTab === "electricity" && (
           <ElectricityTab
             onAddToExpenses={handleAddElectricityToExpenses}
@@ -843,6 +985,8 @@ const AppContent: React.FC = () => {
           <SavingsTab
             onUpdateSavings={handleUpdateGlobalSavings}
             savingsData={globalSavings}
+            allMonthlyData={monthlyData}
+            onTriggerSync={triggerAutoSync}
           />
         )}
 

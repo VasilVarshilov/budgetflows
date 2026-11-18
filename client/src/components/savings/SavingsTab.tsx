@@ -18,7 +18,8 @@ import {
   X,
   Calendar,
 } from "lucide-react";
-import { ExpenseCategory, IncomeItem } from "@/types";
+import { ExpenseCategory, IncomeItem, MonthlyRecord } from "@/types";
+import { SavingsGoalsSection } from "@/components/savings/SavingsGoalsSection";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
@@ -100,6 +101,8 @@ const PREDEFINED_INCOME_CATEGORIES: ExpenseCategory[] = [
 interface SavingsTabProps {
   onUpdateSavings: (incomes: IncomeItem[]) => void;
   savingsData: IncomeItem[];
+  allMonthlyData?: Record<string, MonthlyRecord>;
+  onTriggerSync?: () => void;
 }
 
 const MONTHS_SHORT = [
@@ -120,6 +123,8 @@ const MONTHS_SHORT = [
 export const SavingsTab: React.FC<SavingsTabProps> = ({
   onUpdateSavings,
   savingsData,
+  allMonthlyData = {},
+  onTriggerSync,
 }) => {
   const { isDark } = useTheme();
   const [categories, setCategories] = useState<ExpenseCategory[]>(() =>
@@ -701,6 +706,13 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Savings Goals ("Jars") & Emergency Fund */}
+      <SavingsGoalsSection
+        savingsData={savingsData}
+        monthlyData={allMonthlyData}
+        onTriggerSync={onTriggerSync}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left Column: Transactions List */}

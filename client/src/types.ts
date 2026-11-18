@@ -95,6 +95,8 @@ export interface ExpenseItem {
   amount: number;
   note?: string;
   date: string;
+  /** Optional explicit YYYY-MM-DD expected transaction date used for Calendar & planning. */
+  expectedDate?: string;
   createdAt?: string;
   timestamp?: number;
   /** Universal completion status. Default when undefined: resolves via isRecordCompleted(). */
@@ -116,6 +118,18 @@ export interface ExpenseItem {
   sourceMonth?: string;
   budgetCategoryId?: string; // Unique budget category ID (e.g. 'b_food', 'b_entertainment') or 'none'
   budgetCategoryName?: string; // Display cache of the assigned budget category name
+}
+
+export interface SavingsGoal {
+  id: string;
+  name: string;
+  targetAmount: number;
+  allocatedAmount: number;
+  description?: string;
+  isEmergencyFund?: boolean;
+  archived?: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type RecurrenceFrequency = 'monthly' | 'weekly' | 'yearly';

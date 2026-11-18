@@ -5,7 +5,7 @@ import { OverallBudgetCalculation } from "@/utils/budgetStorage";
 interface BudgetControlSectionProps {
   budgetData: OverallBudgetCalculation;
   currentPeriodLabel: string;
-  onNavigateTab?: (tab: "budgets" | "dashboard" | "monthly" | "electricity" | "reports" | "savings" | "backup" | "ai-analysis") => void;
+  onNavigateTab?: (tab: "budgets" | "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "backup" | "ai-analysis") => void;
 }
 
 export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
