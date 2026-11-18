@@ -58,7 +58,10 @@ import {
 } from "@/utils/expenseStatus";
 import {
   formatRepeatLabel,
+  isRepeatingFrequency,
   markRecurrenceDismissed,
+  normalizeRepeatValue,
+  partitionExpensesByRepeat,
   resolveItemRepeat,
 } from "@/utils/recurrenceEngine";
 import {
@@ -275,7 +278,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   allMonthlyData = {},
   onMonthChange,
 }) => {
-  // Helper to create fixed item
+  // Helper to create fixed item (always recurring Monthly by default)
   function createFixedItem(
     name: string,
     amount: number,
@@ -297,7 +300,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       createdAt: nowIso,
       timestamp: nowMs,
       isRecurring: isRecurring,
-      repeat: "never",
+      isFixedItem: isRecurring ? true : undefined,
+      repeat: isRecurring ? "monthly" : "never",
       completed: true,
       status: "completed",
       completedAt: nowIso,
@@ -333,24 +337,35 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     ];
   }
 
-  function resolveFixedExpensesFromData(sourceData?: any): ExpenseItem[] {
+  function resolveMonthExpensesFromData(sourceData?: any): {
+    fixed: ExpenseItem[];
+    additional: ExpenseItem[];
+  } {
     const savedFixed = sourceData?.expenses?.fixed_expenses;
+    const savedAdditionalRaw: ExpenseItem[] = Array.isArray(
+      sourceData?.expenses?.additional_expenses
+    )
+      ? sourceData.expenses.additional_expenses
+      : [];
 
-    if (Array.isArray(savedFixed) && savedFixed.length > 0) {
-      return savedFixed.map((item) => {
-        let amount = item.amount;
-        if (item.categoryName === "Кредит" && item.amount === 353.69) {
-          amount = DEFAULT_CREDIT_EUR;
-        }
-        return {
-          ...item,
-          amount,
-          isRecurring: item.isRecurring !== undefined ? item.isRecurring : true,
-        };
-      });
-    }
+    let rawFixed: ExpenseItem[] = [];
 
-    if (savedFixed && !Array.isArray(savedFixed)) {
+    if (Array.isArray(savedFixed)) {
+      if (savedFixed.length > 0 || savedAdditionalRaw.length > 0) {
+        rawFixed = savedFixed.map((item) => {
+          let amount = item.amount;
+          if (item.categoryName === "Кредит" && item.amount === 353.69) {
+            amount = DEFAULT_CREDIT_EUR;
+          }
+          return {
+            ...item,
+            amount,
+          };
+        });
+      } else {
+        rawFixed = getDefaultFixedExpenses();
+      }
+    } else if (savedFixed && !Array.isArray(savedFixed)) {
       const legacy: ExpenseItem[] = [];
       const creditAmount =
         savedFixed.credit_eur === 353.69
@@ -385,20 +400,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             true,
           ),
         );
-      return legacy;
+      rawFixed = legacy;
+    } else {
+      rawFixed = getDefaultFixedExpenses();
     }
 
-    return getDefaultFixedExpenses();
+    const { fixedExpenses: normalizedFixed, additionalExpenses: normalizedAdditional } =
+      partitionExpensesByRepeat(rawFixed, savedAdditionalRaw);
+
+    return { fixed: normalizedFixed, additional: normalizedAdditional };
   }
 
-  // Initialize Fixed Expenses
-  const [fixedExpenses, setFixedExpenses] = useState<ExpenseItem[]>(() =>
-    resolveFixedExpensesFromData(initialData),
+  // Initialize Fixed & Variable Expenses strictly partitioned by Repeat
+  const initialPartition = resolveMonthExpensesFromData(initialData);
+  const [fixedExpenses, setFixedExpenses] = useState<ExpenseItem[]>(
+    () => initialPartition.fixed,
   );
-
-  // Initialize Variable Expenses
   const [expenses, setExpenses] = useState<ExpenseItem[]>(
-    () => initialData?.expenses?.additional_expenses || [],
+    () => initialPartition.additional,
   );
 
   // Refs to prevent phantom saves on initial mount or month switching
@@ -411,10 +430,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   useEffect(() => {
     if (lastMonthRef.current === currentMonth) return;
 
-    const nextFixed = resolveFixedExpensesFromData(initialData);
-    const nextAdditional = Array.isArray(initialData?.expenses?.additional_expenses)
-      ? initialData.expenses.additional_expenses
-      : [];
+    const { fixed: nextFixed, additional: nextAdditional } =
+      resolveMonthExpensesFromData(initialData);
 
     syncingMonthSnapshotRef.current = JSON.stringify({
       saved_em2_eur: initialData?.expenses?.saved_em2_eur || 0,
@@ -498,14 +515,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     });
   };
 
-  // Add Fixed Expense Form State
+  // Add Fixed Expense Form State (defaults Repeat to "monthly" since Fixed = Recurring)
   const [isAddingFixed, setIsAddingFixed] = useState(false);
   const [showFixedCategoryPicker, setShowFixedCategoryPicker] = useState(false);
   const [selectedFixedCategory, setSelectedFixedCategory] =
     useState<ExpenseCategory | null>(null);
   const [selectedFixedBudgetCategoryId, setSelectedFixedBudgetCategoryId] = useState<string>("");
   const [fixedAmount, setFixedAmount] = useState("");
-  const [fixedRepeat, setFixedRepeat] = useState<RepeatFrequency>("never");
+  const [fixedRepeat, setFixedRepeat] = useState<RepeatFrequency>("monthly");
   const [fixedCompleted, setFixedCompleted] = useState<boolean>(true);
 
   // Edit Fixed Expense State
@@ -513,7 +530,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editFixedName, setEditFixedName] = useState("");
   const [editFixedAmount, setEditFixedAmount] = useState("");
   const [editFixedBudgetCategoryId, setEditFixedBudgetCategoryId] = useState<string>("");
-  const [editFixedRepeat, setEditFixedRepeat] = useState<RepeatFrequency>("never");
+  const [editFixedRepeat, setEditFixedRepeat] = useState<RepeatFrequency>("monthly");
   const [editFixedCompleted, setEditFixedCompleted] = useState<boolean>(true);
   const [editFixedIsGenerated, setEditFixedIsGenerated] = useState<boolean>(false);
 
@@ -598,7 +615,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     // 1. Current Month filter
     if (expenseFilters.monthFilter === "current") {
       let items: (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean })[] = expenses.map(
-        (e) => ({ ...e, sourceMonth: currentMonth })
+        (e) => ({ ...e, sourceMonth: currentMonth, isFixedItem: false })
       );
       if (expenseFilters.includeFixed) {
         items = [
@@ -622,7 +639,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         ? expenses
         : rec?.expenses?.additional_expenses || [];
       let items: (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean })[] = vars.map(
-        (e) => ({ ...e, sourceMonth: targetMonth })
+        (e) => ({ ...e, sourceMonth: targetMonth, isFixedItem: false })
       );
 
       if (expenseFilters.includeFixed) {
@@ -650,7 +667,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       const monthVars = isCur ? expenses : rec?.expenses?.additional_expenses || [];
 
       for (const item of monthVars) {
-        allItems.push({ ...item, sourceMonth: m });
+        allItems.push({ ...item, sourceMonth: m, isFixedItem: false });
       }
 
       if (expenseFilters.includeFixed) {
@@ -819,9 +836,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const normalizedRepeat = normalizeRepeatValue(expenseRepeat);
+    const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
     const newExpense: ExpenseItem = {
-      id: nowMs.toString(),
+      id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
       categoryIcon: selectedCategory.iconName,
@@ -833,15 +852,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       date: nowIso,
       createdAt: nowIso,
       timestamp: nowMs,
-      repeat: expenseRepeat,
-      isRecurring: expenseRepeat !== "never",
+      repeat: normalizedRepeat,
+      isRecurring: goesToFixed,
+      isFixedItem: goesToFixed ? true : undefined,
       completed: expenseCompleted,
       status: expenseCompleted ? "completed" : "planned",
       completedAt: expenseCompleted ? nowIso : undefined,
     };
 
-    setExpenses((prev) => [...prev, newExpense]);
-    if (isManualElectricityExpense(newExpense)) {
+    if (goesToFixed) {
+      setFixedExpenses((prev) => [...prev, newExpense]);
+    } else {
+      setExpenses((prev) => [...prev, newExpense]);
+    }
+    if (isRecordCompleted(newExpense) && isManualElectricityExpense(newExpense)) {
       upsertElectricityRecordFromExpense(newExpense, currentMonth);
     }
 
@@ -871,23 +895,31 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     expense: ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean }
   ) => {
     const targetMonth = expense.sourceMonth || currentMonth;
+    const isFixedTarget =
+      Boolean(expense.isFixedItem) || isRepeatingFrequency(expense.repeat);
 
-    if (expense.isFixedItem || expense.id.startsWith("fix_")) {
-      handleDeleteFixedExpense(expense.id);
-    } else if (targetMonth === currentMonth) {
-      handleDeleteExpense(expense.id);
+    if (targetMonth === currentMonth) {
+      if (isFixedTarget) {
+        handleDeleteFixedExpense(expense.id);
+      } else {
+        handleDeleteExpense(expense.id);
+      }
     } else {
       if (expense.recurrenceSourceId && expense.recurrenceOccurrenceKey) {
         markRecurrenceDismissed(expense.recurrenceSourceId, expense.recurrenceOccurrenceKey);
       }
       const record = allMonthlyData[targetMonth];
       if (record && record.expenses) {
-        const updatedAdd = (record.expenses.additional_expenses || []).filter(
-          (e) => e.id !== expense.id
-        );
+        const updatedFixed = isFixedTarget
+          ? (record.expenses.fixed_expenses || []).filter((e) => e.id !== expense.id)
+          : record.expenses.fixed_expenses;
+        const updatedAdd = !isFixedTarget
+          ? (record.expenses.additional_expenses || []).filter((e) => e.id !== expense.id)
+          : record.expenses.additional_expenses;
         onSaveExpenses(
           {
             ...record.expenses,
+            fixed_expenses: updatedFixed,
             additional_expenses: updatedAdd,
           },
           targetMonth
@@ -908,7 +940,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditExpenseCompleted(isRecordCompleted(expense));
     setEditExpenseIsGenerated(Boolean(expense.recurrenceSourceId));
     setEditingExpenseSourceMonth(expense.sourceMonth || currentMonth);
-    setEditingExpenseIsFixed(!!expense.isFixedItem || expense.id.startsWith("fix_"));
+    setEditingExpenseIsFixed(
+      Boolean(expense.isFixedItem) || isRepeatingFrequency(expense.repeat)
+    );
   };
 
   const handleSaveEditExpense = (id: string) => {
@@ -921,60 +955,48 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       (b) => b.id === editExpenseBudgetCategoryId
     );
     const nowIso = new Date().toISOString();
+    const effectiveRepeat = normalizeRepeatValue(editExpenseRepeat);
+    const willBeFixed = isRepeatingFrequency(effectiveRepeat);
 
-    if (editingExpenseIsFixed) {
-      const existingItem = fixedExpenses.find((item) => item.id === id);
-      const effectiveRepeat = existingItem?.recurrenceSourceId ? "never" : editExpenseRepeat;
-      const updatedItem: ExpenseItem | null = existingItem
-        ? {
-            ...existingItem,
-            amount: val,
-            budgetCategoryId: editExpenseBudgetCategoryId || undefined,
-            budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
-            repeat: effectiveRepeat,
-            isRecurring: effectiveRepeat !== "never",
-            completed: editExpenseCompleted,
-            status: editExpenseCompleted ? "completed" : "planned",
-            completedAt: editExpenseCompleted
-              ? existingItem.completedAt || nowIso
-              : undefined,
-          }
-        : null;
-      setFixedExpenses((prev) =>
-        prev.map((item) => (item.id === id && updatedItem ? updatedItem : item))
-      );
-      if (updatedItem) {
-        if (isRecordCompleted(updatedItem)) {
-          upsertElectricityRecordFromExpense(updatedItem, targetMonth);
-        } else if (isManualElectricityExpense(updatedItem)) {
-          deleteElectricityRecordByExpenseId(updatedItem.id);
+    const buildUpdated = (item: ExpenseItem): ExpenseItem => ({
+      ...item,
+      amount: val,
+      note: editExpenseNote.trim() || item.note,
+      merchantName: parsedNote.merchantName || item.merchantName,
+      receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
+      budgetCategoryId: editExpenseBudgetCategoryId || undefined,
+      budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
+      repeat: effectiveRepeat,
+      isRecurring: willBeFixed,
+      isFixedItem: willBeFixed ? true : undefined,
+      completed: editExpenseCompleted,
+      status: editExpenseCompleted ? "completed" : "planned",
+      completedAt: editExpenseCompleted ? item.completedAt || nowIso : undefined,
+    });
+
+    if (targetMonth === currentMonth) {
+      const existingItem =
+        fixedExpenses.find((item) => item.id === id) ||
+        expenses.find((item) => item.id === id);
+
+      if (existingItem) {
+        const updatedItem = buildUpdated(existingItem);
+        if (willBeFixed) {
+          setExpenses((prev) => prev.filter((item) => item.id !== id));
+          setFixedExpenses((prev) =>
+            prev.some((item) => item.id === id)
+              ? prev.map((item) => (item.id === id ? updatedItem : item))
+              : [...prev, updatedItem]
+          );
+        } else {
+          setFixedExpenses((prev) => prev.filter((item) => item.id !== id));
+          setExpenses((prev) =>
+            prev.some((item) => item.id === id)
+              ? prev.map((item) => (item.id === id ? updatedItem : item))
+              : [...prev, updatedItem]
+          );
         }
-      }
-    } else if (targetMonth === currentMonth) {
-      const existingItem = expenses.find((item) => item.id === id);
-      const effectiveRepeat = existingItem?.recurrenceSourceId ? "never" : editExpenseRepeat;
-      const updatedItem: ExpenseItem | null = existingItem
-        ? {
-            ...existingItem,
-            amount: val,
-            note: editExpenseNote.trim() || undefined,
-            merchantName: parsedNote.merchantName || existingItem.merchantName,
-            receiptItems: parsedNote.items.length > 0 ? parsedNote.items : existingItem.receiptItems,
-            budgetCategoryId: editExpenseBudgetCategoryId || undefined,
-            budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
-            repeat: effectiveRepeat,
-            isRecurring: effectiveRepeat !== "never",
-            completed: editExpenseCompleted,
-            status: editExpenseCompleted ? "completed" : "planned",
-            completedAt: editExpenseCompleted
-              ? existingItem.completedAt || nowIso
-              : undefined,
-          }
-        : null;
-      setExpenses((prev) =>
-        prev.map((item) => (item.id === id && updatedItem ? updatedItem : item))
-      );
-      if (updatedItem) {
+
         if (isRecordCompleted(updatedItem)) {
           upsertElectricityRecordFromExpense(updatedItem, targetMonth);
         } else if (isManualElectricityExpense(updatedItem)) {
@@ -984,42 +1006,37 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     } else {
       const record = allMonthlyData[targetMonth];
       if (record && record.expenses) {
-        let updatedTargetItem: ExpenseItem | null = null;
-        const updatedAdd = (record.expenses.additional_expenses || []).map((item) => {
-          if (item.id === id) {
-            const effectiveRepeat = item.recurrenceSourceId ? "never" : editExpenseRepeat;
-            updatedTargetItem = {
-              ...item,
-              amount: val,
-              note: editExpenseNote.trim() || undefined,
-              merchantName: parsedNote.merchantName || item.merchantName,
-              receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
-              budgetCategoryId: editExpenseBudgetCategoryId || undefined,
-              budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
-              repeat: effectiveRepeat,
-              isRecurring: effectiveRepeat !== "never",
-              completed: editExpenseCompleted,
-              status: editExpenseCompleted ? "completed" : "planned",
-              completedAt: editExpenseCompleted
-                ? item.completedAt || nowIso
-                : undefined,
-            };
-            return updatedTargetItem;
-          }
-          return item;
-        });
-        onSaveExpenses(
-          {
-            ...record.expenses,
-            additional_expenses: updatedAdd,
-          },
-          targetMonth
-        );
-        if (updatedTargetItem) {
+        const oldFixed = Array.isArray(record.expenses.fixed_expenses)
+          ? record.expenses.fixed_expenses
+          : [];
+        const oldAdd = Array.isArray(record.expenses.additional_expenses)
+          ? record.expenses.additional_expenses
+          : [];
+        const sourceItem =
+          oldFixed.find((i) => i.id === id) || oldAdd.find((i) => i.id === id);
+
+        if (sourceItem) {
+          const updatedTargetItem = buildUpdated(sourceItem);
+          const remainingFixed = oldFixed.filter((i) => i.id !== id);
+          const remainingAdd = oldAdd.filter((i) => i.id !== id);
+
+          onSaveExpenses(
+            {
+              ...record.expenses,
+              fixed_expenses: willBeFixed
+                ? [...remainingFixed, updatedTargetItem]
+                : remainingFixed,
+              additional_expenses: willBeFixed
+                ? remainingAdd
+                : [...remainingAdd, updatedTargetItem],
+            },
+            targetMonth
+          );
+
           if (isRecordCompleted(updatedTargetItem)) {
             upsertElectricityRecordFromExpense(updatedTargetItem, targetMonth);
           } else if (isManualElectricityExpense(updatedTargetItem)) {
-            deleteElectricityRecordByExpenseId((updatedTargetItem as ExpenseItem).id);
+            deleteElectricityRecordByExpenseId(updatedTargetItem.id);
           }
         }
       }
@@ -1032,7 +1049,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     nextCompleted: boolean
   ) => {
     const targetMonth = expense.sourceMonth || currentMonth;
-    const isFixed = Boolean(expense.isFixedItem || expense.id.startsWith("fix_"));
+    const isFixed =
+      Boolean(expense.isFixedItem) || isRepeatingFrequency(expense.repeat);
 
     if (isFixed) {
       handleToggleFixedCompletion(expense.id, nextCompleted, targetMonth);
@@ -1118,9 +1136,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const normalizedRepeat = normalizeRepeatValue(fixedRepeat);
+    const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
-    const newFixed: ExpenseItem = {
-      id: `fix_${nowMs}`,
+    const newItem: ExpenseItem = {
+      id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
       categoryId: selectedFixedCategory.id,
       categoryName: selectedFixedCategory.name,
       categoryIcon: selectedFixedCategory.iconName,
@@ -1131,24 +1151,29 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       date: nowIso,
       createdAt: nowIso,
       timestamp: nowMs,
-      repeat: fixedRepeat,
-      isRecurring: fixedRepeat !== "never",
+      repeat: normalizedRepeat,
+      isRecurring: goesToFixed,
+      isFixedItem: goesToFixed ? true : undefined,
       completed: fixedCompleted,
       status: fixedCompleted ? "completed" : "planned",
       completedAt: fixedCompleted ? nowIso : undefined,
     };
 
-    setFixedExpenses((prev) => [...prev, newFixed]);
-    if (isRecordCompleted(newFixed) && isManualElectricityExpense(newFixed)) {
-      upsertElectricityRecordFromExpense(newFixed, currentMonth);
+    if (goesToFixed) {
+      setFixedExpenses((prev) => [...prev, newItem]);
+    } else {
+      setExpenses((prev) => [...prev, newItem]);
+    }
+    if (isRecordCompleted(newItem) && isManualElectricityExpense(newItem)) {
+      upsertElectricityRecordFromExpense(newItem, currentMonth);
     }
 
-    // Reset form
+    // Reset form (Fixed defaults back to "monthly")
     setIsAddingFixed(false);
     setSelectedFixedCategory(null);
     setSelectedFixedBudgetCategoryId("");
     setFixedAmount("");
-    setFixedRepeat("never");
+    setFixedRepeat("monthly");
     setFixedCompleted(true);
   };
 
@@ -1184,33 +1209,48 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const nowIso = new Date().toISOString();
 
     const existingItem = fixedExpenses.find((item) => item.id === id);
-    const effectiveRepeat = existingItem?.recurrenceSourceId ? "never" : editFixedRepeat;
-    const updatedItem: ExpenseItem | null = existingItem
-      ? {
-          ...existingItem,
-          categoryName: editFixedName.trim() || existingItem.categoryName,
-          amount: val,
-          budgetCategoryId: editFixedBudgetCategoryId || undefined,
-          budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
-          repeat: effectiveRepeat,
-          isRecurring: effectiveRepeat !== "never",
-          completed: editFixedCompleted,
-          status: editFixedCompleted ? "completed" : "planned",
-          completedAt: editFixedCompleted
-            ? existingItem.completedAt || nowIso
-            : undefined,
-        }
-      : null;
+    if (!existingItem) {
+      setEditingFixedId(null);
+      return;
+    }
 
-    setFixedExpenses((prev) =>
-      prev.map((item) => (item.id === id && updatedItem ? updatedItem : item))
-    );
-    if (updatedItem) {
-      if (isRecordCompleted(updatedItem)) {
-        upsertElectricityRecordFromExpense(updatedItem, currentMonth);
-      } else if (isManualElectricityExpense(updatedItem)) {
-        deleteElectricityRecordByExpenseId(updatedItem.id);
-      }
+    const effectiveRepeat = normalizeRepeatValue(editFixedRepeat);
+    const willStayFixed = isRepeatingFrequency(effectiveRepeat);
+
+    const updatedItem: ExpenseItem = {
+      ...existingItem,
+      categoryName: editFixedName.trim() || existingItem.categoryName,
+      amount: val,
+      budgetCategoryId: editFixedBudgetCategoryId || undefined,
+      budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
+      repeat: effectiveRepeat,
+      isRecurring: willStayFixed,
+      isFixedItem: willStayFixed ? true : undefined,
+      completed: editFixedCompleted,
+      status: editFixedCompleted ? "completed" : "planned",
+      completedAt: editFixedCompleted
+        ? existingItem.completedAt || nowIso
+        : undefined,
+    };
+
+    if (willStayFixed) {
+      setFixedExpenses((prev) =>
+        prev.map((item) => (item.id === id ? updatedItem : item))
+      );
+    } else {
+      // Repeat changed from Recurring -> Never: move automatically to Additional Expenses
+      setFixedExpenses((prev) => prev.filter((item) => item.id !== id));
+      setExpenses((prev) =>
+        prev.some((item) => item.id === id)
+          ? prev.map((item) => (item.id === id ? updatedItem : item))
+          : [...prev, updatedItem]
+      );
+    }
+
+    if (isRecordCompleted(updatedItem)) {
+      upsertElectricityRecordFromExpense(updatedItem, currentMonth);
+    } else if (isManualElectricityExpense(updatedItem)) {
+      deleteElectricityRecordByExpenseId(updatedItem.id);
     }
     setEditingFixedId(null);
   };
@@ -1798,7 +1838,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       onRepeatChange={setEditFixedRepeat}
                       completed={editFixedCompleted}
                       onCompletedChange={setEditFixedCompleted}
-                      hideRepeatRow={editFixedIsGenerated}
                       completedHint={
                         editFixedIsGenerated
                           ? "Автоматично генериран повтарящ се запис"
@@ -1886,7 +1925,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         )}
                       </div>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Фиксиран месечен
+                        Фиксиран · {formatRepeatLabel(item.repeat)}
                       </span>
                     </div>
                   </div>
@@ -2102,7 +2141,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         onRepeatChange={setEditExpenseRepeat}
                         completed={editExpenseCompleted}
                         onCompletedChange={setEditExpenseCompleted}
-                        hideRepeatRow={editExpenseIsGenerated}
                         completedHint={
                           editExpenseIsGenerated
                             ? "Автоматично генериран повтарящ се запис"
@@ -2208,7 +2246,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               )}
 
                             {/* Fixed Badge if included from fixed expenses */}
-                            {(expense.isFixedItem || expense.id.startsWith("fix_")) && (
+                            {(expense.isFixedItem || isRepeatingFrequency(expense.repeat)) && (
                               <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
                                 Фиксиран
                               </span>

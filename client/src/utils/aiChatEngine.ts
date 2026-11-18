@@ -1,9 +1,10 @@
-import { MonthlyRecord, IncomeItem, ExpenseItem, ExpenseStatus, ReceiptItemDetail } from "@/types";
+import { MonthlyRecord, IncomeItem, ExpenseItem, ExpenseStatus, ReceiptItemDetail, RepeatFrequency } from "@/types";
 import { parseExpenseNote } from "./expenseFormatter";
 import { loadBudgets, calculateAllBudgetsStatus } from "./budgetStorage";
 import { loadStoredCategories } from "./categoryStorage";
 import { getStoredElectricityHistory } from "./electricityStorage";
 import { getExpenseStatus, isRecordCompleted } from "./expenseStatus";
+import { isRepeatingFrequency, normalizeRepeatValue } from "./recurrenceEngine";
 import {
   MONTHS_BG,
   getPreviousMonthAndYear,
@@ -78,7 +79,9 @@ interface IndexedIncome {
   monthIndex: number;
   date: string;
   completed: boolean;
+  isFixed: boolean;
   isRecurring: boolean;
+  repeat: RepeatFrequency;
   categoryId: string;
   categoryName: string;
   note: string;
@@ -609,8 +612,8 @@ function buildIndexedExpenses(entries: MonthEntry[]): IndexedExpense[] {
       year: entry.year,
       monthIndex: entry.monthIndex,
       date: item.date || `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
-      isFixed,
-      isRecurring: Boolean(item.isRecurring || isFixed),
+      isFixed: isFixed || isRepeatingFrequency(item.repeat),
+      isRecurring: isRepeatingFrequency(item.repeat) || isFixed,
       status: getExpenseStatus(item),
       categoryId: item.categoryId || "",
       categoryName: item.categoryName || "Други",
@@ -707,6 +710,8 @@ function buildIndexedIncomes(entries: MonthEntry[]): IndexedIncome[] {
       const id = inc.id || `${entry.key}_inc_${idx}`;
       if (seen.has(id)) return;
       seen.add(id);
+      const repeat = normalizeRepeatValue(inc.repeat);
+      const isFixed = isRepeatingFrequency(repeat);
       result.push({
         id,
         monthKey: entry.key,
@@ -715,7 +720,9 @@ function buildIndexedIncomes(entries: MonthEntry[]): IndexedIncome[] {
         monthIndex: entry.monthIndex,
         date: inc.date || `${entry.year}-${String(entry.monthIndex + 1).padStart(2, "0")}-01`,
         completed: isRecordCompleted(inc),
-        isRecurring: Boolean(inc.isRecurring || (inc.repeat && inc.repeat !== "never")),
+        isFixed,
+        isRecurring: isFixed,
+        repeat,
         categoryId: inc.categoryId || "",
         categoryName: inc.categoryName || "Приход",
         note: (inc.note || "").trim(),
@@ -970,17 +977,17 @@ function buildSuggestions(en: boolean): string[] {
   return en
     ? [
         "How much have I spent?",
-        "What expenses are upcoming?",
+        "What is my fixed income?",
         "What income am I expecting?",
-        "How much money was spent on cigarettes this month?",
+        "What expenses are upcoming?",
         "What was my largest expense this month?",
         "How much did I save during the last 3 months?",
       ]
     : [
         "Колко съм похарчил този месец?",
-        "Какви предстоящи разходи имам?",
+        "Какви са фиксираните ми приходи?",
         "Какви приходи очаквам?",
-        "Колко пари са похарчени за цигари този месец?",
+        "Какви предстоящи разходи имам?",
         "Кой беше най-големият ми разход този месец?",
         "Колко спестих през последните 3 месеца?",
       ];
@@ -1484,13 +1491,66 @@ export function answerFinancialChatQuestion(
   }
 
   // ------------------------------------------------------------------
-  // INTENT 4: Recurring expenses
+  // INTENT 4: Fixed/Recurring & Additional Expenses (guarded against income queries)
   // ------------------------------------------------------------------
-  if (/(?:recurr|subscription|fixed\s+expense|периодич|повтарящ|фиксиран|абонамент)/.test(norm)) {
+  const mentionsIncomeKeyword =
+    /(?:\bincome\b|\bincomes\b|\bearn|\bsalary\b|\bsalaries\b|приход|доход|заплат)/.test(norm);
+  const asksAdditionalExpenses =
+    !mentionsIncomeKeyword &&
+    /(?:(?:additional|variable|extra|one-time)\s+(?:\S+\s+){0,2}expense|(?:допълнител|променлив)[а-я]*\s+(?:\S+\s+){0,2}разход)/.test(
+      norm
+    );
+  const asksFixedOrRecurringExpenses =
+    !mentionsIncomeKeyword &&
+    /(?:recurr|subscription|(?:fixed|regular)\s+(?:\S+\s+){0,2}expense|периодич|повтарящ|фиксиран|абонамент)/.test(
+      norm
+    );
+
+  if (asksAdditionalExpenses || asksFixedOrRecurringExpenses) {
     const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
     const targetEntries = range.entries.length > 0 ? range.entries : entries;
+    const scopedKeys = new Set(targetEntries.map((te) => te.key));
+
+    if (asksAdditionalExpenses && !asksFixedOrRecurringExpenses) {
+      const additionalInRange = completedExpenses.filter(
+        (e) => scopedKeys.has(e.monthKey) && !e.isFixed
+      );
+      const totalAdd = additionalInRange.reduce((s, e) => s + e.amount, 0);
+      return {
+        answer:
+          additionalInRange.length > 0
+            ? en
+              ? `Found ${additionalInRange.length} additional (one-time) expenses in ${range.label} totaling ${fmtEur(totalAdd)}.`
+              : `Открити са ${additionalInRange.length} допълнителни разхода за ${range.label} на обща стойност ${fmtEur(totalAdd)}.`
+            : en
+            ? `No additional expenses recorded in ${range.label}.`
+            : `Няма записани допълнителни разходи за ${range.label}.`,
+        calculation:
+          additionalInRange.length > 0
+            ? additionalInRange
+                .slice(0, 8)
+                .map((e) => `${e.categoryName}: ${fmtEur(e.amount)}`)
+                .join(" + ") + ` = ${fmtEur(totalAdd)}`
+            : "0 записа",
+        timeRangeLabel: range.label,
+        matchedExpenses: additionalInRange.map((e) => ({
+          id: e.id,
+          monthKey: e.monthKey,
+          date: formatDateShort(e.date),
+          merchantOrCategory: e.merchantName || e.categoryName,
+          categoryName: e.categoryName,
+          expenseAmount: e.amount,
+          matchedAmount: e.amount,
+          matchedKind: e.merchantName ? "merchant" : "category",
+          matchedSnippet: e.note || "Допълнителен разход",
+        })),
+        totalMatchedAmount: parseFloat(totalAdd.toFixed(2)),
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
     const recurringInRange = completedExpenses.filter(
-      (e) => targetEntries.some((te) => te.key === e.monthKey) && e.isRecurring
+      (e) => scopedKeys.has(e.monthKey) && (e.isFixed || e.isRecurring)
     );
 
     const totalRec = recurringInRange.reduce((s, e) => s + e.amount, 0);
@@ -1498,11 +1558,11 @@ export function answerFinancialChatQuestion(
       answer:
         recurringInRange.length > 0
           ? en
-            ? `Found ${recurringInRange.length} recurring/fixed expenses in ${range.label} totaling ${fmtEur(totalRec)}.`
-            : `Открити са ${recurringInRange.length} периодични и фиксирани разхода за ${range.label} на обща стойност ${fmtEur(totalRec)}.`
+            ? `Found ${recurringInRange.length} fixed/recurring expenses in ${range.label} totaling ${fmtEur(totalRec)}.`
+            : `Открити са ${recurringInRange.length} фиксирани и периодични разхода за ${range.label} на обща стойност ${fmtEur(totalRec)}.`
           : en
-          ? `No recurring or fixed expenses recorded in ${range.label}.`
-          : `Няма записани периодични или фиксирани разходи за ${range.label}.`,
+          ? `No fixed or recurring expenses recorded in ${range.label}.`
+          : `Няма записани фиксирани или периодични разходи за ${range.label}.`,
       calculation:
         recurringInRange.length > 0
           ? recurringInRange
@@ -1519,8 +1579,8 @@ export function answerFinancialChatQuestion(
         categoryName: e.categoryName,
         expenseAmount: e.amount,
         matchedAmount: e.amount,
-        matchedKind: e.isFixed ? "fixed" : "category",
-        matchedSnippet: e.note || (e.isFixed ? "Фиксиран разход" : "Периодичен разход"),
+        matchedKind: "fixed",
+        matchedSnippet: e.note || "Фиксиран разход",
       })),
       totalMatchedAmount: parseFloat(totalRec.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
@@ -1651,41 +1711,141 @@ export function answerFinancialChatQuestion(
   }
 
   // ------------------------------------------------------------------
-  // INTENT 8: Income queries (Completed / Realized incomes only)
+  // INTENT 8: Income queries (Completed / Realized incomes with Fixed vs Additional)
   // ------------------------------------------------------------------
-  if (/(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(norm)) {
+  if (mentionsIncomeKeyword) {
     const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
-    const totalInc = range.entries.reduce(
-      (s, e) => s + calculateMonthIncome(e.month, e.year, e.record),
-      0
-    );
     const scopedKeys = new Set(range.entries.map((e) => e.key));
-    const matchedIncomes: AiChatMatchedExpense[] = completedIncomes
-      .filter((inc) =>
-        range.kind === "all_months" ? true : scopedKeys.has(inc.monthKey)
-      )
-      .map((inc) => ({
+    const inScopeCompleted = completedIncomes.filter((inc) =>
+      range.kind === "all_months" ? true : scopedKeys.has(inc.monthKey)
+    );
+    const inScopeUpcoming = upcomingIncomes.filter((inc) =>
+      range.kind === "all_months" ? true : scopedKeys.has(inc.monthKey)
+    );
+
+    const wantsFixedIncome =
+      /(?:fixed|recurr|regular|периодич|повтарящ|фиксиран|постоян)/.test(norm);
+    const wantsAdditionalIncome =
+      /(?:additional|variable|extra|bonus|one-time|допълнител|променлив|извънред|еднократ)/.test(
+        norm
+      );
+
+    if (wantsFixedIncome && !wantsAdditionalIncome) {
+      const fixedIncomes = inScopeCompleted.filter((inc) => inc.isFixed);
+      const upcomingFixed = inScopeUpcoming.filter((inc) => inc.isFixed);
+      const fixedSum = fixedIncomes.reduce((s, inc) => s + inc.amount, 0);
+      const upcomingFixedSum = upcomingFixed.reduce((s, inc) => s + inc.amount, 0);
+
+      const matchedFixed: AiChatMatchedExpense[] = fixedIncomes.map((inc) => ({
         id: inc.id,
         monthKey: inc.monthKey,
         date: formatDateShort(inc.date),
         merchantOrCategory: inc.categoryName || "Приход",
-        categoryName: "Приход",
+        categoryName: "Фиксиран приход",
         expenseAmount: inc.amount,
         matchedAmount: inc.amount,
         matchedKind: "income",
-        matchedSnippet: inc.note || undefined,
+        matchedSnippet: inc.note || "Повтарящ се приход",
       }));
+
+      const upcomingSuffixEn =
+        upcomingFixed.length > 0
+          ? ` Plus ${upcomingFixed.length} upcoming recurring (${fmtEur(upcomingFixedSum)}).`
+          : "";
+      const upcomingSuffixBg =
+        upcomingFixed.length > 0
+          ? ` Очакват се и ${upcomingFixed.length} предстоящи фиксирани (${fmtEur(upcomingFixedSum)}).`
+          : "";
+
+      return {
+        answer:
+          fixedIncomes.length > 0
+            ? en
+              ? `Fixed (recurring) income in ${range.label}: ${fmtEur(fixedSum)} across ${fixedIncomes.length} completed entries.${upcomingSuffixEn}`
+              : `Фиксирани (повтарящи се) приходи за ${range.label}: ${fmtEur(fixedSum)} (${fixedIncomes.length} реализирани записа).${upcomingSuffixBg}`
+            : en
+            ? `No completed fixed (recurring) income recorded in ${range.label}.${upcomingSuffixEn}`
+            : `Няма реализирани фиксирани приходи за ${range.label}.${upcomingSuffixBg}`,
+        calculation:
+          fixedIncomes.length > 0
+            ? fixedIncomes
+                .slice(0, 6)
+                .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+                .join(" + ") + ` = ${fmtEur(fixedSum)}`
+            : "0 фиксирани прихода = €0.00",
+        timeRangeLabel: range.label,
+        matchedExpenses: matchedFixed,
+        totalMatchedAmount: parseFloat(fixedSum.toFixed(2)),
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    if (wantsAdditionalIncome && !wantsFixedIncome) {
+      const additionalIncomes = inScopeCompleted.filter((inc) => !inc.isFixed);
+      const additionalSum = additionalIncomes.reduce((s, inc) => s + inc.amount, 0);
+
+      const matchedAdditional: AiChatMatchedExpense[] = additionalIncomes.map((inc) => ({
+        id: inc.id,
+        monthKey: inc.monthKey,
+        date: formatDateShort(inc.date),
+        merchantOrCategory: inc.categoryName || "Приход",
+        categoryName: "Допълнителен приход",
+        expenseAmount: inc.amount,
+        matchedAmount: inc.amount,
+        matchedKind: "income",
+        matchedSnippet: inc.note || "Еднократен приход",
+      }));
+
+      return {
+        answer:
+          additionalIncomes.length > 0
+            ? en
+              ? `Additional (one-time) income in ${range.label}: ${fmtEur(additionalSum)} across ${additionalIncomes.length} completed entries.`
+              : `Допълнителни приходи за ${range.label}: ${fmtEur(additionalSum)} (${additionalIncomes.length} реализирани записа).`
+            : en
+            ? `No completed additional income recorded in ${range.label}.`
+            : `Няма реализирани допълнителни приходи за ${range.label}.`,
+        calculation:
+          additionalIncomes.length > 0
+            ? additionalIncomes
+                .slice(0, 6)
+                .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+                .join(" + ") + ` = ${fmtEur(additionalSum)}`
+            : "0 допълнителни прихода = €0.00",
+        timeRangeLabel: range.label,
+        matchedExpenses: matchedAdditional,
+        totalMatchedAmount: parseFloat(additionalSum.toFixed(2)),
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    const totalInc = inScopeCompleted.reduce((s, inc) => s + inc.amount, 0);
+    const fixedIncSum = inScopeCompleted
+      .filter((inc) => inc.isFixed)
+      .reduce((s, inc) => s + inc.amount, 0);
+    const additionalIncSum = inScopeCompleted
+      .filter((inc) => !inc.isFixed)
+      .reduce((s, inc) => s + inc.amount, 0);
+
+    const matchedIncomes: AiChatMatchedExpense[] = inScopeCompleted.map((inc) => ({
+      id: inc.id,
+      monthKey: inc.monthKey,
+      date: formatDateShort(inc.date),
+      merchantOrCategory: inc.categoryName || "Приход",
+      categoryName: inc.isFixed ? "Фиксиран приход" : "Допълнителен приход",
+      expenseAmount: inc.amount,
+      matchedAmount: inc.amount,
+      matchedKind: "income",
+      matchedSnippet: inc.note || (inc.isFixed ? "Фиксиран" : "Допълнителен"),
+    }));
 
     return {
       answer: en
-        ? `Total income in ${range.label}: ${fmtEur(totalInc)} across ${matchedIncomes.length} completed entries.`
-        : `Общи реализирани приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа).`,
+        ? `Total completed income in ${range.label}: ${fmtEur(totalInc)} across ${matchedIncomes.length} entries (Fixed: ${fmtEur(fixedIncSum)}, Additional: ${fmtEur(additionalIncSum)}).`
+        : `Общи реализирани приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа) — Фиксирани: ${fmtEur(fixedIncSum)} · Допълнителни: ${fmtEur(additionalIncSum)}.`,
       calculation:
         matchedIncomes.length > 0
-          ? matchedIncomes
-              .slice(0, 6)
-              .map((i) => `${i.merchantOrCategory}: ${fmtEur(i.matchedAmount)}`)
-              .join(" + ") + ` = ${fmtEur(totalInc)}`
+          ? `Фиксирани ${fmtEur(fixedIncSum)} + Допълнителни ${fmtEur(additionalIncSum)} = ${fmtEur(totalInc)}`
           : "0.00",
       timeRangeLabel: range.label,
       matchedExpenses: matchedIncomes,

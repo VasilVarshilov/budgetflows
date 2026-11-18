@@ -41,7 +41,12 @@ import {
 } from "@/utils/userStorage";
 import { toggleRecordCompletion } from "@/utils/expenseStatus";
 import { upsertElectricityRecordFromExpense } from "@/utils/electricityStorage";
-import { generateDueRecurringInstances } from "@/utils/recurrenceEngine";
+import {
+  generateDueRecurringInstances,
+  normalizeMonthlyDataConsistency,
+  partitionExpensesByRepeat,
+  normalizeIncomeByRepeat,
+} from "@/utils/recurrenceEngine";
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 
 type Tab = "dashboard" | "monthly" | "income" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
@@ -212,11 +217,13 @@ const AppContent: React.FC = () => {
     );
     const rawMonthly =
       storedMonthly && typeof storedMonthly === "object" ? storedMonthly : {};
+    const { updatedMonthlyData: migratedMonthly, migratedCount } =
+      normalizeMonthlyDataConsistency(rawMonthly);
     const { updatedMonthlyData: normalizedMonthly, generatedCount } =
-      generateDueRecurringInstances(rawMonthly, {
+      generateDueRecurringInstances(migratedMonthly, {
         activeMonthKey: activeMonth,
       });
-    if (generatedCount > 0) {
+    if (migratedCount > 0 || generatedCount > 0) {
       userStorage.setJSON(STORAGE_BASE_MONTHLY, normalizedMonthly, targetUid);
     }
     monthlyDataRef.current = normalizedMonthly;
@@ -237,14 +244,16 @@ const AppContent: React.FC = () => {
     loadAccountWorkspaceData(activeUid);
   }, [activeUid, isAuthLoading, isSwitchingAccount, loadAccountWorkspaceData]);
 
-  // Automatically materialize due recurring Expenses & Incomes when viewing/switching months or editing recurring sources
+  // Automatically normalize and materialize due recurring Expenses & Incomes
   useEffect(() => {
     if (isAuthLoading || isSwitchingAccount) return;
+    const { updatedMonthlyData: migratedMonthly, migratedCount } =
+      normalizeMonthlyDataConsistency(monthlyDataRef.current);
     const { updatedMonthlyData, generatedCount } = generateDueRecurringInstances(
-      monthlyDataRef.current,
+      migratedMonthly,
       { activeMonthKey: currentMonth }
     );
-    if (generatedCount > 0) {
+    if (migratedCount > 0 || generatedCount > 0) {
       monthlyDataRef.current = updatedMonthlyData;
       const targetUid = userStorage.getActiveUid();
       saveMonthlyToStorage(updatedMonthlyData, targetUid);
@@ -444,9 +453,30 @@ const AppContent: React.FC = () => {
         },
       };
 
+      let normalizedExpensesData = expensesData;
+      if (
+        expensesData &&
+        (Array.isArray(expensesData.fixed_expenses) ||
+          Array.isArray(expensesData.additional_expenses))
+      ) {
+        const partitioned = partitionExpensesByRepeat(
+          Array.isArray(expensesData.fixed_expenses)
+            ? expensesData.fixed_expenses
+            : [],
+          Array.isArray(expensesData.additional_expenses)
+            ? expensesData.additional_expenses
+            : []
+        );
+        normalizedExpensesData = {
+          ...expensesData,
+          fixed_expenses: partitioned.fixedExpenses,
+          additional_expenses: partitioned.additionalExpenses,
+        };
+      }
+
       const updated: MonthlyRecord = {
         ...existing,
-        expenses: expensesData,
+        expenses: normalizedExpensesData,
         incomes: existing.incomes || [],
       };
 
@@ -551,9 +581,13 @@ const AppContent: React.FC = () => {
       const monthKey = targetMonthKey || currentMonth || getCurrentMonthBulgarian();
       const existing = prev[monthKey] || createEmptyMonthlyRecord(monthKey);
 
+      const normalizedIncomes = Array.isArray(incomes)
+        ? incomes.map((inc) => normalizeIncomeByRepeat(inc).item)
+        : [];
+
       const updated: MonthlyRecord = {
         ...existing,
-        incomes,
+        incomes: normalizedIncomes,
       };
 
       const newData = { ...prev, [monthKey]: updated };

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { MonthlyRecord, ExpenseItem } from "@/types";
 import { getCategoryBadgeClasses } from "@/utils/categoryStorage";
+import { isRepeatingFrequency, normalizeRepeatValue } from "@/utils/recurrenceEngine";
 
 interface ImportRecurringModalProps {
   isOpen: boolean;
@@ -117,9 +118,9 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
     // Parse fixed
     if (Array.isArray(record.expenses.fixed_expenses)) {
       record.expenses.fixed_expenses.forEach((item) => {
-        // Items in fixed expenses are recurring by nature or marked isRecurring
-        if (item.isRecurring !== false) {
-          fixed.push({ ...item, isRecurring: true });
+        if (isRepeatingFrequency(item.repeat) || item.isRecurring !== false) {
+          const effRepeat = isRepeatingFrequency(item.repeat) ? item.repeat : "monthly";
+          fixed.push({ ...item, isRecurring: true, isFixedItem: true, repeat: effRepeat });
         }
       });
     } else if (record.expenses.fixed_expenses) {
@@ -135,6 +136,8 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
           amount: leg.credit_eur,
           date: new Date().toISOString(),
           isRecurring: true,
+          isFixedItem: true,
+          repeat: "monthly",
         });
       }
       if (leg.phone_eur) {
@@ -147,6 +150,8 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
           amount: leg.phone_eur,
           date: new Date().toISOString(),
           isRecurring: true,
+          isFixedItem: true,
+          repeat: "monthly",
         });
       }
       if (leg.internet_eur) {
@@ -159,15 +164,18 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
           amount: leg.internet_eur,
           date: new Date().toISOString(),
           isRecurring: true,
+          isFixedItem: true,
+          repeat: "monthly",
         });
       }
     }
 
-    // Parse variable expenses: only those marked with isRecurring === true
+    // Parse variable expenses: any legacy recurring entries become Fixed on import
     if (Array.isArray(record.expenses.additional_expenses)) {
       record.expenses.additional_expenses.forEach((item) => {
-        if (item.isRecurring === true) {
-          variable.push(item);
+        if (isRepeatingFrequency(item.repeat) || item.isRecurring === true) {
+          const effRepeat = isRepeatingFrequency(item.repeat) ? item.repeat : "monthly";
+          variable.push({ ...item, isRecurring: true, repeat: effRepeat });
         }
       });
     }
@@ -285,14 +293,18 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
       const itemMs = baseMs + idx;
       const itemIso = new Date(itemMs).toISOString();
       const completed = !importAsPlanned;
+      const rawRep = normalizeRepeatValue(c.item.repeat);
+      const effectiveRepeat =
+        rawRep !== "never" ? rawRep : "monthly";
       const clonedItem: ExpenseItem = {
         ...c.item,
-        id: `${c.sourceType}_rec_${itemMs}_${Math.random().toString(36).substring(2, 7)}`,
+        id: `fix_rec_${itemMs}_${Math.random().toString(36).substring(2, 7)}`,
         date: itemIso,
         createdAt: itemIso,
         timestamp: itemMs,
         isRecurring: true,
-        repeat: "never",
+        isFixedItem: true,
+        repeat: effectiveRepeat,
         recurrenceSourceId: undefined,
         recurrenceOccurrenceKey: undefined,
         completed,
@@ -300,11 +312,7 @@ export const ImportRecurringModal: React.FC<ImportRecurringModalProps> = ({
         completedAt: completed ? itemIso : undefined,
       };
 
-      if (c.sourceType === "fixed") {
-        newFixed.push(clonedItem);
-      } else {
-        newVariable.push(clonedItem);
-      }
+      newFixed.push(clonedItem);
     });
 
     onConfirmImport({ fixed: newFixed, variable: newVariable });

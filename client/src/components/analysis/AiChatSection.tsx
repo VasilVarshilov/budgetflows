@@ -52,10 +52,10 @@ interface MessageUiState {
 
 const SUGGESTED_QUESTIONS = [
   "Колко похарчих за цигари този месец?",
+  "Какви са фиксираните ми приходи?",
   "Какви предстоящи разходи имам?",
   "Какви приходи очаквам?",
   "Коя категория ми струва най-много?",
-  "Колко спестих тази година?",
   "Покажи най-големите ми разходи",
 ];
 
@@ -158,8 +158,23 @@ function deriveResponsePresentation(
     title = "Увеличение по категории";
   } else if (/най-бързо|раст|fastest|growing/.test(qLower)) {
     title = "Най-бързо растящи разходи";
+  } else if (
+    /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
+    /(?:fixed|recurr|regular|периодич|повтарящ|фиксиран|постоян)/.test(qLower)
+  ) {
+    title = "Фиксирани приходи";
+  } else if (
+    /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
+    /(?:additional|variable|extra|bonus|one-time|допълнител|променлив|извънред|еднократ)/.test(qLower)
+  ) {
+    title = "Допълнителни приходи";
+  } else if (
+    /(?:additional|variable|extra|one-time|допълнител|променлив)/.test(qLower) &&
+    /(?:разход|expense)/.test(qLower)
+  ) {
+    title = "Допълнителни разходи";
   } else if (/повтарящ|периодич|фиксиран|recurr|subscription/.test(qLower)) {
-    title = "Периодични и фиксирани разходи";
+    title = "Фиксирани и периодични разходи";
   } else if (/среден|средно|средния|average|avg/.test(qLower)) {
     title = "Среден месечен разход";
   } else if (/коя\s+категория|категория.*най-много|which\s+category|highest\s+category/.test(qLower)) {

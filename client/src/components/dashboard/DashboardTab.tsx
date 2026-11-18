@@ -59,7 +59,7 @@ import { generateLocalFinancialAnalysis } from "@/utils/aiAnalysisEngine";
 import { useTheme } from "@/utils/themeContext";
 import { loadAppSettings, saveAppSettings } from "@/utils/incomeStorage";
 import { isCompletedExpense, isPlannedExpense, isRecordCompleted } from "@/utils/expenseStatus";
-import { formatRepeatLabel } from "@/utils/recurrenceEngine";
+import { formatRepeatLabel, isRepeatingFrequency } from "@/utils/recurrenceEngine";
 import { CompletionSwitch } from "@/components/ui/RecurrenceCompletionRows";
 
 interface UpcomingDashboardItem {
@@ -451,8 +451,17 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   }, [activeMonthsList, periodType, customStartDate, customEndDate]);
 
   // Income from monthly records ONLY (completed only; upcoming isolated into upcoming widget)
-  const { totalIncome, incomeCount, totalExpectedIncome, upcomingIncomeItems } = useMemo(() => {
+  const {
+    totalIncome,
+    totalFixedIncome,
+    totalAdditionalIncome,
+    incomeCount,
+    totalExpectedIncome,
+    upcomingIncomeItems,
+  } = useMemo(() => {
     let sum = 0;
+    let fixedSum = 0;
+    let additionalSum = 0;
     let count = 0;
     let expectedSum = 0;
     const expectedList: UpcomingDashboardItem[] = [];
@@ -488,6 +497,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             return;
           }
           sum += amt;
+          if (isRepeatingFrequency(inc.repeat)) {
+            fixedSum += amt;
+          } else {
+            additionalSum += amt;
+          }
           count += 1;
         });
       }
@@ -495,6 +509,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
     return {
       totalIncome: sum,
+      totalFixedIncome: fixedSum,
+      totalAdditionalIncome: additionalSum,
       incomeCount: count,
       totalExpectedIncome: expectedSum,
       upcomingIncomeItems: expectedList,
@@ -960,12 +976,14 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
               €{totalIncome.toFixed(2)}
             </span>
-            <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-semibold tabular-nums">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+              <span>Фикс.: €{totalFixedIncome.toFixed(2)}</span>
+              <span>·</span>
+              <span>Доп.: €{totalAdditionalIncome.toFixed(2)}</span>
+              <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-semibold ml-auto">
                 <TrendingUp className="w-3.5 h-3.5 mr-0.5" />
                 {incomeCount} бр.
               </span>
-              <span>постъпления в периода</span>
             </div>
           </div>
         </div>
@@ -1111,6 +1129,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             <span className="text-xl font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums mt-1 block">
               €{totalIncome.toFixed(2)}
             </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
+              Фиксирани (повт.): €{totalFixedIncome.toFixed(2)}
+            </span>
           </div>
 
           <div className="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/70">
@@ -1183,7 +1204,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 (item.categoryIcon && AVAILABLE_ICONS_MAP[item.categoryIcon]) ||
                 (isIncome ? ArrowDownLeft : Clock);
               const detailParts: string[] = [];
-              detailParts.push(isIncome ? "Очакван приход" : item.kind === "fixed" ? "Фиксиран разход" : "Предстоящ разход");
+              detailParts.push(
+                isIncome
+                  ? isRepeatingFrequency(item.repeat)
+                    ? "Фиксиран приход"
+                    : "Очакван приход"
+                  : item.kind === "fixed"
+                  ? "Фиксиран разход"
+                  : "Предстоящ разход"
+              );
               if (item.merchantName) detailParts.push(item.merchantName);
               if (item.note) detailParts.push(item.note);
               if (item.repeat && item.repeat !== "never") {

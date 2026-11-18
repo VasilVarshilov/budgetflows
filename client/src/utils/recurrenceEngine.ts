@@ -22,19 +22,323 @@ export const REPEAT_OPTIONS: RepeatOptionMeta[] = [
 
 const REPEAT_SET = new Set<RepeatFrequency>(REPEAT_OPTIONS.map((o) => o.value));
 
-export function resolveItemRepeat(
-  item?: Pick<ExpenseItem, "repeat" | "recurrenceSourceId"> | null
+export function normalizeRepeatValue(
+  repeat?: RepeatFrequency | string | null
 ): RepeatFrequency {
-  if (!item || item.recurrenceSourceId) return "never";
-  if (item.repeat && REPEAT_SET.has(item.repeat)) {
-    return item.repeat;
+  if (repeat && REPEAT_SET.has(repeat as RepeatFrequency)) {
+    return repeat as RepeatFrequency;
   }
   return "never";
+}
+
+export function isRepeatingFrequency(
+  repeat?: RepeatFrequency | string | null
+): boolean {
+  return normalizeRepeatValue(repeat) !== "never";
+}
+
+export function isFixedByRepeat(
+  item?: Pick<ExpenseItem, "repeat"> | Pick<IncomeItem, "repeat"> | null
+): boolean {
+  return isRepeatingFrequency(item?.repeat);
+}
+
+/**
+ * Returns the normalized Repeat setting stored on the item.
+ * Note: Child recurring occurrences preserve their inherited repeat (e.g. "monthly")
+ * so Fixed/Additional classification remains 100% consistent with Repeat = Single Source of Truth.
+ */
+export function resolveItemRepeat(
+  item?: Pick<ExpenseItem, "repeat"> | null
+): RepeatFrequency {
+  if (!item) return "never";
+  return normalizeRepeatValue(item.repeat);
+}
+
+/**
+ * Only root records (without recurrenceSourceId) with Repeat !== "never" spawn future instances.
+ * Child occurrences keep repeat !== "never" for Fixed classification without creating duplicate chains.
+ */
+export function isRecurringScheduleRoot(
+  item?: Pick<ExpenseItem, "repeat" | "recurrenceSourceId"> | null
+): boolean {
+  if (!item || item.recurrenceSourceId) return false;
+  return isRepeatingFrequency(item.repeat);
 }
 
 export function formatRepeatLabel(repeat?: RepeatFrequency): string {
   const found = REPEAT_OPTIONS.find((opt) => opt.value === repeat);
   return found ? found.labelBg : "Никога";
+}
+
+/**
+ * Partitions fixed and additional expense arrays strictly by Repeat as Single Source of Truth:
+ * - Repeat !== "never" -> Fixed Expenses (isFixedItem: true, isRecurring: true)
+ * - Repeat === "never" -> Additional Expenses (isFixedItem: undefined, isRecurring: false)
+ */
+export function partitionExpensesByRepeat(
+  fixedList: ExpenseItem[],
+  additionalList: ExpenseItem[],
+  sourceRepeatById?: Map<string, RepeatFrequency>
+): {
+  fixedExpenses: ExpenseItem[];
+  additionalExpenses: ExpenseItem[];
+  changed: boolean;
+} {
+  const fixedOut: ExpenseItem[] = [];
+  const additionalOut: ExpenseItem[] = [];
+  const seenIds = new Set<string>();
+  let changed = false;
+
+  const getEffectiveRepeat = (item: ExpenseItem): RepeatFrequency => {
+    const direct = normalizeRepeatValue(item.repeat);
+    if (direct !== "never") return direct;
+    if (item.recurrenceSourceId && sourceRepeatById?.has(item.recurrenceSourceId)) {
+      const parentRepeat = sourceRepeatById.get(item.recurrenceSourceId);
+      if (parentRepeat && parentRepeat !== "never") {
+        return parentRepeat;
+      }
+    }
+    return "never";
+  };
+
+  for (const item of fixedList) {
+    if (!item || (item.id && seenIds.has(item.id))) {
+      changed = true;
+      continue;
+    }
+    if (item.id) seenIds.add(item.id);
+
+    const effectiveRepeat = getEffectiveRepeat(item);
+    if (effectiveRepeat !== "never") {
+      const needsUpdate =
+        item.repeat !== effectiveRepeat ||
+        item.isRecurring !== true ||
+        item.isFixedItem !== true;
+      if (needsUpdate) changed = true;
+      fixedOut.push(
+        needsUpdate
+          ? {
+              ...item,
+              repeat: effectiveRepeat,
+              isRecurring: true,
+              isFixedItem: true,
+            }
+          : item
+      );
+    } else {
+      // Fixed Expense with Repeat = Never -> must move to Additional Expenses
+      changed = true;
+      additionalOut.push({
+        ...item,
+        repeat: "never",
+        isRecurring: false,
+        isFixedItem: undefined,
+      });
+    }
+  }
+
+  for (const item of additionalList) {
+    if (!item || (item.id && seenIds.has(item.id))) {
+      changed = true;
+      continue;
+    }
+    if (item.id) seenIds.add(item.id);
+
+    const effectiveRepeat = getEffectiveRepeat(item);
+    if (effectiveRepeat !== "never") {
+      // Additional Expense with Repeat != Never -> must move to Fixed Expenses
+      changed = true;
+      fixedOut.push({
+        ...item,
+        repeat: effectiveRepeat,
+        isRecurring: true,
+        isFixedItem: true,
+      });
+    } else {
+      const needsUpdate =
+        item.repeat !== "never" ||
+        item.isRecurring !== false ||
+        Boolean(item.isFixedItem);
+      if (needsUpdate) changed = true;
+      additionalOut.push(
+        needsUpdate
+          ? {
+              ...item,
+              repeat: "never",
+              isRecurring: false,
+              isFixedItem: undefined,
+            }
+          : item
+      );
+    }
+  }
+
+  return { fixedExpenses: fixedOut, additionalExpenses: additionalOut, changed };
+}
+
+function resolveIncomeEffectiveRepeat(
+  inc: IncomeItem,
+  sourceRepeatById?: Map<string, RepeatFrequency>
+): RepeatFrequency {
+  const direct = normalizeRepeatValue(inc.repeat);
+  if (direct !== "never") return direct;
+
+  if (inc.recurrenceSourceId && sourceRepeatById?.has(inc.recurrenceSourceId)) {
+    const parentRepeat = sourceRepeatById.get(inc.recurrenceSourceId);
+    if (parentRepeat && parentRepeat !== "never") {
+      return parentRepeat;
+    }
+  }
+
+  // Confirmed legacy RecurringIncomeTemplate occurrences keep their schedule frequency
+  // without becoming new root generators (since recurringTemplateId / frequency are preserved).
+  if (inc.recurringTemplateId && inc.frequency) {
+    if (inc.frequency === "weekly" || inc.frequency === "monthly" || inc.frequency === "yearly") {
+      return inc.frequency;
+    }
+  }
+
+  return "never";
+}
+
+export function normalizeIncomeByRepeat(
+  inc: IncomeItem,
+  sourceRepeatById?: Map<string, RepeatFrequency>
+): { item: IncomeItem; changed: boolean } {
+  const effectiveRepeat = resolveIncomeEffectiveRepeat(inc, sourceRepeatById);
+  const isFixed = effectiveRepeat !== "never";
+  const needsUpdate =
+    inc.repeat !== effectiveRepeat ||
+    inc.isRecurring !== isFixed ||
+    Boolean(inc.isFixedItem) !== isFixed;
+
+  if (!needsUpdate) {
+    return { item: inc, changed: false };
+  }
+
+  return {
+    item: {
+      ...inc,
+      repeat: effectiveRepeat,
+      isRecurring: isFixed,
+      isFixedItem: isFixed,
+    },
+    changed: true,
+  };
+}
+
+export interface NormalizeMonthlyDataResult {
+  updatedMonthlyData: Record<string, MonthlyRecord>;
+  migratedCount: number;
+}
+
+/**
+ * Audits all MonthlyRecord entries and enforces Repeat as Single Source of Truth:
+ * 1. Fixed Expenses with Repeat = Never -> moved to Additional Expenses.
+ * 2. Additional Expenses with Repeat != Never -> moved to Fixed Expenses.
+ * 3. Legacy generated child occurrences with Repeat = Never whose root still repeats inherit parent Repeat.
+ * 4. Incomes normalize repeat / isRecurring / isFixedItem cleanly (Repeat != Never => Fixed Income).
+ * Strictly idempotent.
+ */
+export function normalizeMonthlyDataConsistency(
+  monthlyData: Record<string, MonthlyRecord>
+): NormalizeMonthlyDataResult {
+  if (!monthlyData || typeof monthlyData !== "object") {
+    return { updatedMonthlyData: monthlyData, migratedCount: 0 };
+  }
+
+  const sourceRepeatById = new Map<string, RepeatFrequency>();
+  Object.values(monthlyData).forEach((rec) => {
+    if (!rec) return;
+    const registerRoot = (item?: ExpenseItem | IncomeItem) => {
+      if (!item || !item.id || item.recurrenceSourceId) return;
+      const r = normalizeRepeatValue(item.repeat);
+      if (r !== "never") {
+        sourceRepeatById.set(item.id, r);
+      }
+    };
+    if (Array.isArray(rec.expenses?.fixed_expenses)) {
+      rec.expenses.fixed_expenses.forEach(registerRoot);
+    }
+    if (Array.isArray(rec.expenses?.additional_expenses)) {
+      rec.expenses.additional_expenses.forEach(registerRoot);
+    }
+    if (Array.isArray(rec.incomes)) {
+      rec.incomes.forEach(registerRoot);
+    }
+  });
+
+  let updatedMonthlyData: Record<string, MonthlyRecord> | null = null;
+  let migratedCount = 0;
+
+  for (const [monthKey, rec] of Object.entries(monthlyData)) {
+    if (!rec) continue;
+    let recChanged = false;
+    let nextExpenses = rec.expenses;
+    let nextIncomes = rec.incomes;
+
+    if (rec.expenses) {
+      const hasFixedArr = Array.isArray(rec.expenses.fixed_expenses);
+      const hasAddArr = Array.isArray(rec.expenses.additional_expenses);
+      if (hasFixedArr || hasAddArr) {
+        const fixedArr = hasFixedArr ? rec.expenses.fixed_expenses : [];
+        const addArr = hasAddArr ? rec.expenses.additional_expenses : [];
+        const partitioned = partitionExpensesByRepeat(
+          fixedArr,
+          addArr,
+          sourceRepeatById
+        );
+        if (partitioned.changed) {
+          recChanged = true;
+          nextExpenses = {
+            ...rec.expenses,
+            fixed_expenses: partitioned.fixedExpenses,
+            additional_expenses: partitioned.additionalExpenses,
+          };
+        }
+      }
+    }
+
+    if (Array.isArray(rec.incomes)) {
+      const seenIncIds = new Set<string>();
+      const normalizedList: IncomeItem[] = [];
+      let incomesChanged = false;
+
+      for (const inc of rec.incomes) {
+        if (!inc || (inc.id && seenIncIds.has(inc.id))) {
+          incomesChanged = true;
+          continue;
+        }
+        if (inc.id) seenIncIds.add(inc.id);
+        const res = normalizeIncomeByRepeat(inc, sourceRepeatById);
+        if (res.changed) incomesChanged = true;
+        normalizedList.push(res.item);
+      }
+
+      if (incomesChanged) {
+        recChanged = true;
+        nextIncomes = normalizedList;
+      }
+    }
+
+    if (recChanged) {
+      if (!updatedMonthlyData) {
+        updatedMonthlyData = { ...monthlyData };
+      }
+      updatedMonthlyData[monthKey] = {
+        ...rec,
+        expenses: nextExpenses,
+        incomes: nextIncomes,
+      };
+      migratedCount += 1;
+    }
+  }
+
+  return {
+    updatedMonthlyData: updatedMonthlyData ?? monthlyData,
+    migratedCount,
+  };
 }
 
 export function makeRecurrenceTombstoneKey(
@@ -170,8 +474,10 @@ const MAX_OCCURRENCES_PER_SOURCE = 120;
 
 /**
  * Generates due future recurring instances (with completed = false) across all months up to the
- * active cutoff date for both Expenses (fixed & additional) and Incomes.
- * Strictly idempotent and respects deleted occurrence tombstones.
+ * active cutoff date for both Expenses and Incomes.
+ * Every recurring Expense generates into Fixed Expenses (`fixed_expenses`), and every generated
+ * child preserves `repeat: src.repeat` alongside `recurrenceSourceId` so Repeat stays the Single Source of Truth
+ * without spawning duplicate chains.
  */
 export function generateDueRecurringInstances(
   monthlyData: Record<string, MonthlyRecord>,
@@ -226,7 +532,7 @@ export function generateDueRecurringInstances(
 
   type SourceSpec = {
     sourceMonthKey: string;
-    bucket: "fixed" | "additional" | "income";
+    bucket: "fixed" | "income";
     item: ExpenseItem | IncomeItem;
     repeat: Exclude<RepeatFrequency, "never">;
   };
@@ -237,25 +543,38 @@ export function generateDueRecurringInstances(
     if (!rec) return;
     if (Array.isArray(rec.expenses?.fixed_expenses)) {
       rec.expenses.fixed_expenses.forEach((item) => {
-        const repeat = resolveItemRepeat(item);
-        if (repeat !== "never") {
-          sources.push({ sourceMonthKey: monthKey, bucket: "fixed", item, repeat });
+        if (isRecurringScheduleRoot(item)) {
+          sources.push({
+            sourceMonthKey: monthKey,
+            bucket: "fixed",
+            item,
+            repeat: normalizeRepeatValue(item.repeat) as Exclude<RepeatFrequency, "never">,
+          });
         }
       });
     }
     if (Array.isArray(rec.expenses?.additional_expenses)) {
       rec.expenses.additional_expenses.forEach((item) => {
-        const repeat = resolveItemRepeat(item);
-        if (repeat !== "never") {
-          sources.push({ sourceMonthKey: monthKey, bucket: "additional", item, repeat });
+        if (isRecurringScheduleRoot(item)) {
+          // Any repeating expense generates into Fixed Expenses
+          sources.push({
+            sourceMonthKey: monthKey,
+            bucket: "fixed",
+            item,
+            repeat: normalizeRepeatValue(item.repeat) as Exclude<RepeatFrequency, "never">,
+          });
         }
       });
     }
     if (Array.isArray(rec.incomes)) {
       rec.incomes.forEach((item) => {
-        const repeat = resolveItemRepeat(item);
-        if (repeat !== "never") {
-          sources.push({ sourceMonthKey: monthKey, bucket: "income", item, repeat });
+        if (isRecurringScheduleRoot(item)) {
+          sources.push({
+            sourceMonthKey: monthKey,
+            bucket: "income",
+            item,
+            repeat: normalizeRepeatValue(item.repeat) as Exclude<RepeatFrequency, "never">,
+          });
         }
       });
     }
@@ -312,11 +631,6 @@ export function generateDueRecurringInstances(
     const isSubMonthly =
       src.repeat === "daily" || src.repeat === "weekly" || src.repeat === "biweekly";
 
-    // Cutoff calculation:
-    // - For monthly+ schedules, materialize due items up to max(endOfToday, endOfActiveMonth) so
-    //   opening or switching into a new/current month immediately shows its due recurring bills.
-    // - For daily/weekly/biweekly schedules in the current calendar month, only materialize up to
-    //   endOfToday so future days within this month don't appear prematurely (unless viewing a future month).
     let cutoff = endOfToday;
     if (endOfActiveMonth) {
       if (!isSubMonthly) {
@@ -344,8 +658,7 @@ export function generateDueRecurringInstances(
 
       const occIso = occDate.toISOString();
       const occTs = occDate.getTime();
-      const newIdPrefix =
-        src.bucket === "fixed" ? "fix_rec" : src.bucket === "income" ? "inc_rec" : "exp_rec";
+      const newIdPrefix = src.bucket === "fixed" ? "fix_rec" : "inc_rec";
       const safeKey = occKey.replace(/-/g, "");
       const generatedId = `${newIdPrefix}_${src.item.id}_${safeKey}_${Math.random()
         .toString(36)
@@ -362,12 +675,12 @@ export function generateDueRecurringInstances(
         completed: false,
         status: "planned",
         completedAt: undefined,
-        repeat: "never", // Child occurrences do not spawn their own chains
+        repeat: src.repeat,
         isRecurring: true,
         recurrenceSourceId: src.item.id,
         recurrenceOccurrenceKey: occKey,
         sourceMonth: targetMonthKey,
-        isFixedItem: src.bucket === "fixed" ? true : undefined,
+        isFixedItem: true,
       };
 
       if (src.bucket === "fixed") {
@@ -379,19 +692,11 @@ export function generateDueRecurringInstances(
           };
         }
         targetRecord.expenses.fixed_expenses.push(baseGenerated);
-      } else if (src.bucket === "additional") {
-        if (!targetRecord.expenses) {
-          targetRecord.expenses = {
-            saved_em2_eur: 0,
-            fixed_expenses: [],
-            additional_expenses: [],
-          };
-        }
-        targetRecord.expenses.additional_expenses.push(baseGenerated);
       } else {
         const incItem: IncomeItem = {
           ...(baseGenerated as IncomeItem),
           type: (src.item as IncomeItem).type || "income",
+          isFixedItem: true,
         };
         if (!Array.isArray(targetRecord.incomes)) {
           targetRecord.incomes = [];

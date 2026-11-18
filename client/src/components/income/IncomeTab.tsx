@@ -35,7 +35,9 @@ import {
 } from "@/utils/expenseStatus";
 import {
   formatRepeatLabel,
+  isRepeatingFrequency,
   markRecurrenceDismissed,
+  normalizeRepeatValue,
   resolveItemRepeat,
 } from "@/utils/recurrenceEngine";
 import {
@@ -225,23 +227,54 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     return entries;
   }, [allMonthlyData]);
 
-  // Total income for the currently viewed month (realized vs upcoming)
-  const { currentMonthTotal, currentMonthUpcomingTotal } = useMemo(() => {
+  // Total income for the currently viewed month (realized vs upcoming, Fixed vs Additional)
+  const {
+    currentMonthTotal,
+    currentMonthUpcomingTotal,
+    currentMonthFixedTotal,
+    currentMonthFixedUpcoming,
+    currentMonthAdditionalTotal,
+    currentMonthAdditionalUpcoming,
+  } = useMemo(() => {
     const rec = allMonthlyData[currentMonth];
     if (!rec || !Array.isArray(rec.incomes)) {
-      return { currentMonthTotal: 0, currentMonthUpcomingTotal: 0 };
+      return {
+        currentMonthTotal: 0,
+        currentMonthUpcomingTotal: 0,
+        currentMonthFixedTotal: 0,
+        currentMonthFixedUpcoming: 0,
+        currentMonthAdditionalTotal: 0,
+        currentMonthAdditionalUpcoming: 0,
+      };
     }
     let realized = 0;
     let upcoming = 0;
+    let fixedRealized = 0;
+    let fixedUpcoming = 0;
+    let additionalRealized = 0;
+    let additionalUpcoming = 0;
+
     rec.incomes.forEach((i) => {
       const amt = Number(i.amount) || 0;
+      const isFixed = isRepeatingFrequency(i.repeat);
       if (isRecordCompleted(i)) {
         realized += amt;
+        if (isFixed) fixedRealized += amt;
+        else additionalRealized += amt;
       } else {
         upcoming += amt;
+        if (isFixed) fixedUpcoming += amt;
+        else additionalUpcoming += amt;
       }
     });
-    return { currentMonthTotal: realized, currentMonthUpcomingTotal: upcoming };
+    return {
+      currentMonthTotal: realized,
+      currentMonthUpcomingTotal: upcoming,
+      currentMonthFixedTotal: fixedRealized,
+      currentMonthFixedUpcoming: fixedUpcoming,
+      currentMonthAdditionalTotal: additionalRealized,
+      currentMonthAdditionalUpcoming: additionalUpcoming,
+    };
   }, [allMonthlyData, currentMonth]);
 
   // Filtered & sorted list
@@ -310,6 +343,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         return false;
       }
 
+      // Type filter (Fixed = Repeat != never vs Additional = Repeat == never)
+      const isFixed = isRepeatingFrequency(item.repeat);
+      if (filters.typeFilter === "fixed" && !isFixed) {
+        return false;
+      }
+      if (filters.typeFilter === "additional" && isFixed) {
+        return false;
+      }
+
       return true;
     });
 
@@ -353,8 +395,50 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     return { filteredTotalSum: realized, filteredUpcomingSum: upcoming };
   }, [filteredEntries]);
 
+  const {
+    filteredFixedEntries,
+    filteredAdditionalEntries,
+    fixedRealizedSum,
+    fixedUpcomingSum,
+    additionalRealizedSum,
+    additionalUpcomingSum,
+  } = useMemo(() => {
+    const fixedList: FlattenedIncomeEntry[] = [];
+    const addList: FlattenedIncomeEntry[] = [];
+    let fRealized = 0;
+    let fUpcoming = 0;
+    let aRealized = 0;
+    let aUpcoming = 0;
+
+    filteredEntries.forEach((entry) => {
+      const amt = Number(entry.item.amount) || 0;
+      const done = isRecordCompleted(entry.item);
+      if (isRepeatingFrequency(entry.item.repeat)) {
+        fixedList.push(entry);
+        if (done) fRealized += amt;
+        else fUpcoming += amt;
+      } else {
+        addList.push(entry);
+        if (done) aRealized += amt;
+        else aUpcoming += amt;
+      }
+    });
+
+    return {
+      filteredFixedEntries: fixedList,
+      filteredAdditionalEntries: addList,
+      fixedRealizedSum: fRealized,
+      fixedUpcomingSum: fUpcoming,
+      additionalRealizedSum: aRealized,
+      additionalUpcomingSum: aUpcoming,
+    };
+  }, [filteredEntries]);
+
   // --- Handlers: Open Add / Edit Form ---
-  const handleOpenAddModal = (scheduleTemplateOnly = false) => {
+  const handleOpenAddModal = (
+    scheduleTemplateOnly = false,
+    defaultRepeat: RepeatFrequency = "never"
+  ) => {
     setEditingEntry(null);
     setEditingTemplateId(null);
     setFormAmount("");
@@ -365,7 +449,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormDayOfMonth(new Date().getDate());
     setFormDayOfWeek(new Date().getDay());
     setFormScheduleOnly(scheduleTemplateOnly);
-    setFormRepeat("never");
+    setFormRepeat(defaultRepeat);
     setFormCompleted(true);
     setFormIsGenerated(false);
     setFormError(null);
@@ -477,11 +561,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       return;
     }
 
-    // Case B: Editing an existing IncomeItem
+    // Case B: Editing an existing IncomeItem (Repeat acts as Single Source of Truth for Fixed vs Additional)
     if (editingEntry) {
       const targetMonthKey = getMonthKeyFromDate(selectedDateObj);
       const nowIso = new Date().toISOString();
-      const effectiveRepeat = editingEntry.item.recurrenceSourceId ? "never" : formRepeat;
+      const effectiveRepeat = normalizeRepeatValue(formRepeat);
+      const isFixed = isRepeatingFrequency(effectiveRepeat);
       const updatedItem: IncomeItem = {
         ...editingEntry.item,
         categoryId: formCategory.id,
@@ -492,7 +577,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         note: formNote.trim(),
         date: selectedDateObj.toISOString(),
         repeat: effectiveRepeat,
-        isRecurring: effectiveRepeat !== "never",
+        isRecurring: isFixed,
+        isFixedItem: isFixed,
         completed: formCompleted,
         status: formCompleted ? "completed" : "planned",
         completedAt: formCompleted ? editingEntry.item.completedAt || nowIso : undefined,
@@ -561,6 +647,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     const targetMonthKey = getMonthKeyFromDate(selectedDateObj);
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const effectiveRepeat = normalizeRepeatValue(formRepeat);
+    const isFixed = isRepeatingFrequency(effectiveRepeat);
     const newIncome: IncomeItem = {
       id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
       categoryId: formCategory.id,
@@ -573,8 +661,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       createdAt: nowIso,
       timestamp: nowMs,
       type: "income",
-      repeat: formRepeat,
-      isRecurring: formRepeat !== "never",
+      repeat: effectiveRepeat,
+      isRecurring: isFixed,
+      isFixedItem: isFixed,
       completed: formCompleted,
       status: formCompleted ? "completed" : "planned",
       completedAt: formCompleted ? nowIso : undefined,
@@ -586,7 +675,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setIsFormOpen(false);
     showToast(
       formCompleted
-        ? "Приходът беше добавен успешно."
+        ? isFixed
+          ? "Фиксираният приход беше добавен успешно."
+          : "Приходът беше добавен успешно."
         : "Предстоящият приход беше добавен."
     );
   };
@@ -602,6 +693,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
+    const templateRepeat = normalizeRepeatValue(template.frequency);
     const confirmedIncome: IncomeItem = {
       id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
       categoryId: template.categoryId,
@@ -615,9 +707,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       timestamp: nowMs,
       type: "income",
       isRecurring: true,
+      isFixedItem: true,
       frequency: template.frequency,
       recurringTemplateId: template.id,
-      repeat: "never",
+      recurrenceSourceId: template.id,
+      recurrenceOccurrenceKey: occurrenceKey,
+      repeat: templateRepeat !== "never" ? templateRepeat : "monthly",
       completed: true,
       status: "completed",
       completedAt: nowIso,
@@ -793,10 +888,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         </div>
 
         {/* Period Total Summary Strip */}
-        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Реализирани приходи за {currentMonth}
+              Реализирани приходи ({currentMonth})
             </span>
             <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
               +€{currentMonthTotal.toFixed(2)}
@@ -809,25 +904,39 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
           </div>
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Очаквани за потвърждение
+              Фиксирани приходи
+            </span>
+            <span className="text-xl font-bold text-indigo-700 dark:text-indigo-300 tabular-nums">
+              +€{currentMonthFixedTotal.toFixed(2)}
+            </span>
+            {currentMonthFixedUpcoming > 0 && (
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block tabular-nums mt-0.5">
+                Предстоящи: +€{currentMonthFixedUpcoming.toFixed(2)}
+              </span>
+            )}
+          </div>
+          <div>
+            <span className="text-xs text-slate-500 dark:text-slate-400 block">
+              Допълнителни приходи
+            </span>
+            <span className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              +€{currentMonthAdditionalTotal.toFixed(2)}
+            </span>
+            {currentMonthAdditionalUpcoming > 0 && (
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block tabular-nums mt-0.5">
+                Предстоящи: +€{currentMonthAdditionalUpcoming.toFixed(2)}
+              </span>
+            )}
+          </div>
+          <div>
+            <span className="text-xs text-slate-500 dark:text-slate-400 block">
+              Шаблони / за потвърждение
             </span>
             <span className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
               {dueExpectedIncomes.length}{" "}
               <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-                (€
-                {dueExpectedIncomes
-                  .reduce((s, d) => s + d.template.amount, 0)
-                  .toFixed(2)}
-                )
+                ({activeTemplatesCount} шаблона)
               </span>
-            </span>
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Активни повтарящи се шаблони
-            </span>
-            <span className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-              {activeTemplatesCount}
             </span>
           </div>
         </div>
@@ -1070,153 +1179,330 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         totalFilteredUpcomingSum={filteredUpcomingSum}
       />
 
-      {/* Income List */}
-      {filteredEntries.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-10 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto mb-3">
-            <Banknote className="w-6 h-6" />
-          </div>
-          <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
-            Няма намерени приходи
-          </h3>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-4">
-            {filters.searchTerm || filters.categoryId !== "all"
-              ? "Опитайте да промените критериите за търсене или изчистете филтрите."
-              : `Все още нямате записани приходи за ${currentMonth}.`}
-          </p>
-          <button
-            type="button"
-            onClick={() => handleOpenAddModal(false)}
-            className="min-h-[44px] inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Добави първи приход</span>
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {filteredEntries.map((entry) => {
-            const { item, monthKey } = entry;
-            const formattedDate = item.date
-              ? new Date(item.date).toLocaleDateString("bg-BG")
-              : monthKey;
-            const isCompleted = isRecordCompleted(item);
-
-            return (
-              <div
-                key={`${monthKey}_${item.id}`}
-                className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
-                  isCompleted
-                    ? "bg-white dark:bg-slate-900 border-slate-200/85 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/80"
-                    : "bg-amber-50/40 dark:bg-amber-950/20 border-amber-300/80 dark:border-amber-800/70"
-                }`}
-              >
-                <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                  <div
-                    className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
-                      item.categoryColor || "bg-emerald-100 text-emerald-600"
-                    )}`}
-                  >
-                    {renderCategoryIcon(item.categoryIcon)}
-                  </div>
-
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                      <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base truncate">
-                        {item.categoryName}
-                      </span>
-                      {!isCompleted && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
-                          <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-                          Предстоящ
-                        </span>
-                      )}
-                      {item.repeat && item.repeat !== "never" && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800">
-                          <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
-                          {formatRepeatLabel(item.repeat)}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                      <span>{formattedDate}</span>
-                      {filters.monthFilter !== "current" && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span>{monthKey}</span>
-                        </>
-                      )}
-                      {item.isRecurring && !(item.repeat && item.repeat !== "never") && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
-                            <Repeat className="w-3 h-3" />
-                            <span>
-                              {item.frequency === "weekly"
-                                ? "Седмичен"
-                                : item.frequency === "yearly"
-                                ? "Годишен"
-                                : "Месечен"}
-                            </span>
-                          </span>
-                        </>
-                      )}
-                    </div>
-
-                    {item.note && (
-                      <p className="text-xs text-slate-600 dark:text-slate-300 pt-0.5 break-words">
-                        {item.note}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
-                  <span
-                    className={`text-lg font-extrabold tabular-nums ${
-                      isCompleted
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-amber-700 dark:text-amber-300"
-                    }`}
-                  >
-                    +€{Number(item.amount).toFixed(2)}
-                  </span>
-
-                  <div className="flex items-center gap-1.5">
-                    <CompletionSwitch
-                      checked={isCompleted}
-                      onChange={(val) => handleToggleIncomeCompletion(entry, val)}
-                      ariaLabel={`Изпълнено за ${item.categoryName}`}
-                      size="sm"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditEntry(entry)}
-                      className="min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
-                      title="Редактирай приход"
-                      aria-label="Редактирай приход"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setPendingDeleteEntry(entry)}
-                      className="min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                      title="Изтрий приход"
-                      aria-label="Изтрий приход"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+      {/* Fixed vs Additional Incomes Sections (mirroring Expenses layout) */}
+      <div
+        className={
+          filters.typeFilter === "fixed" || filters.typeFilter === "additional"
+            ? "space-y-6"
+            : "grid grid-cols-1 lg:grid-cols-2 gap-6"
+        }
+      >
+        {/* Left Column: Fixed Incomes (Repeat !== "never") */}
+        {filters.typeFilter !== "additional" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                  <Repeat className="w-4 h-4 text-indigo-500" />
+                  Фиксирани приходи
+                </h3>
+                <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium tabular-nums">
+                  {filteredFixedEntries.length}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      )}
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                    +€{fixedRealizedSum.toFixed(2)}
+                  </span>
+                  {fixedUpcomingSum > 0 && (
+                    <span className="block text-[10px] font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
+                      Предстоящи: +€{fixedUpcomingSum.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAddModal(false, "monthly")}
+                  className="p-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm cursor-pointer"
+                  title="Добави фиксиран приход"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {filteredFixedEntries.length === 0 ? (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-8 text-center">
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3">
+                  Няма фиксирани приходи за избраните критерии
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAddModal(false, "monthly")}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Добави фиксиран приход</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {filteredFixedEntries.map((entry) => {
+                  const { item, monthKey } = entry;
+                  const formattedDate = item.date
+                    ? new Date(item.date).toLocaleDateString("bg-BG")
+                    : monthKey;
+                  const isCompleted = isRecordCompleted(item);
+
+                  return (
+                    <div
+                      key={`${monthKey}_${item.id}`}
+                      className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                        isCompleted
+                          ? "bg-white dark:bg-slate-900 border-slate-200/85 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800/80"
+                          : "bg-amber-50/40 dark:bg-amber-950/20 border-amber-300/80 dark:border-amber-800/70"
+                      }`}
+                    >
+                      <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                        <div
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                            item.categoryColor || "bg-emerald-100 text-emerald-600"
+                          )}`}
+                        >
+                          {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
+                        </div>
+
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                            <span className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                              {item.categoryName}
+                            </span>
+                            {!isCompleted && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                                <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                                Предстоящ
+                              </span>
+                            )}
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800">
+                              <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
+                              {formatRepeatLabel(item.repeat)}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                            <span>{formattedDate}</span>
+                            {filters.monthFilter !== "current" && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span>{monthKey}</span>
+                              </>
+                            )}
+                            <span aria-hidden="true">·</span>
+                            <span>Фиксиран</span>
+                          </div>
+
+                          {item.note && (
+                            <p className="text-xs text-slate-600 dark:text-slate-300 pt-0.5 break-words">
+                              {item.note}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-2.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
+                        <span
+                          className={`text-base sm:text-lg font-extrabold tabular-nums ${
+                            isCompleted
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-amber-700 dark:text-amber-300"
+                          }`}
+                        >
+                          +€{Number(item.amount).toFixed(2)}
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <CompletionSwitch
+                            checked={isCompleted}
+                            onChange={(val) => handleToggleIncomeCompletion(entry, val)}
+                            ariaLabel={`Изпълнено за ${item.categoryName}`}
+                            size="sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditEntry(entry)}
+                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                            title="Редактирай приход"
+                            aria-label="Редактирай приход"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteEntry(entry)}
+                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                            title="Изтрий приход"
+                            aria-label="Изтрий приход"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Right Column: Additional Incomes (Repeat === "never") */}
+        {filters.typeFilter !== "fixed" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                  <Banknote className="w-4 h-4 text-emerald-500" />
+                  Допълнителни приходи
+                </h3>
+                <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium tabular-nums">
+                  {filteredAdditionalEntries.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                    +€{additionalRealizedSum.toFixed(2)}
+                  </span>
+                  {additionalUpcomingSum > 0 && (
+                    <span className="block text-[10px] font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
+                      Предстоящи: +€{additionalUpcomingSum.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAddModal(false, "never")}
+                  className="p-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-md hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors shadow-sm cursor-pointer"
+                  title="Добави допълнителен приход"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {filteredAdditionalEntries.length === 0 ? (
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-8 text-center">
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3">
+                  Няма допълнителни приходи за избраните критерии
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAddModal(false, "never")}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Добави приход</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {filteredAdditionalEntries.map((entry) => {
+                  const { item, monthKey } = entry;
+                  const formattedDate = item.date
+                    ? new Date(item.date).toLocaleDateString("bg-BG")
+                    : monthKey;
+                  const isCompleted = isRecordCompleted(item);
+
+                  return (
+                    <div
+                      key={`${monthKey}_${item.id}`}
+                      className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                        isCompleted
+                          ? "bg-white dark:bg-slate-900 border-slate-200/85 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/80"
+                          : "bg-amber-50/40 dark:bg-amber-950/20 border-amber-300/80 dark:border-amber-800/70"
+                      }`}
+                    >
+                      <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                        <div
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                            item.categoryColor || "bg-emerald-100 text-emerald-600"
+                          )}`}
+                        >
+                          {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
+                        </div>
+
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                            <span className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                              {item.categoryName}
+                            </span>
+                            {!isCompleted && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                                <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                                Предстоящ
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                            <span>{formattedDate}</span>
+                            {filters.monthFilter !== "current" && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span>{monthKey}</span>
+                              </>
+                            )}
+                            <span aria-hidden="true">·</span>
+                            <span>Допълнителен</span>
+                          </div>
+
+                          {item.note && (
+                            <p className="text-xs text-slate-600 dark:text-slate-300 pt-0.5 break-words">
+                              {item.note}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-2.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
+                        <span
+                          className={`text-base sm:text-lg font-extrabold tabular-nums ${
+                            isCompleted
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-amber-700 dark:text-amber-300"
+                          }`}
+                        >
+                          +€{Number(item.amount).toFixed(2)}
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <CompletionSwitch
+                            checked={isCompleted}
+                            onChange={(val) => handleToggleIncomeCompletion(entry, val)}
+                            ariaLabel={`Изпълнено за ${item.categoryName}`}
+                            size="sm"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditEntry(entry)}
+                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                            title="Редактирай приход"
+                            aria-label="Редактирай приход"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteEntry(entry)}
+                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                            title="Изтрий приход"
+                            aria-label="Изтрий приход"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Add / Edit Income Modal */}
       {isFormOpen && (
@@ -1387,7 +1673,6 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   onRepeatChange={setFormRepeat}
                   completed={formCompleted}
                   onCompletedChange={setFormCompleted}
-                  hideRepeatRow={formIsGenerated}
                   completedHint={
                     formIsGenerated
                       ? "Автоматично генериран повтарящ се приход"

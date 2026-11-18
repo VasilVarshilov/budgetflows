@@ -20,6 +20,8 @@ export type IncomeSortOption = "newest" | "oldest" | "highest" | "lowest";
 
 export type IncomeStatusFilterOption = "all" | "completed" | "planned";
 
+export type IncomeTypeFilterOption = "all" | "fixed" | "additional";
+
 export interface IncomeFiltersState {
   searchTerm: string;
   monthFilter: string; // 'current' | 'all' | 'custom' | 'year:<YYYY>' | specific month label e.g. 'Ноември 2026'
@@ -30,6 +32,7 @@ export interface IncomeFiltersState {
   maxAmount: string;
   sortBy: IncomeSortOption;
   statusFilter: IncomeStatusFilterOption;
+  typeFilter?: IncomeTypeFilterOption;
 }
 
 export const DEFAULT_INCOME_FILTERS: IncomeFiltersState = {
@@ -42,6 +45,7 @@ export const DEFAULT_INCOME_FILTERS: IncomeFiltersState = {
   maxAmount: "",
   sortBy: "newest",
   statusFilter: "all",
+  typeFilter: "all",
 };
 
 interface IncomeFilterToolbarProps {
@@ -80,6 +84,7 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
     if (filters.minAmount !== "" || filters.maxAmount !== "") count++;
     if (filters.sortBy !== "newest") count++;
     if (filters.statusFilter && filters.statusFilter !== "all") count++;
+    if (filters.typeFilter && filters.typeFilter !== "all") count++;
     return count;
   }, [filters]);
 
@@ -219,6 +224,46 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
           >
             <Clock className="w-3 h-3" />
             <span>Предстоящи</span>
+          </button>
+        </div>
+
+        <div
+          className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-700/70"
+          role="group"
+          aria-label="Филтър по вид на приход"
+        >
+          <button
+            type="button"
+            onClick={() => updateFilter("typeFilter", "all")}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              (filters.typeFilter || "all") === "all"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            Всички видове
+          </button>
+          <button
+            type="button"
+            onClick={() => updateFilter("typeFilter", "fixed")}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              filters.typeFilter === "fixed"
+                ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            Фиксирани
+          </button>
+          <button
+            type="button"
+            onClick={() => updateFilter("typeFilter", "additional")}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              filters.typeFilter === "additional"
+                ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-2xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            Допълнителни
           </button>
         </div>
       </div>
