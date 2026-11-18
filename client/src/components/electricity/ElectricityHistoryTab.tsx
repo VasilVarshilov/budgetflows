@@ -42,6 +42,7 @@ import {
   ElectricityFilterInfo,
 } from "@/utils/electricityExport";
 import { useTheme } from "@/utils/themeContext";
+import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 
 function isManualOrNoReadingsRecord(r: ElectricityRecord): boolean {
   return Boolean(
@@ -736,31 +737,14 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           : `Показания: ${r.previousReading.toFixed(0)} → ${r.currentReading.toFixed(0)}`}
                       </span>
 
-                      {isConfirming ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleDelete(r.id)}
-                            className="min-h-[40px] px-3 py-1.5 bg-rose-600 text-white rounded-lg text-xs font-bold hover:bg-rose-700 shadow-xs cursor-pointer"
-                          >
-                            Изтрий
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="min-h-[40px] px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
-                          >
-                            Отказ
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmDeleteId(r.id)}
-                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
-                          title="Изтрий този отчет"
-                          aria-label="Изтрий отчет"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setConfirmDeleteId(r.id)}
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
+                        title="Изтрий този отчет"
+                        aria-label="Изтрий отчет"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -922,31 +906,14 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
 
                         {/* Delete Action */}
                         <td className="py-3.5 px-4 text-center">
-                          {isConfirming ? (
-                            <div className="flex items-center justify-center gap-1.5 animate-in fade-in">
-                              <button
-                                onClick={() => handleDelete(r.id)}
-                                className="px-2 py-1 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700 transition-colors shadow-sm cursor-pointer"
-                              >
-                                Изтрий!
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteId(null)}
-                                className="px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-xs font-semibold hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors cursor-pointer"
-                              >
-                                Отказ
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setConfirmDeleteId(r.id)}
-                              className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                              title="Изтрий този отчет от историята"
-                              aria-label="Изтрий отчет"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => setConfirmDeleteId(r.id)}
+                            className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                            title="Изтрий този отчет от историята"
+                            aria-label="Изтрий отчет"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </td>
                       </tr>
                     );
@@ -957,6 +924,27 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmDeleteDialog
+        isOpen={Boolean(confirmDeleteId)}
+        detailLabel={
+          confirmDeleteId
+            ? (() => {
+                const rec = records.find((x) => x.id === confirmDeleteId);
+                return rec
+                  ? `${rec.periodLabel} (€${rec.totalCost.toFixed(2)})`
+                  : undefined;
+              })()
+            : undefined
+        }
+        onCancel={() => setConfirmDeleteId(null)}
+        onConfirm={() => {
+          if (confirmDeleteId) {
+            handleDelete(confirmDeleteId);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -322,7 +322,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
           <div className="text-xl font-bold text-slate-800 dark:text-white">
             {currentSnapshot?.summary.expensesCount ?? 0}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">фиксирани & текущи</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">повтарящи се & допълнителни</div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -540,8 +540,8 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               <span>1. Доходи & Разходи</span>
             </div>
             <p>
-              Пълна история на месеците, фиксирани разходи (кредит, телефон,
-              интернет), променливи разходи и въведени доходи.
+              Пълна история на месеците, повтарящи се разходи (кредит, телефон,
+              интернет), допълнителни разходи и въведени доходи.
             </p>
           </div>
 

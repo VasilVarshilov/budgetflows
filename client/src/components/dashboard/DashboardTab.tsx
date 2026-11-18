@@ -615,7 +615,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     // For single month views: compare Income, Fixed, Variable, and Net
     return [
       { name: "Приходи", value: totalIncome, fill: "#10b981" },
-      { name: "Фиксирани", value: totalFixed, fill: "#3b82f6" },
+      { name: "Повтарящи се", value: totalFixed, fill: "#3b82f6" },
       { name: "Допълнителни", value: totalVariable, fill: "#f59e0b" },
       { name: "Общо разходи", value: totalExpenses, fill: "#ef4444" },
     ];
@@ -977,7 +977,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               €{totalIncome.toFixed(2)}
             </span>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              <span>Фикс.: €{totalFixedIncome.toFixed(2)}</span>
+              <span>Повт.: €{totalFixedIncome.toFixed(2)}</span>
               <span>·</span>
               <span>Доп.: €{totalAdditionalIncome.toFixed(2)}</span>
               <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-semibold ml-auto">
@@ -1003,7 +1003,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               €{totalExpenses.toFixed(2)}
             </span>
             <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              <span>Фикс.: €{totalFixed.toFixed(2)}</span>
+              <span>Повт.: €{totalFixed.toFixed(2)}</span>
               <span>·</span>
               <span>Доп.: €{totalVariable.toFixed(2)}</span>
             </div>
@@ -1130,7 +1130,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               €{totalIncome.toFixed(2)}
             </span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
-              Фиксирани (повт.): €{totalFixedIncome.toFixed(2)}
+              Повтарящи се: €{totalFixedIncome.toFixed(2)}
             </span>
           </div>
 
@@ -1207,10 +1207,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               detailParts.push(
                 isIncome
                   ? isRepeatingFrequency(item.repeat)
-                    ? "Фиксиран приход"
+                    ? "Повтарящ се приход"
                     : "Очакван приход"
                   : item.kind === "fixed"
-                  ? "Фиксиран разход"
+                  ? "Повтарящ се разход"
                   : "Предстоящ разход"
               );
               if (item.merchantName) detailParts.push(item.merchantName);

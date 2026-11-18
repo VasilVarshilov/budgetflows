@@ -439,7 +439,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <h4 className="font-bold text-slate-800 dark:text-white text-sm">Правило 50/30/20</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              До 50% за фиксирани нужди (наем, ток, сметки), до 30% за лични желания
+              До 50% за повтарящи се разходи (наем, ток, сметки), до 30% за лични желания
               и минимум 20% за спестявания и инвестиции.
             </p>
           </div>

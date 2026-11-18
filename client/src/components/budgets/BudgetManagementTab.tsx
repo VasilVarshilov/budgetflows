@@ -35,10 +35,13 @@ import {
 } from "@/utils/budgetStorage";
 import {
   loadStoredCategories,
+  addCategoryToStorage,
+  DEFAULT_CATEGORIES,
   AVAILABLE_ICONS_MAP,
   getAiSuggestedIconAndColor,
   getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
+import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 import {
   getCurrentMonthBulgarian,
   sanitizeDecimalInput,
@@ -235,10 +238,18 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       return;
     }
 
-    const matchedCat = resolveCategoryForBudget(
+    let matchedCat = resolveCategoryForBudget(
       { categoryId: formData.categoryId || undefined, categoryName: trimmedName },
       availableCategories
     );
+
+    if (!matchedCat) {
+      const updatedCats = addCategoryToStorage({ name: trimmedName });
+      setAvailableCategories(updatedCats);
+      matchedCat = updatedCats.find(
+        (c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()
+      );
+    }
 
     if (editingBudgetId) {
       const updated = updateCategoryBudget(editingBudgetId, {
@@ -832,37 +843,20 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       </div>
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-xl border border-slate-200 dark:border-slate-800 text-center space-y-4 transition-colors">
-            <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <div>
-              <h4 className="font-bold text-slate-900 dark:text-white text-base">
-                Изтриване на бюджет
-              </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Сигурни ли сте, че искате да премахнете този лимит? Записаните разходи няма да бъдат изтрити.
-              </p>
-            </div>
-            <div className="flex items-center justify-center gap-2 pt-2">
-              <button
-                onClick={() => setDeleteConfirmId(null)}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
-              >
-                Отказ
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirmId)}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-xs"
-              >
-                Да, изтрий
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDeleteDialog
+        isOpen={Boolean(deleteConfirmId)}
+        detailLabel={
+          deleteConfirmId
+            ? categoryBudgets.find((b) => b.id === deleteConfirmId)?.categoryName
+            : undefined
+        }
+        onCancel={() => setDeleteConfirmId(null)}
+        onConfirm={() => {
+          if (deleteConfirmId) {
+            handleDelete(deleteConfirmId);
+          }
+        }}
+      />
 
       {/* Add / Edit Category Budget Modal */}
       {isModalOpen && (
@@ -916,24 +910,43 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     ? "__custom_current__"
                     : "custom";
 
+                  const defaultIdSet = new Set(DEFAULT_CATEGORIES.map((c) => c.id));
+                  const customCats = availableCategories.filter(
+                    (c) => c.isCustom || !defaultIdSet.has(c.id)
+                  );
+                  const predefinedCats = availableCategories.filter(
+                    (c) => !c.isCustom && defaultIdSet.has(c.id)
+                  );
+
                   return (
                     <select
                       value={selectValue}
                       onChange={(e) => handleCategorySelect(e.target.value)}
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                     >
-                      {availableCategories.map((cat) => (
-                        <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
-                          {cat.name}
-                        </option>
-                      ))}
+                      {customCats.length > 0 && (
+                        <optgroup label="Потребителски категории">
+                          {customCats.map((cat) => (
+                            <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
+                              {cat.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <optgroup label="Предефинирани категории">
+                        {predefinedCats.map((cat) => (
+                          <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
+                            {cat.name}
+                          </option>
+                        ))}
+                      </optgroup>
                       {isEditingCustomName && (
                         <option value="__custom_current__" className="dark:bg-slate-800 dark:text-white">
                           {formData.categoryName.trim()}
                         </option>
                       )}
                       <option value="custom" className="dark:bg-slate-800 dark:text-white">
-                        + Друга персонализирана категория
+                        + Нова категория
                       </option>
                     </select>
                   );

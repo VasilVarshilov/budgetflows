@@ -75,7 +75,7 @@ const NAV_TABS: NavTabItem[] = [
   {
     id: "monthly",
     label: "Разходи",
-    description: "Фиксирани и променливи разходи",
+    description: "Повтарящи се и допълнителни разходи",
     icon: Calendar,
     accentColor: "text-blue-600 dark:text-blue-400",
     drawerActiveClass: "bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 font-bold border border-blue-200 dark:border-blue-900",

@@ -52,7 +52,7 @@ interface MessageUiState {
 
 const SUGGESTED_QUESTIONS = [
   "Колко похарчих за цигари този месец?",
-  "Какви са фиксираните ми приходи?",
+  "Какви са повтарящите ми се приходи?",
   "Какви предстоящи разходи имам?",
   "Какви приходи очаквам?",
   "Коя категория ми струва най-много?",
@@ -162,7 +162,7 @@ function deriveResponsePresentation(
     /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
     /(?:fixed|recurr|regular|периодич|повтарящ|фиксиран|постоян)/.test(qLower)
   ) {
-    title = "Фиксирани приходи";
+    title = "Повтарящи се приходи";
   } else if (
     /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
     /(?:additional|variable|extra|bonus|one-time|допълнител|променлив|извънред|еднократ)/.test(qLower)
@@ -174,7 +174,7 @@ function deriveResponsePresentation(
   ) {
     title = "Допълнителни разходи";
   } else if (/повтарящ|периодич|фиксиран|recurr|subscription/.test(qLower)) {
-    title = "Фиксирани и периодични разходи";
+    title = "Повтарящи се разходи";
   } else if (/среден|средно|средния|average|avg/.test(qLower)) {
     title = "Среден месечен разход";
   } else if (/коя\s+категория|категория.*най-много|which\s+category|highest\s+category/.test(qLower)) {

@@ -274,11 +274,11 @@ export function generateLocalFinancialAnalysis(
         type: "recommendation",
         category: "spending",
         priority: "high",
-        title: `Бюджетен съвет: Високи твърди ангажименти (${fixedRatio}%)`,
-        description: `Фиксираните ви разходи (кредити, сметки, абонаменти) заемат ${fixedRatio}% от всички разходи. Препоръчителният праг по правилото 50/30/20 е до 50%.`,
+        title: `Бюджетен съвет: Високи повтарящи се ангажименти (${fixedRatio}%)`,
+        description: `Повтарящите ви се разходи (кредити, сметки, абонаменти) заемат ${fixedRatio}% от всички разходи. Препоръчителният праг по правилото 50/30/20 е до 50%.`,
         impact: `Оптимизация на дълг и договори`,
         actionableTip: `Прегледайте абонаментите за мобилни оператори, телевизия и застраховки или помислете за предоговаряне на банкови лихви и обединяване на кредити.`,
-        metricLabel: "Фиксирани разходи",
+        metricLabel: "Повтарящи се разходи",
         metricValue: `${fixedRatio}%`,
         isTopRecommendation: true,
       });
@@ -288,10 +288,10 @@ export function generateLocalFinancialAnalysis(
         type: "spending",
         category: "spending",
         priority: "low",
-        title: `Добра структура между фиксирани и променливи разходи`,
-        description: `Фиксираните ви разходи са ${fixedRatio}%, а текущите променливи са ${variableRatio}%, което оставя достатъчна гъвкавост за реакция при непредвидени обстоятелства.`,
+        title: `Добра структура между повтарящи се и допълнителни разходи`,
+        description: `Повтарящите ви се разходи са ${fixedRatio}%, а текущите допълнителни са ${variableRatio}%, което оставя достатъчна гъвкавост за реакция при непредвидени обстоятелства.`,
         actionableTip: `Запазете контрола върху гъвкавите разходи чрез редовно следене на седмичните лимити.`,
-        metricLabel: "Фиксирани / Променливи",
+        metricLabel: "Повтарящи се / Допълнителни",
         metricValue: `${fixedRatio}% / ${variableRatio}%`,
       });
     }
@@ -535,7 +535,7 @@ export function generateLocalFinancialAnalysis(
         ? `+€${momComparison.income.difference.toFixed(2)} повече ресурс`
         : `-€${Math.abs(momComparison.income.difference).toFixed(2)} по-нисък приход`,
       actionableTip: isUp
-        ? `Използвайте допълнителния приход за ускоряване на спестовната цел или погасяване на фиксирани задължения.`
+        ? `Използвайте допълнителния приход за ускоряване на спестовната цел или погасяване на повтарящи се задължения.`
         : `При по-нисък месечен приход прегледайте променливите разходи, за да запазите положителния нетен баланс.`,
       metricLabel: "Промяна (MoM)",
       metricValue: momComparison.income.formattedPercentage,

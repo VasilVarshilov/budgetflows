@@ -1,7 +1,7 @@
 import { MonthlyRecord, IncomeItem, ExpenseItem, ExpenseStatus, ReceiptItemDetail, RepeatFrequency } from "@/types";
 import { parseExpenseNote } from "./expenseFormatter";
 import { loadBudgets, calculateAllBudgetsStatus } from "./budgetStorage";
-import { loadStoredCategories } from "./categoryStorage";
+import { loadStoredCategories, loadStoredIncomeCategories } from "./categoryStorage";
 import { getStoredElectricityHistory } from "./electricityStorage";
 import { getExpenseStatus, isRecordCompleted } from "./expenseStatus";
 import { isRepeatingFrequency, normalizeRepeatValue } from "./recurrenceEngine";
@@ -936,6 +936,13 @@ function extractSearchTermsFromQuestion(question: string): {
     if (tok.length > 4 && tok.endsWith("s")) {
       expandedTerms.add(tok.slice(0, -1));
     }
+    if (tok.length > 5 && (tok.endsWith("ове") || tok.endsWith("еве"))) {
+      expandedTerms.add(tok.slice(0, -3));
+    } else if (tok.length > 4 && (tok.endsWith("ов") || tok.endsWith("ев"))) {
+      expandedTerms.add(tok.slice(0, -2));
+    } else if (tok.length > 4 && tok.endsWith("и")) {
+      expandedTerms.add(tok.slice(0, -1));
+    }
   });
 
   const displayTopic =
@@ -977,7 +984,7 @@ function buildSuggestions(en: boolean): string[] {
   return en
     ? [
         "How much have I spent?",
-        "What is my fixed income?",
+        "What is my recurring income?",
         "What income am I expecting?",
         "What expenses are upcoming?",
         "What was my largest expense this month?",
@@ -985,7 +992,7 @@ function buildSuggestions(en: boolean): string[] {
       ]
     : [
         "Колко съм похарчил този месец?",
-        "Какви са фиксираните ми приходи?",
+        "Какви са повтарящите ми се приходи?",
         "Какви приходи очаквам?",
         "Какви предстоящи разходи имам?",
         "Кой беше най-големият ми разход този месец?",
@@ -1012,6 +1019,7 @@ export function answerFinancialChatQuestion(
   const completedIncomes = allIncomes.filter((i) => i.completed);
   const upcomingIncomes = allIncomes.filter((i) => !i.completed);
   const storedCategories = loadStoredCategories();
+  const storedIncomeCategories = loadStoredIncomeCategories();
   const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
   const electricityHistory = getStoredElectricityHistory();
 
@@ -1558,11 +1566,11 @@ export function answerFinancialChatQuestion(
       answer:
         recurringInRange.length > 0
           ? en
-            ? `Found ${recurringInRange.length} fixed/recurring expenses in ${range.label} totaling ${fmtEur(totalRec)}.`
-            : `Открити са ${recurringInRange.length} фиксирани и периодични разхода за ${range.label} на обща стойност ${fmtEur(totalRec)}.`
+            ? `Found ${recurringInRange.length} recurring expenses in ${range.label} totaling ${fmtEur(totalRec)}.`
+            : `Открити са ${recurringInRange.length} повтарящи се разхода за ${range.label} на обща стойност ${fmtEur(totalRec)}.`
           : en
-          ? `No fixed or recurring expenses recorded in ${range.label}.`
-          : `Няма записани фиксирани или периодични разходи за ${range.label}.`,
+          ? `No recurring expenses recorded in ${range.label}.`
+          : `Няма записани повтарящи се разходи за ${range.label}.`,
       calculation:
         recurringInRange.length > 0
           ? recurringInRange
@@ -1580,7 +1588,7 @@ export function answerFinancialChatQuestion(
         expenseAmount: e.amount,
         matchedAmount: e.amount,
         matchedKind: "fixed",
-        matchedSnippet: e.note || "Фиксиран разход",
+        matchedSnippet: e.note || "Повтарящ се разход",
       })),
       totalMatchedAmount: parseFloat(totalRec.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
@@ -1741,7 +1749,7 @@ export function answerFinancialChatQuestion(
         monthKey: inc.monthKey,
         date: formatDateShort(inc.date),
         merchantOrCategory: inc.categoryName || "Приход",
-        categoryName: "Фиксиран приход",
+        categoryName: "Повтарящ се приход",
         expenseAmount: inc.amount,
         matchedAmount: inc.amount,
         matchedKind: "income",
@@ -1754,25 +1762,25 @@ export function answerFinancialChatQuestion(
           : "";
       const upcomingSuffixBg =
         upcomingFixed.length > 0
-          ? ` Очакват се и ${upcomingFixed.length} предстоящи фиксирани (${fmtEur(upcomingFixedSum)}).`
+          ? ` Очакват се и ${upcomingFixed.length} предстоящи повтарящи се (${fmtEur(upcomingFixedSum)}).`
           : "";
 
       return {
         answer:
           fixedIncomes.length > 0
             ? en
-              ? `Fixed (recurring) income in ${range.label}: ${fmtEur(fixedSum)} across ${fixedIncomes.length} completed entries.${upcomingSuffixEn}`
-              : `Фиксирани (повтарящи се) приходи за ${range.label}: ${fmtEur(fixedSum)} (${fixedIncomes.length} реализирани записа).${upcomingSuffixBg}`
+              ? `Recurring income in ${range.label}: ${fmtEur(fixedSum)} across ${fixedIncomes.length} completed entries.${upcomingSuffixEn}`
+              : `Повтарящи се приходи за ${range.label}: ${fmtEur(fixedSum)} (${fixedIncomes.length} реализирани записа).${upcomingSuffixBg}`
             : en
-            ? `No completed fixed (recurring) income recorded in ${range.label}.${upcomingSuffixEn}`
-            : `Няма реализирани фиксирани приходи за ${range.label}.${upcomingSuffixBg}`,
+            ? `No completed recurring income recorded in ${range.label}.${upcomingSuffixEn}`
+            : `Няма реализирани повтарящи се приходи за ${range.label}.${upcomingSuffixBg}`,
         calculation:
           fixedIncomes.length > 0
             ? fixedIncomes
                 .slice(0, 6)
                 .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
                 .join(" + ") + ` = ${fmtEur(fixedSum)}`
-            : "0 фиксирани прихода = €0.00",
+            : "0 повтарящи се прихода = €0.00",
         timeRangeLabel: range.label,
         matchedExpenses: matchedFixed,
         totalMatchedAmount: parseFloat(fixedSum.toFixed(2)),
@@ -1832,20 +1840,20 @@ export function answerFinancialChatQuestion(
       monthKey: inc.monthKey,
       date: formatDateShort(inc.date),
       merchantOrCategory: inc.categoryName || "Приход",
-      categoryName: inc.isFixed ? "Фиксиран приход" : "Допълнителен приход",
+      categoryName: inc.isFixed ? "Повтарящ се приход" : "Допълнителен приход",
       expenseAmount: inc.amount,
       matchedAmount: inc.amount,
       matchedKind: "income",
-      matchedSnippet: inc.note || (inc.isFixed ? "Фиксиран" : "Допълнителен"),
+      matchedSnippet: inc.note || (inc.isFixed ? "Повтарящ се" : "Допълнителен"),
     }));
 
     return {
       answer: en
-        ? `Total completed income in ${range.label}: ${fmtEur(totalInc)} across ${matchedIncomes.length} entries (Fixed: ${fmtEur(fixedIncSum)}, Additional: ${fmtEur(additionalIncSum)}).`
-        : `Общи реализирани приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа) — Фиксирани: ${fmtEur(fixedIncSum)} · Допълнителни: ${fmtEur(additionalIncSum)}.`,
+        ? `Total completed income in ${range.label}: ${fmtEur(totalInc)} across ${matchedIncomes.length} entries (Recurring: ${fmtEur(fixedIncSum)}, Additional: ${fmtEur(additionalIncSum)}).`
+        : `Общи реализирани приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа) — Повтарящи се: ${fmtEur(fixedIncSum)} · Допълнителни: ${fmtEur(additionalIncSum)}.`,
       calculation:
         matchedIncomes.length > 0
-          ? `Фиксирани ${fmtEur(fixedIncSum)} + Допълнителни ${fmtEur(additionalIncSum)} = ${fmtEur(totalInc)}`
+          ? `Повтарящи се ${fmtEur(fixedIncSum)} + Допълнителни ${fmtEur(additionalIncSum)} = ${fmtEur(totalInc)}`
           : "0.00",
       timeRangeLabel: range.label,
       matchedExpenses: matchedIncomes,
@@ -2037,7 +2045,49 @@ export function answerFinancialChatQuestion(
   );
 
   if (matchedList.length === 0) {
-    const knownCatMatch = storedCategories.find((c) => textMatchesAnyTerm(c.name, terms));
+    // Also check completed incomes by custom category name or note (e.g. custom income categories)
+    const scopedIncomeMatches = completedIncomes.filter(
+      (inc) =>
+        (scopedKeys.size > 0 ? scopedKeys.has(inc.monthKey) : true) &&
+        (textMatchesAnyTerm(inc.categoryName, terms) ||
+          (inc.note && textMatchesAnyTerm(inc.note, terms)))
+    );
+
+    if (scopedIncomeMatches.length > 0) {
+      const totalIncMatch = parseFloat(
+        scopedIncomeMatches.reduce((s, inc) => s + inc.amount, 0).toFixed(2)
+      );
+      const calcStr =
+        scopedIncomeMatches
+          .slice(0, 6)
+          .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+          .join(" + ") + ` = ${fmtEur(totalIncMatch)}`;
+
+      return {
+        answer: en
+          ? `Found ${scopedIncomeMatches.length} income ${scopedIncomeMatches.length === 1 ? "entry" : "entries"} matching "${displayTopic}" in ${range.label} totaling ${fmtEur(totalIncMatch)}.`
+          : `Открити са ${scopedIncomeMatches.length} прихода за „${displayTopic}“ през ${range.label} на обща стойност ${fmtEur(totalIncMatch)}.`,
+        calculation: calcStr,
+        timeRangeLabel: range.label,
+        matchedExpenses: scopedIncomeMatches.map((inc) => ({
+          id: inc.id,
+          monthKey: inc.monthKey,
+          date: formatDateShort(inc.date),
+          merchantOrCategory: inc.categoryName,
+          categoryName: inc.categoryName,
+          expenseAmount: inc.amount,
+          matchedAmount: inc.amount,
+          matchedKind: "income",
+          matchedSnippet: inc.note || undefined,
+        })),
+        totalMatchedAmount: totalIncMatch,
+        followUpSuggestions: buildSuggestions(en),
+      };
+    }
+
+    const knownCatMatch =
+      storedCategories.find((c) => textMatchesAnyTerm(c.name, terms)) ||
+      storedIncomeCategories.find((c) => textMatchesAnyTerm(c.name, terms));
     return {
       answer: en
         ? `No expenses, receipt items, or notes matching "${displayTopic}" were found in ${range.label}.`

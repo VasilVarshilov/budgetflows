@@ -302,7 +302,12 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
       iconName: "CarTaxiFront",
       colorClass: "bg-yellow-100 text-yellow-700",
     },
-    // Travel & Vacation
+    // Travel & Vacation & Drones
+    {
+      keywords: ["дрон", "дронове", "drone", "drones"],
+      iconName: "Plane",
+      colorClass: "bg-sky-100 text-sky-600",
+    },
     {
       keywords: ["пътуван", "екскурзи", "почивк", "ваканци", "хотел", "самолет", "билет", "летище", "курорт", "море", "планина", "travel", "flight", "trip"],
       iconName: "Plane",
@@ -320,11 +325,17 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
       iconName: "Bike",
       colorClass: "bg-teal-100 text-teal-600",
     },
-    // Gaming
+    // Gaming & Board Games
     {
-      keywords: ["игри", "гейминг", "steam", "playstation", "xbox", "nintendo", "game", "gaming"],
+      keywords: ["настолни", "игри", "гейминг", "steam", "playstation", "xbox", "nintendo", "game", "gaming", "board"],
       iconName: "Gamepad2",
       colorClass: "bg-purple-100 text-purple-600",
+    },
+    // Collectibles & Hobbies
+    {
+      keywords: ["колекционер", "колекция", "хоби", "collect", "hobby"],
+      iconName: "Layers",
+      colorClass: "bg-indigo-100 text-indigo-600",
     },
     // Cinema, Movies & Streaming
     {
@@ -763,13 +774,22 @@ function detachDeletedCategoryFromBudgets(categoryId: string): void {
  */
 export function addCategoryToStorage(category: Partial<ExpenseCategory> & { name: string }): ExpenseCategory[] {
   const current = loadStoredCategories();
+  const trimmedName = category.name.trim();
+  if (!trimmedName) return current;
+
+  const existing = current.find(
+    (c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()
+  );
+  if (existing) {
+    return current;
+  }
 
   // AI-suggest icon and color if not provided
-  const aiSuggestion = getAiSuggestedIconAndColor(category.name);
+  const aiSuggestion = getAiSuggestedIconAndColor(trimmedName);
 
   const newCategory: ExpenseCategory = {
     id: category.id || `cat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    name: category.name.trim(),
+    name: trimmedName,
     iconName: category.iconName || aiSuggestion.iconName,
     colorClass: category.colorClass || aiSuggestion.colorClass,
     isCustom: true,
@@ -899,13 +919,23 @@ export function addIncomeCategoryToStorage(
   category: Partial<ExpenseCategory> & { name: string }
 ): ExpenseCategory[] {
   const current = loadStoredIncomeCategories();
-  const aiSuggestion = getAiSuggestedIconAndColor(category.name);
+  const trimmedName = category.name.trim();
+  if (!trimmedName) return current;
+
+  const existing = current.find(
+    (c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()
+  );
+  if (existing) {
+    return current;
+  }
+
+  const aiSuggestion = getAiSuggestedIconAndColor(trimmedName);
 
   const newCategory: ExpenseCategory = {
     id:
       category.id ||
       `inc_cat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    name: category.name.trim(),
+    name: trimmedName,
     iconName: category.iconName || aiSuggestion.iconName,
     colorClass: category.colorClass || aiSuggestion.colorClass,
     isCustom: true,
@@ -913,6 +943,7 @@ export function addIncomeCategoryToStorage(
 
   const updated = [...current, newCategory];
   saveStoredIncomeCategories(updated);
+  dispatchCategoryBudgetEvents();
   return updated;
 }
 
@@ -933,6 +964,7 @@ export function updateIncomeCategoryInStorage(
   });
 
   saveStoredIncomeCategories(updated);
+  dispatchCategoryBudgetEvents();
   return updated;
 }
 
@@ -940,5 +972,6 @@ export function deleteIncomeCategoryFromStorage(categoryId: string): ExpenseCate
   const current = loadStoredIncomeCategories();
   const updated = current.filter((cat) => cat.id !== categoryId);
   saveStoredIncomeCategories(updated);
+  dispatchCategoryBudgetEvents();
   return updated;
 }

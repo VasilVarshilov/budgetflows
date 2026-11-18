@@ -568,7 +568,7 @@ export function exportTxtReport(data: ExportReportData): void {
   lines.push(subDivider);
   lines.push(` • Общо приходи (Income)         : €${data.incomeTotal.toFixed(2)}`);
   lines.push(` • Общо разходи (Expenses)       : €${data.expensesTotal.toFixed(2)}`);
-  lines.push(`     - Фиксирани разходи         : €${data.fixedExpensesTotal.toFixed(2)}`);
+  lines.push(`     - Повтарящи се разходи     : €${data.fixedExpensesTotal.toFixed(2)}`);
   lines.push(`     - Допълнителни разходи      : €${data.additionalExpensesTotal.toFixed(2)}`);
   lines.push(` • Спестявания за периода        : €${data.savingsTotal.toFixed(2)}`);
   lines.push(` • НЕТЕН БАЛАНС (Приходи-Разходи): ${data.netBalance >= 0 ? "+" : ""}€${data.netBalance.toFixed(2)}`);
@@ -649,7 +649,7 @@ export function exportTxtReport(data: ExportReportData): void {
         ? exp.fixed_expenses.filter((item) => isCompletedExpense(item))
         : [];
       if (completedFixed.length > 0) {
-        lines.push("   [Фиксирани разходи]:");
+        lines.push("   [Повтарящи се разходи]:");
         completedFixed.forEach((item) => {
           lines.push(`     • ${item.categoryName.padEnd(24)}: €${item.amount.toFixed(2)}`);
         });
@@ -793,7 +793,7 @@ export function exportPngReport(data: ExportReportData): Promise<void> {
         {
           label: "ОБЩО РАЗХОДИ",
           value: `-€${data.expensesTotal.toLocaleString("bg-BG", { minimumFractionDigits: 2 })}`,
-          sub: `Фиксирани: €${data.fixedExpensesTotal.toFixed(0)} | Доп.: €${data.additionalExpensesTotal.toFixed(0)}`,
+          sub: `Повт.: €${data.fixedExpensesTotal.toFixed(0)} | Доп.: €${data.additionalExpensesTotal.toFixed(0)}`,
           accentColor: "#f43f5e", // Rose
           bg: "#88133715",
           border: "#e11d4840",
@@ -1045,7 +1045,7 @@ export function exportPngReport(data: ExportReportData): Promise<void> {
         // Fallback for single period comparison: Fixed vs Variable vs Savings
         const bars = [
           { name: "Приходи", val: data.incomeTotal, col: "#10b981" },
-          { name: "Фиксирани", val: data.fixedExpensesTotal, col: "#ef4444" },
+          { name: "Повтарящи се", val: data.fixedExpensesTotal, col: "#ef4444" },
           { name: "Допълнителни", val: data.additionalExpensesTotal, col: "#f59e0b" },
           { name: "Спестявания", val: Math.max(0, data.savingsTotal), col: "#8b5cf6" },
         ];

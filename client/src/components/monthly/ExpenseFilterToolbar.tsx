@@ -215,7 +215,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
               }`}
               title={
                 isFullWidthMode
-                  ? "Превключи към разделен изглед с фиксирани разходи"
+                  ? "Превключи към разделен изглед с повтарящи се разходи"
                   : "Разшири изгледа на разходите на цял екран"
               }
             >
@@ -474,7 +474,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                   onChange={(e) => updateFilter("includeFixed", e.target.checked)}
                   className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                 />
-                <span>Включи фиксирани разходи</span>
+                <span>Включи повтарящи се разходи</span>
               </label>
 
               {/* Reset All Filters Button */}
@@ -555,7 +555,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
 
           {filters.includeFixed && (
             <span className="inline-flex items-center gap-1 bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-md border border-purple-100 dark:border-purple-800 font-semibold">
-              + Фиксирани
+              + Повтарящи се
               <button
                 onClick={() => updateFilter("includeFixed", false)}
                 className="hover:text-purple-900 dark:hover:text-purple-100 cursor-pointer"

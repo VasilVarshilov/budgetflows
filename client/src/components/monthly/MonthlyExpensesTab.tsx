@@ -70,7 +70,7 @@ import {
 } from "@/components/ui/RecurrenceCompletionRows";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
-import { ImportRecurringModal } from "@/components/monthly/ImportRecurringModal";
+import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 import { ScanReceiptModal } from "@/components/monthly/ScanReceiptModal";
 import {
   AVAILABLE_ICONS_MAP,
@@ -534,13 +534,16 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editFixedCompleted, setEditFixedCompleted] = useState<boolean>(true);
   const [editFixedIsGenerated, setEditFixedIsGenerated] = useState<boolean>(false);
 
-  // Import Recurring Modal & Notification State
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  // Receipt Scan & Notification State & Delete Confirmation State
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [importNotification, setImportNotification] = useState<{
     message: string;
     type: "success" | "info";
   } | null>(null);
+  const [pendingDeleteFixed, setPendingDeleteFixed] = useState<ExpenseItem | null>(null);
+  const [pendingDeleteExpenseItem, setPendingDeleteExpenseItem] = useState<
+    (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean }) | null
+  >(null);
 
   const handleExpenseFromReceipt = (newExpense: ExpenseItem) => {
     const nowMs = Date.now();
@@ -1309,51 +1312,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditingFixedId(null);
   };
 
-  // --- Import Recurring Handler ---
-  const handleConfirmImport = (imported: {
-    fixed: ExpenseItem[];
-    variable: ExpenseItem[];
-  }) => {
-    let totalImported = 0;
-    let totalSum = 0;
-
-    if (imported.fixed.length > 0) {
-      setFixedExpenses((prev) => [...prev, ...imported.fixed]);
-      imported.fixed.forEach((item) => {
-        if (isManualElectricityExpense(item)) {
-          upsertElectricityRecordFromExpense(item, currentMonth);
-        }
-      });
-      totalImported += imported.fixed.length;
-      totalSum += imported.fixed.reduce((sum, item) => sum + item.amount, 0);
-    }
-
-    if (imported.variable.length > 0) {
-      setExpenses((prev) => [...prev, ...imported.variable]);
-      imported.variable.forEach((item) => {
-        if (isManualElectricityExpense(item)) {
-          upsertElectricityRecordFromExpense(item, currentMonth);
-        }
-      });
-      totalImported += imported.variable.length;
-      totalSum += imported.variable.reduce((sum, item) => sum + item.amount, 0);
-    }
-
-    const importedAsPlanned =
-      imported.fixed.some(isPlannedExpense) || imported.variable.some(isPlannedExpense);
-
-    setImportNotification({
-      message: importedAsPlanned
-        ? `Успешно импортирани ${totalImported} планирани периодични разхода (€${totalSum.toFixed(2)}) за месец ${currentMonth}. Те няма да влизат в общите разходи до одобрение.`
-        : `Успешно импортирани ${totalImported} периодични разхода на обща стойност €${totalSum.toFixed(2)} за месец ${currentMonth}!`,
-      type: "success",
-    });
-
-    setTimeout(() => {
-      setImportNotification(null);
-    }, 5000);
-  };
-
   const totalFixed = fixedExpenses
     .filter((item) => isCompletedExpense(item))
     .reduce((sum, item) => sum + item.amount, 0);
@@ -1410,12 +1368,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             )}
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Управлявайте фиксираните и текущи разходи за домакинството
+            Управлявайте повтарящите се и допълнителни разходи за домакинството
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 self-end sm:self-center">
-          {/* Add Expense Button (Moved above fixed expenses) */}
+          {/* Add Expense Button (Moved above recurring expenses) */}
           <button
             onClick={() => setIsAddingExpense((prev) => !prev)}
             className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95"
@@ -1434,17 +1392,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <Camera className="w-4 h-4" />
             <span className="hidden sm:inline">Сканирай касова бележка</span>
             <span className="sm:hidden">Сканирай бележка</span>
-          </button>
-
-          {/* Import Recurring Expenses Button */}
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 dark:border-indigo-800 rounded-xl text-xs font-semibold transition-all shadow-sm active:scale-95"
-            title="Копирай периодични разходи от предходен месец (Наем, Интернет, Телефон, Застраховка и др.)"
-          >
-            <Repeat className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <span className="hidden sm:inline">Импорт на периодични разходи</span>
-            <span className="sm:hidden">Импорт периодични</span>
           </button>
 
           <div className="text-right pl-2 border-l border-slate-100 dark:border-slate-800">
@@ -1640,7 +1587,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-blue-500" />
-                Фиксирани разходи
+                Повтарящи се разходи
               </h3>
               <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium">
                 {fixedExpenses.length}
@@ -1661,7 +1608,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <button
                   onClick={() => setIsAddingFixed(true)}
                   className="p-1.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors shadow-sm"
-                  title="Добави фиксиран разход"
+                  title="Добави повтарящ се разход"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -1669,7 +1616,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             </div>
           </div>
 
-          {/* Add Fixed Expense Form */}
+          {/* Add Recurring Expense Form */}
           {isAddingFixed && (
             <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-blue-200 dark:border-blue-900/60 animate-in slide-in-from-top-2 relative space-y-3">
               <button
@@ -1680,7 +1627,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               </button>
 
               <h4 className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
-                Нов фиксиран разход
+                Нов повтарящ се разход
               </h4>
 
               <div>
@@ -1775,7 +1722,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
-                        Редактиране на фиксиран разход
+                        Редактиране на повтарящ се разход
                       </span>
                       <button
                         onClick={handleCancelEditFixed}
@@ -1925,7 +1872,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         )}
                       </div>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Фиксиран · {formatRepeatLabel(item.repeat)}
+                        Повтарящ се · {formatRepeatLabel(item.repeat)}
                       </span>
                     </div>
                   </div>
@@ -1954,8 +1901,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDeleteFixedExpense(item.id)}
-                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-2 sm:p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors"
+                      onClick={() => setPendingDeleteFixed(item)}
+                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-2 sm:p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                       title="Изтрий"
                       aria-label="Delete"
                     >
@@ -1967,7 +1914,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             })}
             {fixedExpenses.length === 0 && (
               <div className="p-8 text-center text-slate-500 dark:text-slate-400 text-sm italic">
-                Няма добавени фиксирани разходи
+                Няма добавени повтарящи се разходи
               </div>
             )}
           </div>
@@ -2245,10 +2192,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                 </span>
                               )}
 
-                            {/* Fixed Badge if included from fixed expenses */}
+                            {/* Recurring Badge if included from recurring expenses */}
                             {(expense.isFixedItem || isRepeatingFrequency(expense.repeat)) && (
                               <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
-                                Фиксиран
+                                Повтарящ се
                               </span>
                             )}
 
@@ -2301,7 +2248,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDeleteExpenseItem(expense)}
+                          onClick={() => setPendingDeleteExpenseItem(expense)}
                           className="min-h-[36px] min-w-[36px] flex items-center justify-center p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           title="Изтрий"
                           aria-label="Изтрий"
@@ -2463,18 +2410,38 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         </div>
       </div>
 
-      {/* Import Recurring Expenses Confirmation Modal */}
-      {isImportModalOpen && (
-        <ImportRecurringModal
-          isOpen={isImportModalOpen}
-          onClose={() => setIsImportModalOpen(false)}
-          currentMonth={currentMonth}
-          existingFixedExpenses={fixedExpenses}
-          existingVariableExpenses={expenses}
-          allMonthlyData={allMonthlyData}
-          onConfirmImport={handleConfirmImport}
-        />
-      )}
+      {/* Delete Confirmation Modals */}
+      <ConfirmDeleteDialog
+        isOpen={Boolean(pendingDeleteFixed)}
+        detailLabel={
+          pendingDeleteFixed
+            ? `${pendingDeleteFixed.categoryName} (€${pendingDeleteFixed.amount.toFixed(2)})`
+            : undefined
+        }
+        onCancel={() => setPendingDeleteFixed(null)}
+        onConfirm={() => {
+          if (pendingDeleteFixed) {
+            handleDeleteFixedExpense(pendingDeleteFixed.id);
+            setPendingDeleteFixed(null);
+          }
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        isOpen={Boolean(pendingDeleteExpenseItem)}
+        detailLabel={
+          pendingDeleteExpenseItem
+            ? `${pendingDeleteExpenseItem.merchantName || pendingDeleteExpenseItem.categoryName} (€${pendingDeleteExpenseItem.amount.toFixed(2)})`
+            : undefined
+        }
+        onCancel={() => setPendingDeleteExpenseItem(null)}
+        onConfirm={() => {
+          if (pendingDeleteExpenseItem) {
+            handleDeleteExpenseItem(pendingDeleteExpenseItem);
+            setPendingDeleteExpenseItem(null);
+          }
+        }}
+      />
 
       {/* Scan Receipt Modal */}
       <ScanReceiptModal

@@ -630,8 +630,17 @@ export function generateDueRecurringInstances(
     const anchorDay = anchorDate.getDate();
     const isSubMonthly =
       src.repeat === "daily" || src.repeat === "weekly" || src.repeat === "biweekly";
+    const endOfCurrentCalendarMonth = new Date(
+      refDate.getFullYear(),
+      refDate.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999
+    );
 
-    let cutoff = endOfToday;
+    let cutoff = isSubMonthly ? endOfToday : endOfCurrentCalendarMonth;
     if (endOfActiveMonth) {
       if (!isSubMonthly) {
         if (endOfActiveMonth.getTime() > cutoff.getTime()) {

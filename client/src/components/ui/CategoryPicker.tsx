@@ -14,6 +14,8 @@ import { ExpenseCategory } from "@/types";
 import {
   AVAILABLE_ICONS_MAP,
   COLOR_OPTIONS,
+  DEFAULT_CATEGORIES,
+  DEFAULT_INCOME_CATEGORIES,
   getAiSuggestedIconAndColor,
   loadStoredCategories,
   addCategoryToStorage,
@@ -25,6 +27,7 @@ import {
   deleteIncomeCategoryFromStorage,
   getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
+import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 
 interface CategoryPickerProps {
   categories?: ExpenseCategory[];
@@ -96,12 +99,39 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   // --- Delete Confirmation State ---
   const [categoryToDelete, setCategoryToDelete] = useState<ExpenseCategory | null>(null);
 
-  // Filtered categories
+  const predefinedIds = useMemo(
+    () =>
+      new Set(
+        (isIncomeMode ? DEFAULT_INCOME_CATEGORIES : DEFAULT_CATEGORIES).map((c) => c.id)
+      ),
+    [isIncomeMode]
+  );
+
+  // Filtered categories separated into Custom vs Predefined
   const filteredCategories = useMemo(() => {
     return categories.filter((c) =>
       c.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [categories, searchTerm]);
+
+  const { customCategories, predefinedCategories } = useMemo(() => {
+    const custom: ExpenseCategory[] = [];
+    const predefined: ExpenseCategory[] = [];
+    filteredCategories.forEach((cat) => {
+      if (cat.isCustom || !predefinedIds.has(cat.id)) {
+        custom.push(cat);
+      } else {
+        predefined.push(cat);
+      }
+    });
+    return { customCategories: custom, predefinedCategories: predefined };
+  }, [filteredCategories, predefinedIds]);
+
+  const duplicateCategoryMatch = useMemo(() => {
+    const trimmed = newCategoryName.trim().toLowerCase();
+    if (!trimmed) return null;
+    return categories.find((c) => c.name.trim().toLowerCase() === trimmed) || null;
+  }, [categories, newCategoryName]);
 
   // Filtered icons for selector
   const availableIconKeys = useMemo(() => {
@@ -120,11 +150,12 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
   // --- Create Category Handler ---
   const handleCreateNew = () => {
-    if (!newCategoryName.trim()) return;
+    const trimmed = newCategoryName.trim();
+    if (!trimmed || duplicateCategoryMatch) return;
 
     const newCat: ExpenseCategory = {
       id: `${isIncomeMode ? "inc_cat" : "custom"}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      name: newCategoryName.trim(),
+      name: trimmed,
       iconName: activeNewIcon,
       colorClass: activeNewColor,
       isCustom: true,
@@ -135,12 +166,17 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
       : addCategoryToStorage(newCat);
     notifyChanges(updated);
 
+    const savedCat =
+      updated.find((c) => c.id === newCat.id) ||
+      updated.find((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase()) ||
+      newCat;
+
     if (onAddNewCategory) {
-      onAddNewCategory(newCat);
+      onAddNewCategory(savedCat);
     }
 
     // Select the newly created category immediately
-    onSelect(newCat);
+    onSelect(savedCat);
 
     // Reset form
     setIsAddingNew(false);
@@ -322,16 +358,17 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
           {!isAddingNew && (
             <button
+              type="button"
               onClick={() => {
                 setIsAddingNew(true);
                 setNewCategoryName("");
                 setCustomIcon(null);
                 setCustomColor(null);
               }}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Нова</span>
+              <span>Нова категория</span>
             </button>
           )}
         </div>
@@ -341,6 +378,37 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           ref={scrollContainerRef}
           className="overflow-y-auto p-4 bg-slate-50/40 dark:bg-slate-950/40 space-y-4 flex-1"
         >
+          {/* Prominent Нова категория Trigger Card */}
+          {!isAddingNew && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddingNew(true);
+                setNewCategoryName(searchTerm.trim());
+                setCustomIcon(null);
+                setCustomColor(null);
+              }}
+              className="w-full p-3.5 rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/60 dark:bg-indigo-950/30 hover:bg-indigo-100/70 dark:hover:bg-indigo-950/50 transition-colors flex items-center justify-between gap-3 text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Plus className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-sm font-bold text-indigo-900 dark:text-indigo-200 block">
+                    Нова категория
+                  </span>
+                  <span className="text-xs text-indigo-700/80 dark:text-indigo-300/80">
+                    Създайте персонализирана категория с икона и цвят
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 shrink-0">
+                Създай
+              </span>
+            </button>
+          )}
+
           {/* Add New Category Panel */}
           {isAddingNew && (
             <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border-2 border-indigo-200 dark:border-indigo-800 animate-in fade-in slide-in-from-top-3 relative space-y-4">
@@ -375,11 +443,26 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   type="text"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
-                  placeholder="Напр. Фитнес, Кафе, Ресторант, Наем, Книги..."
+                  placeholder="Напр. Настолни игри, Дронове, Фотография, Хоби..."
                   className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400"
                   autoFocus
                   onKeyDown={(e) => e.key === "Enter" && handleCreateNew()}
                 />
+                {duplicateCategoryMatch && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-200">
+                    <span>Категория „{duplicateCategoryMatch.name}“ вече съществува.</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingNew(false);
+                        onSelect(duplicateCategoryMatch);
+                      }}
+                      className="px-2.5 py-1 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 shrink-0 cursor-pointer"
+                    >
+                      Избери я
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Live AI Icon & Color Preview Box */}
@@ -525,8 +608,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 <button
                   type="button"
                   onClick={handleCreateNew}
-                  disabled={!newCategoryName.trim()}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-sm active:scale-95"
+                  disabled={!newCategoryName.trim() || Boolean(duplicateCategoryMatch)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
                 >
                   Запази категорията
                 </button>
@@ -534,95 +617,188 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             </div>
           )}
 
-          {/* Categories Grid */}
-          <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 gap-2.5">
-            {filteredCategories.map((category) => {
-              const IconComp = AVAILABLE_ICONS_MAP[category.iconName] || AVAILABLE_ICONS_MAP.Tag;
-              const isMenuOpen = openMenu?.category.id === category.id;
+          {/* Custom Categories Section */}
+          {customCategories.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between px-0.5">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                  Потребителски категории ({customCategories.length})
+                </h4>
+              </div>
+              <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 gap-2.5">
+                {customCategories.map((category) => {
+                  const IconComp = AVAILABLE_ICONS_MAP[category.iconName] || AVAILABLE_ICONS_MAP.Tag;
+                  const isMenuOpen = openMenu?.category.id === category.id;
 
-              return (
-                <div
-                  key={category.id}
-                  className={`
-                    group relative bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 rounded-2xl flex flex-col
-                    border shadow-sm hover:shadow-md transition-all select-none overflow-hidden
-                    ${
-                      isMenuOpen
-                        ? "border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-500/20"
-                        : "border-slate-200/90 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-500"
-                    }
-                  `}
-                >
-                  {/* Top Row: Separated Icon Selection Area (left) + 44x44px 3-Dot Action Trigger (upper-right) */}
-                  <div className="flex items-start justify-between w-full">
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      aria-hidden="true"
-                      onClick={() => {
-                        setOpenMenu(null);
-                        onSelect(category);
-                      }}
-                      className="flex-1 pt-3 pl-3 pb-1 flex items-center justify-start cursor-pointer focus:outline-none"
-                    >
-                      <div
-                        className={`
-                          w-11 h-11 rounded-2xl flex items-center justify-center shadow-xs
-                          ${getCategoryBadgeClasses(category.colorClass)}
-                          group-hover:scale-105 transition-transform duration-200
-                        `}
-                      >
-                        <IconComp className="w-5 h-5" />
-                      </div>
-                    </button>
-
-                    {/* Always-visible 44x44px 3-Dot Overflow Menu Button (Desktop, Tablet, Mobile) */}
-                    <button
-                      type="button"
-                      data-category-menu-trigger="true"
-                      onClick={(e) => handleToggleMenu(e, category)}
+                  return (
+                    <div
+                      key={category.id}
                       className={`
-                        w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 flex items-center justify-center rounded-bl-xl transition-colors cursor-pointer
-                        focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500
+                        group relative bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 rounded-2xl flex flex-col
+                        border shadow-sm hover:shadow-md transition-all select-none overflow-hidden
                         ${
                           isMenuOpen
-                            ? "bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-300"
-                            : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700/80"
+                            ? "border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-500/20"
+                            : "border-indigo-200/80 dark:border-indigo-800/70 hover:border-indigo-400 dark:hover:border-indigo-500"
                         }
                       `}
-                      title="Действия с категорията"
-                      aria-label={`Опции за категория ${category.name}`}
-                      aria-haspopup="menu"
-                      aria-expanded={isMenuOpen}
                     >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
+                      <div className="flex items-start justify-between w-full">
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-hidden="true"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            onSelect(category);
+                          }}
+                          className="flex-1 pt-3 pl-3 pb-1 flex items-center justify-start cursor-pointer focus:outline-none"
+                        >
+                          <div
+                            className={`
+                              w-11 h-11 rounded-2xl flex items-center justify-center shadow-xs
+                              ${getCategoryBadgeClasses(category.colorClass)}
+                              group-hover:scale-105 transition-transform duration-200
+                            `}
+                          >
+                            <IconComp className="w-5 h-5" />
+                          </div>
+                        </button>
 
-                  {/* Bottom Selection Area: Category Title & Custom Label (zero overlap with 44x44px 3-dot button) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenMenu(null);
-                      onSelect(category);
-                    }}
-                    aria-label={`Избери категория ${category.name}`}
-                    className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
-                  >
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
-                      {category.name}
-                    </span>
+                        <button
+                          type="button"
+                          data-category-menu-trigger="true"
+                          onClick={(e) => handleToggleMenu(e, category)}
+                          className={`
+                            w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 flex items-center justify-center rounded-bl-xl transition-colors cursor-pointer
+                            focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500
+                            ${
+                              isMenuOpen
+                                ? "bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-300"
+                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700/80"
+                            }
+                          `}
+                          title="Действия с категорията"
+                          aria-label={`Опции за категория ${category.name}`}
+                          aria-haspopup="menu"
+                          aria-expanded={isMenuOpen}
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
 
-                    {category.isCustom && (
-                      <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-300 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                        Потребителска
-                      </span>
-                    )}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenMenu(null);
+                          onSelect(category);
+                        }}
+                        aria-label={`Избери категория ${category.name}`}
+                        className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
+                      >
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
+                          {category.name}
+                        </span>
+                        <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-300 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                          Потребителска
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Predefined Categories Section */}
+          {predefinedCategories.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between px-0.5">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Предефинирани категории ({predefinedCategories.length})
+                </h4>
+              </div>
+              <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 gap-2.5">
+                {predefinedCategories.map((category) => {
+                  const IconComp = AVAILABLE_ICONS_MAP[category.iconName] || AVAILABLE_ICONS_MAP.Tag;
+                  const isMenuOpen = openMenu?.category.id === category.id;
+
+                  return (
+                    <div
+                      key={category.id}
+                      className={`
+                        group relative bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 rounded-2xl flex flex-col
+                        border shadow-sm hover:shadow-md transition-all select-none overflow-hidden
+                        ${
+                          isMenuOpen
+                            ? "border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-500/20"
+                            : "border-slate-200/90 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-500"
+                        }
+                      `}
+                    >
+                      <div className="flex items-start justify-between w-full">
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-hidden="true"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            onSelect(category);
+                          }}
+                          className="flex-1 pt-3 pl-3 pb-1 flex items-center justify-start cursor-pointer focus:outline-none"
+                        >
+                          <div
+                            className={`
+                              w-11 h-11 rounded-2xl flex items-center justify-center shadow-xs
+                              ${getCategoryBadgeClasses(category.colorClass)}
+                              group-hover:scale-105 transition-transform duration-200
+                            `}
+                          >
+                            <IconComp className="w-5 h-5" />
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          data-category-menu-trigger="true"
+                          onClick={(e) => handleToggleMenu(e, category)}
+                          className={`
+                            w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 flex items-center justify-center rounded-bl-xl transition-colors cursor-pointer
+                            focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500
+                            ${
+                              isMenuOpen
+                                ? "bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-300"
+                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700/80"
+                            }
+                          `}
+                          title="Действия с категорията"
+                          aria-label={`Опции за категория ${category.name}`}
+                          aria-haspopup="menu"
+                          aria-expanded={isMenuOpen}
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenMenu(null);
+                          onSelect(category);
+                        }}
+                        aria-label={`Избери категория ${category.name}`}
+                        className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
+                      >
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
+                          {category.name}
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {filteredCategories.length === 0 && !isAddingNew && (
             <div className="text-center py-12 bg-white dark:bg-slate-800/80 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
@@ -833,50 +1009,14 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
       )}
 
       {/* --- Delete Confirmation Modal --- */}
-      {categoryToDelete && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div
-            className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 space-y-4 animate-in zoom-in-95 duration-200 transition-colors"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="delete-category-title"
-          >
-            <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-
-            <div className="text-center space-y-1.5">
-              <h4
-                id="delete-category-title"
-                className="font-bold text-slate-900 dark:text-white text-base"
-              >
-                Изтриване на категория &quot;{categoryToDelete.name}&quot;?
-              </h4>
-              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                Сигурни ли сте, че искате да изтриете категорията &quot;<strong>{categoryToDelete.name}</strong>&quot;?
-                Тя няма да бъде налична за избор при бъдещи записи.
-              </p>
-            </div>
-
-            <div className="flex gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setCategoryToDelete(null)}
-                className="flex-1 min-h-[44px] py-2.5 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
-              >
-                Отказ
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="flex-1 min-h-[44px] py-2.5 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm active:scale-95 cursor-pointer"
-              >
-                Изтрий
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDeleteDialog
+        isOpen={Boolean(categoryToDelete)}
+        onCancel={() => setCategoryToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        detailLabel={
+          categoryToDelete ? `Категория: ${categoryToDelete.name}` : undefined
+        }
+      />
     </div>
   );
 };

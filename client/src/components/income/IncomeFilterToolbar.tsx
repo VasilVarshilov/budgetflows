@@ -252,7 +252,7 @@ export const IncomeFilterToolbar: React.FC<IncomeFilterToolbarProps> = ({
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
-            Фиксирани
+            Повтарящи се
           </button>
           <button
             type="button"

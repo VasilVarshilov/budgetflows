@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Minus,
@@ -21,8 +21,12 @@ import {
 import { ExpenseCategory, IncomeItem } from "@/types";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
+import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 import { getHexFromTailwindClass } from "@/utils/colors";
-import { getCategoryBadgeClasses } from "@/utils/categoryStorage";
+import {
+  getCategoryBadgeClasses,
+  loadStoredIncomeCategories,
+} from "@/utils/categoryStorage";
 import { useTheme } from "@/utils/themeContext";
 import {
   parseDecimalInput,
@@ -118,14 +122,29 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   savingsData,
 }) => {
   const { isDark } = useTheme();
-  const [categories, setCategories] = useState<ExpenseCategory[]>(
-    PREDEFINED_INCOME_CATEGORIES,
+  const [categories, setCategories] = useState<ExpenseCategory[]>(() =>
+    loadStoredIncomeCategories(),
   );
+
+  useEffect(() => {
+    const syncCats = () => setCategories(loadStoredIncomeCategories());
+    window.addEventListener("homebudget:categories-updated", syncCats);
+    window.addEventListener("homebudget:data-restored", syncCats);
+    window.addEventListener("storage", syncCats);
+    return () => {
+      window.removeEventListener("homebudget:categories-updated", syncCats);
+      window.removeEventListener("homebudget:data-restored", syncCats);
+      window.removeEventListener("storage", syncCats);
+    };
+  }, []);
 
   // UI State
   const [isAdding, setIsAdding] = useState(false);
   const [transactionType, setTransactionType] = useState<"income" | "expense">(
     "income",
+  );
+  const [pendingDeleteTx, setPendingDeleteTx] = useState<IncomeItem | null>(
+    null,
   );
 
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -293,17 +312,16 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   // Handlers
   const handleAddNewCategory = (catOrName: ExpenseCategory | string) => {
     if (typeof catOrName === "string") {
-      const newCat: ExpenseCategory = {
-        id: `custom_inc_${Date.now()}`,
-        name: catOrName,
-        iconName: "Wallet",
-        colorClass: "bg-slate-100 text-slate-600",
-        isCustom: true,
-      };
-      setCategories((prev) => [...prev, newCat]);
-      handleSelectCategory(newCat);
+      const latest = loadStoredIncomeCategories();
+      const matched = latest.find(
+        (c) => c.name.trim().toLowerCase() === catOrName.trim().toLowerCase(),
+      );
+      if (matched) {
+        setCategories(latest);
+        handleSelectCategory(matched);
+      }
     } else {
-      setCategories((prev) => [...prev, catOrName]);
+      setCategories(loadStoredIncomeCategories());
       handleSelectCategory(catOrName);
     }
   };
@@ -356,6 +374,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   const handleDeleteTransaction = (id: string) => {
     const newData = savingsData.filter((e) => e.id !== id);
     onUpdateSavings(newData);
+    setPendingDeleteTx(null);
   };
 
   // Calculations for Current Total Balance
@@ -743,7 +762,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       {item.amount.toFixed(2)}
                     </span>
                     <button
-                      onClick={() => handleDeleteTransaction(item.id)}
+                      onClick={() => setPendingDeleteTx(item)}
                       className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 text-slate-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                       title="Изтрий транзакция"
                       aria-label="Изтрий транзакция"
@@ -784,12 +803,30 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
       {/* Category Picker Modal */}
       {showCategoryPicker && (
         <CategoryPicker
+          mode="income"
           categories={categories}
           onSelect={handleSelectCategory}
           onClose={() => setShowCategoryPicker(false)}
           onAddNewCategory={handleAddNewCategory}
+          onCategoriesChanged={setCategories}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmDeleteDialog
+        isOpen={Boolean(pendingDeleteTx)}
+        detailLabel={
+          pendingDeleteTx
+            ? `${pendingDeleteTx.categoryName} (${pendingDeleteTx.type === "expense" ? "-" : "+"}€${pendingDeleteTx.amount.toFixed(2)})`
+            : undefined
+        }
+        onCancel={() => setPendingDeleteTx(null)}
+        onConfirm={() => {
+          if (pendingDeleteTx) {
+            handleDeleteTransaction(pendingDeleteTx.id);
+          }
+        }}
+      />
 
       {/* Export Modal */}
       {isExportModalOpen && (
