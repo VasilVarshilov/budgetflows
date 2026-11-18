@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   Download,
   Upload,
-  Database,
-  FileJson,
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
@@ -14,13 +12,11 @@ import {
   DollarSign,
   Sliders,
   ShieldCheck,
-  FolderArchive,
-  ArrowRight,
   X,
   FileCheck,
   AlertOctagon,
-  Copy,
-  Check,
+  FileSpreadsheet,
+  FolderArchive,
 } from "lucide-react";
 import {
   exportBackupFile,
@@ -28,10 +24,10 @@ import {
   validateBackupOwnership,
   applyBackup,
   gatherApplicationData,
-  DEFAULT_SETTINGS,
 } from "@/utils/backupRestore";
+import { exportCsvZipBackup } from "@/utils/csvExport";
 import { useCloudSync } from "@/utils/cloudSyncContext";
-import { BackupData, AppSettings } from "@/types";
+import { BackupData } from "@/types";
 import { GoogleAuthCard } from "@/components/auth/GoogleAuthCard";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
 
@@ -44,9 +40,8 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
 }) => {
   const { user, activeUid } = useCloudSync();
 
-  // Current system snapshot
+  // Current system snapshot (used inside Import preview comparison table)
   const [currentSnapshot, setCurrentSnapshot] = useState<BackupData | null>(null);
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   // File import state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,16 +56,13 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
   // Notifications
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [copiedJson, setCopiedJson] = useState(false);
 
   const ownerInfo = user ? { uid: user.uid, email: user.email } : undefined;
 
-  // Refresh current data snapshot
   const refreshSnapshot = () => {
     try {
       const data = gatherApplicationData(ownerInfo);
       setCurrentSnapshot(data);
-      setSettings(data.data.settings);
     } catch (e) {
       console.error("Failed gathering app data snapshot:", e);
     }
@@ -100,7 +92,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
     };
   }, [activeUid]);
 
-  // Handle Export Backup
+  // Export Full Backup (JSON)
   const handleExportBackup = () => {
     setErrorMessage(null);
     try {
@@ -118,19 +110,24 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
     }
   };
 
-  // Handle Copy JSON to clipboard
-  const handleCopyJson = () => {
+  // Export Spreadsheet Archive (CSV ZIP)
+  const handleExportCsv = () => {
+    setErrorMessage(null);
     try {
-      const data = gatherApplicationData(ownerInfo);
-      navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-      setCopiedJson(true);
-      setTimeout(() => setCopiedJson(false), 2500);
-    } catch (e) {
-      setErrorMessage("Неуспешно копиране в клипборда.");
+      const summary = exportCsvZipBackup(ownerInfo);
+      setSuccessMessage(
+        `CSV архивът "${summary.filename}" беше изтеглен успешно (${summary.expensesCount} разхода, ${summary.incomesCount} дохода, ${summary.savingsCount} спестявания).`
+      );
+      setTimeout(() => setSuccessMessage(null), 8000);
+    } catch (err: any) {
+      setErrorMessage(
+        "Възникна грешка при експортирането в CSV: " +
+          (err?.message || "Неизвестна грешка")
+      );
     }
   };
 
-  // Handle File Selection
+  // Handle File Selection for Import Backup (JSON)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -199,7 +196,6 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
 
       refreshSnapshot();
 
-      // Trigger app state update
       if (onDataRestored) {
         onDataRestored();
       }
@@ -260,166 +256,50 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
         </div>
       )}
 
-      {/* Cloud Backup (Google Drive appDataFolder) - Highest Priority at the Top */}
+      {/* 1. Google Drive Backup */}
       <GoogleAuthCard onOpenRestoreModal={() => setIsDriveRestoreOpen(true)} />
 
-      {/* Top Banner / Hero */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold tracking-wide border border-indigo-400/20">
-              <FolderArchive className="w-3.5 h-3.5" />
-              <span>СИГУРНОСТ & АРХИВИРАНЕ</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-              Архив и Възстановяване (Backup & Restore)
-            </h1>
-            <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
-              Експортирайте всичките си финансови данни в структуриран JSON файл
-              или възстановете съществуващ архив с опция за интелигентно
-              обединяване или пълна замяна.
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              onClick={handleExportBackup}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <Download className="w-4 h-4" />
-              <span>Експорт на архив</span>
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm border border-white/20 backdrop-blur-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <Upload className="w-4 h-4" />
-              <span>Импорт на архив</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* System Status Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium mb-1">
-            <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Доходи</span>
-          </div>
-          <div className="text-xl font-bold text-slate-800 dark:text-white">
-            {currentSnapshot?.summary.incomeCount ?? 0}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">записа в системата</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium mb-1">
-            <Layers className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-            <span>Разходи</span>
-          </div>
-          <div className="text-xl font-bold text-slate-800 dark:text-white">
-            {currentSnapshot?.summary.expensesCount ?? 0}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">повтарящи се & допълнителни</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium mb-1">
-            <PiggyBank className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-            <span>Спестявания</span>
-          </div>
-          <div className="text-xl font-bold text-slate-800 dark:text-white">
-            {currentSnapshot?.summary.savingsCount ?? 0}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">транзакции</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium mb-1">
-            <Zap className="w-4 h-4 text-amber-500" />
-            <span>Сметки Ток</span>
-          </div>
-          <div className="text-xl font-bold text-slate-800 dark:text-white">
-            {currentSnapshot?.summary.electricityCount ?? 0}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">в историята</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium mb-1">
-            <Calendar className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <span>Месеци</span>
-          </div>
-          <div className="text-xl font-bold text-slate-800 dark:text-white">
-            {currentSnapshot?.summary.monthsCovered.length ?? 0}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">с въведени данни</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium mb-1">
-            <ShieldCheck className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-            <span>Последен архив</span>
-          </div>
-          <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate" title={settings.lastBackupDate}>
-            {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleDateString("bg-BG") : "Няма"}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">
-            {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleTimeString("bg-BG", { hour: "2-digit", minute: "2-digit" }) : "препоръчително"}
-          </div>
-        </div>
-      </div>
-
-      {/* Two Column Action Cards: Export & Import */}
+      {/* 2. Export Backup & 3. Import Backup */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Export Card */}
+        {/* Export Backup Card */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <div className="p-3 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                <FileJson className="w-6 h-6" />
+                <FolderArchive className="w-6 h-6" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-800 dark:text-white">
-                  Експорт на пълен архив (Export Backup)
+                  Експорт на данни
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Изтегляне на всички модули в един структуриран JSON файл
+                  Изтеглете пълен архив или таблица за Excel и Google Sheets
                 </p>
               </div>
             </div>
 
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Генерира надежден JSON архив, съдържащ абсолютно всички данни от
-              приложението:
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+              Създайте резервно копие на всички ваши доходи, разходи, спестявания,
+              сметки за ток и настройки или изтеглете CSV файлове за анализ в
+              табличен редактор.
             </p>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
-                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Доходи (Income)</span>
+            <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
+              <div className="flex items-start gap-2">
+                <Download className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                <span>
+                  <strong className="text-slate-800 dark:text-slate-100">Пълен архив (JSON):</strong>{" "}
+                  съхранява всички модули и може да бъде възстановен по всяко време.
+                </span>
               </div>
-              <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
-                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Разходи (Expenses)</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
-                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Спестявания (Savings)</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
-                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>История на тока (Electricity)</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
-                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Категории (Categories)</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
-                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Бюджети & Настройки</span>
+              <div className="flex items-start gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <span>
+                  <strong className="text-slate-800 dark:text-slate-100">CSV таблици:</strong>{" "}
+                  включва <span className="font-medium">expenses.csv</span>,{" "}
+                  <span className="font-medium">incomes.csv</span> и{" "}
+                  <span className="font-medium">savings.csv</span> (UTF-8).
+                </span>
               </div>
             </div>
           </div>
@@ -430,29 +310,19 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-sm shadow-md transition-all"
             >
               <Download className="w-4 h-4" />
-              <span>Експорт на архив (Export Backup)</span>
+              <span>Експорт архив (JSON)</span>
             </button>
             <button
-              onClick={handleCopyJson}
-              title="Копирай JSON в клипборда"
-              className="px-4 py-3 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl font-medium text-sm inline-flex items-center justify-center gap-2 transition-colors"
+              onClick={handleExportCsv}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 border border-emerald-200 dark:border-emerald-800 bg-emerald-50/80 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-xl font-medium text-sm transition-all"
             >
-              {copiedJson ? (
-                <>
-                  <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span className="text-emerald-600 dark:text-emerald-400">Копирано</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                  <span>Копирай JSON</span>
-                </>
-              )}
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Експорт CSV</span>
             </button>
           </div>
         </div>
 
-        {/* Import Card */}
+        {/* Import Backup Card */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
@@ -461,17 +331,18 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-800 dark:text-white">
-                  Възстановяване от архив (Import Backup)
+                  Импорт на архив
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Валидация, предварителен преглед и избор на режим
+                  Възстановяване на данни от запазен архивен файл
                 </p>
               </div>
             </div>
 
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Заредете съхранен JSON файл с архив. Системата автоматично проверява
-              файла и отваря интерактивен прозорец за преглед преди запис:
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+              Изберете предварително изтеглен файл с архив. Преди да се запишат
+              промените, ще видите преглед и ще изберете дали да обедините или
+              замените данните.
             </p>
 
             {/* Hidden real file input */}
@@ -493,10 +364,10 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               </div>
               <div>
                 <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                  Кликнете тук за избор на JSON файл
+                  Кликнете тук за избор на файл
                 </span>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Поддържа формат BudgetFlows Backup (*.json)
+                  Поддържа файлове с архив на BudgetFlows (.json)
                 </p>
               </div>
             </div>
@@ -504,7 +375,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/60">
               <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0" />
               <span>
-                Защита от случайна загуба: Преглед на записите преди всяко възстановяване.
+                Защита от случайна загуба: преглед на записите преди възстановяване.
               </span>
             </div>
           </div>
@@ -515,56 +386,8 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium text-sm shadow-md transition-all"
             >
               <Upload className="w-4 h-4" />
-              <span>Импорт на архив (Import Backup)</span>
+              <span>Импорт на архив (JSON)</span>
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Structure Information Accordion / Card */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-slate-800 dark:text-white font-bold text-base">
-            <Database className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <span>Структура на архива и съвместимост</span>
-          </div>
-          <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full">
-            JSON Schema v1.0
-          </span>
-        </div>
-
-        <div className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
-            <div className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>1. Доходи & Разходи</span>
-            </div>
-            <p>
-              Пълна история на месеците, повтарящи се разходи (кредит, телефон,
-              интернет), допълнителни разходи и въведени доходи.
-            </p>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
-            <div className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-amber-500" />
-              <span>2. Електроенергия & Спестявания</span>
-            </div>
-            <p>
-              Всички изчислени сметки за ток с показания на електромерите, цени
-              на тарифи Т1/Т2 и транзакции на спестовния фонд.
-            </p>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
-            <div className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>3. Категории, Бюджети & Настройки</span>
-            </div>
-            <p>
-              Персонализирани категории, месечни лимити за харчене, валута и
-              параметри на тарифите по подразбиране.
-            </p>
           </div>
         </div>
       </div>
@@ -601,21 +424,13 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
             {/* Modal Body */}
             <div className="p-5 sm:p-6 overflow-y-auto space-y-6">
               {/* File Metadata Overview */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-indigo-50/60 dark:bg-indigo-950/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-indigo-50/60 dark:bg-indigo-950/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
                 <div>
                   <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
                     Дата на архива
                   </div>
                   <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
                     {formatIsoDate(pendingBackup.exportDate)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
-                    Версия на схемата
-                  </div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                    v{pendingBackup.version || "1.0"}
                   </div>
                 </div>
                 <div>
@@ -646,7 +461,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>Доходи (Income)</span>
+                          <span>Доходи</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.incomeCount ?? 0}
@@ -659,7 +474,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                          <span>Разходи (Expenses)</span>
+                          <span>Разходи</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.expensesCount ?? 0}
@@ -672,7 +487,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <PiggyBank className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                          <span>Спестявания (Savings)</span>
+                          <span>Спестявания</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.savingsCount ?? 0}
@@ -685,7 +500,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Zap className="w-3.5 h-3.5 text-amber-500" />
-                          <span>Сметки за ток (Electricity History)</span>
+                          <span>Сметки за ток</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.electricityCount ?? 0}
@@ -754,7 +569,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                           className="text-indigo-600 focus:ring-indigo-500"
                         />
                         <span className="font-bold text-sm text-slate-800 dark:text-white">
-                          Обединяване (Merge)
+                          Обединяване
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
@@ -787,7 +602,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                           className="text-rose-600 focus:ring-rose-500"
                         />
                         <span className="font-bold text-sm text-slate-800 dark:text-white">
-                          Пълна замяна (Replace)
+                          Пълна замяна
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 px-2 py-0.5 rounded-full">
@@ -812,10 +627,9 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                         Внимание: Пълната замяна ще изтрие текущите данни!
                       </div>
                       <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
-                        Всички записи в базата данни на браузъра ще бъдат
-                        заменени с тези от файла. За да предотвратим случайна
-                        загуба на информация, е необходимо вашето изрично
-                        потвърждение.
+                        Всички текущи записи в браузъра ще бъдат заменени с тези
+                        от файла. За да предотвратим случайна загуба на данни, е
+                        необходимо вашето изрично потвърждение.
                       </p>
                     </div>
                   </div>
@@ -863,12 +677,12 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 {importMode === "replace" ? (
                   <>
                     <AlertTriangle className="w-4 h-4" />
-                    <span>Замени и възстанови (Confirm Replace)</span>
+                    <span>Замени и възстанови</span>
                   </>
                 ) : (
                   <>
                     <RefreshCw className="w-4 h-4" />
-                    <span>Обедини данните (Confirm Merge)</span>
+                    <span>Обедини данните</span>
                   </>
                 )}
               </button>
