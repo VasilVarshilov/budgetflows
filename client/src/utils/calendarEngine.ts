@@ -48,6 +48,7 @@ export interface CalendarEvent {
   recurrenceSourceId?: string;
   recurrenceOccurrenceKey?: string;
   templateId?: string;
+  sourceMonthKey?: string;
 }
 
 export interface CalendarDayCell {
@@ -104,8 +105,15 @@ export function resolveRecordDateKey(
   item: Pick<ExpenseItem, "expectedDate" | "date" | "createdAt" | "recurrenceOccurrenceKey">,
   fallbackMonthKey?: string
 ): string {
-  if (item.expectedDate && /^\d{4}-\d{2}-\d{2}$/.test(item.expectedDate.trim())) {
-    return item.expectedDate.trim();
+  const rawExpected = (item.expectedDate || "").trim();
+  if (rawExpected) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(rawExpected)) {
+      return rawExpected;
+    }
+    const parsedExpected = new Date(rawExpected);
+    if (!isNaN(parsedExpected.getTime())) {
+      return toLocalDateKey(parsedExpected);
+    }
   }
 
   const rawDate = (item.date || item.createdAt || "").trim();
@@ -399,6 +407,7 @@ export function getCalendarEventsForRange(
           isProjected: true,
           recurrenceSourceId: root.item.id,
           recurrenceOccurrenceKey: occKey,
+          sourceMonthKey: root.monthKey,
         });
       }
 
@@ -440,6 +449,7 @@ export function getCalendarEventsForRange(
           isProjected: true,
           recurrenceSourceId: root.item.id,
           recurrenceOccurrenceKey: occKey,
+          sourceMonthKey: root.monthKey,
         });
       }
 

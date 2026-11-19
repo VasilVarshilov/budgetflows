@@ -335,11 +335,11 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
               <button
                 type="button"
                 onClick={() => updateLiveFilter("budgetCategoryId", "all")}
-                className="inline-flex items-center gap-1 bg-violet-50 dark:bg-violet-950/60 hover:bg-violet-100 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 px-2.5 py-1 rounded-lg border border-violet-200/80 dark:border-violet-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="Премахни филтър за бюджет"
+                className="inline-flex items-center gap-1 max-w-[210px] sm:max-w-[260px] bg-violet-50 dark:bg-violet-950/60 hover:bg-violet-100 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 px-2.5 py-1 rounded-lg border border-violet-200/80 dark:border-violet-800 text-[11px] font-semibold transition-colors cursor-pointer shrink-0"
+                title={`Премахни филтър за бюджет: ${selectedBudgetName}`}
               >
-                <span>Бюджет: {selectedBudgetName}</span>
-                <X className="w-3 h-3 opacity-75" />
+                <span className="truncate">Бюджет: {selectedBudgetName}</span>
+                <X className="w-3 h-3 opacity-75 shrink-0" />
               </button>
             )}
 

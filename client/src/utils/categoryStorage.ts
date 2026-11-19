@@ -683,18 +683,23 @@ function syncLinkedBudgetsOnCategoryRename(
       if (!b || b.id === "total_monthly" || b.categoryName === "__TOTAL_MONTHLY__") {
         return b;
       }
+      const bNorm = (b.categoryName || "").trim().toLowerCase();
       const isLinkedById = b.categoryId === categoryId;
-      const isUnlinkedByOldName =
-        !b.categoryId && b.categoryName.trim().toLowerCase() === oldNorm;
+      const isUnlinkedByOldName = !b.categoryId && bNorm === oldNorm;
 
       if (isLinkedById || isUnlinkedByOldName) {
-        updatedBudgetIds.add(b.id);
-        if (b.categoryName !== newName || b.categoryId !== categoryId) {
+        // Only update the budget's display name if it matched the old category name;
+        // custom budget names (e.g. "Hobby & Gaming") remain preserved.
+        const shouldRenameBudget = bNorm === oldNorm;
+        if (shouldRenameBudget) {
+          updatedBudgetIds.add(b.id);
+        }
+        if ((shouldRenameBudget && b.categoryName !== newName) || b.categoryId !== categoryId) {
           budgetsChanged = true;
           return {
             ...b,
             categoryId,
-            categoryName: newName,
+            categoryName: shouldRenameBudget ? newName : b.categoryName,
           };
         }
       }

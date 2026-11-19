@@ -8,6 +8,7 @@ import {
   Repeat,
   ArrowDownLeft,
   ArrowUpRight,
+  ChevronRight as ChevronOpenIcon,
   X,
 } from "lucide-react";
 import { MonthlyRecord } from "@/types";
@@ -36,6 +37,7 @@ interface CalendarTabProps {
     nextCompleted: boolean;
   }) => void;
   onMaterializeProjectedEvent?: (event: CalendarEvent) => void;
+  onOpenEvent?: (event: CalendarEvent) => void;
   onNavigateTab?: (
     tab:
       | "dashboard"
@@ -68,6 +70,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   onConsumeInitialDate,
   onToggleRecordCompletion,
   onMaterializeProjectedEvent,
+  onOpenEvent,
   onNavigateTab,
 }) => {
   const [viewCursor, setViewCursor] = useState<{ year: number; month: number }>(() => {
@@ -133,9 +136,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   }, [filteredEvents]);
 
   const monthPrefix = `${viewCursor.year}-${String(viewCursor.month + 1).padStart(2, "0")}-`;
-  const currentMonthSummary = useMemo(() => {
+  const { currentMonthSummary, upcomingExpensesCount, upcomingIncomesCount } = useMemo(() => {
     const inMonthEvents = filteredEvents.filter((e) => e.dateKey.startsWith(monthPrefix));
-    return summarizeDayEvents(inMonthEvents);
+    return {
+      currentMonthSummary: summarizeDayEvents(inMonthEvents),
+      upcomingExpensesCount: inMonthEvents.filter((e) => e.kind === "expense" && e.isUpcoming).length,
+      upcomingIncomesCount: inMonthEvents.filter((e) => e.kind === "income" && e.isUpcoming).length,
+    };
   }, [filteredEvents, monthPrefix]);
 
   const selectedDayEvents = useMemo(
@@ -179,6 +186,12 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       setViewCursor({ year: d.getFullYear(), month: d.getMonth() });
     }
     setIsMobileDrawerOpen(true);
+  };
+
+  const handleOpenTransaction = (ev: CalendarEvent) => {
+    if (!onOpenEvent) return;
+    setIsMobileDrawerOpen(false);
+    onOpenEvent(ev);
   };
 
   const renderDayDetailsContent = () => {
@@ -250,7 +263,21 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               {incomes.map((ev) => (
                 <div
                   key={ev.id}
-                  className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between gap-2"
+                  role={onOpenEvent ? "button" : undefined}
+                  tabIndex={onOpenEvent ? 0 : undefined}
+                  onClick={() => handleOpenTransaction(ev)}
+                  onKeyDown={(e) => {
+                    if (onOpenEvent && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      handleOpenTransaction(ev);
+                    }
+                  }}
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-colors ${
+                    ev.isUpcoming
+                      ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
+                      : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
+                  } ${onOpenEvent ? "cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-700" : ""}`}
+                  title={onOpenEvent ? "Отвори прихода за преглед / редакция" : undefined}
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -263,9 +290,16 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                           aria-label="Повтарящ се"
                         />
                       )}
+                      {onOpenEvent && (
+                        <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      )}
                     </div>
                     <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
-                      <span className="inline-flex items-center gap-1">
+                      <span
+                        className={`inline-flex items-center gap-1 ${
+                          ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                        }`}
+                      >
                         {ev.isCompleted ? (
                           <CheckCircle2 className="w-3 h-3 text-emerald-500" />
                         ) : (
@@ -288,8 +322,17 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                  <div
+                    className="flex items-center gap-2 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span
+                      className={`text-sm font-bold tabular-nums ${
+                        ev.isUpcoming
+                          ? "text-amber-700 dark:text-amber-300"
+                          : "text-emerald-700 dark:text-emerald-400"
+                      }`}
+                    >
                       +€{ev.amount.toFixed(2)}
                     </span>
                     {!ev.isProjected &&
@@ -339,7 +382,21 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               {expenses.map((ev) => (
                 <div
                   key={ev.id}
-                  className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between gap-2"
+                  role={onOpenEvent ? "button" : undefined}
+                  tabIndex={onOpenEvent ? 0 : undefined}
+                  onClick={() => handleOpenTransaction(ev)}
+                  onKeyDown={(e) => {
+                    if (onOpenEvent && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      handleOpenTransaction(ev);
+                    }
+                  }}
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-colors ${
+                    ev.isUpcoming
+                      ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
+                      : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
+                  } ${onOpenEvent ? "cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700" : ""}`}
+                  title={onOpenEvent ? "Отвори разхода за преглед / редакция" : undefined}
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -352,9 +409,16 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                           aria-label="Повтарящ се"
                         />
                       )}
+                      {onOpenEvent && (
+                        <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      )}
                     </div>
                     <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
-                      <span className="inline-flex items-center gap-1">
+                      <span
+                        className={`inline-flex items-center gap-1 ${
+                          ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                        }`}
+                      >
                         {ev.isCompleted ? (
                           <CheckCircle2 className="w-3 h-3 text-emerald-500" />
                         ) : (
@@ -378,8 +442,17 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-bold text-rose-700 dark:text-rose-400 tabular-nums">
+                  <div
+                    className="flex items-center gap-2 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span
+                      className={`text-sm font-bold tabular-nums ${
+                        ev.isUpcoming
+                          ? "text-amber-700 dark:text-amber-300"
+                          : "text-rose-700 dark:text-rose-400"
+                      }`}
+                    >
                       -€{ev.amount.toFixed(2)}
                     </span>
                     {!ev.isProjected &&
@@ -505,19 +578,27 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               -€{currentMonthSummary.expensesTotal.toFixed(2)}
             </span>
           </div>
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              Предстоящи разходи
+          <div className="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-950/35 border border-amber-300/80 dark:border-amber-800/70">
+            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1">
+              <Clock className="w-3 h-3 shrink-0" />
+              <span>Предстоящи разходи</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-[10px] font-extrabold tabular-nums">
+                ({upcomingExpensesCount})
+              </span>
             </span>
-            <span className="text-base font-extrabold text-amber-600 dark:text-amber-400 tabular-nums">
+            <span className="text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 block">
               €{currentMonthSummary.upcomingExpensesTotal.toFixed(2)}
             </span>
           </div>
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              Очаквани приходи
+          <div className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/50">
+            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1">
+              <Clock className="w-3 h-3 shrink-0" />
+              <span>Очаквани приходи</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-[10px] font-extrabold tabular-nums">
+                ({upcomingIncomesCount})
+              </span>
             </span>
-            <span className="text-base font-extrabold text-indigo-600 dark:text-indigo-400 tabular-nums">
+            <span className="text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 block">
               €{currentMonthSummary.upcomingIncomesTotal.toFixed(2)}
             </span>
           </div>

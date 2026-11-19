@@ -35,10 +35,8 @@ import {
 } from "@/utils/budgetStorage";
 import {
   loadStoredCategories,
-  addCategoryToStorage,
   DEFAULT_CATEGORIES,
   AVAILABLE_ICONS_MAP,
-  getAiSuggestedIconAndColor,
   getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
@@ -181,7 +179,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     setIsModalOpen(true);
   };
 
-  // Open modal for Edit — always guarantee Displayed Category === Edited Category
+  // Open modal for Edit — preserve Budget Name AND linked Category independently
   const handleOpenEditModal = (budget: BudgetConfig) => {
     const latestCategories = loadStoredCategories();
     setAvailableCategories(latestCategories);
@@ -189,7 +187,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
     setEditingBudgetId(budget.id);
     setFormData({
-      categoryName: matchedCategory ? matchedCategory.name : budget.categoryName,
+      categoryName: budget.categoryName,
       categoryId: matchedCategory ? matchedCategory.id : "",
       monthlyLimit: budget.monthlyLimit.toString(),
     });
@@ -197,31 +195,27 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     setIsModalOpen(true);
   };
 
-  // Handle Form Category Selection Change
+  // Handle Form Linked Category Selection Change
   const handleCategorySelect = (categoryId: string) => {
-    if (categoryId === "__custom_current__") {
-      setFormData((prev) => ({
+    const nextFound = availableCategories.find((c) => c.id === categoryId);
+    setFormData((prev) => {
+      const prevMatched = prev.categoryId
+        ? availableCategories.find((c) => c.id === prev.categoryId)
+        : undefined;
+      const shouldAutoFillName =
+        !editingBudgetId &&
+        (!prev.categoryName.trim() ||
+          (prevMatched &&
+            prev.categoryName.trim().toLowerCase() ===
+              prevMatched.name.trim().toLowerCase()));
+
+      return {
         ...prev,
-        categoryId: "",
-      }));
-      return;
-    }
-    if (categoryId === "custom") {
-      setFormData((prev) => ({
-        ...prev,
-        categoryId: "",
-        categoryName: "",
-      }));
-    } else {
-      const found = availableCategories.find((c) => c.id === categoryId);
-      if (found) {
-        setFormData((prev) => ({
-          ...prev,
-          categoryId: found.id,
-          categoryName: found.name,
-        }));
-      }
-    }
+        categoryId,
+        categoryName:
+          shouldAutoFillName && nextFound ? nextFound.name : prev.categoryName,
+      };
+    });
   };
 
   // Submit Modal Form
@@ -229,7 +223,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     e.preventDefault();
     const trimmedName = formData.categoryName.trim();
     if (!trimmedName) {
-      setFormError("Моля, посочете име на категорията.");
+      setFormError("Моля, посочете име на бюджета.");
       return;
     }
     const limit = parseDecimalInput(formData.monthlyLimit);
@@ -238,30 +232,23 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       return;
     }
 
-    let matchedCat = resolveCategoryForBudget(
-      { categoryId: formData.categoryId || undefined, categoryName: trimmedName },
-      availableCategories
-    );
-
-    if (!matchedCat) {
-      const updatedCats = addCategoryToStorage({ name: trimmedName });
-      setAvailableCategories(updatedCats);
-      matchedCat = updatedCats.find(
-        (c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()
-      );
-    }
+    const linkedCatId =
+      formData.categoryId &&
+      availableCategories.some((c) => c.id === formData.categoryId)
+        ? formData.categoryId
+        : "";
 
     if (editingBudgetId) {
       const updated = updateCategoryBudget(editingBudgetId, {
-        categoryName: matchedCat ? matchedCat.name : trimmedName,
-        categoryId: matchedCat ? matchedCat.id : undefined,
+        categoryName: trimmedName,
+        categoryId: linkedCatId,
         monthlyLimit: limit,
       });
       setCategoryBudgets(updated);
     } else {
       const updated = addCategoryBudget({
-        categoryName: matchedCat ? matchedCat.name : trimmedName,
-        categoryId: matchedCat ? matchedCat.id : undefined,
+        categoryName: trimmedName,
+        categoryId: linkedCatId,
         monthlyLimit: limit,
       });
       setCategoryBudgets(updated);
@@ -624,20 +611,36 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                 >
                   <div>
                     {/* Card Top: Icon, Title, Actions */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
                         <div
                           className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.colorClass)}`}
                         >
                           <IconComponent className="w-5 h-5" />
                         </div>
-                        <div className="min-w-0">
-                          <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                        <div className="min-w-0 flex-1">
+                          <h4
+                            className="font-bold text-slate-900 dark:text-white text-sm leading-snug line-clamp-2 break-words"
+                            title={item.budget.categoryName}
+                          >
                             {item.budget.categoryName}
                           </h4>
-                          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-                            Лимит: €{item.limit.toFixed(2)}
-                          </span>
+                          {(() => {
+                            const linkedCat = item.budget.categoryId
+                              ? availableCategories.find((c) => c.id === item.budget.categoryId)
+                              : undefined;
+                            const showLinkedCat =
+                              linkedCat &&
+                              linkedCat.name.trim().toLowerCase() !==
+                                item.budget.categoryName.trim().toLowerCase();
+                            return (
+                              <span className="text-xs text-slate-600 dark:text-slate-300 font-medium tabular-nums block truncate mt-0.5">
+                                {showLinkedCat
+                                  ? `${linkedCat.name} · Лимит: €${item.limit.toFixed(2)}`
+                                  : `Лимит: €${item.limit.toFixed(2)}`}
+                              </span>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -729,7 +732,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   {item.isExceeded && (
                     <div className="mt-3.5 pt-2.5 border-t border-rose-100 dark:border-rose-900/60 flex items-start gap-1.5 text-xs text-rose-700 dark:text-rose-300 font-semibold">
                       <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400 mt-0.5" />
-                      <span>
+                      <span className="min-w-0 flex-1 break-words tabular-nums">
                         {item.budget.categoryName} budget exceeded by €
                         {item.overspentAmount.toFixed(2)} (Бюджетът е надвишен)
                       </span>
@@ -889,26 +892,37 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                 </div>
               )}
 
-              {/* Category Dropdown */}
+              {/* Budget Name (Always Editable) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Изберете категория
+                  Име на бюджета
+                </label>
+                <input
+                  type="text"
+                  value={formData.categoryName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      categoryName: e.target.value,
+                    }))
+                  }
+                  placeholder="напр. Храна, Hobby & Gaming, Семейни разходи"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 px-3 py-2 min-h-[42px] rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
+                  required
+                />
+              </div>
+
+              {/* Linked Expense Category Dropdown (Editable Independently) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Свързана категория разходи (по избор)
                 </label>
                 {(() => {
                   const hasMatchingOption = Boolean(
                     formData.categoryId &&
                       availableCategories.some((c) => c.id === formData.categoryId)
                   );
-                  const isEditingCustomName = Boolean(
-                    !hasMatchingOption &&
-                      editingBudgetId &&
-                      formData.categoryName.trim()
-                  );
-                  const selectValue = hasMatchingOption
-                    ? formData.categoryId
-                    : isEditingCustomName
-                    ? "__custom_current__"
-                    : "custom";
+                  const selectValue = hasMatchingOption ? formData.categoryId : "";
 
                   const defaultIdSet = new Set(DEFAULT_CATEGORIES.map((c) => c.id));
                   const customCats = availableCategories.filter(
@@ -922,8 +936,11 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <select
                       value={selectValue}
                       onChange={(e) => handleCategorySelect(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 min-h-[42px] rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                     >
+                      <option value="" className="dark:bg-slate-800 dark:text-white">
+                        -- Без свързана категория (ръчно присвояване) --
+                      </option>
                       {customCats.length > 0 && (
                         <optgroup label="Потребителски категории">
                           {customCats.map((cat) => (
@@ -940,40 +957,13 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           </option>
                         ))}
                       </optgroup>
-                      {isEditingCustomName && (
-                        <option value="__custom_current__" className="dark:bg-slate-800 dark:text-white">
-                          {formData.categoryName.trim()}
-                        </option>
-                      )}
-                      <option value="custom" className="dark:bg-slate-800 dark:text-white">
-                        + Нова категория
-                      </option>
                     </select>
                   );
                 })()}
+                <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1">
+                  Разходите от избраната категория се отчитат автоматично към този бюджет.
+                </p>
               </div>
-
-              {/* If custom or editing name */}
-              {(!formData.categoryId || formData.categoryId === "custom") && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Име на категорията
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.categoryName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        categoryName: e.target.value,
-                      }))
-                    }
-                    placeholder="напр. Ресторанти, Спорт, Развлечения"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 px-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    required
-                  />
-                </div>
-              )}
 
               {/* Monthly Limit Input */}
               <div>

@@ -50,7 +50,7 @@ import {
   partitionExpensesByRepeat,
   normalizeIncomeByRepeat,
 } from "@/utils/recurrenceEngine";
-import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
+import { MonthlyRecord, IncomeItem, ExpenseItem, OpenRecordTarget } from "@/types";
 
 type Tab = "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
 
@@ -94,15 +94,6 @@ const NAV_TABS: NavTabItem[] = [
     drawerIconClass: "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300",
   },
   {
-    id: "calendar",
-    label: "Календар",
-    description: "Финансов календар по дати",
-    icon: CalendarDays,
-    accentColor: "text-indigo-600 dark:text-indigo-400",
-    drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
-    drawerIconClass: "bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300",
-  },
-  {
     id: "savings",
     label: "Спестявания",
     description: "Спестовен фонд и баланс",
@@ -110,6 +101,15 @@ const NAV_TABS: NavTabItem[] = [
     accentColor: "text-emerald-600 dark:text-emerald-400",
     drawerActiveClass: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900",
     drawerIconClass: "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300",
+  },
+  {
+    id: "calendar",
+    label: "Календар",
+    description: "Финансов календар по дати",
+    icon: CalendarDays,
+    accentColor: "text-indigo-600 dark:text-indigo-400",
+    drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
+    drawerIconClass: "bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300",
   },
   {
     id: "budgets",
@@ -164,6 +164,7 @@ const MOBILE_MORE_TABS = NAV_TABS.slice(5);
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
+  const [pendingRecordTarget, setPendingRecordTarget] = useState<OpenRecordTarget | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => getCurrentMonthBulgarian());
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
@@ -591,6 +592,79 @@ const AppContent: React.FC = () => {
     setActiveTab("calendar");
   }, []);
 
+  const handleOpenRecordFromCalendar = useCallback((ev: CalendarEvent) => {
+    if (ev.recordListType === "template") {
+      setPendingRecordTarget({
+        kind: "income",
+        monthKey: ev.monthKey,
+        recordId: ev.sourceId,
+        recordListType: "template",
+        templateId: ev.templateId,
+        isProjected: ev.isProjected,
+        nonce: Date.now(),
+      });
+      setActiveTab("income");
+      return;
+    }
+
+    let targetMonthKey = ev.isProjected
+      ? ev.sourceMonthKey || ev.monthKey
+      : ev.monthKey;
+
+    if (ev.isProjected && !ev.sourceMonthKey) {
+      for (const [mKey, rec] of Object.entries(monthlyDataRef.current)) {
+        if (!rec) continue;
+        if (ev.kind === "expense") {
+          const foundInFixed = (rec.expenses?.fixed_expenses || []).some(
+            (i) => i.id === ev.sourceId
+          );
+          const foundInAdd = (rec.expenses?.additional_expenses || []).some(
+            (i) => i.id === ev.sourceId
+          );
+          if (foundInFixed || foundInAdd) {
+            targetMonthKey = mKey;
+            break;
+          }
+        } else {
+          const foundInInc = (rec.incomes || []).some(
+            (i) => i.id === ev.sourceId
+          );
+          if (foundInInc) {
+            targetMonthKey = mKey;
+            break;
+          }
+        }
+      }
+    }
+
+    setCurrentMonth(targetMonthKey);
+    setPendingRecordTarget({
+      kind: ev.kind,
+      monthKey: targetMonthKey,
+      recordId: ev.sourceId,
+      recordListType: ev.recordListType,
+      templateId: ev.templateId,
+      isProjected: ev.isProjected,
+      nonce: Date.now(),
+    });
+    setActiveTab(ev.kind === "expense" ? "monthly" : "income");
+  }, []);
+
+  const handleOpenDashboardRecord = useCallback(
+    (target: { kind: "fixed" | "additional" | "income"; monthKey: string; id: string }) => {
+      setCurrentMonth(target.monthKey);
+      setPendingRecordTarget({
+        kind: target.kind === "income" ? "income" : "expense",
+        monthKey: target.monthKey,
+        recordId: target.id,
+        recordListType: target.kind,
+        nonce: Date.now(),
+      });
+      setActiveTab(target.kind === "income" ? "income" : "monthly");
+    },
+    []
+  );
+
   const handleMaterializeProjectedEvent = useCallback(
     (ev: CalendarEvent) => {
       const targetUid = userStorage.getActiveUid();
@@ -935,6 +1009,7 @@ const AppContent: React.FC = () => {
             globalSavings={globalSavings}
             onNavigateTab={setActiveTab}
             onOpenCalendar={handleOpenCalendar}
+            onOpenRecord={handleOpenDashboardRecord}
             onTriggerSync={triggerAutoSync}
             onToggleRecordCompletion={handleToggleRecordCompletion}
           />
@@ -947,6 +1022,9 @@ const AppContent: React.FC = () => {
             onSaveExpenses={handleSaveExpenses}
             allMonthlyData={monthlyData}
             onMonthChange={setCurrentMonth}
+            onOpenCalendar={handleOpenCalendar}
+            pendingRecordTarget={pendingRecordTarget}
+            onConsumeRecordTarget={() => setPendingRecordTarget(null)}
           />
         )}
 
@@ -957,6 +1035,9 @@ const AppContent: React.FC = () => {
             onMonthChange={setCurrentMonth}
             onSaveIncomesForMonth={handleSaveIncomesForMonth}
             onTriggerSync={triggerAutoSync}
+            onOpenCalendar={handleOpenCalendar}
+            pendingRecordTarget={pendingRecordTarget}
+            onConsumeRecordTarget={() => setPendingRecordTarget(null)}
           />
         )}
 
@@ -969,6 +1050,7 @@ const AppContent: React.FC = () => {
               handleToggleRecordCompletion(monthKey, recordType, id, nextCompleted)
             }
             onMaterializeProjectedEvent={handleMaterializeProjectedEvent}
+            onOpenEvent={handleOpenRecordFromCalendar}
             onNavigateTab={setActiveTab}
           />
         )}

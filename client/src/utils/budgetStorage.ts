@@ -89,36 +89,40 @@ function dispatchBudgetsUpdated(): void {
 }
 
 /**
- * Resolves the canonical ExpenseCategory for a BudgetConfig only when the
- * category name actually matches (never returning a mismatched category name).
+ * Resolves the canonical ExpenseCategory for a BudgetConfig.
+ * Supports custom budget names (e.g. "Hobby & Gaming") linked to any ExpenseCategory
+ * while ignoring legacy corrupted preset links (e.g. "b_bills" -> "electricity").
  */
 export function resolveCategoryForBudget(
-  budget: Pick<BudgetConfig, "categoryId" | "categoryName">,
+  budget: Pick<BudgetConfig, "categoryId" | "categoryName"> & { id?: string },
   categories: ExpenseCategory[]
 ): ExpenseCategory | undefined {
   const budgetNameNorm = (budget.categoryName || "").trim().toLowerCase();
-  if (!budgetNameNorm) {
-    return budget.categoryId
-      ? categories.find((c) => c.id === budget.categoryId)
-      : undefined;
-  }
 
   if (budget.categoryId) {
     const byId = categories.find((c) => c.id === budget.categoryId);
-    if (byId && byId.name.trim().toLowerCase() === budgetNameNorm) {
-      return byId;
+    if (byId) {
+      const isLegacyBrokenBillsLink =
+        budget.id === "b_bills" &&
+        byId.id === "electricity" &&
+        budgetNameNorm.includes("сметк");
+      if (!isLegacyBrokenBillsLink) {
+        return byId;
+      }
     }
   }
 
+  if (!budgetNameNorm) return undefined;
   return categories.find((c) => c.name.trim().toLowerCase() === budgetNameNorm);
 }
 
 /**
  * Reconciles BudgetConfig entries with stored ExpenseCategory entries so that:
- * - Displayed categoryName and linked categoryId never conflict.
+ * - Custom budget display names (e.g. "Hobby & Gaming") are ALWAYS preserved.
+ * - Valid linked categoryIds stay linked even when the budget has a custom name.
  * - Stale/mismatched categoryIds (e.g. legacy "b_bills" pointing to "electricity"/"Ток"
- *   while displaying "Сметки и битови") are repaired without losing limits or linked expenses.
- * - Renamed default categories propagate cleanly even when budgets hadn't been persisted yet.
+ *   while displaying "Сметки и битови", or deleted categories) are repaired safely.
+ * - Renamed default categories propagate cleanly if the budget still carried the default name.
  */
 export function reconcileBudgetsWithCategories(
   budgets: BudgetConfig[],
@@ -143,29 +147,34 @@ export function reconcileBudgetsWithCategories(
 
     // 1. Linked by categoryId and found in category store
     if (linkedCat) {
-      const linkedNorm = linkedCat.name.trim().toLowerCase();
-      if (linkedNorm === normName) {
-        if (b.categoryName !== linkedCat.name.trim()) {
-          changed = true;
-          return { ...b, categoryName: linkedCat.name.trim() };
-        }
-        return b;
-      }
-
-      // If another category in the store matches budget.categoryName exactly, link to that one
-      if (exactNameCat) {
+      // Repair historical preset bug where "b_bills" ("Сметки и битови") pointed to "electricity"
+      if (
+        b.id === "b_bills" &&
+        linkedCat.id === "electricity" &&
+        normName.includes("сметк")
+      ) {
         changed = true;
+        const { categoryId: _removed, ...rest } = b;
         return {
-          ...b,
-          categoryId: exactNameCat.id,
-          categoryName: exactNameCat.name.trim(),
+          ...rest,
+          categoryName: trimmedName,
         };
       }
 
-      // Check if budget.categoryName matches the category's historical default name
-      // (meaning the user renamed that default category before budgets were synced)
+      // If budget still has an empty name, fill from linked category
+      if (!trimmedName) {
+        changed = true;
+        return { ...b, categoryName: linkedCat.name.trim() };
+      }
+
+      // If budget still has the historical default name before user renamed that default category,
+      // keep it synced with the renamed category.
       const originalDefaultName = DEFAULT_CAT_NAME_BY_ID.get(linkedCat.id);
-      if (originalDefaultName && normName === originalDefaultName) {
+      if (
+        originalDefaultName &&
+        normName === originalDefaultName &&
+        linkedCat.name.trim().toLowerCase() !== normName
+      ) {
         changed = true;
         return {
           ...b,
@@ -174,36 +183,40 @@ export function reconcileBudgetsWithCategories(
         };
       }
 
-      // Otherwise it is a mismatched preset/custom label (e.g. "Сметки и битови" -> "electricity"/"Ток").
-      // Preserve the budget's display name & limit, and clear the conflicting categoryId.
-      changed = true;
-      const { categoryId: _removed, ...rest } = b;
-      return {
-        ...rest,
-        categoryName: trimmedName || linkedCat.name.trim(),
-      };
-    }
-
-    // 2. No valid categoryId (either undefined or references a deleted/missing category)
-    if (exactNameCat) {
-      if (b.categoryId !== exactNameCat.id || b.categoryName !== exactNameCat.name.trim()) {
+      if (b.categoryName !== trimmedName) {
         changed = true;
-        return {
-          ...b,
-          categoryId: exactNameCat.id,
-          categoryName: exactNameCat.name.trim(),
-        };
+        return { ...b, categoryName: trimmedName };
       }
+
+      // Preserve custom budget display name AND valid linked categoryId independently
       return b;
     }
 
+    // 2. No valid categoryId (either undefined or references a deleted/missing category)
     if (b.categoryId) {
-      // Stale/deleted categoryId — clear it so dropdown never falls back to an unrelated category
+      // Stale/deleted categoryId — repair to exact name match if any, or clear stale link
       changed = true;
+      if (exactNameCat) {
+        return {
+          ...b,
+          categoryId: exactNameCat.id,
+          categoryName: trimmedName || exactNameCat.name.trim(),
+        };
+      }
       const { categoryId: _removed, ...rest } = b;
       return {
         ...rest,
         categoryName: trimmedName,
+      };
+    }
+
+    // Backfill default unlinked budgets if an exact category exists (except grouped "Сметки и битови")
+    if (exactNameCat && !(normName.includes("сметк") || normName.includes("битов"))) {
+      changed = true;
+      return {
+        ...b,
+        categoryId: exactNameCat.id,
+        categoryName: trimmedName || exactNameCat.name.trim(),
       };
     }
 
@@ -356,22 +369,25 @@ export function saveTotalMonthlyBudget(amount: number): void {
 }
 
 /**
- * Add a new category budget
+ * Add a new category budget (supports custom budget name + optional linked categoryId independently)
  */
 export function addCategoryBudget(
   newBudget: Omit<BudgetConfig, "id">
 ): BudgetConfig[] {
   const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
   const categories = loadStoredCategories();
-  const matchedCat = resolveCategoryForBudget(
-    { categoryId: newBudget.categoryId, categoryName: newBudget.categoryName },
-    categories
-  );
+  const trimmedName = (newBudget.categoryName || "").trim();
+
+  const linkedCat = newBudget.categoryId
+    ? categories.find((c) => c.id === newBudget.categoryId)
+    : newBudget.categoryId === undefined
+    ? categories.find((c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase())
+    : undefined;
 
   const created: BudgetConfig = {
     ...newBudget,
-    categoryName: matchedCat ? matchedCat.name.trim() : newBudget.categoryName.trim(),
-    categoryId: matchedCat ? matchedCat.id : undefined,
+    categoryName: trimmedName || linkedCat?.name.trim() || "Бюджет",
+    categoryId: linkedCat ? linkedCat.id : undefined,
     id: `b_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     monthlyLimit: Number(newBudget.monthlyLimit) || 0,
   };
@@ -419,7 +435,7 @@ function syncExpenseBudgetNameCache(budgetId: string, newBudgetName: string): vo
 }
 
 /**
- * Update an existing category budget
+ * Update an existing category budget (name, linked category, and monthly limit are all editable independently)
  */
 export function updateCategoryBudget(
   id: string,
@@ -431,14 +447,14 @@ export function updateCategoryBudget(
 
   const updated = categoryBudgets.map((b) => {
     if (b.id === id) {
-      const nextName = (updates.categoryName !== undefined ? updates.categoryName : b.categoryName).trim();
+      const nextNameRaw =
+        updates.categoryName !== undefined ? updates.categoryName : b.categoryName;
+      const finalName = nextNameRaw.trim() || b.categoryName;
       const candidateCatId = "categoryId" in updates ? updates.categoryId : b.categoryId;
-      const matchedCat = resolveCategoryForBudget(
-        { categoryId: candidateCatId, categoryName: nextName },
-        categories
-      );
+      const validCat = candidateCatId
+        ? categories.find((c) => c.id === candidateCatId)
+        : undefined;
 
-      const finalName = matchedCat ? matchedCat.name.trim() : nextName;
       if (finalName !== b.categoryName) {
         renamedTo = finalName;
       }
@@ -453,8 +469,8 @@ export function updateCategoryBudget(
             : b.monthlyLimit,
       };
 
-      if (matchedCat) {
-        nextBudget.categoryId = matchedCat.id;
+      if (validCat) {
+        nextBudget.categoryId = validCat.id;
       } else {
         delete nextBudget.categoryId;
       }

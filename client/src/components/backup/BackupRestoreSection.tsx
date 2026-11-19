@@ -25,7 +25,7 @@ import {
   applyBackup,
   gatherApplicationData,
 } from "@/utils/backupRestore";
-import { exportCsvZipBackup } from "@/utils/csvExport";
+import { exportExcelWorkbook } from "@/utils/excelExport";
 import { useCloudSync } from "@/utils/cloudSyncContext";
 import { BackupData } from "@/types";
 import { GoogleAuthCard } from "@/components/auth/GoogleAuthCard";
@@ -110,18 +110,18 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
     }
   };
 
-  // Export Spreadsheet Archive (CSV ZIP)
-  const handleExportCsv = () => {
+  // Export Excel Workbook (.xlsx)
+  const handleExportExcel = () => {
     setErrorMessage(null);
     try {
-      const summary = exportCsvZipBackup(ownerInfo);
+      const summary = exportExcelWorkbook(ownerInfo);
       setSuccessMessage(
-        `CSV архивът "${summary.filename}" беше изтеглен успешно (${summary.expensesCount} разхода, ${summary.incomesCount} дохода, ${summary.savingsCount} спестявания).`
+        `Excel файлът "${summary.filename}" беше изтеглен успешно със 7 листа (${summary.expensesCount} разхода, ${summary.incomesCount} прихода, ${summary.savingsCount} спестявания, ${summary.electricityCount} сметки за ток).`
       );
       setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err: any) {
       setErrorMessage(
-        "Възникна грешка при експортирането в CSV: " +
+        "Възникна грешка при експортирането в Excel (.xlsx): " +
           (err?.message || "Неизвестна грешка")
       );
     }
@@ -280,8 +280,8 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
 
             <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
               Създайте резервно копие на всички ваши доходи, разходи, спестявания,
-              сметки за ток и настройки или изтеглете CSV файлове за анализ в
-              табличен редактор.
+              сметки за ток и настройки или изтеглете структурирана Excel книга (.xlsx)
+              за анализ в Excel, Google Sheets и LibreOffice Calc.
             </p>
 
             <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
@@ -295,10 +295,9 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               <div className="flex items-start gap-2">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-100">CSV таблици:</strong>{" "}
-                  включва <span className="font-medium">expenses.csv</span>,{" "}
-                  <span className="font-medium">incomes.csv</span> и{" "}
-                  <span className="font-medium">savings.csv</span> (UTF-8).
+                  <strong className="text-slate-800 dark:text-slate-100">Excel книга (.xlsx):</strong>{" "}
+                  единен файл <span className="font-medium">BudgetFlow_Export.xlsx</span> със 7 листа
+                  (Expenses, Incomes, Savings, Electricity, Categories, Budgets, Summary).
                 </span>
               </div>
             </div>
@@ -313,11 +312,11 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               <span>Експорт архив (JSON)</span>
             </button>
             <button
-              onClick={handleExportCsv}
+              onClick={handleExportExcel}
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 border border-emerald-200 dark:border-emerald-800 bg-emerald-50/80 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-xl font-medium text-sm transition-all"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Експорт CSV</span>
+              <span>Експорт Excel (.xlsx)</span>
             </button>
           </div>
         </div>

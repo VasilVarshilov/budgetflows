@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Plus,
   Pencil,
   Trash2,
   Calendar,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
   ChevronLeft,
   ChevronRight,
   Repeat,
@@ -20,6 +23,7 @@ import {
   ExpenseCategory,
   IncomeItem,
   MonthlyRecord,
+  OpenRecordTarget,
   RecurrenceFrequency,
   RecurringIncomeTemplate,
   RepeatFrequency,
@@ -66,6 +70,11 @@ import {
   parseDecimalInput,
   compareExpensesChronologically,
 } from "@/utils/formatting";
+import {
+  dateKeyToStableIso,
+  parseLocalDateKey,
+  resolveRecordDateKey,
+} from "@/utils/calendarEngine";
 
 const ICON_MAP: Record<string, React.ElementType> = AVAILABLE_ICONS_MAP;
 
@@ -75,6 +84,9 @@ interface IncomeTabProps {
   onMonthChange: (newMonth: string) => void;
   onSaveIncomesForMonth: (monthKey: string, incomes: IncomeItem[]) => void;
   onTriggerSync?: () => void;
+  onOpenCalendar?: (dateKey?: string) => void;
+  pendingRecordTarget?: OpenRecordTarget | null;
+  onConsumeRecordTarget?: () => void;
 }
 
 interface FlattenedIncomeEntry {
@@ -88,6 +100,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   onMonthChange,
   onSaveIncomesForMonth,
   onTriggerSync,
+  onOpenCalendar,
+  pendingRecordTarget,
+  onConsumeRecordTarget,
 }) => {
   const [incomeCategories, setIncomeCategories] = useState<ExpenseCategory[]>(
     () => loadStoredIncomeCategories()
@@ -140,8 +155,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   const [pendingDeleteTemplate, setPendingDeleteTemplate] =
     useState<RecurringIncomeTemplate | null>(null);
 
-  // Feedback toast
+  // Feedback toast & Upcoming collapse toggle
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [isUpcomingExpanded, setIsUpcomingExpanded] = useState<boolean>(true);
+  const lastConsumedTargetNonceRef = useRef<number | null>(null);
 
   const showToast = (msg: string) => {
     setFeedbackMessage(msg);
@@ -245,6 +262,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     currentMonthFixedUpcoming,
     currentMonthAdditionalTotal,
     currentMonthAdditionalUpcoming,
+    currentMonthUpcomingItems,
   } = useMemo(() => {
     const rec = allMonthlyData[currentMonth];
     if (!rec || !Array.isArray(rec.incomes)) {
@@ -255,6 +273,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         currentMonthFixedUpcoming: 0,
         currentMonthAdditionalTotal: 0,
         currentMonthAdditionalUpcoming: 0,
+        currentMonthUpcomingItems: [] as Array<FlattenedIncomeEntry & { dateKey: string }>,
       };
     }
     let realized = 0;
@@ -263,6 +282,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     let fixedUpcoming = 0;
     let additionalRealized = 0;
     let additionalUpcoming = 0;
+    const upcomingList: Array<FlattenedIncomeEntry & { dateKey: string }> = [];
 
     rec.incomes.forEach((i) => {
       const amt = Number(i.amount) || 0;
@@ -275,8 +295,16 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         upcoming += amt;
         if (isFixed) fixedUpcoming += amt;
         else additionalUpcoming += amt;
+        upcomingList.push({
+          item: i,
+          monthKey: currentMonth,
+          dateKey: resolveRecordDateKey(i, currentMonth),
+        });
       }
     });
+
+    upcomingList.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+
     return {
       currentMonthTotal: realized,
       currentMonthUpcomingTotal: upcoming,
@@ -284,6 +312,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       currentMonthFixedUpcoming: fixedUpcoming,
       currentMonthAdditionalTotal: additionalRealized,
       currentMonthAdditionalUpcoming: additionalUpcoming,
+      currentMonthUpcomingItems: upcomingList,
     };
   }, [allMonthlyData, currentMonth]);
 
@@ -309,7 +338,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
           monthYear === targetYear;
         if (!matchesYear) return false;
       } else if (filters.monthFilter === "custom") {
-        const itemDate = new Date(item.date);
+        const recDateKey = resolveRecordDateKey(item, monthKey);
+        const itemDate = new Date(dateKeyToStableIso(recDateKey));
         if (filters.startDate) {
           const start = new Date(filters.startDate + "T00:00:00");
           if (itemDate < start) return false;
@@ -478,12 +508,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         colorClass: entry.item.categoryColor || "bg-emerald-100 text-emerald-600",
       };
     setFormCategory(matchedCat);
-    const parsedDate = new Date(entry.item.date);
-    setFormDate(
-      !isNaN(parsedDate.getTime())
-        ? toLocalYyyyMmDd(parsedDate)
-        : toLocalYyyyMmDd(new Date())
-    );
+    const resolvedDateKey = resolveRecordDateKey(entry.item, entry.monthKey);
+    const parsedDate = parseLocalDateKey(resolvedDateKey);
+    setFormDate(resolvedDateKey);
     setFormNote(entry.item.note || "");
     setFormFrequency(entry.item.frequency || "monthly");
     setFormDayOfMonth(
@@ -524,6 +551,44 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormError(null);
     setIsFormOpen(true);
   };
+
+  // Open specific income or recurring template when navigated from Calendar / Dashboard
+  useEffect(() => {
+    if (!pendingRecordTarget || pendingRecordTarget.kind !== "income") return;
+    if (lastConsumedTargetNonceRef.current === pendingRecordTarget.nonce) return;
+
+    if (
+      pendingRecordTarget.recordListType === "template" &&
+      pendingRecordTarget.templateId
+    ) {
+      const tpl = recurringTemplates.find(
+        (t) => t.id === pendingRecordTarget.templateId
+      );
+      if (tpl) {
+        lastConsumedTargetNonceRef.current = pendingRecordTarget.nonce;
+        setShowRecurringPanel(true);
+        handleOpenEditTemplate(tpl);
+        onConsumeRecordTarget?.();
+      }
+      return;
+    }
+
+    const targetMonth = pendingRecordTarget.monthKey || currentMonth;
+    const match = (allMonthlyData[targetMonth]?.incomes || []).find(
+      (i) => i.id === pendingRecordTarget.recordId
+    );
+    if (match) {
+      lastConsumedTargetNonceRef.current = pendingRecordTarget.nonce;
+      handleOpenEditEntry({ item: match, monthKey: targetMonth });
+      onConsumeRecordTarget?.();
+    }
+  }, [
+    pendingRecordTarget,
+    currentMonth,
+    allMonthlyData,
+    recurringTemplates,
+    onConsumeRecordTarget,
+  ]);
 
   // --- Save Income / Template ---
   const handleSaveForm = (e: React.FormEvent) => {
@@ -972,21 +1037,180 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         </div>
       )}
 
-      {/* Expected Income Banner / Confirmation Section */}
-      {dueExpectedIncomes.length > 0 && (
+      {/* Standout Amber Upcoming Incomes Section (for IncomeItems with Изпълнено = false) */}
+      {currentMonthUpcomingItems.length > 0 && (
         <section
-          aria-label="Очаквани приходи"
-          className="bg-emerald-50/60 dark:bg-emerald-950/25 rounded-2xl border border-emerald-200 dark:border-emerald-800/80 p-4 sm:p-5 space-y-3"
+          aria-label="Предстоящи приходи"
+          className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white dark:from-amber-950/35 dark:via-slate-900 dark:to-slate-900 rounded-2xl border border-amber-300/90 dark:border-amber-800/80 p-4 sm:p-5 shadow-xs space-y-3 transition-colors"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/70 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/70 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-200/80 dark:border-amber-700/60">
                 <Clock className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
-                  Очаквани приходи ({dueExpectedIncomes.length})
-                </h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
+                    Предстоящи приходи
+                  </h3>
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-200/85 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 tabular-nums">
+                    {currentMonthUpcomingItems.length}
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800/85 dark:text-amber-300/85">
+                  Очаквани постъпления за {currentMonth} — не се включват в баланса до маркиране като „Изпълнено“
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
+              <span className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-300 tabular-nums mr-1">
+                +€{currentMonthUpcomingTotal.toFixed(2)}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    monthFilter: "current",
+                    statusFilter: prev.statusFilter === "planned" ? "all" : "planned",
+                  }))
+                }
+                className={`min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                  filters.statusFilter === "planned"
+                    ? "bg-amber-600 text-white border-amber-600"
+                    : "bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100/70 dark:hover:bg-amber-950/60"
+                }`}
+              >
+                <span>
+                  {filters.statusFilter === "planned"
+                    ? "Покажи всички"
+                    : "Филтрирай предстоящи"}
+                </span>
+              </button>
+              {onOpenCalendar && (
+                <button
+                  type="button"
+                  onClick={() => onOpenCalendar(currentMonthUpcomingItems[0]?.dateKey)}
+                  className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors cursor-pointer shadow-2xs"
+                >
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span>Календар</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsUpcomingExpanded((prev) => !prev)}
+                className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl text-amber-800 dark:text-amber-300 hover:bg-amber-100/80 dark:hover:bg-amber-900/50 transition-colors cursor-pointer"
+                aria-label={isUpcomingExpanded ? "Скрий списъка" : "Покажи списъка"}
+                title={isUpcomingExpanded ? "Скрий списъка" : "Покажи списъка"}
+              >
+                {isUpcomingExpanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {isUpcomingExpanded && (
+            <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 bg-white dark:bg-slate-900 rounded-xl border border-amber-200/80 dark:border-amber-800/70 overflow-hidden">
+              {currentMonthUpcomingItems.map(({ item, monthKey, dateKey }) => {
+                const formattedDate = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+                return (
+                  <div
+                    key={`upcoming_inc_${monthKey}_${item.id}`}
+                    className="px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-amber-50/60 dark:hover:bg-amber-950/25 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                          item.categoryColor || "bg-emerald-100 text-emerald-600"
+                        )}`}
+                      >
+                        {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-slate-900 dark:text-white text-sm truncate">
+                            {item.categoryName}
+                          </span>
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            {isRepeatingFrequency(item.repeat) ? "Повтарящ се" : "Допълнителен"}
+                          </span>
+                          {onOpenCalendar ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenCalendar(dateKey)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/85 hover:bg-amber-200/85 dark:bg-amber-950/70 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer tabular-nums"
+                              title="Отвори датата в Календар"
+                            >
+                              <CalendarDays className="w-3 h-3 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                              {formattedDate}
+                            </span>
+                          )}
+                        </div>
+                        {item.note && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                            {item.note}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                      <span className="font-bold text-sm sm:text-base text-emerald-700 dark:text-emerald-300 tabular-nums mr-1">
+                        +€{Number(item.amount).toFixed(2)}
+                      </span>
+                      <CompletionSwitch
+                        checked={false}
+                        onChange={(val) => handleToggleIncomeCompletion({ item, monthKey }, val)}
+                        ariaLabel={`Изпълнено за ${item.categoryName}`}
+                        size="sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditEntry({ item, monthKey })}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Редактирай приход"
+                        aria-label="Редактирай приход"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Expected Income Banner / Confirmation Section (Recurring Templates Due) */}
+      {dueExpectedIncomes.length > 0 && (
+        <section
+          aria-label="Очаквани приходи по шаблон"
+          className="bg-amber-50/70 dark:bg-amber-950/25 rounded-2xl border border-amber-300/80 dark:border-amber-800/80 p-4 sm:p-5 space-y-3"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-900/70 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
+                    Очаквани приходи по шаблон
+                  </h3>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 tabular-nums">
+                    {dueExpectedIncomes.length}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300">
                   Потвърдете получените суми, за да се отразят в приходите и баланса ви.
                 </p>
@@ -994,7 +1218,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
             </div>
           </div>
 
-          <div className="divide-y divide-emerald-200/70 dark:divide-emerald-800/60 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200/80 dark:border-emerald-800/70">
+          <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 bg-white dark:bg-slate-900 rounded-xl border border-amber-200/80 dark:border-amber-800/70">
             {dueExpectedIncomes.map(
               ({ template, occurrenceKey, dueDateIso, scheduleLabel }) => (
                 <div
@@ -1012,12 +1236,25 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                         {template.categoryName}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                        <span>
-                          Падеж:{" "}
-                          {new Date(dueDateIso + "T12:00:00").toLocaleDateString(
-                            "bg-BG"
-                          )}
-                        </span>
+                        {onOpenCalendar ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenCalendar(dueDateIso)}
+                            className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums"
+                            title="Отвори датата в Календар"
+                          >
+                            <CalendarDays className="w-3 h-3 shrink-0" />
+                            <span>
+                              Падеж:{" "}
+                              {parseLocalDateKey(dueDateIso).toLocaleDateString("bg-BG")}
+                            </span>
+                          </button>
+                        ) : (
+                          <span>
+                            Падеж:{" "}
+                            {parseLocalDateKey(dueDateIso).toLocaleDateString("bg-BG")}
+                          </span>
+                        )}
                         <span aria-hidden="true">·</span>
                         <span>{scheduleLabel}</span>
                         {template.note && (
@@ -1250,81 +1487,126 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-2">
                 {filteredFixedEntries.map((entry) => {
                   const { item, monthKey } = entry;
-                  const formattedDate = item.date
-                    ? new Date(item.date).toLocaleDateString("bg-BG")
-                    : monthKey;
+                  const resolvedDateKey = resolveRecordDateKey(item, monthKey);
+                  const formattedDate = parseLocalDateKey(resolvedDateKey).toLocaleDateString("bg-BG");
                   const isCompleted = isRecordCompleted(item);
 
                   return (
                     <div
                       key={`${monthKey}_${item.id}`}
-                      className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                      className={`rounded-xl border px-3 py-2.5 sm:px-4 sm:py-3 transition-colors ${
                         isCompleted
                           ? "bg-white dark:bg-slate-900 border-slate-200/85 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800/80"
                           : "bg-amber-50/40 dark:bg-amber-950/20 border-amber-300/80 dark:border-amber-800/70"
                       }`}
                     >
-                      <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
-                            item.categoryColor || "bg-emerald-100 text-emerald-600"
-                          )}`}
-                        >
-                          {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
-                        </div>
+                      {/* Row 1: Icon + Title (+ Planned) | Amount (+ Desktop Actions) */}
+                      <div className="flex items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div
+                            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                              item.categoryColor || "bg-emerald-100 text-emerald-600"
+                            )}`}
+                          >
+                            {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
+                          </div>
 
-                        <div className="min-w-0 space-y-0.5">
-                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                            <span className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span
+                              className="font-bold text-slate-900 dark:text-white text-sm truncate"
+                              title={item.categoryName}
+                            >
                               {item.categoryName}
                             </span>
                             {!isCompleted && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-100/90 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800 shrink-0">
                                 <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
                                 Предстоящ
                               </span>
                             )}
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800">
-                              <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
-                              {formatRepeatLabel(item.repeat)}
-                            </span>
                           </div>
+                        </div>
 
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                            <span>{formattedDate}</span>
-                            {filters.monthFilter !== "current" && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span>{monthKey}</span>
-                              </>
-                            )}
-                            <span aria-hidden="true">·</span>
-                            <span>Повтарящ се</span>
+                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                          <span
+                            className={`text-sm sm:text-base font-extrabold tabular-nums ${
+                              isCompleted
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-amber-700 dark:text-amber-300"
+                            }`}
+                          >
+                            +€{Number(item.amount).toFixed(2)}
+                          </span>
+
+                          <div className="hidden sm:flex items-center gap-1">
+                            <CompletionSwitch
+                              checked={isCompleted}
+                              onChange={(val) => handleToggleIncomeCompletion(entry, val)}
+                              ariaLabel={`Изпълнено за ${item.categoryName}`}
+                              size="sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditEntry(entry)}
+                              className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                              title="Редактирай приход"
+                              aria-label="Редактирай приход"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPendingDeleteEntry(entry)}
+                              className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                              title="Изтрий приход"
+                              aria-label="Изтрий приход"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
-
-                          {item.note && (
-                            <p className="text-xs text-slate-600 dark:text-slate-300 pt-0.5 break-words">
-                              {item.note}
-                            </p>
-                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-2.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
-                        <span
-                          className={`text-base sm:text-lg font-extrabold tabular-nums ${
-                            isCompleted
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-amber-700 dark:text-amber-300"
-                          }`}
-                        >
-                          +€{Number(item.amount).toFixed(2)}
-                        </span>
+                      {/* Row 2: Compact Inline Metadata + Mobile Actions */}
+                      <div className="flex items-center justify-between gap-2 mt-1 pl-[42px] sm:pl-[46px]">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 shrink-0">
+                            <Repeat className="w-3 h-3 shrink-0" />
+                            <span>{formatRepeatLabel(item.repeat)}</span>
+                          </span>
+                          <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+                            ·
+                          </span>
+                          {!isCompleted && onOpenCalendar ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenCalendar(resolvedDateKey)}
+                              className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums shrink-0"
+                              title="Отвори датата в Календар"
+                            >
+                              <CalendarDays className="w-3 h-3 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 tabular-nums shrink-0">
+                              <CalendarDays className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </span>
+                          )}
+                          {filters.monthFilter !== "current" && (
+                            <>
+                              <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+                                ·
+                              </span>
+                              <span className="truncate">{monthKey}</span>
+                            </>
+                          )}
+                        </div>
 
-                        <div className="flex items-center gap-1">
+                        <div className="flex sm:hidden items-center gap-0.5 shrink-0">
                           <CompletionSwitch
                             checked={isCompleted}
                             onChange={(val) => handleToggleIncomeCompletion(entry, val)}
@@ -1334,7 +1616,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <button
                             type="button"
                             onClick={() => handleOpenEditEntry(entry)}
-                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
                             title="Редактирай приход"
                             aria-label="Редактирай приход"
                           >
@@ -1343,7 +1625,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <button
                             type="button"
                             onClick={() => setPendingDeleteEntry(entry)}
-                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
                             title="Изтрий приход"
                             aria-label="Изтрий приход"
                           >
@@ -1351,6 +1633,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           </button>
                         </div>
                       </div>
+
+                      {item.note && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 pl-[42px] sm:pl-[46px] break-words">
+                          {item.note}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -1409,98 +1697,140 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-2">
                 {filteredAdditionalEntries.map((entry) => {
                   const { item, monthKey } = entry;
-                  const formattedDate = item.date
-                    ? new Date(item.date).toLocaleDateString("bg-BG")
-                    : monthKey;
+                  const resolvedDateKey = resolveRecordDateKey(item, monthKey);
+                  const formattedDate = parseLocalDateKey(resolvedDateKey).toLocaleDateString("bg-BG");
                   const isCompleted = isRecordCompleted(item);
 
                   return (
                     <div
                       key={`${monthKey}_${item.id}`}
-                      className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                      className={`rounded-xl border px-3 py-2.5 sm:px-4 sm:py-3 transition-colors ${
                         isCompleted
                           ? "bg-white dark:bg-slate-900 border-slate-200/85 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/80"
                           : "bg-amber-50/40 dark:bg-amber-950/20 border-amber-300/80 dark:border-amber-800/70"
                       }`}
                     >
-                      <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
-                            item.categoryColor || "bg-emerald-100 text-emerald-600"
-                          )}`}
-                        >
-                          {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
-                        </div>
+                      {/* Row 1: Icon + Title (+ Planned) | Amount (+ Desktop Actions) */}
+                      <div className="flex items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div
+                            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                              item.categoryColor || "bg-emerald-100 text-emerald-600"
+                            )}`}
+                          >
+                            {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
+                          </div>
 
-                        <div className="min-w-0 space-y-0.5">
-                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                            <span className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span
+                              className="font-bold text-slate-900 dark:text-white text-sm truncate"
+                              title={item.categoryName}
+                            >
                               {item.categoryName}
                             </span>
                             {!isCompleted && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-100/90 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800 shrink-0">
                                 <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
                                 Предстоящ
                               </span>
                             )}
                           </div>
+                        </div>
 
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                            <span>{formattedDate}</span>
-                            {filters.monthFilter !== "current" && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span>{monthKey}</span>
-                              </>
-                            )}
-                            <span aria-hidden="true">·</span>
-                            <span>Допълнителен</span>
+                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                          <span
+                            className={`text-sm sm:text-base font-extrabold tabular-nums ${
+                              isCompleted
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-amber-700 dark:text-amber-300"
+                            }`}
+                          >
+                            +€{Number(item.amount).toFixed(2)}
+                          </span>
+
+                          <div className="hidden sm:flex items-center gap-1">
+                            <CompletionSwitch
+                              checked={isCompleted}
+                              onChange={(val) => handleToggleIncomeCompletion(entry, val)}
+                              ariaLabel={`Изпълнено за ${item.categoryName}`}
+                              size="sm"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditEntry(entry)}
+                              className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                              title="Редактирай приход"
+                              aria-label="Редактирай приход"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setPendingDeleteEntry(entry)}
+                              className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                              title="Изтрий приход"
+                              aria-label="Изтрий приход"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
-
-                          {item.note && (
-                            <p className="text-xs text-slate-600 dark:text-slate-300 pt-0.5 break-words">
-                              {item.note}
-                            </p>
-                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-2.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
-                        <span
-                          className={`text-base sm:text-lg font-extrabold tabular-nums ${
-                            isCompleted
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-amber-700 dark:text-amber-300"
-                          }`}
-                        >
-                          +€{Number(item.amount).toFixed(2)}
-                        </span>
+                      {/* Row 2: Compact Inline Metadata + Mobile Actions */}
+                      <div className="flex items-center justify-between gap-2 mt-1 pl-[42px] sm:pl-[46px]">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-slate-500 dark:text-slate-400">
+                          {!isCompleted && onOpenCalendar ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenCalendar(resolvedDateKey)}
+                              className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums shrink-0"
+                              title="Отвори датата в Календар"
+                            >
+                              <CalendarDays className="w-3 h-3 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 tabular-nums shrink-0">
+                              <CalendarDays className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </span>
+                          )}
+                          {filters.monthFilter !== "current" && (
+                            <>
+                              <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+                                ·
+                              </span>
+                              <span className="truncate">{monthKey}</span>
+                            </>
+                          )}
+                        </div>
 
-                        <div className="flex items-center gap-1">
+                        <div className="flex sm:hidden items-center gap-0.5 shrink-0">
                           <CompletionSwitch
                             checked={isCompleted}
                             onChange={(val) => handleToggleIncomeCompletion(entry, val)}
                             ariaLabel={`Изпълнено за ${item.categoryName}`}
                             size="sm"
                           />
-
                           <button
                             type="button"
                             onClick={() => handleOpenEditEntry(entry)}
-                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
                             title="Редактирай приход"
                             aria-label="Редактирай приход"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
-
                           <button
                             type="button"
                             onClick={() => setPendingDeleteEntry(entry)}
-                            className="min-h-[40px] min-w-[40px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
                             title="Изтрий приход"
                             aria-label="Изтрий приход"
                           >
@@ -1508,6 +1838,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           </button>
                         </div>
                       </div>
+
+                      {item.note && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 pl-[42px] sm:pl-[46px] break-words">
+                          {item.note}
+                        </p>
+                      )}
                     </div>
                   );
                 })}

@@ -140,6 +140,16 @@ export interface IncomeItem extends ExpenseItem {
   recurringTemplateId?: string;
 }
 
+export interface OpenRecordTarget {
+  kind: "expense" | "income";
+  monthKey: string;
+  recordId: string;
+  recordListType?: "fixed" | "additional" | "income" | "template";
+  templateId?: string;
+  isProjected?: boolean;
+  nonce: number;
+}
+
 export interface RecurringIncomeTemplate {
   id: string;
   categoryId: string;

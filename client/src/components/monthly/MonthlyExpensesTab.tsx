@@ -6,6 +6,7 @@ import {
   Phone,
   Wifi,
   Calendar,
+  CalendarDays,
   CreditCard,
   Home,
   Droplets,
@@ -48,7 +49,7 @@ import {
   Layers,
   Clock,
 } from "lucide-react";
-import { ExpenseCategory, ExpenseItem, MonthlyRecord, BudgetConfig, RepeatFrequency } from "@/types";
+import { ExpenseCategory, ExpenseItem, MonthlyRecord, BudgetConfig, RepeatFrequency, OpenRecordTarget } from "@/types";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
 import {
   isCompletedExpense,
@@ -277,6 +278,9 @@ interface MonthlyExpensesTabProps {
   initialData?: any;
   allMonthlyData?: Record<string, MonthlyRecord>;
   onMonthChange?: (newMonth: string) => void;
+  onOpenCalendar?: (dateKey?: string) => void;
+  pendingRecordTarget?: OpenRecordTarget | null;
+  onConsumeRecordTarget?: () => void;
 }
 
 export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
@@ -285,6 +289,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   initialData,
   allMonthlyData = {},
   onMonthChange,
+  onOpenCalendar,
+  pendingRecordTarget,
+  onConsumeRecordTarget,
 }) => {
   // Helper to create fixed item (always recurring Monthly by default)
   function createFixedItem(
@@ -513,6 +520,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   // Edit Variable Expense State
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [editExpenseCategory, setEditExpenseCategory] =
+    useState<ExpenseCategory | null>(null);
+  const [showEditExpenseCategoryPicker, setShowEditExpenseCategoryPicker] =
+    useState(false);
   const [editExpenseAmount, setEditExpenseAmount] = useState("");
   const [editExpenseNote, setEditExpenseNote] = useState("");
   const [editExpenseDate, setEditExpenseDate] = useState<string>(() =>
@@ -559,6 +570,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   // Edit Fixed Expense State
   const [editingFixedId, setEditingFixedId] = useState<string | null>(null);
+  const [editFixedCategory, setEditFixedCategory] =
+    useState<ExpenseCategory | null>(null);
+  const [showEditFixedCategoryPicker, setShowEditFixedCategoryPicker] =
+    useState(false);
   const [editFixedName, setEditFixedName] = useState("");
   const [editFixedAmount, setEditFixedAmount] = useState("");
   const [editFixedDate, setEditFixedDate] = useState<string>(() =>
@@ -579,6 +594,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [pendingDeleteExpenseItem, setPendingDeleteExpenseItem] = useState<
     (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean }) | null
   >(null);
+  const [isUpcomingExpanded, setIsUpcomingExpanded] = useState<boolean>(true);
+  const lastConsumedTargetNonceRef = useRef<number | null>(null);
 
   const handleExpenseFromReceipt = (newExpense: ExpenseItem) => {
     const nowMs = Date.now();
@@ -789,8 +806,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
         // Filter by Custom Date Range
         if (isCustomDate) {
-          if (startIso && item.date < startIso) return false;
-          if (endIso && item.date > endIso) return false;
+          const recDateKey = resolveRecordDateKey(item, item.sourceMonth || currentMonth);
+          const recIso = dateKeyToStableIso(recDateKey);
+          if (startIso && recIso < startIso) return false;
+          if (endIso && recIso > endIso) return false;
         }
 
         // Filter by Expense Status ("all" | "completed" | "planned")
@@ -846,7 +865,32 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       .reduce((sum, item) => sum + item.amount, 0);
   }, [filteredExpenses]);
 
-  // --- Handlers for Variable Expenses ---
+  // --- Helpers & Handlers for Variable Expenses ---
+
+  const resolveExpenseCategoryObject = (item: ExpenseItem): ExpenseCategory => {
+    const byId = item.categoryId
+      ? categories.find((c) => c.id === item.categoryId)
+      : undefined;
+    if (byId) return byId;
+    const byName = item.categoryName
+      ? categories.find(
+          (c) => c.name.trim().toLowerCase() === item.categoryName.trim().toLowerCase()
+        )
+      : undefined;
+    if (byName) return byName;
+    return {
+      id: item.categoryId || item.categoryName || "other",
+      name: item.categoryName || "Други",
+      iconName: item.categoryIcon || "ShoppingBag",
+      colorClass: item.categoryColor || "bg-slate-100 text-slate-600",
+    };
+  };
+
+  const resolveDisplayBudgetName = (item: ExpenseItem): string => {
+    if (!item.budgetCategoryId || item.budgetCategoryId === "none") return "";
+    const liveBudget = budgetCategories.find((b) => b.id === item.budgetCategoryId);
+    return liveBudget?.categoryName || item.budgetCategoryName || item.budgetCategoryId;
+  };
 
   const handleAddNewCategory = (newCat: ExpenseCategory) => {
     setCategories(loadStoredCategories());
@@ -1001,6 +1045,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   ) => {
     const resolvedMonth = expense.sourceMonth || currentMonth;
     setEditingExpenseId(expense.id);
+    setEditExpenseCategory(resolveExpenseCategoryObject(expense));
     setEditExpenseAmount(expense.amount.toString());
     setEditExpenseNote(expense.note || "");
     setEditExpenseDate(resolveRecordDateKey(expense, resolvedMonth));
@@ -1034,8 +1079,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const buildUpdated = (item: ExpenseItem): ExpenseItem => ({
       ...item,
+      categoryId: editExpenseCategory?.id || item.categoryId,
+      categoryName: editExpenseCategory?.name || item.categoryName,
+      categoryIcon: editExpenseCategory?.iconName || item.categoryIcon,
+      categoryColor: editExpenseCategory?.colorClass || item.categoryColor,
       amount: val,
-      note: editExpenseNote.trim() || item.note,
+      note: editExpenseNote.trim() || undefined,
       merchantName: parsedNote.merchantName || item.merchantName,
       receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
       date: dateKeyToStableIso(safeDateKey),
@@ -1334,6 +1383,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   const handleStartEditFixed = (item: ExpenseItem) => {
     setEditingFixedId(item.id);
+    setEditFixedCategory(resolveExpenseCategoryObject(item));
     setEditFixedName(item.categoryName);
     setEditFixedAmount(item.amount.toString());
     setEditFixedDate(resolveRecordDateKey(item, currentMonth));
@@ -1368,7 +1418,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
     const updatedItem: ExpenseItem = {
       ...existingItem,
-      categoryName: editFixedName.trim() || existingItem.categoryName,
+      categoryId: editFixedCategory?.id || existingItem.categoryId,
+      categoryName:
+        editFixedName.trim() || editFixedCategory?.name || existingItem.categoryName,
+      categoryIcon: editFixedCategory?.iconName || existingItem.categoryIcon,
+      categoryColor: editFixedCategory?.colorClass || existingItem.categoryColor,
       amount: val,
       date: dateKeyToStableIso(safeDateKey),
       expectedDate: safeDateKey,
@@ -1498,6 +1552,132 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     .reduce((sum, item) => sum + item.amount, 0);
   const totalPlannedExpenses = totalPlannedFixed + totalPlannedVariable;
 
+  const currentMonthPlannedItems = useMemo(() => {
+    const fixedPlanned = fixedExpenses
+      .filter((item) => isPlannedExpense(item))
+      .map((item) => ({
+        item,
+        kind: "fixed" as const,
+        dateKey: resolveRecordDateKey(item, currentMonth),
+      }));
+    const varPlanned = expenses
+      .filter((item) => isPlannedExpense(item))
+      .map((item) => ({
+        item,
+        kind: "additional" as const,
+        dateKey: resolveRecordDateKey(item, currentMonth),
+      }));
+    return [...fixedPlanned, ...varPlanned].sort((a, b) =>
+      a.dateKey.localeCompare(b.dateKey)
+    );
+  }, [fixedExpenses, expenses, currentMonth]);
+
+  // Open specific expense when navigated from Calendar / Dashboard
+  useEffect(() => {
+    if (!pendingRecordTarget || pendingRecordTarget.kind !== "expense") return;
+    if (lastConsumedTargetNonceRef.current === pendingRecordTarget.nonce) return;
+    if (pendingRecordTarget.monthKey !== currentMonth) return;
+
+    const fixedMatch = fixedExpenses.find(
+      (i) => i.id === pendingRecordTarget.recordId
+    );
+    if (fixedMatch) {
+      lastConsumedTargetNonceRef.current = pendingRecordTarget.nonce;
+      setIsFullWidthMode(false);
+      handleStartEditFixed(fixedMatch);
+      onConsumeRecordTarget?.();
+      setTimeout(() => {
+        document
+          .getElementById(`expense-record-${fixedMatch.id}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 80);
+      return;
+    }
+
+    const varMatch = expenses.find(
+      (i) => i.id === pendingRecordTarget.recordId
+    );
+    if (varMatch) {
+      lastConsumedTargetNonceRef.current = pendingRecordTarget.nonce;
+      setExpenseFilters((prev) => ({
+        ...DEFAULT_FILTERS,
+        monthFilter: "current",
+        includeFixed: prev.includeFixed,
+      }));
+      handleStartEditExpense({
+        ...varMatch,
+        sourceMonth: currentMonth,
+        isFixedItem: false,
+      });
+      onConsumeRecordTarget?.();
+      setTimeout(() => {
+        document
+          .getElementById(`expense-record-${varMatch.id}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+      return;
+    }
+
+    // Fallback check in case target belongs to allMonthlyData snapshot
+    const rec = allMonthlyData[pendingRecordTarget.monthKey];
+    const inOtherFixed = rec?.expenses?.fixed_expenses?.find(
+      (i) => i.id === pendingRecordTarget.recordId
+    );
+    const inOtherVar = rec?.expenses?.additional_expenses?.find(
+      (i) => i.id === pendingRecordTarget.recordId
+    );
+    if (inOtherFixed) {
+      lastConsumedTargetNonceRef.current = pendingRecordTarget.nonce;
+      setExpenseFilters((prev) => ({
+        ...DEFAULT_FILTERS,
+        monthFilter: pendingRecordTarget.monthKey,
+        includeFixed: true,
+      }));
+      handleStartEditExpense({
+        ...inOtherFixed,
+        sourceMonth: pendingRecordTarget.monthKey,
+        isFixedItem: true,
+      });
+      onConsumeRecordTarget?.();
+    } else if (inOtherVar) {
+      lastConsumedTargetNonceRef.current = pendingRecordTarget.nonce;
+      setExpenseFilters({
+        ...DEFAULT_FILTERS,
+        monthFilter: pendingRecordTarget.monthKey,
+      });
+      handleStartEditExpense({
+        ...inOtherVar,
+        sourceMonth: pendingRecordTarget.monthKey,
+        isFixedItem: false,
+      });
+      onConsumeRecordTarget?.();
+    }
+  }, [
+    pendingRecordTarget,
+    currentMonth,
+    fixedExpenses,
+    expenses,
+    allMonthlyData,
+    onConsumeRecordTarget,
+  ]);
+
+  // Keep edited variable expense visible on its current page & scroll it into view
+  useEffect(() => {
+    if (!editingExpenseId) return;
+    const idx = filteredExpenses.findIndex((i) => i.id === editingExpenseId);
+    if (idx !== -1) {
+      const targetPage = Math.floor(idx / PAGE_SIZE) + 1;
+      if (targetPage !== safePage) {
+        setCurrentPage(targetPage);
+      }
+      setTimeout(() => {
+        document
+          .getElementById(`expense-record-${editingExpenseId}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 60);
+    }
+  }, [editingExpenseId, filteredExpenses, safePage, PAGE_SIZE]);
+
   // Available months list for switcher if provided
   const recordedMonthKeys = Object.keys(allMonthlyData || {});
 
@@ -1596,6 +1776,191 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {/* Standout Amber Upcoming Expenses Section */}
+      {currentMonthPlannedItems.length > 0 && (
+        <section
+          aria-label="Предстоящи разходи"
+          className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white dark:from-amber-950/35 dark:via-slate-900 dark:to-slate-900 rounded-2xl border border-amber-300/90 dark:border-amber-800/80 p-4 sm:p-5 shadow-xs space-y-3 transition-colors"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/70 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-200/80 dark:border-amber-700/60">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
+                    Предстоящи разходи
+                  </h3>
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-200/85 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 tabular-nums">
+                    {currentMonthPlannedItems.length}
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800/85 dark:text-amber-300/85">
+                  Планирани плащания за {currentMonth} — не се включват в разходите до маркиране като „Изпълнено“
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
+              <span className="text-lg sm:text-xl font-black text-amber-800 dark:text-amber-200 tabular-nums mr-1">
+                €{totalPlannedExpenses.toFixed(2)}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setExpenseFilters((prev) => ({
+                    ...prev,
+                    monthFilter: "current",
+                    includeFixed: true,
+                    statusFilter: prev.statusFilter === "planned" ? "all" : "planned",
+                  }));
+                  setCurrentPage(1);
+                }}
+                className={`min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                  expenseFilters.statusFilter === "planned"
+                    ? "bg-amber-600 text-white border-amber-600"
+                    : "bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100/70 dark:hover:bg-amber-950/60"
+                }`}
+              >
+                <span>
+                  {expenseFilters.statusFilter === "planned"
+                    ? "Покажи всички"
+                    : "Филтрирай предстоящи"}
+                </span>
+              </button>
+              {onOpenCalendar && (
+                <button
+                  type="button"
+                  onClick={() => onOpenCalendar(currentMonthPlannedItems[0]?.dateKey)}
+                  className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors cursor-pointer shadow-2xs"
+                >
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span>Календар</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsUpcomingExpanded((prev) => !prev)}
+                className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl text-amber-800 dark:text-amber-300 hover:bg-amber-100/80 dark:hover:bg-amber-900/50 transition-colors cursor-pointer"
+                aria-label={isUpcomingExpanded ? "Скрий списъка" : "Покажи списъка"}
+                title={isUpcomingExpanded ? "Скрий списъка" : "Покажи списъка"}
+              >
+                {isUpcomingExpanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {isUpcomingExpanded && (
+            <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 bg-white dark:bg-slate-900 rounded-xl border border-amber-200/80 dark:border-amber-800/70 overflow-hidden">
+              {currentMonthPlannedItems.map(({ item, kind, dateKey }) => {
+                const formattedDate = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+                return (
+                  <div
+                    key={`upcoming_${kind}_${item.id}`}
+                    className="px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-amber-50/60 dark:hover:bg-amber-950/25 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                          item.categoryColor
+                        )}`}
+                      >
+                        {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
+                          React.createElement(ICON_MAP[item.categoryIcon], {
+                            className: "w-4 h-4 text-current",
+                          })
+                        ) : (
+                          <Clock className="w-4 h-4" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-slate-900 dark:text-white text-sm truncate">
+                            {item.categoryName}
+                          </span>
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            {kind === "fixed" ? "Повтарящ се" : "Допълнителен"}
+                          </span>
+                          {onOpenCalendar ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenCalendar(dateKey)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/85 hover:bg-amber-200/85 dark:bg-amber-950/70 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer tabular-nums"
+                              title="Отвори датата в Календар"
+                            >
+                              <CalendarDays className="w-3 h-3 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                              {formattedDate}
+                            </span>
+                          )}
+                        </div>
+                        {item.note && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                            {item.note}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                      <span className="font-bold text-sm sm:text-base text-amber-800 dark:text-amber-300 tabular-nums mr-1">
+                        €{item.amount.toFixed(2)}
+                      </span>
+                      <CompletionSwitch
+                        checked={false}
+                        onChange={(val) =>
+                          kind === "fixed"
+                            ? handleToggleFixedCompletion(item.id, val)
+                            : handleToggleExpenseCompletion(
+                                { ...item, sourceMonth: currentMonth, isFixedItem: false },
+                                val
+                              )
+                        }
+                        ariaLabel={`Изпълнено за ${item.categoryName}`}
+                        size="sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (kind === "fixed") {
+                            setIsFullWidthMode(false);
+                            handleStartEditFixed(item);
+                          } else {
+                            handleStartEditExpense({
+                              ...item,
+                              sourceMonth: currentMonth,
+                              isFixedItem: false,
+                            });
+                          }
+                          setTimeout(() => {
+                            document
+                              .getElementById(`expense-record-${item.id}`)
+                              ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          }, 80);
+                        }}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Редактирай разход"
+                        aria-label="Редактирай разход"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
 
       {/* Add Variable Expense Form Panel - Positioned above Fixed Expenses */}
@@ -1697,6 +2062,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               onChange={(e) => setSelectedBudgetCategoryId(e.target.value)}
               className="w-full px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white"
             >
+              <option value="">-- Автоматично по категория --</option>
               <option value="none">-- Без бюджетна категория (No Budget) --</option>
               {budgetCategories.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -1852,6 +2218,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   onChange={(e) => setSelectedFixedBudgetCategoryId(e.target.value)}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 >
+                  <option value="">-- Автоматично по категория --</option>
                   <option value="none">-- Без бюджетна категория (No Budget) --</option>
                   {budgetCategories.map((b) => (
                     <option key={b.id} value={b.id}>
@@ -1914,6 +2281,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 return (
                   <div
                     key={item.id}
+                    id={`expense-record-${item.id}`}
                     className="p-4 bg-blue-50/60 dark:bg-blue-950/30 border-l-4 border-blue-500 space-y-3 animate-in fade-in duration-200"
                   >
                     <div className="flex items-center justify-between">
@@ -1921,6 +2289,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         Редактиране на повтарящ се разход
                       </span>
                       <button
+                        type="button"
                         onClick={handleCancelEditFixed}
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
                         title="Отказ"
@@ -1929,18 +2298,38 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                          Име
+                          Категория на разхода
                         </label>
-                        <input
-                          type="text"
-                          value={editFixedName}
-                          onChange={(e) => setEditFixedName(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Име на разход"
-                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowEditFixedCategoryPicker(true)}
+                          className="w-full flex items-center justify-between px-3 py-2 min-h-[42px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md hover:border-blue-400 dark:hover:border-blue-500 transition-all text-left text-sm cursor-pointer"
+                        >
+                          {editFixedCategory ? (
+                            <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-medium min-w-0">
+                              <span
+                                className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(editFixedCategory.colorClass)}`}
+                              >
+                                {editFixedCategory.iconName && ICON_MAP[editFixedCategory.iconName] ? (
+                                  React.createElement(ICON_MAP[editFixedCategory.iconName], {
+                                    className: "w-3 h-3 text-current",
+                                  })
+                                ) : (
+                                  <span className="w-2 h-2 rounded-full bg-current" />
+                                )}
+                              </span>
+                              <span className="truncate">{editFixedCategory.name}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 dark:text-slate-400">
+                              Избери категория...
+                            </span>
+                          )}
+                          <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                        </button>
                       </div>
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
@@ -1951,13 +2340,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           inputMode="decimal"
                           value={editFixedAmount}
                           onChange={(e) => setEditFixedAmount(sanitizeDecimalInput(e.target.value))}
-                          className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 dark:text-white"
+                          className="w-full px-3 py-2 min-h-[42px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 dark:text-white tabular-nums"
                           placeholder="Сума €"
                         />
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
                           <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
@@ -1966,8 +2355,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <select
                           value={editFixedBudgetCategoryId}
                           onChange={(e) => setEditFixedBudgetCategoryId(e.target.value)}
-                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-3 py-2 min-h-[42px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
                         >
+                          <option value="">-- Автоматично по категория --</option>
                           <option value="none">-- Без бюджетна категория (No Budget) --</option>
                           {budgetCategories.map((b) => (
                             <option key={b.id} value={b.id}>
@@ -1984,9 +2374,22 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           type="date"
                           value={editFixedDate}
                           onChange={(e) => setEditFixedDate(e.target.value)}
-                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-3 py-2 min-h-[42px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                        Име / Описание на разхода
+                      </label>
+                      <input
+                        type="text"
+                        value={editFixedName}
+                        onChange={(e) => setEditFixedName(e.target.value)}
+                        className="w-full px-3 py-2 min-h-[40px] sm:min-h-[36px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="напр. Телефон, Наем, Застраховка"
+                      />
                     </div>
 
                     <RecurrenceCompletionRows
@@ -2003,12 +2406,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                     <div className="flex items-center justify-end gap-2 pt-1">
                       <button
+                        type="button"
                         onClick={handleCancelEditFixed}
                         className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                       >
                         Отказ
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleSaveEditFixed(item.id)}
                         disabled={
                           !editFixedAmount ||
@@ -2026,100 +2431,158 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               }
 
               const isPlanned = isPlannedExpense(item);
+              const budgetLabel = resolveDisplayBudgetName(item);
+              const dateKey = resolveRecordDateKey(item, currentMonth);
+              const formattedDate = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+              const repeatLabel =
+                item.repeat && item.repeat !== "never"
+                  ? formatRepeatLabel(item.repeat)
+                  : "Периодичен";
 
               return (
                 <div
                   key={item.id}
-                  className={`p-3.5 sm:p-4 flex items-center justify-between group transition-colors ${
+                  id={`expense-record-${item.id}`}
+                  className={`px-3 py-2.5 sm:px-4 sm:py-3 group transition-colors ${
                     isPlanned
                       ? "bg-amber-50/45 dark:bg-amber-950/20 hover:bg-amber-50/75 dark:hover:bg-amber-950/30"
                       : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.categoryColor)}`}
-                    >
-                      {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
-                        React.createElement(ICON_MAP[item.categoryIcon], {
-                          className: "w-4 h-4 text-current",
-                        })
-                      ) : (
-                        <div className="w-2 h-2 rounded-full bg-current" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
+                  {/* Row 1: Category Icon + Title (+ Planned indicator) | Amount (+ Desktop actions) */}
+                  <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div
+                        className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.categoryColor)}`}
+                      >
+                        {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
+                          React.createElement(ICON_MAP[item.categoryIcon], {
+                            className: "w-4 h-4 text-current",
+                          })
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-current" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span
+                          className="font-semibold text-slate-900 dark:text-slate-100 text-sm truncate"
+                          title={item.categoryName}
+                        >
                           {item.categoryName}
                         </span>
                         {isPlanned && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-100/90 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800 shrink-0">
                             <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-                            Предстоящ
-                          </span>
-                        )}
-                        {item.budgetCategoryId && item.budgetCategoryId !== "none" && (
-                          <span
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800"
-                            title={`Бюджет: ${item.budgetCategoryName || item.budgetCategoryId}`}
-                          >
-                            <Target className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
-                            <span>{item.budgetCategoryName || item.budgetCategoryId}</span>
-                          </span>
-                        )}
-                        {((item.repeat && item.repeat !== "never") || item.isRecurring) && (
-                          <span
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800"
-                            title="Повтарящ се разход"
-                          >
-                            <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
-                            {item.repeat && item.repeat !== "never"
-                              ? formatRepeatLabel(item.repeat)
-                              : "Периодичен"}
+                            <span>Предстоящ</span>
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Повтарящ се · {formatRepeatLabel(item.repeat)} ·{" "}
-                        {parseLocalDateKey(
-                          resolveRecordDateKey(item, currentMonth)
-                        ).toLocaleDateString("bg-BG")}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                      <span
+                        className={`font-bold text-sm sm:text-base tabular-nums ${
+                          isPlanned
+                            ? "text-amber-700 dark:text-amber-300"
+                            : "text-slate-900 dark:text-white"
+                        }`}
+                      >
+                        €{item.amount.toFixed(2)}
                       </span>
+                      <div className="hidden sm:flex items-center gap-1">
+                        <CompletionSwitch
+                          checked={!isPlanned}
+                          onChange={(val) => handleToggleFixedCompletion(item.id, val)}
+                          ariaLabel={`Изпълнено за ${item.categoryName}`}
+                          size="sm"
+                        />
+                        <button
+                          onClick={() => handleStartEditFixed(item)}
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Редактирай"
+                          aria-label="Edit"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setPendingDeleteFixed(item)}
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Изтрий"
+                          aria-label="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                    <span
-                      className={`font-bold mr-1 text-sm sm:text-base tabular-nums ${
-                        isPlanned
-                          ? "text-amber-700 dark:text-amber-300"
-                          : "text-slate-800 dark:text-white"
-                      }`}
-                    >
-                      €{item.amount.toFixed(2)}
-                    </span>
-                    <CompletionSwitch
-                      checked={!isPlanned}
-                      onChange={(val) => handleToggleFixedCompletion(item.id, val)}
-                      ariaLabel={`Изпълнено за ${item.categoryName}`}
-                      size="sm"
-                    />
-                    <button
-                      onClick={() => handleStartEditFixed(item)}
-                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 sm:p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors"
-                      title="Редактирай"
-                      aria-label="Edit"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setPendingDeleteFixed(item)}
-                      className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-2 sm:p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      title="Изтрий"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+
+                  {/* Row 2: Clean Inline Metadata (Zero Duplication) + Compact Mobile Actions */}
+                  <div className="flex items-center justify-between gap-2 mt-1 pl-[42px] sm:pl-[46px]">
+                    <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 shrink-0">
+                        <Repeat className="w-3 h-3 shrink-0" />
+                        <span>{repeatLabel}</span>
+                      </span>
+                      <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+                        ·
+                      </span>
+                      {isPlanned && onOpenCalendar ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenCalendar(dateKey)}
+                          className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums shrink-0"
+                          title="Отвори датата в Календар"
+                        >
+                          <CalendarDays className="w-3 h-3 shrink-0" />
+                          <span>{formattedDate}</span>
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 tabular-nums shrink-0">
+                          <CalendarDays className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{formattedDate}</span>
+                        </span>
+                      )}
+                      {budgetLabel && (
+                        <>
+                          <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+                            ·
+                          </span>
+                          <span
+                            className="inline-flex items-center gap-1 min-w-0 max-w-[140px] sm:max-w-[190px] text-emerald-700 dark:text-emerald-400 font-medium"
+                            title={`Бюджет: ${budgetLabel}`}
+                          >
+                            <Target className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{budgetLabel}</span>
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Compact Mobile Action Row */}
+                    <div className="flex sm:hidden items-center gap-0.5 shrink-0">
+                      <CompletionSwitch
+                        checked={!isPlanned}
+                        onChange={(val) => handleToggleFixedCompletion(item.id, val)}
+                        ariaLabel={`Изпълнено за ${item.categoryName}`}
+                        size="sm"
+                      />
+                      <button
+                        onClick={() => handleStartEditFixed(item)}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Редактирай"
+                        aria-label="Edit"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setPendingDeleteFixed(item)}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Изтрий"
+                        aria-label="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -2225,15 +2688,17 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   return (
                     <div
                       key={expense.id}
+                      id={`expense-record-${expense.id}`}
                       className="p-4 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border-l-4 border-indigo-500 border border-indigo-100 dark:border-indigo-900/60 space-y-3 animate-in fade-in duration-200"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase tracking-wide">
-                          Редактиране на разход: {expense.categoryName}
+                        <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase tracking-wide truncate pr-2">
+                          Редактиране на разход: {editExpenseCategory?.name || expense.categoryName}
                         </span>
                         <button
+                          type="button"
                           onClick={handleCancelEditExpense}
-                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 shrink-0"
                           title="Отказ"
                         >
                           <X className="w-4 h-4" />
@@ -2241,6 +2706,41 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                            Категория на разхода
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowEditExpenseCategoryPicker(true)}
+                            className="w-full flex items-center justify-between px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md hover:border-indigo-400 dark:hover:border-indigo-500 transition-all text-left text-sm cursor-pointer"
+                          >
+                            {editExpenseCategory ? (
+                              <span className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-medium min-w-0">
+                                <span
+                                  className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(editExpenseCategory.colorClass)}`}
+                                >
+                                  {editExpenseCategory.iconName &&
+                                  ICON_MAP[editExpenseCategory.iconName] ? (
+                                    React.createElement(
+                                      ICON_MAP[editExpenseCategory.iconName],
+                                      { className: "w-3 h-3 text-current" },
+                                    )
+                                  ) : (
+                                    <span className="w-2 h-2 rounded-full bg-current" />
+                                  )}
+                                </span>
+                                <span className="truncate">{editExpenseCategory.name}</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 dark:text-slate-400">
+                                Избери категория...
+                              </span>
+                            )}
+                            <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                          </button>
+                        </div>
+
                         <div>
                           <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
                             Сума (€)
@@ -2252,25 +2752,26 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             onChange={(e) =>
                               setEditExpenseAmount(sanitizeDecimalInput(e.target.value))
                             }
-                            className="w-full px-3 py-2 min-h-[44px] sm:min-h-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                            className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold tabular-nums"
                             placeholder="Сума €"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                            Бележка / Артикули
-                          </label>
-                          <textarea
-                            rows={2}
-                            value={editExpenseNote}
-                            onChange={(e) => setEditExpenseNote(e.target.value)}
-                            className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-xs sm:text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-                            placeholder="Бележка или артикули..."
                           />
                         </div>
                       </div>
 
-                      {/* Expected Date & Budget Category Selector in Edit Expense */}
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                          Бележка / Артикули
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={editExpenseNote}
+                          onChange={(e) => setEditExpenseNote(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-xs sm:text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                          placeholder="Бележка или артикули..."
+                        />
+                      </div>
+
+                      {/* Expected Date & Independent Budget Category Selector in Edit Expense */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
@@ -2280,7 +2781,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             type="date"
                             value={editExpenseDate}
                             onChange={(e) => setEditExpenseDate(e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                           />
                         </div>
                         <div>
@@ -2291,8 +2792,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <select
                             value={editExpenseBudgetCategoryId}
                             onChange={(e) => setEditExpenseBudgetCategoryId(e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                           >
+                            <option value="">-- Автоматично по категория --</option>
                             <option value="none">-- Без бюджетна категория (No Budget) --</option>
                             {budgetCategories.map((b) => (
                               <option key={b.id} value={b.id}>
@@ -2317,12 +2819,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                       <div className="flex items-center justify-end gap-2 pt-1">
                         <button
+                          type="button"
                           onClick={handleCancelEditExpense}
                           className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                         >
                           Отказ
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleSaveEditExpense(expense.id)}
                           disabled={
                             !editExpenseAmount ||
@@ -2350,27 +2854,31 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   expandedExpenseIds.has(expense.id) || parsedReceipt.items.length <= 2;
 
                 const isPlanned = isPlannedExpense(expense);
+                const expenseBudgetLabel = resolveDisplayBudgetName(expense);
+                const hasRepeatFrequency =
+                  (expense.repeat && expense.repeat !== "never") || expense.isRecurring;
 
                 return (
                   <div
                     key={expense.id}
-                    className={`group rounded-xl shadow-xs border transition-all p-3.5 sm:p-4 space-y-2.5 ${
+                    id={`expense-record-${expense.id}`}
+                    className={`group rounded-xl shadow-xs border transition-all p-3 sm:p-4 space-y-2 ${
                       isPlanned
                         ? "bg-amber-50/40 dark:bg-amber-950/20 border-amber-300/80 dark:border-amber-800/70 hover:shadow-md"
                         : "bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:shadow-md dark:hover:bg-slate-800/70"
                     }`}
                   >
                     {/* Top Row: Category Icon & Badges (Left) + Amount & Actions (Right) */}
-                    <div className="flex items-start justify-between gap-3">
-                      {/* Left: Category Icon + Category Name + Badges + Date */}
+                    <div className="flex items-start justify-between gap-2.5">
+                      {/* Left: Category Icon + Category Name + Clean Metadata */}
                       <div className="flex items-start gap-3 min-w-0 flex-1">
                         <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${getCategoryBadgeClasses(expense.categoryColor)}`}
+                          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${getCategoryBadgeClasses(expense.categoryColor)}`}
                         >
                           {expense.categoryIcon &&
                           ICON_MAP[expense.categoryIcon] ? (
                             React.createElement(ICON_MAP[expense.categoryIcon], {
-                              className: "w-5 h-5 text-current",
+                              className: "w-4 h-4 sm:w-5 sm:h-5 text-current",
                             })
                           ) : (
                             <div className="w-2.5 h-2.5 rounded-full bg-current" />
@@ -2378,72 +2886,85 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         </div>
 
                         <div className="min-w-0 flex-1 space-y-1">
-                          {/* Category Name & Badges */}
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">
+                          {/* Category Name & Constrained Status/Budget Info */}
+                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm truncate max-w-full">
                               {expense.categoryName}
                             </p>
 
-                            {/* Planned Status Badge */}
+                            {/* Planned Status Indicator */}
                             {isPlanned && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 shrink-0">
                                 <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
                                 Предстоящ
                               </span>
                             )}
 
-                            {/* Budget Category Badge */}
-                            {expense.budgetCategoryId && expense.budgetCategoryId !== "none" && (
+                            {/* Budget Category Badge (Strictly Constrained with Ellipsis) */}
+                            {expenseBudgetLabel && (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800"
-                                title={`Бюджет: ${expense.budgetCategoryName || expense.budgetCategoryId}`}
+                                className="inline-flex items-center gap-1 min-w-0 max-w-[165px] sm:max-w-[225px] text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800"
+                                title={`Бюджет: ${expenseBudgetLabel}`}
                               >
-                                <Target className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
-                                <span>Бюджет: {expense.budgetCategoryName || expense.budgetCategoryId}</span>
+                                <Target className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <span className="truncate">{expenseBudgetLabel}</span>
                               </span>
                             )}
 
                             {/* Source Month Badge if from another month */}
                             {expense.sourceMonth &&
                               expense.sourceMonth !== currentMonth && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md border border-blue-200 dark:border-blue-800 shrink-0">
                                   <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
                                   {expense.sourceMonth}
                                 </span>
                               )}
 
-                            {/* Recurring Badge if included from recurring expenses */}
-                            {(expense.isFixedItem || isRepeatingFrequency(expense.repeat)) && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
-                                Повтарящ се
-                              </span>
-                            )}
-
-                            {((expense.repeat && expense.repeat !== "never") || expense.isRecurring) && (
+                            {/* Repeat indicator (no duplicate "Повтарящ се" + "Месечно") */}
+                            {hasRepeatFrequency ? (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200/80 dark:border-indigo-800"
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0"
                                 title="Повтарящ се разход"
                               >
-                                <Repeat className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
+                                <Repeat className="w-3 h-3 shrink-0" />
                                 {expense.repeat && expense.repeat !== "never"
                                   ? formatRepeatLabel(expense.repeat)
                                   : "Периодичен"}
                               </span>
-                            )}
+                            ) : expense.isFixedItem ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+                                Повтарящ се
+                              </span>
+                            ) : null}
                           </div>
 
                           {/* Date */}
-                          <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-400">
-                            <Calendar className="w-3.5 h-3.5 shrink-0" />
-                            <span>
-                              {parseLocalDateKey(
-                                resolveRecordDateKey(
-                                  expense,
-                                  expense.sourceMonth || currentMonth
-                                )
-                              ).toLocaleDateString("bg-BG")}
-                            </span>
-                          </div>
+                          {(() => {
+                            const dateKey = resolveRecordDateKey(
+                              expense,
+                              expense.sourceMonth || currentMonth
+                            );
+                            const formatted = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+                            if (isPlanned && onOpenCalendar) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenCalendar(dateKey)}
+                                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums"
+                                  title="Отвори датата в Календар"
+                                >
+                                  <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Очаквана дата: {formatted}</span>
+                                </button>
+                              );
+                            }
+                            return (
+                              <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-400">
+                                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                                <span className="tabular-nums">{formatted}</span>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -2696,6 +3217,42 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           onAddNewCategory={(newCat) => {
             handleCategoriesChanged(loadStoredCategories());
             handleSelectFixedCategory(newCat);
+          }}
+          onCategoriesChanged={handleCategoriesChanged}
+        />
+      )}
+
+      {showEditExpenseCategoryPicker && (
+        <CategoryPicker
+          categories={categories}
+          onSelect={(cat) => {
+            setEditExpenseCategory(cat);
+            setShowEditExpenseCategoryPicker(false);
+          }}
+          onClose={() => setShowEditExpenseCategoryPicker(false)}
+          onAddNewCategory={(newCat) => {
+            handleCategoriesChanged(loadStoredCategories());
+            setEditExpenseCategory(newCat);
+            setShowEditExpenseCategoryPicker(false);
+          }}
+          onCategoriesChanged={handleCategoriesChanged}
+        />
+      )}
+
+      {showEditFixedCategoryPicker && (
+        <CategoryPicker
+          categories={categories}
+          onSelect={(cat) => {
+            setEditFixedCategory(cat);
+            setEditFixedName(cat.name);
+            setShowEditFixedCategoryPicker(false);
+          }}
+          onClose={() => setShowEditFixedCategoryPicker(false)}
+          onAddNewCategory={(newCat) => {
+            handleCategoriesChanged(loadStoredCategories());
+            setEditFixedCategory(newCat);
+            setEditFixedName(newCat.name);
+            setShowEditFixedCategoryPicker(false);
           }}
           onCategoriesChanged={handleCategoriesChanged}
         />

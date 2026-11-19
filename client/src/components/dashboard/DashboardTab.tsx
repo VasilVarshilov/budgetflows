@@ -84,6 +84,11 @@ interface DashboardTabProps {
   globalSavings: IncomeItem[];
   onNavigateTab?: (tab: "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "backup" | "budgets" | "ai-analysis") => void;
   onOpenCalendar?: (dateKey?: string) => void;
+  onOpenRecord?: (target: {
+    kind: "fixed" | "additional" | "income";
+    monthKey: string;
+    id: string;
+  }) => void;
   onTriggerSync?: () => void;
   onToggleRecordCompletion?: (
     monthKey: string,
@@ -152,6 +157,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   globalSavings,
   onNavigateTab,
   onOpenCalendar,
+  onOpenRecord,
   onTriggerSync,
   onToggleRecordCompletion,
 }) => {
@@ -1118,15 +1124,21 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </span>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/70">
-            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block">
-              Предстоящи разходи
-            </span>
-            <span className="text-xl font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-1 block">
+          <div className="p-3.5 rounded-xl bg-amber-50/85 dark:bg-amber-950/40 border border-amber-300/90 dark:border-amber-800/80 shadow-2xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Предстоящи разходи</span>
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 tabular-nums">
+                {upcomingExpenseItems.length}
+              </span>
+            </div>
+            <span className="text-xl font-extrabold text-amber-800 dark:text-amber-200 tabular-nums mt-1.5 block">
               €{totalPlannedExpenses.toFixed(2)}
             </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
-              Очаквани: €{(totalExpenses + totalPlannedExpenses).toFixed(2)}
+            <span className="text-[11px] text-amber-700/80 dark:text-amber-400/90 mt-1 block tabular-nums">
+              Очаквани общо: €{(totalExpenses + totalPlannedExpenses).toFixed(2)}
             </span>
           </div>
 
@@ -1142,12 +1154,18 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </span>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/70">
-            <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 block">
-              Очаквани приходи
-            </span>
-            <span className="text-xl font-extrabold text-indigo-700 dark:text-indigo-300 tabular-nums mt-1 block">
-              €{totalExpectedIncome.toFixed(2)}
+          <div className="p-3.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-800/70">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Очаквани приходи</span>
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 tabular-nums">
+                {upcomingIncomeItems.length}
+              </span>
+            </div>
+            <span className="text-xl font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums mt-1.5 block">
+              +€{totalExpectedIncome.toFixed(2)}
             </span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
               Общо очаквани: €{(totalIncome + totalExpectedIncome).toFixed(2)}
@@ -1157,46 +1175,51 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       </div>
 
       {/* Dedicated Upcoming Payments & Income Widget */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4 transition-colors">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-              <Clock className="w-4 h-4" />
+      <div className="bg-gradient-to-br from-amber-50/80 via-white to-white dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-5 rounded-2xl border border-amber-300/90 dark:border-amber-800/75 shadow-xs space-y-4 transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-amber-200/75 dark:border-amber-800/60">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/70 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-200/80 dark:border-amber-700/60">
+              <Clock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                Предстоящи плащания и приходи
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                  Предстоящи плащания и приходи
+                </h3>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 tabular-nums">
+                  {upcomingItems.length}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
                 {upcomingItems.length > 0
-                  ? `${upcomingExpenseItems.length} ${upcomingExpenseItems.length === 1 ? "разход" : "разхода"} · ${upcomingIncomeItems.length} ${upcomingIncomeItems.length === 1 ? "приход" : "прихода"} за ${currentPeriodLabel}`
+                  ? `Натиснете запис, за да отворите датата му в Календар (${currentPeriodLabel})`
                   : `Няма предстоящи плащания и приходи за ${currentPeriodLabel}`}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 self-end sm:self-center text-right">
-            {totalPlannedExpenses > 0 && (
-              <div>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 mr-1">
-                  Разходи:
+          <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-center text-right">
+            {upcomingExpenseItems.length > 0 && (
+              <div className="px-3 py-1.5 rounded-xl bg-amber-100/80 dark:bg-amber-900/50 border border-amber-200 dark:border-amber-800/70 text-left">
+                <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 block">
+                  Предстоящи разходи ({upcomingExpenseItems.length})
                 </span>
-                <span className="text-sm sm:text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums">
-                  -€{totalPlannedExpenses.toFixed(2)}
+                <span className="text-sm sm:text-base font-extrabold text-amber-900 dark:text-amber-200 tabular-nums">
+                  €{totalPlannedExpenses.toFixed(2)}
                 </span>
               </div>
             )}
-            {totalExpectedIncome > 0 && (
-              <div>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 mr-1">
-                  Приходи:
+            {upcomingIncomeItems.length > 0 && (
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/70 text-left">
+                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 block">
+                  Очаквани приходи ({upcomingIncomeItems.length})
                 </span>
                 <span className="text-sm sm:text-base font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
                   +€{totalExpectedIncome.toFixed(2)}
                 </span>
               </div>
             )}
-            {totalPlannedExpenses === 0 && totalExpectedIncome === 0 && (
+            {upcomingExpenseItems.length === 0 && upcomingIncomeItems.length === 0 && (
               <span className="text-sm font-bold text-slate-400 dark:text-slate-500 tabular-nums">
                 €0.00
               </span>
@@ -1208,7 +1231,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   ? onOpenCalendar(upcomingItems[0]?.dateKey)
                   : onNavigateTab?.("calendar")
               }
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
             >
               <CalendarDays className="w-3.5 h-3.5" />
               <span>Отвори Календар</span>
@@ -1217,7 +1240,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
 
         {upcomingItems.length > 0 ? (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/70 dark:border-slate-800 rounded-xl overflow-hidden">
+          <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 border border-amber-200/80 dark:border-amber-800/70 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
             {upcomingItems.map((item) => {
               const isIncome = item.kind === "income";
               const IconComponent =
@@ -1233,9 +1256,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   ? "Повтарящ се разход"
                   : "Предстоящ разход"
               );
-              detailParts.push(
-                parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG")
-              );
+              const formattedDate = parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG");
               if (item.merchantName) detailParts.push(item.merchantName);
               if (item.note) detailParts.push(item.note);
               if (item.repeat && item.repeat !== "never") {
@@ -1262,39 +1283,62 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                       else onNavigateTab?.("calendar");
                     }
                   }}
-                  className="px-4 py-3 flex items-center justify-between gap-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
-                  title="Отвори в Финансов календар"
+                  className="px-4 py-3 flex items-center justify-between gap-3 bg-white dark:bg-slate-900 hover:bg-amber-50/70 dark:hover:bg-amber-950/30 transition-colors cursor-pointer"
+                  title="Отвори датата в Календар"
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                         isIncome
                           ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
-                          : "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300"
+                          : "bg-amber-100/80 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300"
                       }`}
                     >
                       <IconComponent className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">
-                        {item.categoryName}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">
+                          {item.categoryName}
+                        </p>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/80 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/70 tabular-nums">
+                          <CalendarDays className="w-3 h-3 shrink-0" />
+                          <span>{formattedDate}</span>
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                         {detailParts.join(" · ")}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2.5 shrink-0">
                     <span
                       className={`font-bold text-sm sm:text-base tabular-nums ${
                         isIncome
                           ? "text-emerald-700 dark:text-emerald-300"
-                          : "text-slate-900 dark:text-white"
+                          : "text-amber-800 dark:text-amber-300"
                       }`}
                     >
                       {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
                     </span>
+                    {onOpenRecord && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenRecord({
+                            kind: item.kind,
+                            monthKey: item.monthKey,
+                            id: item.id,
+                          });
+                        }}
+                        className="hidden sm:inline-flex min-h-[32px] items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                        title="Отвори записа за редакция"
+                      >
+                        <span>Отвори</span>
+                      </button>
+                    )}
                     <div
                       className="flex items-center gap-2"
                       onClick={(e) => e.stopPropagation()}
