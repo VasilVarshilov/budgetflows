@@ -216,6 +216,7 @@ export interface BudgetConfig {
   id: string;
   categoryName: string;
   categoryId?: string;
+  categoryIds?: string[];
   monthlyLimit: number; // in EUR
   period?: string; // 'all' or month label
 }

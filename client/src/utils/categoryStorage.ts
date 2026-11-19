@@ -684,21 +684,24 @@ function syncLinkedBudgetsOnCategoryRename(
         return b;
       }
       const bNorm = (b.categoryName || "").trim().toLowerCase();
-      const isLinkedById = b.categoryId === categoryId;
-      const isUnlinkedByOldName = !b.categoryId && bNorm === oldNorm;
+      const hasMulti = Array.isArray(b.categoryIds);
+      const isLinkedInArray = hasMulti && b.categoryIds!.includes(categoryId);
+      const isLinkedById = b.categoryId === categoryId || isLinkedInArray;
+      const isUnlinkedByOldName = !b.categoryId && (!hasMulti || b.categoryIds!.length === 0) && bNorm === oldNorm;
 
       if (isLinkedById || isUnlinkedByOldName) {
-        // Only update the budget's display name if it matched the old category name;
-        // custom budget names (e.g. "Hobby & Gaming") remain preserved.
-        const shouldRenameBudget = bNorm === oldNorm;
+        const isSingleLinked = !hasMulti || b.categoryIds!.length <= 1;
+        // Only update the budget's display name if it is single-linked and matched the old category name;
+        // custom budget names and multi-category budget names remain preserved.
+        const shouldRenameBudget = isSingleLinked && bNorm === oldNorm;
         if (shouldRenameBudget) {
           updatedBudgetIds.add(b.id);
         }
-        if ((shouldRenameBudget && b.categoryName !== newName) || b.categoryId !== categoryId) {
+        if ((shouldRenameBudget && b.categoryName !== newName) || (!hasMulti && b.categoryId !== categoryId)) {
           budgetsChanged = true;
           return {
             ...b,
-            categoryId,
+            categoryId: hasMulti ? (b.categoryIds!.length === 1 ? b.categoryIds![0] : undefined) : categoryId,
             categoryName: shouldRenameBudget ? newName : b.categoryName,
           };
         }
@@ -758,9 +761,20 @@ function detachDeletedCategoryFromBudgets(categoryId: string): void {
 
     let changed = false;
     const updatedBudgets: BudgetConfig[] = parsed.map((b: BudgetConfig) => {
-      if (b && b.categoryId === categoryId) {
+      if (!b) return b;
+      const hadSingle = b.categoryId === categoryId;
+      const hadInArray = Array.isArray(b.categoryIds) && b.categoryIds.includes(categoryId);
+      if (hadSingle || hadInArray) {
         changed = true;
         const { categoryId: _removed, ...rest } = b;
+        if (Array.isArray(b.categoryIds)) {
+          const nextIds = b.categoryIds.filter((cid) => cid !== categoryId);
+          return {
+            ...rest,
+            categoryIds: nextIds,
+            ...(nextIds.length === 1 ? { categoryId: nextIds[0] } : {}),
+          };
+        }
         return rest;
       }
       return b;

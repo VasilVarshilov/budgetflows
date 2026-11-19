@@ -25,12 +25,11 @@ import {
   Sparkles,
   Clock,
   CheckCircle2,
+  Repeat,
 } from "lucide-react";
 import { ExportCenterModal } from "@/components/export/ExportCenterModal";
 import {
   ResponsiveContainer,
-  PieChart,
-  Pie,
   Cell,
   BarChart,
   Bar,
@@ -43,10 +42,8 @@ import {
   Legend,
 } from "recharts";
 import { MonthlyRecord, IncomeItem, ExpenseItem, RepeatFrequency } from "@/types";
-import {
-  SYSTEM_CATEGORY_COLORS,
-  getHexFromTailwindClass,
-} from "@/utils/colors";
+import { getCategoryColor } from "@/utils/colors";
+import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
 import {
   loadBudgets,
   calculateAllBudgetsStatus,
@@ -334,7 +331,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     let variable = 0;
     let plannedSum = 0;
     const plannedList: UpcomingDashboardItem[] = [];
-    const catMap: Record<string, { value: number; color?: string }> = {};
+    const catMap: Record<string, { value: number; colorClass?: string }> = {};
 
     activeMonthsList.forEach(({ key, record }) => {
       const exp = record.expenses;
@@ -368,9 +365,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           if (!catMap[item.categoryName]) {
             catMap[item.categoryName] = {
               value: 0,
-              color:
-                SYSTEM_CATEGORY_COLORS[item.categoryName] ||
-                getHexFromTailwindClass(item.categoryColor),
+              colorClass: item.categoryColor,
             };
           }
           catMap[item.categoryName].value += item.amount;
@@ -381,21 +376,18 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           fixed += legacy.credit_eur;
           catMap["Кредит"] = {
             value: (catMap["Кредит"]?.value || 0) + legacy.credit_eur,
-            color: SYSTEM_CATEGORY_COLORS["Кредит"],
           };
         }
         if (legacy.phone_eur) {
           fixed += legacy.phone_eur;
           catMap["Телефон"] = {
             value: (catMap["Телефон"]?.value || 0) + legacy.phone_eur,
-            color: SYSTEM_CATEGORY_COLORS["Телефон"],
           };
         }
         if (legacy.internet_eur) {
           fixed += legacy.internet_eur;
           catMap["Интернет"] = {
             value: (catMap["Интернет"]?.value || 0) + legacy.internet_eur,
-            color: SYSTEM_CATEGORY_COLORS["Интернет"],
           };
         }
       }
@@ -436,7 +428,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           if (!catMap[item.categoryName]) {
             catMap[item.categoryName] = {
               value: 0,
-              color: getHexFromTailwindClass(item.categoryColor),
+              colorClass: item.categoryColor,
             };
           }
           catMap[item.categoryName].value += item.amount;
@@ -445,10 +437,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     });
 
     const categoriesArray = Object.entries(catMap)
-      .map(([name, data], idx) => ({
+      .map(([name, data]) => ({
         name,
         value: parseFloat(data.value.toFixed(2)),
-        color: data.color || PALETTE[idx % PALETTE.length],
+        colorClass: data.colorClass,
+        color: getCategoryColor(name, data.colorClass),
       }))
       .filter((c) => c.value > 0)
       .sort((a, b) => b.value - a.value);
@@ -1246,25 +1239,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               const IconComponent =
                 (item.categoryIcon && AVAILABLE_ICONS_MAP[item.categoryIcon]) ||
                 (isIncome ? ArrowDownLeft : Clock);
-              const detailParts: string[] = [];
-              detailParts.push(
-                isIncome
-                  ? isRepeatingFrequency(item.repeat)
-                    ? "Повтарящ се приход"
-                    : "Очакван приход"
-                  : item.kind === "fixed"
-                  ? "Повтарящ се разход"
-                  : "Предстоящ разход"
-              );
               const formattedDate = parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG");
-              if (item.merchantName) detailParts.push(item.merchantName);
-              if (item.note) detailParts.push(item.note);
-              if (item.repeat && item.repeat !== "never") {
-                detailParts.push(formatRepeatLabel(item.repeat));
-              }
-              if (periodType === "year" || periodType === "custom") {
-                detailParts.push(item.monthKey);
-              }
+              const hasRepeat = Boolean(item.repeat && item.repeat !== "never");
+              const secondaryLabel = [item.merchantName, item.note]
+                .filter(Boolean)
+                .join(" · ");
 
               return (
                 <div
@@ -1283,69 +1262,129 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                       else onNavigateTab?.("calendar");
                     }
                   }}
-                  className="px-4 py-3 flex items-center justify-between gap-3 bg-white dark:bg-slate-900 hover:bg-amber-50/70 dark:hover:bg-amber-950/30 transition-colors cursor-pointer"
+                  className="px-3.5 py-2.5 bg-white dark:bg-slate-900 hover:bg-amber-50/60 dark:hover:bg-amber-950/30 transition-colors cursor-pointer space-y-1.5"
                   title="Отвори датата в Календар"
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        isIncome
-                          ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
-                          : "bg-amber-100/80 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300"
-                      }`}
-                    >
-                      <IconComponent className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
+                  {/* Row 1: Icon + Title + Status Tag | Amount + Desktop Actions */}
+                  <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                          isIncome
+                            ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
+                            : "bg-amber-100/80 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300"
+                        }`}
+                      >
+                        <IconComponent className="w-4 h-4" />
+                      </div>
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
                         <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">
                           {item.categoryName}
                         </p>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/80 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/70 tabular-nums">
-                          <CalendarDays className="w-3 h-3 shrink-0" />
-                          <span>{formattedDate}</span>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0 border ${
+                            isIncome
+                              ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/70"
+                              : "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/70"
+                          }`}
+                        >
+                          <Clock className="w-3 h-3 shrink-0" />
+                          <span>{isIncome ? "Очакван" : "Предстоящ"}</span>
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                        {detailParts.join(" · ")}
-                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <span
+                        className={`font-bold text-sm sm:text-base tabular-nums ${
+                          isIncome
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : "text-amber-800 dark:text-amber-300"
+                        }`}
+                      >
+                        {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
+                      </span>
+                      {onOpenRecord && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenRecord({
+                              kind: item.kind,
+                              monthKey: item.monthKey,
+                              id: item.id,
+                            });
+                          }}
+                          className="hidden sm:inline-flex min-h-[30px] items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                          title="Отвори записа за редакция"
+                        >
+                          Отвори
+                        </button>
+                      )}
+                      <div
+                        className="hidden sm:flex items-center gap-1.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                          Изпълнено
+                        </span>
+                        <CompletionSwitch
+                          checked={false}
+                          onChange={() =>
+                            onToggleRecordCompletion?.(item.monthKey, item.kind, item.id, true)
+                          }
+                          ariaLabel={`Отбележи „${item.categoryName}“ като изпълнено`}
+                          size="sm"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    <span
-                      className={`font-bold text-sm sm:text-base tabular-nums ${
-                        isIncome
-                          ? "text-emerald-700 dark:text-emerald-300"
-                          : "text-amber-800 dark:text-amber-300"
-                      }`}
-                    >
-                      {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
-                    </span>
-                    {onOpenRecord && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenRecord({
-                            kind: item.kind,
-                            monthKey: item.monthKey,
-                            id: item.id,
-                          });
-                        }}
-                        className="hidden sm:inline-flex min-h-[32px] items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-                        title="Отвори записа за редакция"
-                      >
-                        <span>Отвори</span>
-                      </button>
-                    )}
+                  {/* Row 2: Horizontal Metadata Chips + Description | Mobile Compact Actions */}
+                  <div className="flex items-center justify-between gap-2 pl-10">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/80 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/70 tabular-nums shrink-0">
+                        <CalendarDays className="w-3 h-3 shrink-0" />
+                        <span>{formattedDate}</span>
+                      </span>
+                      {hasRepeat && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70 shrink-0">
+                          <Repeat className="w-3 h-3 shrink-0" />
+                          <span>{formatRepeatLabel(item.repeat)}</span>
+                        </span>
+                      )}
+                      {(periodType === "year" || periodType === "custom") && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
+                          {item.monthKey}
+                        </span>
+                      )}
+                      {secondaryLabel && (
+                        <span className="text-xs text-slate-500 dark:text-slate-400 truncate min-w-0">
+                          {secondaryLabel}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Mobile Compact Actions */}
                     <div
-                      className="flex items-center gap-2"
+                      className="flex sm:hidden items-center gap-1.5 shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <span className="hidden sm:inline text-xs font-medium text-slate-500 dark:text-slate-400">
-                        Изпълнено
-                      </span>
+                      {onOpenRecord && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenRecord({
+                              kind: item.kind,
+                              monthKey: item.monthKey,
+                              id: item.id,
+                            })
+                          }
+                          className="min-h-[30px] inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        >
+                          Отвори
+                        </button>
+                      )}
                       <CompletionSwitch
                         checked={false}
                         onChange={() =>
@@ -1488,78 +1527,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </span>
           </div>
 
-          {categoryBreakdown.length > 0 ? (
-            <div className="flex flex-col sm:flex-row items-center gap-4 flex-1">
-              <div className="w-full sm:w-1/2 h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={categoryBreakdown}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {categoryBreakdown.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={chartTooltipStyle}
-                      formatter={(val: any) => [`€${Number(val).toFixed(2)}`, "Сума"]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Category Legend List */}
-              <div className="w-full sm:w-1/2 max-h-[220px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                {categoryBreakdown.map((cat, idx) => {
-                  const pct =
-                    totalExpenses > 0
-                      ? ((cat.value / totalExpenses) * 100).toFixed(1)
-                      : "0";
-                  return (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between text-xs p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className="w-3 h-3 rounded-full shrink-0"
-                          style={{ backgroundColor: cat.color }}
-                        />
-                        <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
-                          {cat.name}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          €{cat.value.toFixed(2)}
-                        </span>
-                        <span className="text-slate-500 dark:text-slate-400 w-9 text-right">
-                          {pct}%
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="h-[220px] flex flex-col items-center justify-center text-center p-6 text-slate-500 dark:text-slate-400">
-              <Info className="w-8 h-8 opacity-40 mb-2" />
-              <p className="text-sm font-medium">Няма разходи за този период</p>
-              <button
-                onClick={() => onNavigateTab?.("monthly")}
-                className="mt-3 text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
-              >
-                + Въведи разход
-              </button>
-            </div>
-          )}
+          <CategoryDistributionChart
+            items={categoryBreakdown}
+            totalLabel="Общо"
+            emptyTitle="Няма разходи за този период"
+            emptyActionLabel="+ Въведи разход"
+            onEmptyAction={() => onNavigateTab?.("monthly")}
+          />
         </div>
 
         {/* Chart 2: Income vs Expenses (Bar Chart) */}

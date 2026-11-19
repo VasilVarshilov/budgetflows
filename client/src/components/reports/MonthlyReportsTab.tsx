@@ -15,10 +15,8 @@ import {
   Banknote,
 } from "lucide-react";
 import { MonthlyRecord, ExpenseItem, IncomeItem } from "@/types";
-import {
-  getHexFromTailwindClass,
-  SYSTEM_CATEGORY_COLORS,
-} from "@/utils/colors";
+import { getCategoryColor } from "@/utils/colors";
+import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
 import { ExportCenterModal } from "@/components/export/ExportCenterModal";
 import { MonthToMonthComparison } from "@/components/common/MonthToMonthComparison";
 import {
@@ -105,7 +103,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
       segments.push({
         name: "Ток",
         value: exp.saved_em2_eur,
-        color: SYSTEM_CATEGORY_COLORS["Ток"],
+        color: getCategoryColor("Ток"),
         percentage: 0,
       });
     }
@@ -113,27 +111,22 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
     // 2. Fixed Expenses (Completed only)
     // Handle both new array format and legacy object format
     if (Array.isArray(exp.fixed_expenses)) {
-      const fixedMap: Record<string, number> = {};
+      const fixedMap: Record<string, { amount: number; colorClass?: string }> = {};
       exp.fixed_expenses.forEach((item) => {
         if (!isCompletedExpense(item)) return;
-        fixedMap[item.categoryName] =
-          (fixedMap[item.categoryName] || 0) + item.amount;
+        if (!fixedMap[item.categoryName]) {
+          fixedMap[item.categoryName] = { amount: 0, colorClass: item.categoryColor };
+        }
+        fixedMap[item.categoryName].amount += item.amount;
       });
 
-      Object.entries(fixedMap).forEach(([name, amount]) => {
-        let color = "#94a3b8"; // slate
-        if (name === "Кредит") color = SYSTEM_CATEGORY_COLORS["Кредит"];
-        else if (name === "Телефон") color = SYSTEM_CATEGORY_COLORS["Телефон"];
-        else if (name === "Интернет")
-          color = SYSTEM_CATEGORY_COLORS["Интернет"];
-        else {
-          const item = exp.fixed_expenses.find(
-            (i) => isCompletedExpense(i) && i.categoryName === name
-          );
-          if (item) color = getHexFromTailwindClass(item.categoryColor);
-        }
-
-        segments.push({ name, value: amount, color, percentage: 0 });
+      Object.entries(fixedMap).forEach(([name, data]) => {
+        segments.push({
+          name,
+          value: data.amount,
+          color: getCategoryColor(name, data.colorClass),
+          percentage: 0,
+        });
       });
     } else if (exp.fixed_expenses) {
       // Legacy Object Format
@@ -142,7 +135,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         segments.push({
           name: "Кредит",
           value: legacy.credit_eur,
-          color: SYSTEM_CATEGORY_COLORS["Кредит"],
+          color: getCategoryColor("Кредит"),
           percentage: 0,
         });
       }
@@ -150,7 +143,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         segments.push({
           name: "Телефон",
           value: legacy.phone_eur,
-          color: SYSTEM_CATEGORY_COLORS["Телефон"],
+          color: getCategoryColor("Телефон"),
           percentage: 0,
         });
       }
@@ -158,7 +151,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         segments.push({
           name: "Интернет",
           value: legacy.internet_eur,
-          color: SYSTEM_CATEGORY_COLORS["Интернет"],
+          color: getCategoryColor("Интернет"),
           percentage: 0,
         });
       }
@@ -174,7 +167,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         if (!groupedAdditional[item.categoryName]) {
           groupedAdditional[item.categoryName] = {
             value: 0,
-            color: getHexFromTailwindClass(item.categoryColor),
+            color: getCategoryColor(item.categoryName, item.categoryColor),
           };
         }
         groupedAdditional[item.categoryName].value += item.amount;
@@ -241,7 +234,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
       if (!map[name]) {
         map[name] = {
           value: 0,
-          color: item.categoryColor ? getHexFromTailwindClass(item.categoryColor) : "#10b981",
+          color: getCategoryColor(name, item.categoryColor),
           count: 0,
         };
       }
@@ -267,64 +260,6 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
 
   const hasAnyMonthData =
     Boolean(record) || totalIncomeForMonth > 0 || totalSavingsForMonth !== 0;
-
-  // Helper for Donut Chart SVG
-  const renderDonutChart = () => {
-    if (chartData.length === 0) return null;
-
-    let cumulativePercent = 0;
-    const GAP_PERCENT = 1;
-
-    // Improved SVG coordinate system: 100x100
-    const radius = 40;
-    const circumference = 2 * Math.PI * radius;
-
-    return (
-      <div className="relative w-52 h-52 sm:w-64 sm:h-64 mx-auto my-4 sm:my-6">
-        <svg
-          viewBox="0 0 100 100"
-          className="w-full h-full transform -rotate-90"
-        >
-          {chartData.map((segment, index) => {
-            const val = segment.percentage; // 0 to 100
-
-            const strokeLength = (val / 100) * circumference;
-            const gapLength =
-              chartData.length > 1 ? (GAP_PERCENT / 100) * circumference : 0;
-            const drawLength = Math.max(0, strokeLength - gapLength);
-
-            const offset = -1 * (cumulativePercent / 100) * circumference;
-            cumulativePercent += val;
-
-            return (
-              <circle
-                key={index}
-                cx="50"
-                cy="50"
-                r={radius}
-                fill="transparent"
-                stroke={segment.color}
-                strokeWidth="12"
-                strokeDasharray={`${drawLength} ${circumference - drawLength}`}
-                strokeDashoffset={offset}
-                strokeLinecap="butt"
-                className="transition-all duration-500 ease-out hover:opacity-90"
-              />
-            );
-          })}
-        </svg>
-        {/* Center Text */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-1">
-            Общо
-          </span>
-          <span className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">
-            €{totalExpense.toFixed(2)}
-          </span>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -453,39 +388,18 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Chart Section */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center min-h-[350px] transition-colors">
-            <h3 className="w-full text-left font-semibold text-slate-700 dark:text-slate-200 mb-6 flex items-center gap-2">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col justify-between min-h-[350px] transition-colors">
+            <h3 className="w-full text-left font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
               <Filter className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               Разпределение
             </h3>
 
-            {chartData.length > 0 ? (
-              renderDonutChart()
-            ) : (
-              <div className="h-64 flex items-center justify-center w-full">
-                <p className="text-slate-500 dark:text-slate-400">Няма разходи за показване</p>
-              </div>
-            )}
-
-            {/* Legend / Mini Stats */}
-            <div className="flex flex-wrap gap-3 justify-center mt-6">
-              {chartData.slice(0, 5).map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center gap-1.5 text-xs bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-700"
-                >
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-slate-600 dark:text-slate-300 font-bold">
-                    {Math.round(item.percentage)}%
-                  </span>
-                  <span className="text-slate-500 dark:text-slate-300 truncate max-w-[80px]">
-                    {item.name}
-                  </span>
-                </div>
-              ))}
+            <div className="flex-1 flex items-center w-full">
+              <CategoryDistributionChart
+                items={chartData.map((c) => ({ name: c.name, value: c.value }))}
+                totalLabel="Общо"
+                emptyTitle="Няма разходи за показване"
+              />
             </div>
           </div>
 

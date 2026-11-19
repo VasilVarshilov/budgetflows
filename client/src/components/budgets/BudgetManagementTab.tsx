@@ -29,7 +29,7 @@ import {
   updateCategoryBudget,
   deleteCategoryBudget,
   calculateAllBudgetsStatus,
-  resolveCategoryForBudget,
+  resolveCategoriesForBudget,
   BudgetStatus,
   DEFAULT_TOTAL_MONTHLY_BUDGET,
 } from "@/utils/budgetStorage";
@@ -93,13 +93,14 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     categoryName: string;
-    categoryId: string;
+    categoryIds: string[];
     monthlyLimit: string;
   }>({
     categoryName: "",
-    categoryId: "",
+    categoryIds: [],
     monthlyLimit: "",
   });
+  const [isCustomNameTouched, setIsCustomNameTouched] = useState(false);
   const [formError, setFormError] = useState("");
 
   // Category details expansion state
@@ -170,50 +171,65 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     const latestCategories = loadStoredCategories();
     setAvailableCategories(latestCategories);
     setEditingBudgetId(null);
+    const defaultCat = latestCategories[0];
     setFormData({
-      categoryName: latestCategories[0]?.name || "Храна",
-      categoryId: latestCategories[0]?.id || "food",
+      categoryName: defaultCat?.name || "Храна",
+      categoryIds: defaultCat ? [defaultCat.id] : [],
       monthlyLimit: "300",
     });
+    setIsCustomNameTouched(false);
     setFormError("");
     setIsModalOpen(true);
   };
 
-  // Open modal for Edit — preserve Budget Name AND linked Category independently
+  // Open modal for Edit — preserve Budget Name AND all linked Categories independently
   const handleOpenEditModal = (budget: BudgetConfig) => {
     const latestCategories = loadStoredCategories();
     setAvailableCategories(latestCategories);
-    const matchedCategory = resolveCategoryForBudget(budget, latestCategories);
+    const matchedCategories = resolveCategoriesForBudget(budget, latestCategories);
 
     setEditingBudgetId(budget.id);
     setFormData({
       categoryName: budget.categoryName,
-      categoryId: matchedCategory ? matchedCategory.id : "",
+      categoryIds: matchedCategories.map((c) => c.id),
       monthlyLimit: budget.monthlyLimit.toString(),
     });
+    setIsCustomNameTouched(true);
     setFormError("");
     setIsModalOpen(true);
   };
 
-  // Handle Form Linked Category Selection Change
-  const handleCategorySelect = (categoryId: string) => {
-    const nextFound = availableCategories.find((c) => c.id === categoryId);
+  // Toggle a category in multi-select checklist
+  const handleToggleCategoryId = (categoryId: string) => {
     setFormData((prev) => {
-      const prevMatched = prev.categoryId
-        ? availableCategories.find((c) => c.id === prev.categoryId)
-        : undefined;
-      const shouldAutoFillName =
-        !editingBudgetId &&
-        (!prev.categoryName.trim() ||
-          (prevMatched &&
-            prev.categoryName.trim().toLowerCase() ===
-              prevMatched.name.trim().toLowerCase()));
+      const exists = prev.categoryIds.includes(categoryId);
+      const nextIds = exists
+        ? prev.categoryIds.filter((id) => id !== categoryId)
+        : [...prev.categoryIds, categoryId];
+
+      let nextName = prev.categoryName;
+      if (!editingBudgetId && !isCustomNameTouched) {
+        if (nextIds.length === 1) {
+          const singleCat = availableCategories.find((c) => c.id === nextIds[0]);
+          if (singleCat) nextName = singleCat.name;
+        } else if (nextIds.length > 1) {
+          const names = nextIds
+            .slice(0, 2)
+            .map((id) => availableCategories.find((c) => c.id === id)?.name)
+            .filter(Boolean);
+          if (names.length > 0) {
+            nextName =
+              nextIds.length > 2
+                ? `${names.join(" + ")} (+${nextIds.length - 2})`
+                : names.join(" + ");
+          }
+        }
+      }
 
       return {
         ...prev,
-        categoryId,
-        categoryName:
-          shouldAutoFillName && nextFound ? nextFound.name : prev.categoryName,
+        categoryIds: nextIds,
+        categoryName: nextName,
       };
     });
   };
@@ -232,23 +248,22 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       return;
     }
 
-    const linkedCatId =
-      formData.categoryId &&
-      availableCategories.some((c) => c.id === formData.categoryId)
-        ? formData.categoryId
-        : "";
+    const validCatSet = new Set(availableCategories.map((c) => c.id));
+    const cleanIds = formData.categoryIds.filter((id) => validCatSet.has(id));
 
     if (editingBudgetId) {
       const updated = updateCategoryBudget(editingBudgetId, {
         categoryName: trimmedName,
-        categoryId: linkedCatId,
+        categoryIds: cleanIds,
+        categoryId: cleanIds.length === 1 ? cleanIds[0] : undefined,
         monthlyLimit: limit,
       });
       setCategoryBudgets(updated);
     } else {
       const updated = addCategoryBudget({
         categoryName: trimmedName,
-        categoryId: linkedCatId,
+        categoryIds: cleanIds,
+        categoryId: cleanIds.length === 1 ? cleanIds[0] : undefined,
         monthlyLimit: limit,
       });
       setCategoryBudgets(updated);
@@ -625,20 +640,32 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           >
                             {item.budget.categoryName}
                           </h4>
+                          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium tabular-nums block mt-0.5">
+                            Лимит: €{item.limit.toFixed(2)}
+                          </span>
                           {(() => {
-                            const linkedCat = item.budget.categoryId
-                              ? availableCategories.find((c) => c.id === item.budget.categoryId)
-                              : undefined;
-                            const showLinkedCat =
-                              linkedCat &&
-                              linkedCat.name.trim().toLowerCase() !==
-                                item.budget.categoryName.trim().toLowerCase();
+                            const linkedCats = resolveCategoriesForBudget(
+                              item.budget,
+                              availableCategories
+                            );
+                            if (linkedCats.length === 0) return null;
                             return (
-                              <span className="text-xs text-slate-600 dark:text-slate-300 font-medium tabular-nums block truncate mt-0.5">
-                                {showLinkedCat
-                                  ? `${linkedCat.name} · Лимит: €${item.limit.toFixed(2)}`
-                                  : `Лимит: €${item.limit.toFixed(2)}`}
-                              </span>
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {linkedCats.map((cat) => {
+                                  const CatIcon = AVAILABLE_ICONS_MAP[cat.iconName] || Target;
+                                  return (
+                                    <span
+                                      key={cat.id}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${getCategoryBadgeClasses(
+                                        cat.colorClass
+                                      )}`}
+                                    >
+                                      <CatIcon className="w-3 h-3 shrink-0" />
+                                      <span className="truncate max-w-[110px]">{cat.name}</span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             );
                           })()}
                         </div>
@@ -900,30 +927,63 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                 <input
                   type="text"
                   value={formData.categoryName}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setIsCustomNameTouched(true);
                     setFormData((prev) => ({
                       ...prev,
                       categoryName: e.target.value,
-                    }))
-                  }
-                  placeholder="напр. Храна, Hobby & Gaming, Семейни разходи"
+                    }));
+                  }}
+                  placeholder="напр. Дом и Бит, Храна, Hobby & Gaming"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 px-3 py-2 min-h-[42px] rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
                   required
                 />
               </div>
 
-              {/* Linked Expense Category Dropdown (Editable Independently) */}
+              {/* Multi-Select Linked Expense Categories Checklist */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Свързана категория разходи (по избор)
-                </label>
-                {(() => {
-                  const hasMatchingOption = Boolean(
-                    formData.categoryId &&
-                      availableCategories.some((c) => c.id === formData.categoryId)
-                  );
-                  const selectValue = hasMatchingOption ? formData.categoryId : "";
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Включени категории разходи ({formData.categoryIds.length})
+                  </label>
+                  {formData.categoryIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData((prev) => ({ ...prev, categoryIds: [] }))}
+                      className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                    >
+                      Изчисти избора
+                    </button>
+                  )}
+                </div>
 
+                {/* Selected Categories Chips Preview */}
+                {formData.categoryIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80">
+                    {formData.categoryIds.map((cid) => {
+                      const cat = availableCategories.find((c) => c.id === cid);
+                      if (!cat) return null;
+                      const CatIcon = AVAILABLE_ICONS_MAP[cat.iconName] || Target;
+                      return (
+                        <button
+                          key={cid}
+                          type="button"
+                          onClick={() => handleToggleCategoryId(cid)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-85 cursor-pointer ${getCategoryBadgeClasses(
+                            cat.colorClass
+                          )}`}
+                          title={`Премахни ${cat.name}`}
+                        >
+                          <CatIcon className="w-3 h-3 shrink-0" />
+                          <span>{cat.name}</span>
+                          <X className="w-3 h-3 ml-0.5 opacity-75" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {(() => {
                   const defaultIdSet = new Set(DEFAULT_CATEGORIES.map((c) => c.id));
                   const customCats = availableCategories.filter(
                     (c) => c.isCustom || !defaultIdSet.has(c.id)
@@ -932,36 +992,71 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     (c) => !c.isCustom && defaultIdSet.has(c.id)
                   );
 
-                  return (
-                    <select
-                      value={selectValue}
-                      onChange={(e) => handleCategorySelect(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 min-h-[42px] rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
-                    >
-                      <option value="" className="dark:bg-slate-800 dark:text-white">
-                        -- Без свързана категория (ръчно присвояване) --
-                      </option>
-                      {customCats.length > 0 && (
-                        <optgroup label="Потребителски категории">
-                          {customCats.map((cat) => (
-                            <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
-                              {cat.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                      <optgroup label="Предефинирани категории">
-                        {predefinedCats.map((cat) => (
-                          <option key={cat.id} value={cat.id} className="dark:bg-slate-800 dark:text-white">
+                  const renderChecklistRow = (cat: ExpenseCategory) => {
+                    const isChecked = formData.categoryIds.includes(cat.id);
+                    const CatIcon = AVAILABLE_ICONS_MAP[cat.iconName] || Target;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={isChecked}
+                        onClick={() => handleToggleCategoryId(cat.id)}
+                        className={`w-full px-3 py-2 min-h-[40px] flex items-center justify-between gap-2.5 text-left transition-colors cursor-pointer ${
+                          isChecked
+                            ? "bg-indigo-50/80 dark:bg-indigo-950/40"
+                            : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                              isChecked
+                                ? "bg-indigo-600 border-indigo-600 text-white"
+                                : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
+                            }`}
+                          >
+                            {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                          </span>
+                          <span
+                            className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                              cat.colorClass
+                            )}`}
+                          >
+                            <CatIcon className="w-3.5 h-3.5" />
+                          </span>
+                          <span className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
                             {cat.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
+                          </span>
+                        </div>
+                        {isChecked && (
+                          <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+                            Избрана
+                          </span>
+                        )}
+                      </button>
+                    );
+                  };
+
+                  return (
+                    <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800 custom-scrollbar">
+                      {customCats.length > 0 && (
+                        <>
+                          <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Потребителски категории
+                          </div>
+                          {customCats.map(renderChecklistRow)}
+                        </>
+                      )}
+                      <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Предефинирани категории
+                      </div>
+                      {predefinedCats.map(renderChecklistRow)}
+                    </div>
                   );
                 })()}
-                <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1">
-                  Разходите от избраната категория се отчитат автоматично към този бюджет.
+                <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1.5">
+                  Разходите от всички избрани категории се сумират автоматично към този бюджет. При празен избор се отчитат само ръчно присвоени разходи.
                 </p>
               </div>
 

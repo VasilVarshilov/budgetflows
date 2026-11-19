@@ -24,6 +24,7 @@ import {
   calculateMonthExpenses,
 } from "@/utils/comparisonStorage";
 import { isCompletedExpense } from "@/utils/expenseStatus";
+import { getCategoryColor, prepareCategoryChartData } from "@/utils/colors";
 
 interface AiChatSectionProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -572,7 +573,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
 
   const buildChartRows = (res: AiChatResponse) => {
     if (res.matchedExpenses.length >= 2) {
-      const grouped: Record<string, number> = {};
+      const grouped: Record<string, { value: number; categoryName: string }> = {};
       const distinctLabels = new Set(
         res.matchedExpenses.map((m) => m.merchantOrCategory || m.categoryName)
       );
@@ -582,28 +583,41 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
         const key = groupByMonth
           ? m.monthKey || m.date || m.merchantOrCategory
           : m.merchantOrCategory || m.categoryName;
-        grouped[key] = (grouped[key] || 0) + Math.abs(m.matchedAmount);
+        if (!grouped[key]) {
+          grouped[key] = { value: 0, categoryName: m.categoryName || key };
+        }
+        grouped[key].value += Math.abs(m.matchedAmount);
       });
 
-      return Object.entries(grouped)
-        .map(([label, value]) => ({ label, value }))
+      const rawRows = Object.entries(grouped)
+        .map(([label, info]) => ({
+          label,
+          value: parseFloat(info.value.toFixed(2)),
+          color: getCategoryColor(info.categoryName),
+        }))
         .filter((x) => x.value > 0)
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 7);
+        .sort((a, b) => b.value - a.value);
+
+      const total = rawRows.reduce((s, r) => s + r.value, 0);
+      return rawRows.slice(0, 8).map((r) => ({
+        ...r,
+        percentage: total > 0 ? parseFloat(((r.value / total) * 100).toFixed(1)) : 0,
+      }));
     }
 
-    // Fallback: show current month's category breakdown so "Покажи графика" always visualizes real data
+    // Fallback: show current month's category breakdown with <3% grouping & stable colors
     const activeKey = resolveActiveMonthKey(monthlyData, currentMonth);
     const items = getAllExpensesFromRecord(monthlyData[activeKey]);
-    const byCat: Record<string, number> = {};
-    items.forEach((it) => {
-      byCat[it.categoryName] = (byCat[it.categoryName] || 0) + it.matchedAmount;
-    });
-    return Object.entries(byCat)
-      .map(([label, value]) => ({ label, value }))
-      .filter((x) => x.value > 0)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 7);
+    const prepared = prepareCategoryChartData(
+      items.map((it) => ({ name: it.categoryName, value: it.matchedAmount })),
+      { groupThresholdPercent: 3 }
+    );
+    return prepared.segments.map((seg) => ({
+      label: seg.name,
+      value: seg.value,
+      color: seg.color,
+      percentage: seg.percentage,
+    }));
   };
 
   const buildRecordsList = (res: AiChatResponse) => {
@@ -858,26 +872,33 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                               Разпределение по стойност
                             </span>
                             <span className="text-slate-500 dark:text-slate-400 tabular-nums">
-                              Топ {chartRows.length}
+                              {chartRows.length} {chartRows.length === 1 ? "елемент" : "елемента"}
                             </span>
                           </div>
                           <div className="space-y-2">
                             {chartRows.map((row) => {
-                              const pct = chartMax > 0 ? Math.max(4, (row.value / chartMax) * 100) : 0;
+                              const pctWidth = chartMax > 0 ? Math.max(4, (row.value / chartMax) * 100) : 0;
                               return (
                                 <div key={row.label} className="space-y-1">
                                   <div className="flex items-center justify-between text-xs gap-2">
-                                    <span className="text-slate-700 dark:text-slate-200 font-medium truncate">
-                                      {row.label}
+                                    <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200 font-medium truncate">
+                                      <span
+                                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                                        style={{ backgroundColor: row.color }}
+                                      />
+                                      <span className="truncate">{row.label}</span>
                                     </span>
                                     <span className="font-semibold text-slate-900 dark:text-white tabular-nums shrink-0">
+                                      <span className="text-slate-500 dark:text-slate-400 font-medium mr-2">
+                                        {row.percentage.toFixed(1)}%
+                                      </span>
                                       {fmtEur(row.value)}
                                     </span>
                                   </div>
                                   <div className="h-2 w-full rounded-full bg-slate-200/80 dark:bg-slate-700/70 overflow-hidden">
                                     <div
-                                      className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400 transition-all duration-300"
-                                      style={{ width: `${pct}%` }}
+                                      className="h-full rounded-full transition-all duration-300"
+                                      style={{ width: `${pctWidth}%`, backgroundColor: row.color }}
                                     />
                                   </div>
                                 </div>

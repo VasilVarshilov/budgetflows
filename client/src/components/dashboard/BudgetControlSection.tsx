@@ -1,6 +1,10 @@
 import React from "react";
 import { Target, ArrowRight, AlertTriangle } from "lucide-react";
-import { OverallBudgetCalculation } from "@/utils/budgetStorage";
+import {
+  OverallBudgetCalculation,
+  resolveCategoriesForBudget,
+} from "@/utils/budgetStorage";
+import { loadStoredCategories } from "@/utils/categoryStorage";
 
 interface BudgetControlSectionProps {
   budgetData: OverallBudgetCalculation;
@@ -189,20 +193,42 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
-                {budgetData.categoryStatuses.map((cat, idx) => {
+              <div className="space-y-3 max-h-[240px] overflow-y-auto pr-1 custom-scrollbar">
+                {(() => {
+                  const allCategories = loadStoredCategories();
+                  return budgetData.categoryStatuses.map((cat, idx) => {
                   const pct = cat.percentage;
                   const categoryName = cat.budget.categoryName || cat.budget.categoryId;
+                  const linkedCats = resolveCategoriesForBudget(cat.budget, allCategories);
+                  const showChips =
+                    linkedCats.length > 1 ||
+                    (linkedCats.length === 1 &&
+                      linkedCats[0].name.trim().toLowerCase() !==
+                        (categoryName || "").trim().toLowerCase());
                   return (
                     <div
                       key={cat.budget.id || idx}
                       className="p-2.5 rounded-xl bg-slate-50/50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
                     >
-                      <div className="flex items-center justify-between text-xs mb-1.5">
-                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                          {categoryName}
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <div className="flex items-start justify-between text-xs mb-1.5 gap-2">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 truncate block">
+                            {categoryName}
+                          </span>
+                          {showChips && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {linkedCats.map((c) => (
+                                <span
+                                  key={c.id}
+                                  className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 text-[10px] font-medium text-slate-700 dark:text-slate-300"
+                                >
+                                  {c.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <span className="font-bold text-slate-900 dark:text-white">
                             €{cat.spent.toFixed(2)}
                           </span>
@@ -254,7 +280,8 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                       </div>
                     </div>
                   );
-                })}
+                  });
+                })()}
               </div>
             )}
           </div>

@@ -19,6 +19,7 @@ import {
   Award,
   Layers,
   Banknote,
+  PieChart as PieChartIcon,
 } from "lucide-react";
 import { MonthlyRecord, IncomeItem } from "@/types";
 import {
@@ -26,6 +27,8 @@ import {
   FinancialInsight,
   InsightPriority,
 } from "@/utils/aiAnalysisEngine";
+import { isCompletedExpense } from "@/utils/expenseStatus";
+import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
 import { AiChatSection } from "./AiChatSection";
 
 interface AiAnalysisTabProps {
@@ -45,11 +48,56 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 }) => {
   const [selectedFilter, setSelectedFilter] = useState<FilterCategory>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [summaryScope, setSummaryScope] = useState<"current" | "all">("current");
 
   // Generate analysis from real user data
   const analysis = useMemo(() => {
     return generateLocalFinancialAnalysis(monthlyData, globalSavings);
   }, [monthlyData, globalSavings]);
+
+  const activeMonthKey = useMemo(() => {
+    if (currentMonth && monthlyData[currentMonth]) return currentMonth;
+    if (currentMonth) return currentMonth;
+    const keys = Object.keys(monthlyData || {});
+    return keys.length > 0 ? keys[keys.length - 1] : "";
+  }, [monthlyData, currentMonth]);
+
+  const categorySummaryItems = useMemo(() => {
+    const map: Record<string, { value: number; colorClass?: string }> = {};
+    const targetRecords =
+      summaryScope === "current" && activeMonthKey && monthlyData[activeMonthKey]
+        ? [monthlyData[activeMonthKey]]
+        : Object.values(monthlyData || {});
+
+    targetRecords.forEach((rec) => {
+      const exp = rec?.expenses;
+      if (!exp) return;
+      if (Array.isArray(exp.fixed_expenses)) {
+        exp.fixed_expenses.forEach((item) => {
+          if (!isCompletedExpense(item)) return;
+          if (!map[item.categoryName]) {
+            map[item.categoryName] = { value: 0, colorClass: item.categoryColor };
+          }
+          map[item.categoryName].value += Number(item.amount) || 0;
+        });
+      }
+      if (Array.isArray(exp.additional_expenses)) {
+        exp.additional_expenses.forEach((item) => {
+          if (!isCompletedExpense(item)) return;
+          if (!map[item.categoryName]) {
+            map[item.categoryName] = { value: 0, colorClass: item.categoryColor };
+          }
+          map[item.categoryName].value += Number(item.amount) || 0;
+        });
+      }
+    });
+
+    return Object.entries(map).map(([name, d]) => ({
+      name,
+      value: parseFloat(d.value.toFixed(2)),
+      colorClass: d.colorClass,
+    }));
+  }, [monthlyData, summaryScope, activeMonthKey]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -225,6 +273,59 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
         globalSavings={globalSavings}
         currentMonth={currentMonth}
       />
+
+      {/* Visual Category Summary */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-5 shadow-xs space-y-4 transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
+              <PieChartIcon className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
+                Визуално разпределение на разходите
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {summaryScope === "current" && activeMonthKey
+                  ? `Категории за ${activeMonthKey}`
+                  : `Всички анализирани месеци (${analysis.monthsAnalyzedCount})`}
+              </p>
+            </div>
+          </div>
+
+          <div className="inline-flex items-center rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200/80 dark:border-slate-700/80 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setSummaryScope("current")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                summaryScope === "current"
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              Текущ месец
+            </button>
+            <button
+              type="button"
+              onClick={() => setSummaryScope("all")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                summaryScope === "all"
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              Общо ({analysis.monthsAnalyzedCount})
+            </button>
+          </div>
+        </div>
+
+        <CategoryDistributionChart
+          items={categorySummaryItems}
+          totalLabel="Разходи"
+          emptyTitle="Няма приключени разходи за визуализация"
+          compact
+        />
+      </div>
 
       {/* Filter Tabs Bar */}
       <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-2 sm:gap-3 transition-colors">

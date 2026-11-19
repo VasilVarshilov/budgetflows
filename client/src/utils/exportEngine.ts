@@ -1,8 +1,68 @@
-import { MonthlyRecord, ExpenseItem, IncomeItem } from "@/types";
-import { SYSTEM_CATEGORY_COLORS, getHexFromTailwindClass } from "@/utils/colors";
-import { isCompletedExpense, isRecordCompleted } from "@/utils/expenseStatus";
+import {
+  MonthlyRecord,
+  ExpenseItem,
+  IncomeItem,
+  ElectricityRecord,
+} from "@/types";
+import { getCategoryColor } from "@/utils/colors";
+import { isRecordCompleted } from "@/utils/expenseStatus";
+import {
+  findMatchingBudgetCategoryId,
+  isExpenseMatchingBudget,
+  loadBudgets,
+  resolveCategoriesForBudget,
+} from "@/utils/budgetStorage";
+import { loadStoredCategories } from "@/utils/categoryStorage";
+import {
+  formatRepeatLabel,
+  isRepeatingFrequency,
+  normalizeRepeatValue,
+  parseMonthKeyToYearMonth,
+  resolveItemRepeat,
+} from "@/utils/recurrenceEngine";
+import { loadSavingsGoals } from "@/utils/savingsGoalsStorage";
+import { STORAGE_BASE_ELECTRICITY_HISTORY, userStorage } from "@/utils/userStorage";
+import {
+  CellValue,
+  SheetSpec,
+  boldTextCell,
+  buildXlsxWorkbookBytes,
+  currencyCell,
+  dateCell,
+  extractDateAndTime,
+  extractExpenseDescriptionAndNotes,
+  flattenText,
+  headerCell,
+  intCell,
+  numCell,
+  percentFromRatioCell,
+  round2,
+  round5,
+  sectionCell,
+  strCell,
+  STYLE,
+} from "@/utils/excelExport";
 
 export type ExportPeriodType = "month" | "year" | "custom";
+export type ExportStatusFilter = "completed" | "upcoming" | "all";
+export type ExportRecurringFilter = "all" | "recurring" | "one_time";
+
+export interface ExportReportFilters {
+  selectedCategories: string[];
+  statusFilter: ExportStatusFilter;
+  recurringFilter: ExportRecurringFilter;
+}
+
+export const REPORT_EXCEL_FILENAME = "BudgetFlow_Report.xlsx";
+
+export const REPORT_EXCEL_WORKSHEET_NAMES = [
+  "Summary",
+  "Expenses",
+  "Incomes",
+  "Savings",
+  "Budgets",
+  "Electricity",
+] as const;
 
 export interface CategorySummary {
   name: string;
@@ -23,11 +83,74 @@ export interface MonthlyTrendItem {
   netBalance: number;
 }
 
+export interface ExportExpenseRow {
+  monthKey: string;
+  bucket: "fixed" | "additional";
+  date: string;
+  time: string;
+  sortTs: number;
+  category: string;
+  budget: string;
+  description: string;
+  amount: number;
+  completed: boolean;
+  statusLabel: string;
+  repeatLabel: string;
+  isRecurring: boolean;
+  expectedDate: string;
+  notes: string;
+  rawItem: ExpenseItem;
+}
+
+export interface ExportIncomeRow {
+  monthKey: string;
+  date: string;
+  time: string;
+  sortTs: number;
+  category: string;
+  description: string;
+  amount: number;
+  completed: boolean;
+  statusLabel: string;
+  repeatLabel: string;
+  isRecurring: boolean;
+  expectedDate: string;
+  notes: string;
+}
+
+export interface ExportSavingsRow {
+  date: string;
+  sortTs: number;
+  description: string;
+  amount: number;
+  goal: string;
+  notes: string;
+}
+
+export interface ExportBudgetRow {
+  budgetName: string;
+  categories: string;
+  budgetLimit: number;
+  currentSpending: number;
+  remaining: number;
+}
+
+export interface ExportElectricityRow {
+  date: string;
+  sortTs: number;
+  consumption: number;
+  pricePerKwh: number;
+  totalCost: number;
+}
+
 export interface ExportReportData {
   periodType: ExportPeriodType;
   periodLabel: string;
   dateRangeText: string;
   generatedAt: string;
+  generatedTimestampFormatted: string;
+  filters: ExportReportFilters;
+  appliedFiltersLabel: string;
   incomeTotal: number;
   expensesTotal: number;
   fixedExpensesTotal: number;
@@ -45,6 +168,11 @@ export interface ExportReportData {
     year: number;
     record: MonthlyRecord;
   }[];
+  filteredExpenses: ExportExpenseRow[];
+  filteredIncomes: ExportIncomeRow[];
+  filteredSavings: ExportSavingsRow[];
+  filteredBudgets: ExportBudgetRow[];
+  filteredElectricity: ExportElectricityRow[];
 }
 
 export const MONTHS_BG = [
@@ -92,8 +220,59 @@ const DEFAULT_PALETTE = [
   "#a855f7", // violet
 ];
 
+function parseIsoDateLocal(isoDate: string): Date | null {
+  const m = (isoDate || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+}
+
+function formatBgTimestamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function translateStatusFilter(status: ExportStatusFilter): string {
+  switch (status) {
+    case "upcoming":
+      return "Предстоящи";
+    case "all":
+      return "Всички (Изпълнени + Предстоящи)";
+    default:
+      return "Изпълнени";
+  }
+}
+
+function translateRecurringFilter(rec: ExportRecurringFilter): string {
+  switch (rec) {
+    case "recurring":
+      return "Само повтарящи се";
+    case "one_time":
+      return "Само еднократни";
+    default:
+      return "Всички";
+  }
+}
+
+function matchesStatusFilter(completed: boolean, statusFilter: ExportStatusFilter): boolean {
+  if (statusFilter === "completed") return completed;
+  if (statusFilter === "upcoming") return !completed;
+  return true;
+}
+
+function matchesRecurringFilter(isRecurring: boolean, recurringFilter: ExportRecurringFilter): boolean {
+  if (recurringFilter === "recurring") return isRecurring;
+  if (recurringFilter === "one_time") return !isRecurring;
+  return true;
+}
+
+function matchesCategoryFilter(categoryName: string, selectedLowerSet: Set<string>): boolean {
+  if (selectedLowerSet.size === 0) return true;
+  return selectedLowerSet.has((categoryName || "").trim().toLowerCase());
+}
+
 /**
- * Aggregates all data from monthlyData and globalSavings for the given period.
+ * Aggregates all data from monthlyData, globalSavings, budgets, and electricityHistory
+ * respecting Period, Categories, Status, and Recurring filters.
  */
 export function aggregateExportData(params: {
   periodType: ExportPeriodType;
@@ -103,6 +282,8 @@ export function aggregateExportData(params: {
   customEndDate: string; // YYYY-MM-DD
   monthlyData: Record<string, MonthlyRecord>;
   globalSavings: IncomeItem[];
+  filters?: Partial<ExportReportFilters>;
+  electricityHistoryOverride?: ElectricityRecord[];
 }): ExportReportData {
   const {
     periodType,
@@ -112,7 +293,35 @@ export function aggregateExportData(params: {
     customEndDate,
     monthlyData,
     globalSavings = [],
+    filters: rawFilters,
+    electricityHistoryOverride,
   } = params;
+
+  const filters: ExportReportFilters = {
+    selectedCategories: Array.isArray(rawFilters?.selectedCategories)
+      ? rawFilters!.selectedCategories.map((c) => c.trim()).filter(Boolean)
+      : [],
+    statusFilter: rawFilters?.statusFilter || "completed",
+    recurringFilter: rawFilters?.recurringFilter || "all",
+  };
+
+  const selectedCategorySet = new Set(
+    filters.selectedCategories.map((c) => c.trim().toLowerCase())
+  );
+
+  // Build readable applied-filters summary
+  const filterParts: string[] = [];
+  if (filters.selectedCategories.length > 0) {
+    filterParts.push(filters.selectedCategories.join(", "));
+  }
+  if (filters.statusFilter !== "completed") {
+    filterParts.push(`Статус: ${translateStatusFilter(filters.statusFilter)}`);
+  }
+  if (filters.recurringFilter !== "all") {
+    filterParts.push(translateRecurringFilter(filters.recurringFilter));
+  }
+  const appliedFiltersLabel =
+    filterParts.length > 0 ? filterParts.join(" | ") : "Всички категории · Изпълнени";
 
   // 1. Parse monthlyData keys
   const parsedMonths: {
@@ -140,6 +349,8 @@ export function aggregateExportData(params: {
   let activeMonths = parsedMonths;
   let periodLabel = "";
   let dateRangeText = "";
+  let sCustomDate: Date | null = null;
+  let eCustomDate: Date | null = null;
 
   if (periodType === "month") {
     const targetKey = `${selectedMonth} ${selectedYear}`;
@@ -152,8 +363,8 @@ export function aggregateExportData(params: {
     periodLabel = `${selectedYear} година`;
     dateRangeText = `01.01.${selectedYear} – 31.12.${selectedYear}`;
   } else if (periodType === "custom") {
-    const sDate = new Date(customStartDate + "T00:00:00");
-    const eDate = new Date(customEndDate + "T23:59:59");
+    sCustomDate = new Date(customStartDate + "T00:00:00");
+    eCustomDate = new Date(customEndDate + "T23:59:59");
     const sFormatted = new Date(customStartDate).toLocaleDateString("bg-BG");
     const eFormatted = new Date(customEndDate).toLocaleDateString("bg-BG");
     periodLabel = `${sFormatted} – ${eFormatted}`;
@@ -162,197 +373,320 @@ export function aggregateExportData(params: {
     activeMonths = parsedMonths.filter((p) => {
       const mStart = new Date(p.year, p.monthIndex, 1);
       const mEnd = new Date(p.year, p.monthIndex + 1, 0, 23, 59, 59);
-      return mEnd >= sDate && mStart <= eDate;
+      return mEnd >= sCustomDate! && mStart <= eCustomDate!;
     });
   }
 
-  // Sort active months chronologically
   activeMonths.sort((a, b) => a.year * 12 + a.monthIndex - (b.year * 12 + b.monthIndex));
 
-  // 3. Filter globalSavings by date
-  const filteredSavings = globalSavings.filter((tx) => {
-    if (!tx || !tx.date) return false;
+  const isIsoDateInsideCustomPeriod = (isoDate: string): boolean => {
+    if (periodType !== "custom" || !sCustomDate || !eCustomDate) return true;
+    const d = parseIsoDateLocal(isoDate);
+    if (!d) return true;
+    return d >= sCustomDate && d <= eCustomDate;
+  };
+
+  // Load contextual metadata (budgets, categories, goals, electricity)
+  const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
+  const expenseCategories = loadStoredCategories();
+  const budgetNameById = new Map(categoryBudgets.map((b) => [b.id, b.categoryName]));
+  const savingsGoals = loadSavingsGoals();
+  const goalNamesLower = new Map(savingsGoals.map((g) => [g.name.trim().toLowerCase(), g.name]));
+
+  // 3. Filter & Collect Savings
+  const filteredSavings: ExportSavingsRow[] = [];
+  let savingsTotal = 0;
+
+  globalSavings.forEach((tx) => {
+    if (!tx || !tx.date) return;
     const txDate = new Date(tx.date);
-    if (isNaN(txDate.getTime())) return false;
+    if (isNaN(txDate.getTime())) return;
 
     if (periodType === "month") {
       const mIdx = MONTHS_BG.indexOf(selectedMonth);
       const y = parseInt(selectedYear, 10);
-      return txDate.getFullYear() === y && txDate.getMonth() === mIdx;
-    }
-    if (periodType === "year") {
+      if (txDate.getFullYear() !== y || txDate.getMonth() !== mIdx) return;
+    } else if (periodType === "year") {
       const y = parseInt(selectedYear, 10);
-      return txDate.getFullYear() === y;
+      if (txDate.getFullYear() !== y) return;
+    } else if (periodType === "custom" && sCustomDate && eCustomDate) {
+      if (txDate < sCustomDate || txDate > eCustomDate) return;
     }
-    if (periodType === "custom") {
-      const sDate = new Date(customStartDate + "T00:00:00");
-      const eDate = new Date(customEndDate + "T23:59:59");
-      return txDate >= sDate && txDate <= eDate;
-    }
-    return true;
+
+    const { date, sortTs } = extractDateAndTime(tx);
+    const isWithdrawal = tx.type === "expense";
+    const amountAbs = Math.abs(Number(tx.amount) || 0);
+    const signedAmount = isWithdrawal ? -amountAbs : amountAbs;
+    savingsTotal += signedAmount;
+
+    const actionLabel = isWithdrawal ? "Теглене" : "Внасяне";
+    const category = (tx.categoryName || "Спестявания").trim();
+    const matchedGoal =
+      goalNamesLower.get(category.toLowerCase()) ||
+      (category.toLowerCase() !== "спестявания" ? category : "Общи спестявания");
+
+    filteredSavings.push({
+      date,
+      sortTs,
+      description: `${actionLabel} - ${category}`,
+      amount: round2(signedAmount),
+      goal: matchedGoal,
+      notes: flattenText(tx.note),
+    });
   });
 
-  // 4. Compute Savings strictly from filteredSavings, and Income strictly from MonthlyRecord.incomes
-  let incomeTotal = 0;
-  let savingsTotal = 0; // Net added to savings
+  filteredSavings.sort((a, b) => a.sortTs - b.sortTs);
+
+  // 4. Filter & Collect Incomes
+  const filteredIncomes: ExportIncomeRow[] = [];
   const seenIncomeIds = new Set<string>();
-  const incomeCategoryMap: Record<
-    string,
-    { amount: number; color?: string; count: number }
-  > = {};
+  const incomeCategoryMap: Record<string, { amount: number; color?: string; count: number }> = {};
+  let incomeTotal = 0;
 
-  const sCustomDate = periodType === "custom" ? new Date(customStartDate + "T00:00:00") : null;
-  const eCustomDate = periodType === "custom" ? new Date(customEndDate + "T23:59:59") : null;
+  activeMonths.forEach(({ key, record }) => {
+    if (!Array.isArray(record.incomes)) return;
+    record.incomes.forEach((inc) => {
+      if (!inc || inc.amount <= 0 || inc.type === "expense") return;
+      if (inc.id && seenIncomeIds.has(inc.id)) return;
 
-  filteredSavings.forEach((tx) => {
-    if (tx.type === "expense") {
-      savingsTotal -= tx.amount;
-    } else {
-      savingsTotal += tx.amount;
-    }
-  });
+      const { date, time, sortTs } = extractDateAndTime(inc, key);
+      if (!isIsoDateInsideCustomPeriod(date)) return;
 
-  // Also include explicit realized monthly incomes from MonthlyRecord.incomes (Income Tab)
-  // Note: MonthlyRecord.incomes are income entries, NOT savings fund deposits.
-  activeMonths.forEach(({ record }) => {
-    if (record.incomes && Array.isArray(record.incomes)) {
-      record.incomes.forEach((inc) => {
-        if (!inc || inc.amount <= 0 || !isRecordCompleted(inc)) return;
+      const completed = isRecordCompleted(inc);
+      if (!matchesStatusFilter(completed, filters.statusFilter)) return;
 
-        if (periodType === "custom" && inc.date && sCustomDate && eCustomDate) {
-          const incDate = new Date(inc.date);
-          if (!isNaN(incDate.getTime()) && (incDate < sCustomDate || incDate > eCustomDate)) {
-            return;
-          }
-        }
+      const repeat = normalizeRepeatValue(inc.repeat);
+      const isRecurring = Boolean(inc.isFixedItem || isRepeatingFrequency(repeat));
+      if (!matchesRecurringFilter(isRecurring, filters.recurringFilter)) return;
 
-        if (!seenIncomeIds.has(inc.id) && inc.type !== "expense") {
-          seenIncomeIds.add(inc.id);
-          incomeTotal += inc.amount;
+      const catName = inc.categoryName || "Други приходи";
+      if (!matchesCategoryFilter(catName, selectedCategorySet)) return;
 
-          const catName = inc.categoryName || "Други приходи";
-          if (!incomeCategoryMap[catName]) {
-            incomeCategoryMap[catName] = {
-              amount: 0,
-              color: inc.categoryColor ? getHexFromTailwindClass(inc.categoryColor) : "#10b981",
-              count: 0,
-            };
-          }
-          incomeCategoryMap[catName].amount += inc.amount;
-          incomeCategoryMap[catName].count += 1;
-        }
-      });
-    }
-  });
+      if (inc.id) seenIncomeIds.add(inc.id);
+      incomeTotal += inc.amount;
 
-  // 5. Compute Expenses & Category Breakdown
-  let fixedExpensesTotal = 0;
-  let additionalExpensesTotal = 0;
-  const categoryMap: Record<
-    string,
-    { amount: number; color?: string; count: number }
-  > = {};
-
-  activeMonths.forEach(({ record }) => {
-    const exp = record.expenses;
-    if (!exp) return;
-
-    // Electricity (saved_em2_eur) if present
-    if (exp.saved_em2_eur && exp.saved_em2_eur > 0) {
-      const catName = "Ток";
-      if (!categoryMap[catName]) {
-        categoryMap[catName] = {
+      if (!incomeCategoryMap[catName]) {
+        incomeCategoryMap[catName] = {
           amount: 0,
-          color: SYSTEM_CATEGORY_COLORS["Ток"] || "#f59e0b",
+          color: getCategoryColor(catName, inc.categoryColor),
           count: 0,
         };
       }
-      categoryMap[catName].amount += exp.saved_em2_eur;
-      categoryMap[catName].count += 1;
-      fixedExpensesTotal += exp.saved_em2_eur;
-    }
+      incomeCategoryMap[catName].amount += inc.amount;
+      incomeCategoryMap[catName].count += 1;
 
-    // Fixed expenses (Completed only)
-    if (Array.isArray(exp.fixed_expenses)) {
-      exp.fixed_expenses.forEach((item: ExpenseItem) => {
-        if (!isCompletedExpense(item)) return;
-        fixedExpensesTotal += item.amount;
-        if (!categoryMap[item.categoryName]) {
-          categoryMap[item.categoryName] = {
+      const firstLineNote = inc.note
+        ?.split(/\r?\n/)
+        .map((l) => l.trim())
+        .find(Boolean);
+      const description =
+        firstLineNote || (isRecurring ? "Повтарящ се приход" : "Допълнителен приход");
+
+      filteredIncomes.push({
+        monthKey: key,
+        date,
+        time,
+        sortTs,
+        category: catName,
+        description,
+        amount: round2(Number(inc.amount) || 0),
+        completed,
+        statusLabel: completed ? "Изпълнен" : "Предстоящ",
+        repeatLabel:
+          repeat === "never"
+            ? isRecurring
+              ? "Месечно"
+              : "Никога"
+            : formatRepeatLabel(repeat),
+        isRecurring,
+        expectedDate: (inc.expectedDate || "").trim(),
+        notes: flattenText(inc.note),
+      });
+    });
+  });
+
+  filteredIncomes.sort((a, b) => a.sortTs - b.sortTs);
+
+  // 5. Filter & Collect Expenses
+  const filteredExpenses: ExportExpenseRow[] = [];
+  const categoryMap: Record<string, { amount: number; color?: string; count: number }> = {};
+  let fixedExpensesTotal = 0;
+  let additionalExpensesTotal = 0;
+
+  const resolveExpenseBudgetName = (item: ExpenseItem): string => {
+    if (item.budgetCategoryId === "none" || item.budgetCategoryId === "no_budget") {
+      return "Без бюджет";
+    }
+    if (item.budgetCategoryName && item.budgetCategoryName.trim()) {
+      return item.budgetCategoryName.trim();
+    }
+    if (item.budgetCategoryId && budgetNameById.get(item.budgetCategoryId)) {
+      return budgetNameById.get(item.budgetCategoryId)!;
+    }
+    const matchedId = findMatchingBudgetCategoryId(
+      item.categoryId || "",
+      item.categoryName || "",
+      categoryBudgets
+    );
+    return matchedId ? budgetNameById.get(matchedId) || "" : "";
+  };
+
+  activeMonths.forEach(({ key, month, year, monthIndex, record }) => {
+    const exp = record.expenses;
+    if (!exp) return;
+
+    // Electricity (saved_em2_eur) — realized recurring monthly bill
+    if (exp.saved_em2_eur && exp.saved_em2_eur > 0) {
+      const catName = "Ток";
+      const completed = true;
+      const isRecurring = true;
+      const monthStartIso = `${year}-${String(monthIndex + 1).padStart(2, "0")}-01`;
+      if (
+        matchesStatusFilter(completed, filters.statusFilter) &&
+        matchesRecurringFilter(isRecurring, filters.recurringFilter) &&
+        matchesCategoryFilter(catName, selectedCategorySet) &&
+        isIsoDateInsideCustomPeriod(monthStartIso)
+      ) {
+        const syntheticItem: ExpenseItem = {
+          id: `em2_${key}`,
+          categoryId: "electricity",
+          categoryName: "Ток",
+          categoryIcon: "Zap",
+          categoryColor: "bg-yellow-100 text-yellow-600",
+          amount: exp.saved_em2_eur,
+          date: monthStartIso,
+          completed: true,
+          repeat: "monthly",
+          isFixedItem: true,
+        };
+        fixedExpensesTotal += exp.saved_em2_eur;
+        if (!categoryMap[catName]) {
+          categoryMap[catName] = {
             amount: 0,
-            color:
-              SYSTEM_CATEGORY_COLORS[item.categoryName] ||
-              getHexFromTailwindClass(item.categoryColor),
+            color: getCategoryColor(catName),
             count: 0,
           };
         }
-        categoryMap[item.categoryName].amount += item.amount;
-        categoryMap[item.categoryName].count += 1;
+        categoryMap[catName].amount += exp.saved_em2_eur;
+        categoryMap[catName].count += 1;
+
+        filteredExpenses.push({
+          monthKey: key,
+          bucket: "fixed",
+          date: monthStartIso,
+          time: "",
+          sortTs: new Date(year, monthIndex, 1, 12, 0, 0).getTime(),
+          category: catName,
+          budget: resolveExpenseBudgetName(syntheticItem),
+          description: `Ток (Електромер 2) - ${month} ${year}`,
+          amount: round2(exp.saved_em2_eur),
+          completed: true,
+          statusLabel: "Изпълнен",
+          repeatLabel: "Месечно",
+          isRecurring: true,
+          expectedDate: "",
+          notes: "Автоматично отчетен разход за ток",
+          rawItem: syntheticItem,
+        });
+      }
+    }
+
+    const pushItem = (item: ExpenseItem, bucket: "fixed" | "additional") => {
+      if (!item) return;
+      const { date, time, sortTs } = extractDateAndTime(item, key);
+      if (!isIsoDateInsideCustomPeriod(date)) return;
+
+      const completed = isRecordCompleted(item);
+      if (!matchesStatusFilter(completed, filters.statusFilter)) return;
+
+      const repeat = resolveItemRepeat(item);
+      const isRecurring = bucket === "fixed" || isRepeatingFrequency(repeat);
+      if (!matchesRecurringFilter(isRecurring, filters.recurringFilter)) return;
+
+      const catName = item.categoryName || "Други";
+      if (!matchesCategoryFilter(catName, selectedCategorySet)) return;
+
+      const amount = Number(item.amount) || 0;
+      if (bucket === "fixed") {
+        fixedExpensesTotal += amount;
+      } else {
+        additionalExpensesTotal += amount;
+      }
+
+      if (!categoryMap[catName]) {
+        categoryMap[catName] = {
+          amount: 0,
+          color: getCategoryColor(catName, item.categoryColor),
+          count: 0,
+        };
+      }
+      categoryMap[catName].amount += amount;
+      categoryMap[catName].count += 1;
+
+      const { description, notes } = extractExpenseDescriptionAndNotes(item);
+
+      filteredExpenses.push({
+        monthKey: key,
+        bucket,
+        date,
+        time,
+        sortTs,
+        category: catName,
+        budget: resolveExpenseBudgetName(item),
+        description,
+        amount: round2(amount),
+        completed,
+        statusLabel: completed ? "Изпълнен" : "Предстоящ",
+        repeatLabel:
+          repeat === "never"
+            ? isRecurring
+              ? "Месечно"
+              : "Никога"
+            : formatRepeatLabel(repeat),
+        isRecurring,
+        expectedDate: (item.expectedDate || "").trim(),
+        notes,
+        rawItem: item,
       });
+    };
+
+    if (Array.isArray(exp.fixed_expenses)) {
+      exp.fixed_expenses.forEach((item) => pushItem(item, "fixed"));
     } else if (exp.fixed_expenses) {
       const legacy = exp.fixed_expenses as any;
-      if (legacy.credit_eur) {
-        fixedExpensesTotal += legacy.credit_eur;
-        if (!categoryMap["Кредит"]) {
-          categoryMap["Кредит"] = {
-            amount: 0,
-            color: SYSTEM_CATEGORY_COLORS["Кредит"] || "#ef4444",
-            count: 0,
-          };
+      const legacyEntries: Array<[string, string, string]> = [
+        ["credit_eur", "credit", "Кредит"],
+        ["phone_eur", "phone", "Телефон"],
+        ["internet_eur", "internet", "Интернет"],
+      ];
+      legacyEntries.forEach(([prop, id, label]) => {
+        const val = Number(legacy[prop] || 0);
+        if (val > 0) {
+          pushItem(
+            {
+              id: `legacy_${key}_${id}`,
+              categoryId: id,
+              categoryName: label,
+              categoryIcon: "CreditCard",
+              categoryColor: "",
+              amount: val,
+              date: `${year}-${String(monthIndex + 1).padStart(2, "0")}-01`,
+              completed: true,
+              repeat: "monthly",
+              isFixedItem: true,
+            },
+            "fixed"
+          );
         }
-        categoryMap["Кредит"].amount += legacy.credit_eur;
-        categoryMap["Кредит"].count += 1;
-      }
-      if (legacy.phone_eur) {
-        fixedExpensesTotal += legacy.phone_eur;
-        if (!categoryMap["Телефон"]) {
-          categoryMap["Телефон"] = {
-            amount: 0,
-            color: SYSTEM_CATEGORY_COLORS["Телефон"] || "#3b82f6",
-            count: 0,
-          };
-        }
-        categoryMap["Телефон"].amount += legacy.phone_eur;
-        categoryMap["Телефон"].count += 1;
-      }
-      if (legacy.internet_eur) {
-        fixedExpensesTotal += legacy.internet_eur;
-        if (!categoryMap["Интернет"]) {
-          categoryMap["Интернет"] = {
-            amount: 0,
-            color: SYSTEM_CATEGORY_COLORS["Интернет"] || "#8b5cf6",
-            count: 0,
-          };
-        }
-        categoryMap["Интернет"].amount += legacy.internet_eur;
-        categoryMap["Интернет"].count += 1;
-      }
-    }
-
-    // Additional expenses (Completed only)
-    if (Array.isArray(exp.additional_expenses)) {
-      exp.additional_expenses.forEach((item: ExpenseItem) => {
-        if (!isCompletedExpense(item)) return;
-        if (periodType === "custom" && item.date) {
-          const itemDate = new Date(item.date);
-          const sDate = new Date(customStartDate + "T00:00:00");
-          const eDate = new Date(customEndDate + "T23:59:59");
-          if (itemDate < sDate || itemDate > eDate) return;
-        }
-
-        additionalExpensesTotal += item.amount;
-        if (!categoryMap[item.categoryName]) {
-          categoryMap[item.categoryName] = {
-            amount: 0,
-            color: getHexFromTailwindClass(item.categoryColor),
-            count: 0,
-          };
-        }
-        categoryMap[item.categoryName].amount += item.amount;
-        categoryMap[item.categoryName].count += 1;
       });
     }
+
+    if (Array.isArray(exp.additional_expenses)) {
+      exp.additional_expenses.forEach((item) => pushItem(item, "additional"));
+    }
   });
+
+  filteredExpenses.sort((a, b) => a.sortTs - b.sortTs);
 
   const expensesTotal = fixedExpensesTotal + additionalExpensesTotal;
 
@@ -385,61 +719,27 @@ export function aggregateExportData(params: {
     .filter((c) => c.amount > 0)
     .sort((a, b) => b.amount - a.amount);
 
-  // 6. Build Monthly Breakdown / Trend
+  // 6. Build Monthly Breakdown / Trend (respecting filtered items)
   const monthlyBreakdown: MonthlyTrendItem[] = [];
 
   if (periodType === "year") {
-    // 12 months of the year
     const targetY = parseInt(selectedYear, 10);
     MONTHS_BG.forEach((mName, mIdx) => {
       const monthKey = `${mName} ${targetY}`;
-      const recItem = activeMonths.find(
-        (a) => a.monthIndex === mIdx && a.year === targetY,
-      );
+      const mExp = filteredExpenses
+        .filter((e) => e.monthKey === monthKey)
+        .reduce((s, e) => s + e.amount, 0);
+      const mInc = filteredIncomes
+        .filter((i) => i.monthKey === monthKey)
+        .reduce((s, i) => s + i.amount, 0);
 
-      let mExp = 0;
-      if (recItem?.record.expenses) {
-        const exp = recItem.record.expenses;
-        if (exp.saved_em2_eur) mExp += exp.saved_em2_eur;
-        if (Array.isArray(exp.fixed_expenses)) {
-          mExp += exp.fixed_expenses.reduce((s, i) => s + (isCompletedExpense(i) ? i.amount : 0), 0);
-        } else if (exp.fixed_expenses) {
-          const leg = exp.fixed_expenses as any;
-          mExp += (leg.credit_eur || 0) + (leg.phone_eur || 0) + (leg.internet_eur || 0);
-        }
-        if (Array.isArray(exp.additional_expenses)) {
-          mExp += exp.additional_expenses.reduce((s, i) => s + (isCompletedExpense(i) ? i.amount : 0), 0);
-        }
-      }
-
-      // Incomes & savings for this month (kept strictly separate)
-      let mInc = 0;
       let mSav = 0;
-      const seenMonthIncIds = new Set<string>();
       filteredSavings.forEach((tx) => {
-        const d = new Date(tx.date);
-        if (d.getFullYear() === targetY && d.getMonth() === mIdx) {
-          if (tx.type === "expense") {
-            mSav -= tx.amount;
-          } else {
-            mSav += tx.amount;
-          }
+        const d = parseIsoDateLocal(tx.date);
+        if (d && d.getFullYear() === targetY && d.getMonth() === mIdx) {
+          mSav += tx.amount;
         }
       });
-      if (recItem?.record.incomes && Array.isArray(recItem.record.incomes)) {
-        recItem.record.incomes.forEach((inc) => {
-          if (
-            inc &&
-            inc.amount > 0 &&
-            inc.type !== "expense" &&
-            isRecordCompleted(inc) &&
-            !seenMonthIncIds.has(inc.id)
-          ) {
-            seenMonthIncIds.add(inc.id);
-            mInc += inc.amount;
-          }
-        });
-      }
 
       monthlyBreakdown.push({
         monthKey,
@@ -453,58 +753,21 @@ export function aggregateExportData(params: {
       });
     });
   } else {
-    // For single month or custom range, push active months
     activeMonths.forEach((m) => {
-      let mExp = 0;
-      if (m.record.expenses) {
-        const exp = m.record.expenses;
-        if (exp.saved_em2_eur) mExp += exp.saved_em2_eur;
-        if (Array.isArray(exp.fixed_expenses)) {
-          mExp += exp.fixed_expenses.reduce((s, i) => s + (isCompletedExpense(i) ? i.amount : 0), 0);
-        } else if (exp.fixed_expenses) {
-          const leg = exp.fixed_expenses as any;
-          mExp += (leg.credit_eur || 0) + (leg.phone_eur || 0) + (leg.internet_eur || 0);
-        }
-        if (Array.isArray(exp.additional_expenses)) {
-          exp.additional_expenses.forEach((item) => {
-            if (!isCompletedExpense(item)) return;
-            if (periodType === "custom" && item.date && sCustomDate && eCustomDate) {
-              const itemDate = new Date(item.date);
-              if (itemDate < sCustomDate || itemDate > eCustomDate) return;
-            }
-            mExp += item.amount;
-          });
-        }
-      }
+      const mExp = filteredExpenses
+        .filter((e) => e.monthKey === m.key)
+        .reduce((s, e) => s + e.amount, 0);
+      const mInc = filteredIncomes
+        .filter((i) => i.monthKey === m.key)
+        .reduce((s, i) => s + i.amount, 0);
 
-      let mInc = 0;
       let mSav = 0;
-      const seenMonthIncIds = new Set<string>();
       filteredSavings.forEach((tx) => {
-        const d = new Date(tx.date);
-        if (d.getFullYear() === m.year && d.getMonth() === m.monthIndex) {
-          if (tx.type === "expense") {
-            mSav -= tx.amount;
-          } else {
-            mSav += tx.amount;
-          }
+        const d = parseIsoDateLocal(tx.date);
+        if (d && d.getFullYear() === m.year && d.getMonth() === m.monthIndex) {
+          mSav += tx.amount;
         }
       });
-      if (m.record.incomes && Array.isArray(m.record.incomes)) {
-        m.record.incomes.forEach((inc) => {
-          if (!inc || inc.amount <= 0 || inc.type === "expense" || !isRecordCompleted(inc)) return;
-          if (periodType === "custom" && inc.date && sCustomDate && eCustomDate) {
-            const incDate = new Date(inc.date);
-            if (!isNaN(incDate.getTime()) && (incDate < sCustomDate || incDate > eCustomDate)) {
-              return;
-            }
-          }
-          if (!seenMonthIncIds.has(inc.id)) {
-            seenMonthIncIds.add(inc.id);
-            mInc += inc.amount;
-          }
-        });
-      }
 
       monthlyBreakdown.push({
         monthKey: m.key,
@@ -519,16 +782,150 @@ export function aggregateExportData(params: {
     });
   }
 
-  // Net Balance = Income - Expenses (per requirements)
+  // 7. Filter & Compute Budgets (strictly reflecting selected period & filtered expenses)
+  const monthsMultiplier = Math.max(1, activeMonths.length);
+  const filteredBudgets: ExportBudgetRow[] = [];
+
+  if (selectedCategorySet.size === 0) {
+    const overallLimit = round2(totalMonthlyBudget * monthsMultiplier);
+    const overallSpent = round2(expensesTotal);
+    filteredBudgets.push({
+      budgetName: "Общ месечен бюджет",
+      categories: "Всички категории",
+      budgetLimit: overallLimit,
+      currentSpending: overallSpent,
+      remaining: round2(overallLimit - overallSpent),
+    });
+  }
+
+  for (const budget of categoryBudgets) {
+    const linkedCats = resolveCategoriesForBudget(budget, expenseCategories);
+    const linkedNamesText =
+      linkedCats.map((c) => c.name).join(", ") || "Ръчно зачислени";
+
+    if (selectedCategorySet.size > 0) {
+      const matchesAnySelected =
+        selectedCategorySet.has(budget.categoryName.trim().toLowerCase()) ||
+        linkedCats.some((c) => selectedCategorySet.has(c.name.trim().toLowerCase()));
+      if (!matchesAnySelected) continue;
+    }
+
+    const spent = round2(
+      filteredExpenses
+        .filter((e) => isExpenseMatchingBudget(e.rawItem, budget, expenseCategories))
+        .reduce((sum, e) => sum + e.amount, 0)
+    );
+    const limit = round2(budget.monthlyLimit * monthsMultiplier);
+
+    filteredBudgets.push({
+      budgetName: budget.categoryName,
+      categories: linkedNamesText,
+      budgetLimit: limit,
+      currentSpending: spent,
+      remaining: round2(limit - spent),
+    });
+  }
+
+  // 8. Filter & Collect Electricity Records
+  let rawElectricity: ElectricityRecord[] = [];
+  if (Array.isArray(electricityHistoryOverride)) {
+    rawElectricity = electricityHistoryOverride;
+  } else {
+    const parsedElec = userStorage.getJSON<unknown>(
+      STORAGE_BASE_ELECTRICITY_HISTORY,
+      []
+    );
+    if (Array.isArray(parsedElec)) {
+      rawElectricity = parsedElec as ElectricityRecord[];
+    }
+  }
+
+  const includesElectricityCategory =
+    selectedCategorySet.size === 0 ||
+    selectedCategorySet.has("ток") ||
+    selectedCategorySet.has("електроенергия") ||
+    selectedCategorySet.has("electricity");
+
+  const filteredElectricity: ExportElectricityRow[] = [];
+  if (includesElectricityCategory && filters.statusFilter !== "upcoming") {
+    for (const rec of rawElectricity) {
+      if (!rec) continue;
+      const recMonth = (rec.month || "").trim();
+      const recYear = parseInt(String(rec.year || ""), 10);
+      const recMonthIdx = MONTHS_BG.indexOf(recMonth);
+      const createdDate = rec.createdAt ? new Date(rec.createdAt) : null;
+
+      let matchesPeriod = false;
+      if (periodType === "month") {
+        const y = parseInt(selectedYear, 10);
+        if (recMonth === selectedMonth && recYear === y) {
+          matchesPeriod = true;
+        } else if (
+          (!recMonth || isNaN(recYear)) &&
+          createdDate &&
+          !isNaN(createdDate.getTime())
+        ) {
+          matchesPeriod =
+            createdDate.getFullYear() === y &&
+            createdDate.getMonth() === MONTHS_BG.indexOf(selectedMonth);
+        }
+      } else if (periodType === "year") {
+        const y = parseInt(selectedYear, 10);
+        if (recYear === y) {
+          matchesPeriod = true;
+        } else if (isNaN(recYear) && createdDate && !isNaN(createdDate.getTime())) {
+          matchesPeriod = createdDate.getFullYear() === y;
+        }
+      } else if (periodType === "custom" && sCustomDate && eCustomDate) {
+        if (createdDate && !isNaN(createdDate.getTime())) {
+          matchesPeriod = createdDate >= sCustomDate && createdDate <= eCustomDate;
+        } else if (!isNaN(recYear) && recMonthIdx !== -1) {
+          const mStart = new Date(recYear, recMonthIdx, 1);
+          const mEnd = new Date(recYear, recMonthIdx + 1, 0, 23, 59, 59);
+          matchesPeriod = mEnd >= sCustomDate && mStart <= eCustomDate;
+        }
+      }
+
+      if (!matchesPeriod) continue;
+
+      const fallbackKey = recMonth && !isNaN(recYear) ? `${recMonth} ${recYear}` : undefined;
+      const { date, sortTs } = extractDateAndTime(
+        { date: rec.createdAt || "", createdAt: rec.createdAt },
+        fallbackKey
+      );
+      const consumption = round2(Number(rec.consumption) || 0);
+      const totalCost = round2(Number(rec.totalCost) || 0);
+      const unitPriceRaw =
+        Number(rec.unitPrice) > 0
+          ? Number(rec.unitPrice)
+          : consumption > 0
+          ? totalCost / consumption
+          : Number(rec.priceT1) || 0;
+
+      filteredElectricity.push({
+        date,
+        sortTs,
+        consumption,
+        pricePerKwh: round5(unitPriceRaw),
+        totalCost,
+      });
+    }
+  }
+
+  filteredElectricity.sort((a, b) => a.sortTs - b.sortTs);
+
+  const now = new Date();
   const netBalance = incomeTotal - expensesTotal;
-  const savingsRate =
-    incomeTotal > 0 ? (savingsTotal / incomeTotal) * 100 : 0;
+  const savingsRate = incomeTotal > 0 ? (savingsTotal / incomeTotal) * 100 : 0;
 
   return {
     periodType,
     periodLabel,
     dateRangeText,
-    generatedAt: new Date().toLocaleString("bg-BG"),
+    generatedAt: now.toLocaleString("bg-BG"),
+    generatedTimestampFormatted: formatBgTimestamp(now),
+    filters,
+    appliedFiltersLabel,
     incomeTotal: parseFloat(incomeTotal.toFixed(2)),
     expensesTotal: parseFloat(expensesTotal.toFixed(2)),
     fixedExpensesTotal: parseFloat(fixedExpensesTotal.toFixed(2)),
@@ -541,6 +938,11 @@ export function aggregateExportData(params: {
     monthlyBreakdown,
     recordCount: activeMonths.length,
     detailedRecords: activeMonths,
+    filteredExpenses,
+    filteredIncomes,
+    filteredSavings,
+    filteredBudgets,
+    filteredElectricity,
   };
 }
 
@@ -558,6 +960,7 @@ export function exportTxtReport(data: ExportReportData): void {
   lines.push(divider);
   lines.push(`Период на отчета    : ${data.periodLabel}`);
   lines.push(`Обхват на данните   : ${data.dateRangeText}`);
+  lines.push(`Приложени филтри    : ${data.appliedFiltersLabel}`);
   lines.push(`Дата на генериране  : ${data.generatedAt}`);
   lines.push(`Брой включени месеци: ${data.recordCount}`);
   lines.push(divider);
@@ -619,54 +1022,24 @@ export function exportTxtReport(data: ExportReportData): void {
     lines.push("");
   }
 
-  // 4. ДЕТАЙЛИ ПО МЕСЕЦИ И РАЗХОДНИ ПЕРА
-  if (data.detailedRecords.length > 0) {
-    lines.push("4. ДЕТАЙЛЕН ОПИС ПО МЕСЕЦИ");
+  // 4. ДЕТАЙЛИ ПО ФИЛТРИРАНИ ЗАПИСИ
+  if (data.filteredExpenses.length > 0 || data.filteredIncomes.length > 0) {
+    lines.push("4. ДЕТАЙЛЕН ОПИС НА ФИЛТРИРАНИТЕ ЗАПИСИ");
     lines.push(subDivider);
-
-    data.detailedRecords.forEach(({ key, record }) => {
-      lines.push(`\n>>> МЕСЕЦ: ${key.toUpperCase()}`);
-      const exp = record.expenses;
-
-      const completedIncomes = Array.isArray(record.incomes)
-        ? record.incomes.filter((inc) => inc && inc.type !== "expense" && isRecordCompleted(inc))
-        : [];
-      if (completedIncomes.length > 0) {
-        lines.push("   [Приходи]:");
-        completedIncomes.forEach((inc) => {
-          const catLabel = inc.categoryName || "Приход";
-          const noteText = inc.note ? ` (${inc.note})` : "";
-          const dateText = inc.date ? ` [${new Date(inc.date).toLocaleDateString("bg-BG")}]` : "";
-          lines.push(`     • ${(catLabel + noteText).padEnd(28)}: +€${inc.amount.toFixed(2)}${dateText}`);
-        });
-      }
-
-      if (exp?.saved_em2_eur && exp.saved_em2_eur > 0) {
-        lines.push(`   [Ток - Електроенергия] : €${exp.saved_em2_eur.toFixed(2)}`);
-      }
-
-      const completedFixed = Array.isArray(exp?.fixed_expenses)
-        ? exp.fixed_expenses.filter((item) => isCompletedExpense(item))
-        : [];
-      if (completedFixed.length > 0) {
-        lines.push("   [Повтарящи се разходи]:");
-        completedFixed.forEach((item) => {
-          lines.push(`     • ${item.categoryName.padEnd(24)}: €${item.amount.toFixed(2)}`);
-        });
-      }
-
-      const completedAdditional = Array.isArray(exp?.additional_expenses)
-        ? exp.additional_expenses.filter((item) => isCompletedExpense(item))
-        : [];
-      if (completedAdditional.length > 0) {
-        lines.push("   [Допълнителни разходи]:");
-        completedAdditional.forEach((item) => {
-          const noteText = item.note ? ` (${item.note})` : "";
-          const dateText = item.date ? ` [${new Date(item.date).toLocaleDateString("bg-BG")}]` : "";
-          lines.push(`     • ${(item.categoryName + noteText).padEnd(28)}: €${item.amount.toFixed(2)}${dateText}`);
-        });
-      }
-    });
+    if (data.filteredIncomes.length > 0) {
+      lines.push("   [Приходи]:");
+      data.filteredIncomes.forEach((inc) => {
+        const desc = inc.description ? ` (${inc.description})` : "";
+        lines.push(`     • ${(inc.category + desc).padEnd(32)}: +€${inc.amount.toFixed(2)} [${inc.date}] (${inc.statusLabel})`);
+      });
+    }
+    if (data.filteredExpenses.length > 0) {
+      lines.push("   [Разходи]:");
+      data.filteredExpenses.forEach((exp) => {
+        const desc = exp.description ? ` (${exp.description})` : "";
+        lines.push(`     • ${(exp.category + desc).padEnd(32)}: €${exp.amount.toFixed(2)} [${exp.date}] (${exp.statusLabel})`);
+      });
+    }
     lines.push("");
   }
 
@@ -1235,4 +1608,295 @@ function roundRect(
   ctx.lineTo(x, y + radius);
   ctx.arcTo(x, y, x + radius, y, radius);
   ctx.closePath();
+}
+
+// =========================================================================
+// Filter-Aware Reports & Export Center Excel (.xlsx) Workbook Generator
+// =========================================================================
+
+function buildReportSummarySheet(data: ExportReportData): SheetSpec {
+  const rows: CellValue[][] = [
+    [sectionCell("Финансов отчет — BudgetFlow (Reports & Export Center)")],
+    [headerCell("Показател"), headerCell("Стойност"), headerCell("Допълнителна информация")],
+    [boldTextCell("Export Type"), strCell("Excel (.xlsx)"), strCell("UTF-8 / ECMA-376")],
+    [boldTextCell("Period"), strCell(data.periodLabel), strCell(data.dateRangeText)],
+    [
+      boldTextCell("Applied Filters"),
+      strCell(data.appliedFiltersLabel),
+      strCell(
+        data.filters.selectedCategories.length > 0
+          ? `${data.filters.selectedCategories.length} избрани категории`
+          : "Без ограничение по категория"
+      ),
+    ],
+    [
+      strCell("Selected Categories"),
+      strCell(
+        data.filters.selectedCategories.length > 0
+          ? data.filters.selectedCategories.join(", ")
+          : "Всички"
+      ),
+      strCell(""),
+    ],
+    [strCell("Status Filter"), strCell(translateStatusFilter(data.filters.statusFilter)), strCell("")],
+    [
+      strCell("Recurring Filter"),
+      strCell(translateRecurringFilter(data.filters.recurringFilter)),
+      strCell(""),
+    ],
+    [boldTextCell("Generated"), strCell(data.generatedTimestampFormatted), strCell(data.generatedAt)],
+    [],
+    [sectionCell("Финансови показатели (Според активния период и филтри)")],
+    [headerCell("Показател"), headerCell("Сума / Стойност"), headerCell("Детайли")],
+    [
+      boldTextCell("Income"),
+      currencyCell(data.incomeTotal, true),
+      strCell(`${data.filteredIncomes.length} записа`),
+    ],
+    [
+      boldTextCell("Expenses"),
+      currencyCell(data.expensesTotal, true),
+      strCell(`${data.filteredExpenses.length} записа`),
+    ],
+    [
+      strCell("  • Повтарящи се разходи"),
+      currencyCell(data.fixedExpensesTotal),
+      strCell("EUR"),
+    ],
+    [
+      strCell("  • Допълнителни разходи"),
+      currencyCell(data.additionalExpensesTotal),
+      strCell("EUR"),
+    ],
+    [
+      boldTextCell("Savings"),
+      currencyCell(data.savingsTotal, true),
+      strCell(`${data.filteredSavings.length} записа`),
+    ],
+    [
+      boldTextCell("Net Balance"),
+      currencyCell(data.netBalance, true),
+      strCell("Income - Expenses"),
+    ],
+    [],
+    [sectionCell("Top Categories (Топ категории разходи)")],
+    [headerCell("Category"), headerCell("Transactions"), headerCell("Amount (EUR)"), headerCell("Share (%)")],
+  ];
+
+  if (data.categoryBreakdown.length === 0) {
+    rows.push([strCell("Няма разходи за избраните филтри"), intCell(0), currencyCell(0), percentFromRatioCell(0)]);
+  } else {
+    for (const cat of data.categoryBreakdown) {
+      rows.push([
+        strCell(cat.name),
+        intCell(cat.count),
+        currencyCell(cat.amount),
+        percentFromRatioCell(data.expensesTotal > 0 ? cat.amount / data.expensesTotal : 0),
+      ]);
+    }
+  }
+
+  return {
+    name: "Summary",
+    rows,
+    freezeHeader: false,
+    autoFilter: false,
+    minColWidths: [28, 32, 34, 14],
+  };
+}
+
+function buildReportExpensesSheet(rowsData: ExportExpenseRow[]): SheetSpec {
+  const header: CellValue[] = [
+    headerCell("Date"),
+    headerCell("Time"),
+    headerCell("Category"),
+    headerCell("Budget"),
+    headerCell("Description"),
+    headerCell("Amount"),
+    headerCell("Status"),
+    headerCell("Repeat"),
+    headerCell("Expected Date"),
+    headerCell("Notes"),
+  ];
+
+  const body: CellValue[][] = rowsData.map((r) => [
+    dateCell(r.date),
+    strCell(r.time),
+    strCell(r.category),
+    strCell(r.budget),
+    strCell(r.description),
+    currencyCell(r.amount),
+    strCell(r.statusLabel),
+    strCell(r.repeatLabel),
+    dateCell(r.expectedDate),
+    strCell(r.notes),
+  ]);
+
+  return {
+    name: "Expenses",
+    rows: [header, ...body],
+    freezeHeader: true,
+    autoFilter: true,
+    minColWidths: [13, 10, 18, 20, 28, 14, 14, 15, 14, 34],
+  };
+}
+
+function buildReportIncomesSheet(rowsData: ExportIncomeRow[]): SheetSpec {
+  const header: CellValue[] = [
+    headerCell("Date"),
+    headerCell("Time"),
+    headerCell("Category"),
+    headerCell("Description"),
+    headerCell("Amount"),
+    headerCell("Status"),
+    headerCell("Repeat"),
+    headerCell("Expected Date"),
+    headerCell("Notes"),
+  ];
+
+  const body: CellValue[][] = rowsData.map((r) => [
+    dateCell(r.date),
+    strCell(r.time),
+    strCell(r.category),
+    strCell(r.description),
+    currencyCell(r.amount),
+    strCell(r.statusLabel),
+    strCell(r.repeatLabel),
+    dateCell(r.expectedDate),
+    strCell(r.notes),
+  ]);
+
+  return {
+    name: "Incomes",
+    rows: [header, ...body],
+    freezeHeader: true,
+    autoFilter: true,
+    minColWidths: [13, 10, 18, 28, 14, 14, 15, 14, 32],
+  };
+}
+
+function buildReportSavingsSheet(rowsData: ExportSavingsRow[]): SheetSpec {
+  const header: CellValue[] = [
+    headerCell("Date"),
+    headerCell("Description"),
+    headerCell("Amount"),
+    headerCell("Goal"),
+    headerCell("Notes"),
+  ];
+
+  const body: CellValue[][] = rowsData.map((r) => [
+    dateCell(r.date),
+    strCell(r.description),
+    currencyCell(r.amount),
+    strCell(r.goal),
+    strCell(r.notes),
+  ]);
+
+  return {
+    name: "Savings",
+    rows: [header, ...body],
+    freezeHeader: true,
+    autoFilter: true,
+    minColWidths: [13, 28, 14, 24, 32],
+  };
+}
+
+function buildReportBudgetsSheet(rowsData: ExportBudgetRow[]): SheetSpec {
+  const header: CellValue[] = [
+    headerCell("Budget Name"),
+    headerCell("Categories"),
+    headerCell("Budget Limit"),
+    headerCell("Current Spending"),
+    headerCell("Remaining"),
+  ];
+
+  const body: CellValue[][] = rowsData.map((r) => [
+    strCell(r.budgetName),
+    strCell(r.categories),
+    currencyCell(r.budgetLimit),
+    currencyCell(r.currentSpending),
+    currencyCell(r.remaining),
+  ]);
+
+  return {
+    name: "Budgets",
+    rows: [header, ...body],
+    freezeHeader: true,
+    autoFilter: true,
+    minColWidths: [24, 34, 16, 18, 16],
+  };
+}
+
+function buildReportElectricitySheet(rowsData: ExportElectricityRow[]): SheetSpec {
+  const header: CellValue[] = [
+    headerCell("Date"),
+    headerCell("Consumption"),
+    headerCell("Price Per kWh"),
+    headerCell("Total Cost"),
+  ];
+
+  const body: CellValue[][] = rowsData.map((r) => [
+    dateCell(r.date),
+    currencyCell(r.consumption),
+    numCell(r.pricePerKwh, STYLE.PRICE_5DEC),
+    currencyCell(r.totalCost),
+  ]);
+
+  return {
+    name: "Electricity",
+    rows: [header, ...body],
+    freezeHeader: true,
+    autoFilter: true,
+    minColWidths: [14, 18, 18, 16],
+  };
+}
+
+/**
+ * Generates raw OOXML `.xlsx` bytes for the filter-aware Reports & Export Center workbook
+ * containing 6 sheets in order: Summary, Expenses, Incomes, Savings, Budgets, Electricity.
+ */
+export function buildReportExcelBytes(data: ExportReportData): Uint8Array {
+  const sheets: SheetSpec[] = [
+    buildReportSummarySheet(data),
+    buildReportExpensesSheet(data.filteredExpenses),
+    buildReportIncomesSheet(data.filteredIncomes),
+    buildReportSavingsSheet(data.filteredSavings),
+    buildReportBudgetsSheet(data.filteredBudgets),
+    buildReportElectricitySheet(data.filteredElectricity),
+  ];
+
+  return buildXlsxWorkbookBytes(sheets);
+}
+
+/**
+ * Generates and downloads `BudgetFlow_Report.xlsx` strictly respecting all active filters
+ * in the Reports & Export Center.
+ */
+export function exportExcelReport(data: ExportReportData): {
+  filename: string;
+  sheets: string[];
+} {
+  const bytes = buildReportExcelBytes(data);
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = REPORT_EXCEL_FILENAME;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+
+  return {
+    filename: REPORT_EXCEL_FILENAME,
+    sheets: [...REPORT_EXCEL_WORKSHEET_NAMES],
+  };
 }

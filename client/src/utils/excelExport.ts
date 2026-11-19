@@ -7,7 +7,11 @@ import {
   SavingsGoal,
 } from "@/types";
 import { gatherApplicationData } from "@/utils/backupRestore";
-import { calculateAllBudgetsStatus, loadBudgets } from "@/utils/budgetStorage";
+import {
+  calculateAllBudgetsStatus,
+  getBudgetLinkedCategoryIds,
+  loadBudgets,
+} from "@/utils/budgetStorage";
 import { loadStoredCategories, loadStoredIncomeCategories } from "@/utils/categoryStorage";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
 import { isRecordCompleted } from "@/utils/expenseStatus";
@@ -203,7 +207,7 @@ export function createZipArchiveBytes(entries: ZipBinaryEntry[]): Uint8Array {
 // =========================================================================
 
 /** Style IDs matching `xl/styles.xml` <cellXfs> indices */
-const STYLE = {
+export const STYLE = {
   TEXT: 0, // General UTF-8 text
   HEADER: 1, // Bold white header on dark slate fill
   CURRENCY: 2, // #,##0.00
@@ -216,15 +220,15 @@ const STYLE = {
   SECTION: 9, // Section title banner (bold dark on soft indigo fill)
 } as const;
 
-type StyleIndex = (typeof STYLE)[keyof typeof STYLE];
+export type StyleIndex = (typeof STYLE)[keyof typeof STYLE];
 
-type CellValue =
+export type CellValue =
   | { kind: "str"; value: string; style?: StyleIndex }
   | { kind: "num"; value: number; style?: StyleIndex }
   | { kind: "date"; isoDate: string; style?: StyleIndex }
   | { kind: "empty"; style?: StyleIndex };
 
-interface SheetSpec {
+export interface SheetSpec {
   name: string;
   rows: CellValue[][];
   freezeHeader?: boolean;
@@ -232,24 +236,24 @@ interface SheetSpec {
   minColWidths?: number[];
 }
 
-function strCell(value: unknown, style: StyleIndex = STYLE.TEXT): CellValue {
+export function strCell(value: unknown, style: StyleIndex = STYLE.TEXT): CellValue {
   const s = value === null || value === undefined ? "" : String(value);
   return { kind: "str", value: s, style };
 }
 
-function headerCell(value: string): CellValue {
+export function headerCell(value: string): CellValue {
   return { kind: "str", value, style: STYLE.HEADER };
 }
 
-function sectionCell(value: string): CellValue {
+export function sectionCell(value: string): CellValue {
   return { kind: "str", value, style: STYLE.SECTION };
 }
 
-function boldTextCell(value: unknown): CellValue {
+export function boldTextCell(value: unknown): CellValue {
   return strCell(value, STYLE.BOLD_TEXT);
 }
 
-function numCell(value: unknown, style: StyleIndex = STYLE.CURRENCY): CellValue {
+export function numCell(value: unknown, style: StyleIndex = STYLE.CURRENCY): CellValue {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) {
     return { kind: "empty", style };
@@ -257,28 +261,28 @@ function numCell(value: unknown, style: StyleIndex = STYLE.CURRENCY): CellValue 
   return { kind: "num", value: n, style };
 }
 
-function round2(n: number): number {
+export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-function round5(n: number): number {
+export function round5(n: number): number {
   return Math.round((n + Number.EPSILON) * 100000) / 100000;
 }
 
-function currencyCell(value: number, bold = false): CellValue {
+export function currencyCell(value: number, bold = false): CellValue {
   return numCell(round2(Number.isFinite(value) ? value : 0), bold ? STYLE.BOLD_CURRENCY : STYLE.CURRENCY);
 }
 
-function intCell(value: number): CellValue {
+export function intCell(value: number): CellValue {
   return numCell(Math.round(Number.isFinite(value) ? value : 0), STYLE.INTEGER);
 }
 
-function percentFromRatioCell(ratio: number): CellValue {
+export function percentFromRatioCell(ratio: number): CellValue {
   const safe = Number.isFinite(ratio) ? ratio : 0;
   return numCell(Math.round(safe * 10000) / 10000, STYLE.PERCENT);
 }
 
-function dateCell(isoDate: string): CellValue {
+export function dateCell(isoDate: string): CellValue {
   const trimmed = (isoDate || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     return { kind: "date", isoDate: trimmed, style: STYLE.DATE };
@@ -722,7 +726,7 @@ function extractTimeFromFallback(createdAt?: string, timestamp?: number): string
  * Resolves YYYY-MM-DD Date and HH:mm:ss Time cleanly, honoring expectedDate first
  * (consistent with Calendar Engine for scheduled/upcoming records), then date, createdAt, timestamp.
  */
-function extractDateAndTime(
+export function extractDateAndTime(
   item: Pick<ExpenseItem, "expectedDate" | "date" | "createdAt" | "timestamp">,
   fallbackMonthKey?: string
 ): { date: string; time: string; sortTs: number } {
@@ -814,7 +818,7 @@ function extractDateAndTime(
   return { date: "", time: "", sortTs: 0 };
 }
 
-function flattenText(text?: string): string {
+export function flattenText(text?: string): string {
   if (!text) return "";
   return text
     .split(/\r?\n/)
@@ -823,7 +827,7 @@ function flattenText(text?: string): string {
     .join(" | ");
 }
 
-function extractExpenseDescriptionAndNotes(item: ExpenseItem): {
+export function extractExpenseDescriptionAndNotes(item: ExpenseItem): {
   description: string;
   notes: string;
 } {
@@ -1468,7 +1472,7 @@ function buildBudgetsSheet(monthlyRecords: Record<string, MonthlyRecord>): {
     rows.push([
       strCell(item.budget.id),
       strCell(item.budget.categoryName),
-      strCell(item.budget.categoryId || ""),
+      strCell(getBudgetLinkedCategoryIds(item.budget).join(", ")),
       strCell(evaluatedMonthKey),
       currencyCell(item.limit),
       currencyCell(item.spent),

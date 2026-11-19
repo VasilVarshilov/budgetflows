@@ -1118,70 +1118,109 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
             <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 bg-white dark:bg-slate-900 rounded-xl border border-amber-200/80 dark:border-amber-800/70 overflow-hidden">
               {currentMonthUpcomingItems.map(({ item, monthKey, dateKey }) => {
                 const formattedDate = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+                const isRepeat = isRepeatingFrequency(item.repeat);
                 return (
                   <div
                     key={`upcoming_inc_${monthKey}_${item.id}`}
-                    className="px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-amber-50/60 dark:hover:bg-amber-950/25 transition-colors"
+                    className="px-3.5 py-2.5 space-y-1.5 hover:bg-amber-50/60 dark:hover:bg-amber-950/25 transition-colors"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
-                          item.categoryColor || "bg-emerald-100 text-emerald-600"
-                        )}`}
-                      >
-                        {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
+                    {/* Row 1: Icon + Title + Status Tag | Amount + Desktop Controls */}
+                    <div className="flex items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(
+                            item.categoryColor || "bg-emerald-100 text-emerald-600"
+                          )}`}
+                        >
+                          {renderCategoryIcon(item.categoryIcon, "w-4 h-4")}
+                        </div>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           <span className="font-semibold text-slate-900 dark:text-white text-sm truncate">
                             {item.categoryName}
                           </span>
-                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                            {isRepeatingFrequency(item.repeat) ? "Повтарящ се" : "Допълнителен"}
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/70 shrink-0">
+                            <Clock className="w-3 h-3 shrink-0" />
+                            <span>Очакван</span>
                           </span>
-                          {onOpenCalendar ? (
-                            <button
-                              type="button"
-                              onClick={() => onOpenCalendar(dateKey)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/85 hover:bg-amber-200/85 dark:bg-amber-950/70 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer tabular-nums"
-                              title="Отвори датата в Календар"
-                            >
-                              <CalendarDays className="w-3 h-3 shrink-0" />
-                              <span>{formattedDate}</span>
-                            </button>
-                          ) : (
-                            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                              {formattedDate}
-                            </span>
-                          )}
                         </div>
-                        {item.note && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                            {item.note}
-                          </p>
-                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-bold text-sm sm:text-base text-emerald-700 dark:text-emerald-300 tabular-nums mr-1">
+                          +€{Number(item.amount).toFixed(2)}
+                        </span>
+                        <div className="hidden sm:flex items-center gap-1.5">
+                          <CompletionSwitch
+                            checked={false}
+                            onChange={(val) => handleToggleIncomeCompletion({ item, monthKey }, val)}
+                            ariaLabel={`Изпълнено за ${item.categoryName}`}
+                            size="sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditEntry({ item, monthKey })}
+                            className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Редактирай приход"
+                            aria-label="Редактирай приход"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                      <span className="font-bold text-sm sm:text-base text-emerald-700 dark:text-emerald-300 tabular-nums mr-1">
-                        +€{Number(item.amount).toFixed(2)}
-                      </span>
-                      <CompletionSwitch
-                        checked={false}
-                        onChange={(val) => handleToggleIncomeCompletion({ item, monthKey }, val)}
-                        ariaLabel={`Изпълнено за ${item.categoryName}`}
-                        size="sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditEntry({ item, monthKey })}
-                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        title="Редактирай приход"
-                        aria-label="Редактирай приход"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                    {/* Row 2: Horizontal Metadata Chips + Note | Mobile Compact Controls */}
+                    <div className="flex items-center justify-between gap-2 pl-10">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                        {onOpenCalendar ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenCalendar(dateKey)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/85 hover:bg-amber-200/85 dark:bg-amber-950/70 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer tabular-nums shrink-0"
+                            title="Отвори датата в Календар"
+                          >
+                            <CalendarDays className="w-3 h-3 shrink-0" />
+                            <span>{formattedDate}</span>
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/85 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 tabular-nums shrink-0">
+                            <CalendarDays className="w-3 h-3 shrink-0" />
+                            <span>{formattedDate}</span>
+                          </span>
+                        )}
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
+                            isRepeat
+                              ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                          }`}
+                        >
+                          {isRepeat ? "Повтарящ се" : "Допълнителен"}
+                        </span>
+                        {item.note && (
+                          <span className="text-xs text-slate-500 dark:text-slate-400 truncate min-w-0">
+                            {item.note}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex sm:hidden items-center gap-1 shrink-0">
+                        <CompletionSwitch
+                          checked={false}
+                          onChange={(val) => handleToggleIncomeCompletion({ item, monthKey }, val)}
+                          ariaLabel={`Изпълнено за ${item.categoryName}`}
+                          size="sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditEntry({ item, monthKey })}
+                          className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Редактирай приход"
+                          aria-label="Редактирай приход"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
