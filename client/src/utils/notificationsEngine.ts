@@ -407,8 +407,8 @@ export function reconcileAllNotifications(
 
       const message =
         tx.kind === "expense"
-          ? `Падежът е изминал преди ${days} ${days === 1 ? "ден" : "дни"}.`
-          : `Очакваният приход е с изминала дата (преди ${days} ${days === 1 ? "ден" : "дни"}).`;
+          ? `Просрочено с ${days} ${days === 1 ? "ден" : "дни"}.`
+          : `Очакваният приход е закъснял с ${days} ${days === 1 ? "ден" : "дни"}.`;
 
       const existingIdx = findIndexByDedupe(dedupeKey);
 
