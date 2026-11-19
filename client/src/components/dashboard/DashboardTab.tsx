@@ -59,7 +59,7 @@ import { loadAppSettings, saveAppSettings } from "@/utils/incomeStorage";
 import { isCompletedExpense, isPlannedExpense, isRecordCompleted } from "@/utils/expenseStatus";
 import { formatRepeatLabel, isRepeatingFrequency } from "@/utils/recurrenceEngine";
 import { CompletionSwitch } from "@/components/ui/RecurrenceCompletionRows";
-import { parseLocalDateKey, resolveRecordDateKey } from "@/utils/calendarEngine";
+import { parseLocalDateKey, resolveRecordDateKey, toLocalDateKey } from "@/utils/calendarEngine";
 
 interface UpcomingDashboardItem {
   id: string;
@@ -531,6 +531,56 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       return tb - ta;
     });
   }, [upcomingExpenseItems, upcomingIncomeItems]);
+
+  const { dueTodayItems, overdueItems } = useMemo(() => {
+    const todayKey = toLocalDateKey(new Date());
+    const dueToday: UpcomingDashboardItem[] = [];
+    const overdue: UpcomingDashboardItem[] = [];
+
+    Object.entries(monthlyData || {}).forEach(([mKey, record]) => {
+      if (!record) return;
+      const pushIfDue = (
+        item: ExpenseItem | IncomeItem,
+        kind: "fixed" | "additional" | "income"
+      ) => {
+        if (!item || !isPlannedExpense(item)) return;
+        if (kind === "income" && (item as IncomeItem).type === "expense") return;
+        const dKey = resolveRecordDateKey(item, mKey);
+        if (dKey > todayKey) return;
+        const entry: UpcomingDashboardItem = {
+          id: item.id,
+          monthKey: mKey,
+          kind,
+          categoryName: item.categoryName,
+          categoryIcon: item.categoryIcon,
+          categoryColor: item.categoryColor,
+          note: item.note,
+          merchantName: item.merchantName,
+          date: item.date || "",
+          dateKey: dKey,
+          amount: Number(item.amount) || 0,
+          repeat: item.repeat,
+        };
+        if (dKey === todayKey) dueToday.push(entry);
+        else overdue.push(entry);
+      };
+
+      if (Array.isArray(record.expenses?.fixed_expenses)) {
+        record.expenses.fixed_expenses.forEach((e) => pushIfDue(e, "fixed"));
+      }
+      if (Array.isArray(record.expenses?.additional_expenses)) {
+        record.expenses.additional_expenses.forEach((e) => pushIfDue(e, "additional"));
+      }
+      if (Array.isArray(record.incomes)) {
+        record.incomes.forEach((inc) => pushIfDue(inc, "income"));
+      }
+    });
+
+    return {
+      dueTodayItems: dueToday.sort((a, b) => b.amount - a.amount),
+      overdueItems: overdue.sort((a, b) => a.dateKey.localeCompare(b.dateKey)),
+    };
+  }, [monthlyData]);
 
   // Savings in period (income - expense in savings ledger)
   const periodSavings = useMemo(() => {
@@ -1166,6 +1216,146 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Upcoming Today & Overdue Attention Strip (synced with Notifications) */}
+      {(dueTodayItems.length > 0 || overdueItems.length > 0) && (
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 transition-colors">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  overdueItems.length > 0
+                    ? "bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400"
+                    : "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400"
+                }`}
+              >
+                {overdueItems.length > 0 ? (
+                  <AlertCircle className="w-4 h-4" />
+                ) : (
+                  <Clock className="w-4 h-4" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                  Предстоящи днес
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                  {dueTodayItems.length} за днес
+                  {overdueItems.length > 0 ? ` · ${overdueItems.length} с изминал падеж` : ""}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                onOpenCalendar
+                  ? onOpenCalendar((overdueItems[0] || dueTodayItems[0])?.dateKey)
+                  : onNavigateTab?.("calendar")
+              }
+              className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>Календар</span>
+            </button>
+          </div>
+
+          <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+            {[...overdueItems, ...dueTodayItems].map((item) => {
+              const isOverdue = overdueItems.some(
+                (o) => o.id === item.id && o.monthKey === item.monthKey
+              );
+              const isIncome = item.kind === "income";
+              const dateLabel = parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG");
+              return (
+                <div
+                  key={`today_${item.kind}_${item.monthKey}_${item.id}`}
+                  onClick={() =>
+                    onOpenRecord
+                      ? onOpenRecord({
+                          kind: item.kind,
+                          monthKey: item.monthKey,
+                          id: item.id,
+                        })
+                      : onOpenCalendar?.(item.dateKey)
+                  }
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      if (onOpenRecord) {
+                        onOpenRecord({
+                          kind: item.kind,
+                          monthKey: item.monthKey,
+                          id: item.id,
+                        });
+                      } else {
+                        onOpenCalendar?.(item.dateKey);
+                      }
+                    }
+                  }}
+                  className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg px-2 -mx-2 transition-colors cursor-pointer"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                        {item.categoryName}
+                      </span>
+                      <span
+                        className={`text-xs font-semibold tabular-nums shrink-0 ${
+                          isOverdue
+                            ? "text-rose-600 dark:text-rose-400"
+                            : isIncome
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-amber-600 dark:text-amber-400"
+                        }`}
+                      >
+                        {isOverdue
+                          ? `Просрочен (${dateLabel})`
+                          : isIncome
+                          ? "Очакван приход днес"
+                          : "Падеж днес"}
+                      </span>
+                    </div>
+                    {(item.merchantName || item.note) && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        {[item.merchantName, item.note].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+
+                  <div
+                    className="flex items-center gap-2.5 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span
+                      className={`text-sm font-bold tabular-nums ${
+                        isIncome
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : isOverdue
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-slate-900 dark:text-white"
+                      }`}
+                    >
+                      {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onToggleRecordCompletion?.(item.monthKey, item.kind, item.id, true)
+                      }
+                      className="min-h-[32px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Изпълнено</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Dedicated Upcoming Payments & Income Widget */}
       <div className="bg-gradient-to-br from-amber-50/80 via-white to-white dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-5 rounded-2xl border border-amber-300/90 dark:border-amber-800/75 shadow-xs space-y-4 transition-colors">

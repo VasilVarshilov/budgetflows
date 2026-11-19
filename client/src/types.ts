@@ -258,3 +258,48 @@ export interface BackupData {
     recurringIncomes?: RecurringIncomeTemplate[];
   };
 }
+
+export type NotificationType =
+  | "upcoming_expense"
+  | "upcoming_income"
+  | "overdue_expense"
+  | "overdue_income"
+  | "goal_milestone"
+  | "recurring_generated"
+  | "backup_success";
+
+export type NotificationStatus = "unread" | "read" | "dismissed" | "resolved";
+
+export interface NotificationTarget {
+  kind: "expense" | "income" | "calendar" | "savings" | "backup";
+  monthKey?: string;
+  recordId?: string;
+  recordListType?: "fixed" | "additional" | "income";
+  dateKey?: string;
+  goalId?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  dedupeKey: string;
+  type: NotificationType;
+  status: NotificationStatus;
+  title: string;
+  message: string;
+  amount?: number;
+  categoryName?: string;
+  dueDateKey?: string;
+  createdAt: string;
+  updatedAt: string;
+  readAt?: string;
+  dismissedAt?: string;
+  resolvedAt?: string;
+  resolvedNote?: string;
+  target?: NotificationTarget;
+}
+
+export interface NotificationsStoreState {
+  notifications: AppNotification[];
+  suppressedKeys: Record<string, string>;
+}
+

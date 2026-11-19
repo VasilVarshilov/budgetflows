@@ -28,6 +28,7 @@ import { BackupRestoreSection } from "@/components/backup/BackupRestoreSection";
 import { BudgetManagementTab } from "@/components/budgets/BudgetManagementTab";
 import { AiAnalysisTab } from "@/components/analysis/AiAnalysisTab";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { ThemeProvider } from "@/utils/themeContext";
 import { CloudSyncProvider, useCloudSync } from "@/utils/cloudSyncContext";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
@@ -44,13 +45,35 @@ import {
 } from "@/utils/userStorage";
 import { toggleRecordCompletion } from "@/utils/expenseStatus";
 import { upsertElectricityRecordFromExpense } from "@/utils/electricityStorage";
+import { loadSavingsGoals, SAVINGS_GOALS_UPDATED_EVENT } from "@/utils/savingsGoalsStorage";
+import {
+  clearAllNotifications,
+  createEmptyNotificationsState,
+  deleteNotification,
+  dismissNotification,
+  loadNotificationsStore,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  reconcileAllNotifications,
+  recordBackupSuccessNotification,
+  recordRecurringGeneratedNotification,
+  saveNotificationsStore,
+} from "@/utils/notificationsEngine";
 import {
   generateDueRecurringInstances,
   normalizeMonthlyDataConsistency,
   partitionExpensesByRepeat,
   normalizeIncomeByRepeat,
 } from "@/utils/recurrenceEngine";
-import { MonthlyRecord, IncomeItem, ExpenseItem, OpenRecordTarget } from "@/types";
+import {
+  AppNotification,
+  ExpenseItem,
+  IncomeItem,
+  MonthlyRecord,
+  NotificationsStoreState,
+  NotificationTarget,
+  OpenRecordTarget,
+} from "@/types";
 
 type Tab = "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
 
@@ -174,12 +197,16 @@ const AppContent: React.FC = () => {
     Record<string, MonthlyRecord>
   >({});
   const [globalSavings, setGlobalSavings] = useState<IncomeItem[]>([]);
+  const [notificationsStore, setNotificationsStore] = useState<NotificationsStoreState>(() =>
+    createEmptyNotificationsState()
+  );
 
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
 
   const {
     triggerAutoSync,
     syncStatus,
+    lastSyncTime,
     user,
     storedProfile,
     activeUid,
@@ -202,6 +229,15 @@ const AppContent: React.FC = () => {
 
   const monthlyDataRef = useRef<Record<string, MonthlyRecord>>({});
   monthlyDataRef.current = monthlyData;
+
+  const notificationsStoreRef = useRef<NotificationsStoreState>(notificationsStore);
+  notificationsStoreRef.current = notificationsStore;
+
+  const prevSyncStatusRef = useRef<string>("idle");
+  const lastObservedSyncTimeRef = useRef<{ uid: string; value: string | null }>({
+    uid: "",
+    value: null,
+  });
 
   const displayUser = user || storedProfile;
 
@@ -233,13 +269,32 @@ const AppContent: React.FC = () => {
       storedMonthly && typeof storedMonthly === "object" ? storedMonthly : {};
     const { updatedMonthlyData: migratedMonthly, migratedCount } =
       normalizeMonthlyDataConsistency(rawMonthly);
-    const { updatedMonthlyData: normalizedMonthly, generatedCount } =
+    const { updatedMonthlyData: normalizedMonthly, generatedCount, generatedItems } =
       generateDueRecurringInstances(migratedMonthly, {
         activeMonthKey: activeMonth,
       });
     if (migratedCount > 0 || generatedCount > 0) {
       userStorage.setJSON(STORAGE_BASE_MONTHLY, normalizedMonthly, targetUid);
     }
+
+    // Load and reconcile account-isolated notifications
+    let nextNotifState = loadNotificationsStore(targetUid);
+    let notifChanged = false;
+    if (generatedCount > 0 && generatedItems.length > 0) {
+      const recNotif = recordRecurringGeneratedNotification(nextNotifState, generatedItems);
+      nextNotifState = recNotif.nextState;
+      notifChanged = notifChanged || recNotif.changed;
+    }
+    const reconciled = reconcileAllNotifications(nextNotifState, {
+      monthlyData: normalizedMonthly,
+      goals: loadSavingsGoals(targetUid),
+    });
+    if (reconciled.changed || notifChanged) {
+      saveNotificationsStore(reconciled.nextState, targetUid);
+    }
+    notificationsStoreRef.current = reconciled.nextState;
+    setNotificationsStore(reconciled.nextState);
+
     monthlyDataRef.current = normalizedMonthly;
     setMonthlyData(normalizedMonthly);
     setGlobalSavings(Array.isArray(storedSavings) ? storedSavings : []);
@@ -253,26 +308,48 @@ const AppContent: React.FC = () => {
       monthlyDataRef.current = {};
       setMonthlyData({});
       setGlobalSavings([]);
+      const emptyNotifs = createEmptyNotificationsState();
+      notificationsStoreRef.current = emptyNotifs;
+      setNotificationsStore(emptyNotifs);
       return;
     }
     loadAccountWorkspaceData(activeUid);
   }, [activeUid, isAuthLoading, isSwitchingAccount, loadAccountWorkspaceData]);
 
-  // Automatically normalize and materialize due recurring Expenses & Incomes
+  // Automatically normalize, materialize due recurring Expenses & Incomes, and sync notifications
   useEffect(() => {
     if (isAuthLoading || isSwitchingAccount) return;
     const { updatedMonthlyData: migratedMonthly, migratedCount } =
       normalizeMonthlyDataConsistency(monthlyDataRef.current);
-    const { updatedMonthlyData, generatedCount } = generateDueRecurringInstances(
+    const { updatedMonthlyData, generatedCount, generatedItems } = generateDueRecurringInstances(
       migratedMonthly,
       { activeMonthKey: currentMonth }
     );
+    const targetUid = userStorage.getActiveUid();
+
     if (migratedCount > 0 || generatedCount > 0) {
       monthlyDataRef.current = updatedMonthlyData;
-      const targetUid = userStorage.getActiveUid();
       saveMonthlyToStorage(updatedMonthlyData, targetUid);
       setMonthlyData(updatedMonthlyData);
       triggerAutoSync();
+    }
+
+    // Reconcile transaction & milestone notifications whenever monthlyData updates (including auto-resolution)
+    let workingNotifs = notificationsStoreRef.current;
+    let notifChanged = false;
+    if (generatedCount > 0 && generatedItems.length > 0) {
+      const recRes = recordRecurringGeneratedNotification(workingNotifs, generatedItems);
+      workingNotifs = recRes.nextState;
+      notifChanged = notifChanged || recRes.changed;
+    }
+    const recAll = reconcileAllNotifications(workingNotifs, {
+      monthlyData: updatedMonthlyData,
+      goals: loadSavingsGoals(targetUid),
+    });
+    if (recAll.changed || notifChanged) {
+      notificationsStoreRef.current = recAll.nextState;
+      saveNotificationsStore(recAll.nextState, targetUid);
+      setNotificationsStore(recAll.nextState);
     }
   }, [
     monthlyData,
@@ -282,6 +359,59 @@ const AppContent: React.FC = () => {
     saveMonthlyToStorage,
     triggerAutoSync,
   ]);
+
+  // Reconcile notifications when Savings Goals change or window regains focus
+  useEffect(() => {
+    if (isAuthLoading || isSwitchingAccount) return;
+    const syncGoalAndTimeNotifications = () => {
+      const uid = userStorage.getActiveUid();
+      const res = reconcileAllNotifications(notificationsStoreRef.current, {
+        monthlyData: monthlyDataRef.current,
+        goals: loadSavingsGoals(uid),
+      });
+      if (res.changed) {
+        notificationsStoreRef.current = res.nextState;
+        saveNotificationsStore(res.nextState, uid);
+        setNotificationsStore(res.nextState);
+      }
+    };
+    window.addEventListener(SAVINGS_GOALS_UPDATED_EVENT, syncGoalAndTimeNotifications);
+    window.addEventListener("focus", syncGoalAndTimeNotifications);
+    const timer = window.setInterval(syncGoalAndTimeNotifications, 60_000);
+    return () => {
+      window.removeEventListener(SAVINGS_GOALS_UPDATED_EVENT, syncGoalAndTimeNotifications);
+      window.removeEventListener("focus", syncGoalAndTimeNotifications);
+      window.clearInterval(timer);
+    };
+  }, [activeUid, isAuthLoading, isSwitchingAccount]);
+
+  // Emit Successful Backup notification when Google Drive upload finishes
+  useEffect(() => {
+    if (isAuthLoading || isSwitchingAccount) return;
+    const prevStatus = prevSyncStatusRef.current;
+    prevSyncStatusRef.current = syncStatus;
+
+    if (lastObservedSyncTimeRef.current.uid !== activeUid) {
+      lastObservedSyncTimeRef.current = { uid: activeUid, value: lastSyncTime };
+      return;
+    }
+
+    if (
+      prevStatus === "syncing" &&
+      syncStatus === "synced" &&
+      lastSyncTime &&
+      lastSyncTime !== lastObservedSyncTimeRef.current.value
+    ) {
+      lastObservedSyncTimeRef.current.value = lastSyncTime;
+      const uid = userStorage.getActiveUid();
+      const res = recordBackupSuccessNotification(notificationsStoreRef.current, lastSyncTime);
+      if (res.changed) {
+        notificationsStoreRef.current = res.nextState;
+        saveNotificationsStore(res.nextState, uid);
+        setNotificationsStore(res.nextState);
+      }
+    }
+  }, [syncStatus, lastSyncTime, activeUid, isAuthLoading, isSwitchingAccount]);
 
   const saveSavingsToStorage = useCallback(
     (updated: IncomeItem[], explicitUid?: string) => {
@@ -665,6 +795,74 @@ const AppContent: React.FC = () => {
     []
   );
 
+  // Notification Center Actions
+  const updateAndSaveNotifications = useCallback(
+    (updater: (prev: NotificationsStoreState) => NotificationsStoreState) => {
+      const uid = userStorage.getActiveUid();
+      const next = updater(notificationsStoreRef.current);
+      notificationsStoreRef.current = next;
+      saveNotificationsStore(next, uid);
+      setNotificationsStore(next);
+    },
+    []
+  );
+
+  const handleMarkNotificationRead = useCallback(
+    (id: string) => updateAndSaveNotifications((prev) => markNotificationAsRead(prev, id)),
+    [updateAndSaveNotifications]
+  );
+
+  const handleMarkAllNotificationsRead = useCallback(
+    () => updateAndSaveNotifications((prev) => markAllNotificationsAsRead(prev)),
+    [updateAndSaveNotifications]
+  );
+
+  const handleDismissNotification = useCallback(
+    (id: string) => updateAndSaveNotifications((prev) => dismissNotification(prev, id)),
+    [updateAndSaveNotifications]
+  );
+
+  const handleDeleteNotification = useCallback(
+    (id: string) => updateAndSaveNotifications((prev) => deleteNotification(prev, id)),
+    [updateAndSaveNotifications]
+  );
+
+  const handleClearAllNotifications = useCallback(
+    () => updateAndSaveNotifications((prev) => clearAllNotifications(prev)),
+    [updateAndSaveNotifications]
+  );
+
+  const handleOpenNotificationTarget = useCallback(
+    (target: NotificationTarget, notification: AppNotification) => {
+      if (target.kind === "savings") {
+        setActiveTab("savings");
+        return;
+      }
+      if (target.kind === "backup") {
+        setActiveTab("backup");
+        return;
+      }
+      if (target.kind === "calendar") {
+        handleOpenCalendar(target.dateKey || notification.dueDateKey);
+        return;
+      }
+      if (target.monthKey && target.recordId) {
+        const kind =
+          target.recordListType || (target.kind === "income" ? "income" : "additional");
+        handleOpenDashboardRecord({
+          kind,
+          monthKey: target.monthKey,
+          id: target.recordId,
+        });
+        return;
+      }
+      if (target.dateKey || notification.dueDateKey) {
+        handleOpenCalendar(target.dateKey || notification.dueDateKey);
+      }
+    },
+    [handleOpenCalendar, handleOpenDashboardRecord]
+  );
+
   const handleMaterializeProjectedEvent = useCallback(
     (ev: CalendarEvent) => {
       const targetUid = userStorage.getActiveUid();
@@ -956,6 +1154,20 @@ const AppContent: React.FC = () => {
                   <span className="text-[11px] sm:hidden">Вход</span>
                 </button>
               )}
+
+              <NotificationCenter
+                store={notificationsStore}
+                onMarkAsRead={handleMarkNotificationRead}
+                onMarkAllAsRead={handleMarkAllNotificationsRead}
+                onDismiss={handleDismissNotification}
+                onDelete={handleDeleteNotification}
+                onClearAll={handleClearAllNotifications}
+                onOpenTarget={handleOpenNotificationTarget}
+                onOpenCalendarDate={(dateKey) => handleOpenCalendar(dateKey)}
+                onCompleteTransaction={(monthKey, kind, recordId) =>
+                  handleToggleRecordCompletion(monthKey, kind, recordId, true)
+                }
+              />
 
               <ThemeToggle />
             </div>

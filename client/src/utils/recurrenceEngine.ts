@@ -465,9 +465,20 @@ export interface GenerateRecurringOptions {
   dismissedKeys?: Set<string>;
 }
 
+export interface GeneratedRecurringItemMeta {
+  id: string;
+  monthKey: string;
+  bucket: "fixed" | "income";
+  categoryName: string;
+  amount: number;
+  occurrenceKey: string;
+  sourceId: string;
+}
+
 export interface GenerateRecurringResult {
   updatedMonthlyData: Record<string, MonthlyRecord>;
   generatedCount: number;
+  generatedItems: GeneratedRecurringItemMeta[];
 }
 
 const MAX_OCCURRENCES_PER_SOURCE = 120;
@@ -484,7 +495,7 @@ export function generateDueRecurringInstances(
   options: GenerateRecurringOptions = {}
 ): GenerateRecurringResult {
   if (!monthlyData || typeof monthlyData !== "object") {
-    return { updatedMonthlyData: monthlyData, generatedCount: 0 };
+    return { updatedMonthlyData: monthlyData, generatedCount: 0, generatedItems: [] };
   }
 
   const refDate = options.referenceDate ? new Date(options.referenceDate) : new Date();
@@ -581,11 +592,12 @@ export function generateDueRecurringInstances(
   });
 
   if (sources.length === 0) {
-    return { updatedMonthlyData: monthlyData, generatedCount: 0 };
+    return { updatedMonthlyData: monthlyData, generatedCount: 0, generatedItems: [] };
   }
 
   let updatedMonthlyData: Record<string, MonthlyRecord> | null = null;
   let generatedCount = 0;
+  const generatedItems: GeneratedRecurringItemMeta[] = [];
 
   const ensureClonedRecord = (targetMonthKey: string): MonthlyRecord => {
     if (!updatedMonthlyData) {
@@ -715,11 +727,21 @@ export function generateDueRecurringInstances(
 
       existingKeys.add(compositeKey);
       generatedCount += 1;
+      generatedItems.push({
+        id: generatedId,
+        monthKey: targetMonthKey,
+        bucket: src.bucket,
+        categoryName: src.item.categoryName,
+        amount: Number(src.item.amount) || 0,
+        occurrenceKey: occKey,
+        sourceId: src.item.id,
+      });
     }
   }
 
   return {
     updatedMonthlyData: updatedMonthlyData ?? monthlyData,
     generatedCount,
+    generatedItems,
   };
 }
