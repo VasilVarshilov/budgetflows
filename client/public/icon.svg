@@ -2,41 +2,19 @@
   <defs>
     <linearGradient id="bf365-bg" x1="48" y1="32" x2="464" y2="480" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#4f46e5" />
-      <stop offset="52%" stop-color="#6d28d9" />
+      <stop offset="52%" stop-color="#7c3aed" />
       <stop offset="100%" stop-color="#2563eb" />
     </linearGradient>
-    <linearGradient id="bf365-ring" x1="120" y1="120" x2="392" y2="392" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#e0e7ff" />
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.92" />
-    </linearGradient>
   </defs>
-  <!-- Squircle Badge -->
-  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bf365-bg)" />
-  <rect x="30" y="30" width="452" height="452" rx="106" stroke="#ffffff" stroke-opacity="0.16" stroke-width="4" />
-
-  <!-- 365 Navigation Orbit Arc -->
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#bf365-bg)" />
+  <rect x="146" y="132" width="58" height="248" rx="18" fill="#ffffff" />
   <path
-    d="M 358 148 A 144 144 0 1 1 256 112"
-    stroke="url(#bf365-ring)"
-    stroke-width="24"
-    stroke-linecap="round"
-  />
-  <!-- Directional Compass Pointer at North-East -->
-  <path
-    d="M 304 106 L 378 118 L 350 186 L 334 142 Z"
+    d="M 244 132 H 297 A 55 55 0 0 1 297 242 H 244 A 14 14 0 0 1 230 228 V 146 A 14 14 0 0 1 244 132 Z"
     fill="#ffffff"
+    fill-opacity="0.78"
   />
-  <!-- Subtle Cardinal Calibration Ticks -->
-  <line x1="256" y1="84" x2="256" y2="100" stroke="#c7d2fe" stroke-width="10" stroke-linecap="round" />
-  <line x1="256" y1="412" x2="256" y2="428" stroke="#c7d2fe" stroke-opacity="0.7" stroke-width="10" stroke-linecap="round" />
-  <line x1="84" y1="256" x2="100" y2="256" stroke="#c7d2fe" stroke-opacity="0.7" stroke-width="10" stroke-linecap="round" />
-
-  <!-- Geometric Architectural 'B' Core Monogram -->
   <path
-    d="M 196 176 L 196 336 M 196 176 L 264 176 C 296 176 314 192 314 214 C 314 234 298 248 268 252 L 196 252 M 268 252 C 304 256 322 272 322 296 C 322 320 302 336 268 336 L 196 336"
-    stroke="#ffffff"
-    stroke-width="28"
-    stroke-linecap="round"
-    stroke-linejoin="round"
+    d="M 244 270 H 315 A 55 55 0 0 1 315 380 H 244 A 14 14 0 0 1 230 366 V 284 A 14 14 0 0 1 244 270 Z"
+    fill="#ffffff"
   />
 </svg>

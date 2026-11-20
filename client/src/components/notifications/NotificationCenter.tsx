@@ -487,7 +487,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       : null;
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative shrink-0 pr-0.5">
       {/* Header Bell Trigger Button */}
       <button
         type="button"
@@ -511,7 +511,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       >
         <Bell className="w-4 h-4" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center tabular-nums shadow-xs ring-2 ring-white dark:ring-slate-900">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center tabular-nums shadow-xs ring-2 ring-white dark:ring-slate-900 pointer-events-none">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
