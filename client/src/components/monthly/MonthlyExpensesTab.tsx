@@ -48,7 +48,15 @@ import {
   Layers,
   Clock,
 } from "lucide-react";
-import { ExpenseCategory, ExpenseItem, MonthlyRecord, BudgetConfig, RepeatFrequency, OpenRecordTarget } from "@/types";
+import {
+  ExpenseCategory,
+  ExpenseItem,
+  MonthlyRecord,
+  BudgetConfig,
+  RepeatFrequency,
+  OpenRecordTarget,
+  TransactionLocation,
+} from "@/types";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
 import {
   isCompletedExpense,
@@ -56,6 +64,9 @@ import {
   isRecordCompleted,
   toggleRecordCompletion,
 } from "@/utils/expenseStatus";
+import { LocationCard } from "@/components/common/LocationCard";
+import { LocationPickerField } from "@/components/common/LocationPickerField";
+import { normalizeLocation } from "@/utils/locationUtils";
 import {
   formatRepeatLabel,
   isRepeatingFrequency,
@@ -517,6 +528,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   );
   const [expenseRepeat, setExpenseRepeat] = useState<RepeatFrequency>("never");
   const [expenseCompleted, setExpenseCompleted] = useState<boolean>(true);
+  const [expenseLocation, setExpenseLocation] = useState<TransactionLocation | undefined>(
+    undefined
+  );
 
   // Edit Variable Expense State
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -532,6 +546,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editExpenseBudgetCategoryId, setEditExpenseBudgetCategoryId] = useState<string>("");
   const [editExpenseRepeat, setEditExpenseRepeat] = useState<RepeatFrequency>("never");
   const [editExpenseCompleted, setEditExpenseCompleted] = useState<boolean>(true);
+  const [editExpenseLocation, setEditExpenseLocation] = useState<TransactionLocation | undefined>(
+    undefined
+  );
   const [editExpenseIsGenerated, setEditExpenseIsGenerated] = useState<boolean>(false);
   const [editingExpenseSourceMonth, setEditingExpenseSourceMonth] = useState<string | null>(null);
   const [editingExpenseIsFixed, setEditingExpenseIsFixed] = useState(false);
@@ -567,6 +584,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   );
   const [fixedRepeat, setFixedRepeat] = useState<RepeatFrequency>("monthly");
   const [fixedCompleted, setFixedCompleted] = useState<boolean>(true);
+  const [fixedLocation, setFixedLocation] = useState<TransactionLocation | undefined>(
+    undefined
+  );
 
   // Edit Fixed Expense State
   const [editingFixedId, setEditingFixedId] = useState<string | null>(null);
@@ -582,6 +602,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [editFixedBudgetCategoryId, setEditFixedBudgetCategoryId] = useState<string>("");
   const [editFixedRepeat, setEditFixedRepeat] = useState<RepeatFrequency>("monthly");
   const [editFixedCompleted, setEditFixedCompleted] = useState<boolean>(true);
+  const [editFixedLocation, setEditFixedLocation] = useState<TransactionLocation | undefined>(
+    undefined
+  );
   const [editFixedIsGenerated, setEditFixedIsGenerated] = useState<boolean>(false);
 
   // Receipt Scan & Notification State & Delete Confirmation State
@@ -755,15 +778,20 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     return candidateExpenses
       .map((item, idx) => ({ item, idx }))
       .filter(({ item }) => {
-        // Smart Search by Note, Category, Amount
+        // Smart Search by Note, Category, Location, Amount
         if (term) {
           const noteMatch = item.note && item.note.toLowerCase().includes(term);
           const catMatch = item.categoryName && item.categoryName.toLowerCase().includes(term);
+          const locMatch =
+            (item.location?.placeName &&
+              item.location.placeName.toLowerCase().includes(term)) ||
+            (item.location?.address &&
+              item.location.address.toLowerCase().includes(term));
           const amtStr = item.amount.toString();
           const amtFixed = item.amount.toFixed(2);
           const amtMatch = amtStr.includes(term) || amtFixed.includes(term);
 
-          if (!noteMatch && !catMatch && !amtMatch) {
+          if (!noteMatch && !catMatch && !locMatch && !amtMatch) {
             return false;
           }
         }
@@ -927,6 +955,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const normalizedRepeat = normalizeRepeatValue(expenseRepeat);
     const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
+    const normalizedLocation = normalizeLocation(expenseLocation);
+
     const newExpense: ExpenseItem = {
       id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
       categoryId: selectedCategory.id,
@@ -937,6 +967,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsedAmount,
       note: note.trim() || undefined,
+      ...(normalizedLocation ? { location: normalizedLocation } : {}),
       date: dateKeyToStableIso(safeDateKey),
       expectedDate: safeDateKey,
       createdAt: nowIso,
@@ -989,6 +1020,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setExpenseDate(getDefaultDateKeyForMonth(currentMonth));
     setExpenseRepeat("never");
     setExpenseCompleted(true);
+    setExpenseLocation(undefined);
   };
 
   const handleDeleteExpense = (id: string) => {
@@ -1053,6 +1085,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditExpenseBudgetCategoryId(expense.budgetCategoryId || "");
     setEditExpenseRepeat(resolveItemRepeat(expense));
     setEditExpenseCompleted(isRecordCompleted(expense));
+    setEditExpenseLocation(expense.location);
     setEditExpenseIsGenerated(Boolean(expense.recurrenceSourceId));
     setEditingExpenseSourceMonth(resolvedMonth);
     setEditingExpenseIsFixed(
@@ -1077,6 +1110,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const nowIso = new Date().toISOString();
     const effectiveRepeat = normalizeRepeatValue(editExpenseRepeat);
     const willBeFixed = isRepeatingFrequency(effectiveRepeat);
+    const normalizedLocation = normalizeLocation(editExpenseLocation);
 
     const buildUpdated = (item: ExpenseItem): ExpenseItem => ({
       ...item,
@@ -1086,6 +1120,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       categoryColor: editExpenseCategory?.colorClass || item.categoryColor,
       amount: val,
       note: editExpenseNote.trim() || undefined,
+      location: normalizedLocation,
       merchantName: parsedNote.merchantName || item.merchantName,
       receiptItems: parsedNote.items.length > 0 ? parsedNote.items : item.receiptItems,
       date: dateKeyToStableIso(safeDateKey),
@@ -1308,6 +1343,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const normalizedRepeat = normalizeRepeatValue(fixedRepeat);
     const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
+    const normalizedLocation = normalizeLocation(fixedLocation);
+
     const newItem: ExpenseItem = {
       id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
       categoryId: selectedFixedCategory.id,
@@ -1317,6 +1354,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryId: selectedFixedBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsed,
+      ...(normalizedLocation ? { location: normalizedLocation } : {}),
       date: dateKeyToStableIso(safeDateKey),
       expectedDate: safeDateKey,
       createdAt: nowIso,
@@ -1368,6 +1406,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setFixedDate(getDefaultDateKeyForMonth(currentMonth));
     setFixedRepeat("monthly");
     setFixedCompleted(true);
+    setFixedLocation(undefined);
   };
 
   const handleDeleteFixedExpense = (id: string) => {
@@ -1391,6 +1430,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditFixedBudgetCategoryId(item.budgetCategoryId || "");
     setEditFixedRepeat(resolveItemRepeat(item));
     setEditFixedCompleted(isRecordCompleted(item));
+    setEditFixedLocation(item.location);
     setEditFixedIsGenerated(Boolean(item.recurrenceSourceId));
   };
 
@@ -1416,6 +1456,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const targetMonthKey = getMonthKeyFromDateKey(safeDateKey);
     const effectiveRepeat = normalizeRepeatValue(editFixedRepeat);
     const willStayFixed = isRepeatingFrequency(effectiveRepeat);
+    const normalizedLocation = normalizeLocation(editFixedLocation);
 
     const updatedItem: ExpenseItem = {
       ...existingItem,
@@ -1425,6 +1466,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       categoryIcon: editFixedCategory?.iconName || existingItem.categoryIcon,
       categoryColor: editFixedCategory?.colorClass || existingItem.categoryColor,
       amount: val,
+      location: normalizedLocation,
       date: dateKeyToStableIso(safeDateKey),
       expectedDate: safeDateKey,
       budgetCategoryId: editFixedBudgetCategoryId || undefined,
@@ -1902,6 +1944,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             onCompletedChange={setExpenseCompleted}
           />
 
+          <LocationPickerField
+            value={expenseLocation}
+            onChange={setExpenseLocation}
+          />
+
           <div className="flex gap-3 pt-1">
             <button
               onClick={handleAddExpense}
@@ -2065,6 +2112,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 completed={fixedCompleted}
                 onCompletedChange={setFixedCompleted}
               />
+
+              <LocationPickerField
+                value={fixedLocation}
+                onChange={setFixedLocation}
+                compact
+              />
             </div>
           )}
 
@@ -2198,6 +2251,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           ? "Автоматично генериран повтарящ се запис"
                           : undefined
                       }
+                    />
+
+                    <LocationPickerField
+                      value={editFixedLocation}
+                      onChange={setEditFixedLocation}
+                      compact
                     />
 
                     <div className="flex items-center justify-end gap-2 pt-1">
@@ -2386,6 +2445,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {(item.location?.placeName || item.location?.address) && (
+                    <div className="mt-2.5 pl-[42px] sm:pl-[46px]">
+                      <LocationCard location={item.location} showHeading compact />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -2617,6 +2682,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             ? "Автоматично генериран повтарящ се запис"
                             : undefined
                         }
+                      />
+
+                      <LocationPickerField
+                        value={editExpenseLocation}
+                        onChange={setEditExpenseLocation}
+                        compact
                       />
 
                       <div className="flex items-center justify-end gap-2 pt-1">
@@ -2921,6 +2992,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     {!hasReceiptItems && parsedReceipt.plainNote && (
                       <div className="pl-0 sm:pl-13 text-xs text-slate-600 dark:text-slate-400 italic break-words leading-relaxed">
                         {parsedReceipt.plainNote}
+                      </div>
+                    )}
+
+                    {/* Attached Location Section */}
+                    {(expense.location?.placeName || expense.location?.address) && (
+                      <div className="pl-0 sm:pl-13">
+                        <LocationCard location={expense.location} showHeading compact />
                       </div>
                     )}
                   </div>

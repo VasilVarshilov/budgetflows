@@ -9,6 +9,7 @@ import {
 } from "@/types";
 import { parseLocalDateKey, resolveRecordDateKey, toLocalDateKey } from "./calendarEngine";
 import { isRecordCompleted } from "./expenseStatus";
+import { areLocationsEqual, normalizeLocation } from "./locationUtils";
 import { GeneratedRecurringItemMeta } from "./recurrenceEngine";
 import { STORAGE_BASE_NOTIFICATIONS, userStorage } from "./userStorage";
 
@@ -95,6 +96,7 @@ function normalizeNotification(raw: any): AppNotification | null {
     amount: typeof raw.amount === "number" ? raw.amount : undefined,
     categoryName: typeof raw.categoryName === "string" ? raw.categoryName : undefined,
     dueDateKey: typeof raw.dueDateKey === "string" ? raw.dueDateKey : undefined,
+    location: normalizeLocation(raw.location),
     createdAt: typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : nowIso,
     updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : nowIso,
     readAt: typeof raw.readAt === "string" ? raw.readAt : undefined,
@@ -367,6 +369,8 @@ export function reconcileAllNotifications(
     const amountLabel = formatNotificationAmount(tx.amount);
     const title = `${tx.categoryName} €${amountLabel}`;
 
+    const normalizedLocation = normalizeLocation(tx.item.location);
+
     if (isDueToday) {
       const dedupeKey = `tx_due:${tx.kind}:${tx.item.id}:${tx.dueDateKey}`;
       if (nextSuppressed[dedupeKey]) continue;
@@ -385,6 +389,7 @@ export function reconcileAllNotifications(
           amount: tx.amount,
           categoryName: tx.categoryName,
           dueDateKey: tx.dueDateKey,
+          ...(normalizedLocation ? { location: normalizedLocation } : {}),
           createdAt: nowIso,
           updatedAt: nowIso,
           target: {
@@ -400,13 +405,16 @@ export function reconcileAllNotifications(
         const existing = nextNotifications[existingIdx];
         if (
           (existing.status === "unread" || existing.status === "read") &&
-          (existing.title !== title || existing.target?.monthKey !== tx.monthKey)
+          (existing.title !== title ||
+            existing.target?.monthKey !== tx.monthKey ||
+            !areLocationsEqual(existing.location, normalizedLocation))
         ) {
           nextNotifications[existingIdx] = {
             ...existing,
             title,
             amount: tx.amount,
             categoryName: tx.categoryName,
+            location: normalizedLocation,
             updatedAt: nowIso,
             target: {
               ...existing.target,
@@ -444,6 +452,7 @@ export function reconcileAllNotifications(
           amount: tx.amount,
           categoryName: tx.categoryName,
           dueDateKey: tx.dueDateKey,
+          ...(normalizedLocation ? { location: normalizedLocation } : {}),
           createdAt: nowIso,
           updatedAt: nowIso,
           target: {
@@ -461,7 +470,8 @@ export function reconcileAllNotifications(
           (existing.status === "unread" || existing.status === "read") &&
           (existing.message !== message ||
             existing.title !== title ||
-            existing.target?.monthKey !== tx.monthKey)
+            existing.target?.monthKey !== tx.monthKey ||
+            !areLocationsEqual(existing.location, normalizedLocation))
         ) {
           nextNotifications[existingIdx] = {
             ...existing,
@@ -469,6 +479,7 @@ export function reconcileAllNotifications(
             message,
             amount: tx.amount,
             categoryName: tx.categoryName,
+            location: normalizedLocation,
             updatedAt: nowIso,
             target: {
               ...existing.target,

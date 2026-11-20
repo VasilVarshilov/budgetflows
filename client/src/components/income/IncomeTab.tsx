@@ -27,13 +27,17 @@ import {
   RecurrenceFrequency,
   RecurringIncomeTemplate,
   RepeatFrequency,
+  TransactionLocation,
 } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
+import { LocationCard } from "@/components/common/LocationCard";
+import { LocationPickerField } from "@/components/common/LocationPickerField";
 import {
   RecurrenceCompletionRows,
   CompletionSwitch,
 } from "@/components/ui/RecurrenceCompletionRows";
+import { normalizeLocation } from "@/utils/locationUtils";
 import {
   isRecordCompleted,
   toggleRecordCompletion,
@@ -137,6 +141,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   const [formScheduleOnly, setFormScheduleOnly] = useState(false);
   const [formRepeat, setFormRepeat] = useState<RepeatFrequency>("never");
   const [formCompleted, setFormCompleted] = useState<boolean>(true);
+  const [formLocation, setFormLocation] = useState<TransactionLocation | undefined>(
+    undefined
+  );
   const [formIsGenerated, setFormIsGenerated] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -365,14 +372,17 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         return false;
       }
 
-      // Search (note, categoryName, amount)
+      // Search (note, categoryName, location, amount)
       if (search) {
         const noteMatch = (item.note || "").toLowerCase().includes(search);
         const catMatch = (item.categoryName || "")
           .toLowerCase()
           .includes(search);
+        const locMatch =
+          (item.location?.placeName || "").toLowerCase().includes(search) ||
+          (item.location?.address || "").toLowerCase().includes(search);
         const amtMatch = item.amount.toFixed(2).includes(search);
-        if (!noteMatch && !catMatch && !amtMatch) return false;
+        if (!noteMatch && !catMatch && !locMatch && !amtMatch) return false;
       }
 
       // Status filter
@@ -491,6 +501,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormScheduleOnly(scheduleTemplateOnly);
     setFormRepeat(defaultRepeat);
     setFormCompleted(true);
+    setFormLocation(undefined);
     setFormIsGenerated(false);
     setFormError(null);
     setIsFormOpen(true);
@@ -522,6 +533,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormScheduleOnly(false);
     setFormRepeat(resolveItemRepeat(entry.item));
     setFormCompleted(isRecordCompleted(entry.item));
+    setFormLocation(entry.item.location);
     setFormIsGenerated(Boolean(entry.item.recurrenceSourceId));
     setFormError(null);
     setIsFormOpen(true);
@@ -547,6 +559,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormScheduleOnly(true);
     setFormRepeat("never");
     setFormCompleted(true);
+    setFormLocation(tpl.location);
     setFormIsGenerated(false);
     setFormError(null);
     setIsFormOpen(true);
@@ -605,6 +618,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
     const safeDateStr = formDate || toLocalYyyyMmDd(new Date());
     const selectedDateObj = new Date(safeDateStr + "T12:00:00");
+    const normalizedLocation = normalizeLocation(formLocation);
 
     // Case A: Editing an existing Recurring Template
     if (editingTemplateId) {
@@ -618,6 +632,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
           categoryColor: formCategory.colorClass,
           amount: parseFloat(numericAmount.toFixed(2)),
           note: formNote.trim(),
+          location: normalizedLocation,
           frequency: formFrequency,
           dayOfMonth:
             formFrequency === "weekly" ? undefined : Number(formDayOfMonth) || 1,
@@ -650,6 +665,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         categoryColor: formCategory.colorClass,
         amount: parseFloat(numericAmount.toFixed(2)),
         note: formNote.trim(),
+        location: normalizedLocation,
         date: selectedDateObj.toISOString(),
         expectedDate: safeDateStr,
         repeat: effectiveRepeat,
@@ -695,6 +711,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         categoryColor: formCategory.colorClass,
         amount: parseFloat(numericAmount.toFixed(2)),
         note: formNote.trim(),
+        ...(normalizedLocation ? { location: normalizedLocation } : {}),
         frequency: formFrequency,
         dayOfMonth:
           formFrequency === "weekly" ? undefined : Number(formDayOfMonth) || 1,
@@ -733,6 +750,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       categoryColor: formCategory.colorClass,
       amount: parseFloat(numericAmount.toFixed(2)),
       note: formNote.trim(),
+      ...(normalizedLocation ? { location: normalizedLocation } : {}),
       date: selectedDateObj.toISOString(),
       expectedDate: safeDateStr,
       createdAt: nowIso,
@@ -771,6 +789,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
     const templateRepeat = normalizeRepeatValue(template.frequency);
+    const templateLocation = normalizeLocation(template.location);
     const confirmedIncome: IncomeItem = {
       id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
       categoryId: template.categoryId,
@@ -779,6 +798,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       categoryColor: template.categoryColor,
       amount: template.amount,
       note: template.note || "",
+      ...(templateLocation ? { location: templateLocation } : {}),
       date: dueDateObj.toISOString(),
       expectedDate: dueDateIso,
       createdAt: nowIso,
@@ -938,20 +958,6 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Recurring Templates Button */}
-            <button
-              type="button"
-              onClick={() => setShowRecurringPanel((prev) => !prev)}
-              className={`min-h-[44px] sm:min-h-[40px] flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
-                showRecurringPanel
-                  ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
-                  : "bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
-              }`}
-            >
-              <Repeat className="w-4 h-4" />
-              <span>Повтарящи се ({activeTemplatesCount})</span>
-            </button>
 
             {/* Primary Add Income Button */}
             <button
@@ -1303,6 +1309,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           </>
                         )}
                       </div>
+                      {(template.location?.placeName || template.location?.address) && (
+                        <div className="mt-2">
+                          <LocationCard location={template.location} showHeading compact />
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1406,6 +1417,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           </>
                         )}
                       </div>
+                      {(tpl.location?.placeName || tpl.location?.address) && (
+                        <div className="mt-2">
+                          <LocationCard location={tpl.location} showHeading compact />
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1678,6 +1694,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           {item.note}
                         </p>
                       )}
+
+                      {(item.location?.placeName || item.location?.address) && (
+                        <div className="mt-2 pl-[42px] sm:pl-[46px]">
+                          <LocationCard location={item.location} showHeading compact />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1883,6 +1905,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           {item.note}
                         </p>
                       )}
+
+                      {(item.location?.placeName || item.location?.address) && (
+                        <div className="mt-2 pl-[42px] sm:pl-[46px]">
+                          <LocationCard location={item.location} showHeading compact />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2057,6 +2085,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   className="w-full px-3.5 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
+
+              {/* Location (Optional OpenStreetMap Nominatim search & manual edit) */}
+              <LocationPickerField
+                value={formLocation}
+                onChange={setFormLocation}
+              />
 
               {/* Universal Repeat & Completion Controls (for regular Add / Edit Income) */}
               {(editingEntry || (!editingTemplateId && !formScheduleOnly)) && (

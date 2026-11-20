@@ -27,6 +27,7 @@ import {
   getHistoryNotifications,
   getUnreadNotificationsCount,
 } from "@/utils/notificationsEngine";
+import { LocationCard } from "@/components/common/LocationCard";
 
 interface NotificationCenterProps {
   store: NotificationsStoreState;
@@ -399,6 +400,10 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                   </p>
                 </div>
               </div>
+
+              {(n.location?.placeName || n.location?.address) && (
+                <LocationCard location={n.location} compact />
+              )}
 
               {/* Direct Quick Actions Row */}
               <div

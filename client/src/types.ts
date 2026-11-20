@@ -86,6 +86,13 @@ export type RepeatFrequency =
   | "semiannual"
   | "yearly";
 
+export interface TransactionLocation {
+  placeName?: string;
+  address: string;
+  lat?: number;
+  lng?: number;
+}
+
 export interface ExpenseItem {
   id: string;
   categoryId: string;
@@ -94,6 +101,8 @@ export interface ExpenseItem {
   categoryColor: string;
   amount: number;
   note?: string;
+  /** Optional physical address & coordinates attached manually by the user. */
+  location?: TransactionLocation;
   date: string;
   /** Optional explicit YYYY-MM-DD expected transaction date used for Calendar & planning. */
   expectedDate?: string;
@@ -158,6 +167,7 @@ export interface RecurringIncomeTemplate {
   categoryColor: string;
   amount: number;
   note?: string;
+  location?: TransactionLocation;
   frequency: RecurrenceFrequency;
   dayOfMonth?: number; // 1-31 for monthly or yearly
   monthOfYear?: number; // 0-11 for yearly
@@ -289,6 +299,7 @@ export interface AppNotification {
   amount?: number;
   categoryName?: string;
   dueDateKey?: string;
+  location?: TransactionLocation;
   createdAt: string;
   updatedAt: string;
   readAt?: string;

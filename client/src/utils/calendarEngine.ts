@@ -4,10 +4,12 @@ import {
   MonthlyRecord,
   RecurringIncomeTemplate,
   RepeatFrequency,
+  TransactionLocation,
 } from "@/types";
 import { MONTHS_BG } from "./comparisonStorage";
 import { isRecordCompleted } from "./expenseStatus";
 import { loadRecurringIncomes } from "./incomeStorage";
+import { normalizeLocation } from "./locationUtils";
 import {
   advanceOccurrenceDate,
   getDismissedRecurrenceKeys,
@@ -38,6 +40,7 @@ export interface CalendarEvent {
   categoryColor: string;
   merchantName?: string;
   note?: string;
+  location?: TransactionLocation;
   amount: number;
   dateKey: string; // YYYY-MM-DD local
   isCompleted: boolean;
@@ -298,6 +301,7 @@ export function getCalendarEventsForRange(
           categoryColor: item.categoryColor,
           merchantName: item.merchantName,
           note: item.note,
+          location: normalizeLocation(item.location),
           amount: Number(item.amount) || 0,
           dateKey,
           isCompleted: completed,
@@ -359,6 +363,7 @@ export function getCalendarEventsForRange(
           categoryIcon: inc.categoryIcon,
           categoryColor: inc.categoryColor,
           note: inc.note,
+          location: normalizeLocation(inc.location),
           amount: Number(inc.amount) || 0,
           dateKey,
           isCompleted: completed,
@@ -398,6 +403,7 @@ export function getCalendarEventsForRange(
           categoryColor: root.item.categoryColor,
           merchantName: root.item.merchantName,
           note: root.item.note,
+          location: normalizeLocation(root.item.location),
           amount: Number(root.item.amount) || 0,
           dateKey: occKey,
           isCompleted: false,
@@ -440,6 +446,7 @@ export function getCalendarEventsForRange(
           categoryIcon: root.item.categoryIcon,
           categoryColor: root.item.categoryColor,
           note: root.item.note,
+          location: normalizeLocation(root.item.location),
           amount: Number(root.item.amount) || 0,
           dateKey: occKey,
           isCompleted: false,
@@ -488,6 +495,7 @@ export function getCalendarEventsForRange(
         categoryIcon: tpl.categoryIcon,
         categoryColor: tpl.categoryColor,
         note: tpl.note,
+        location: normalizeLocation(tpl.location),
         amount: Number(tpl.amount) || 0,
         dateKey,
         isCompleted: false,

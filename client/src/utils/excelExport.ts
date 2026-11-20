@@ -28,6 +28,7 @@ import {
   getGoalProgressPercent,
   loadSavingsGoals,
 } from "@/utils/savingsGoalsStorage";
+import { formatLocationExportLabel } from "@/utils/locationUtils";
 
 // =========================================================================
 // Public Types & Entry Point
@@ -950,6 +951,7 @@ function buildExpensesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
           currencyCell(amount),
           strCell(completedLabel),
           strCell(recurringLabel),
+          strCell(formatLocationExportLabel(item.location)),
           strCell(notes),
         ],
       });
@@ -990,6 +992,7 @@ function buildExpensesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
               strCell("Да"),
               strCell("Месечно"),
               strCell(""),
+              strCell(""),
             ],
           });
         }
@@ -1016,6 +1019,7 @@ function buildExpensesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
     headerCell("Amount (EUR)"),
     headerCell("Completed"),
     headerCell("Recurring"),
+    headerCell("Location"),
     headerCell("Notes"),
   ];
 
@@ -1025,7 +1029,7 @@ function buildExpensesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
       rows: [headerRow, ...collected.map((c) => c.row)],
       freezeHeader: true,
       autoFilter: true,
-      minColWidths: [13, 10, 16, 15, 18, 18, 28, 15, 12, 16, 36],
+      minColWidths: [13, 10, 16, 15, 18, 18, 28, 15, 12, 16, 28, 36],
     },
     count: collected.length,
     realizedCount,
@@ -1104,6 +1108,7 @@ function buildIncomesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
           currencyCell(amount),
           strCell(completedLabel),
           strCell(recurringLabel),
+          strCell(formatLocationExportLabel(inc.location)),
           strCell(notes),
         ],
       });
@@ -1122,6 +1127,7 @@ function buildIncomesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
     headerCell("Amount (EUR)"),
     headerCell("Completed"),
     headerCell("Recurring"),
+    headerCell("Location"),
     headerCell("Notes"),
   ];
 
@@ -1131,7 +1137,7 @@ function buildIncomesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
       rows: [headerRow, ...collected.map((c) => c.row)],
       freezeHeader: true,
       autoFilter: true,
-      minColWidths: [13, 10, 16, 15, 18, 28, 15, 12, 16, 32],
+      minColWidths: [13, 10, 16, 15, 18, 28, 15, 12, 16, 28, 32],
     },
     count: collected.length,
     realizedCount,

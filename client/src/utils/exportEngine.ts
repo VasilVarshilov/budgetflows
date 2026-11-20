@@ -22,6 +22,7 @@ import {
 } from "@/utils/recurrenceEngine";
 import { loadSavingsGoals } from "@/utils/savingsGoalsStorage";
 import { STORAGE_BASE_ELECTRICITY_HISTORY, userStorage } from "@/utils/userStorage";
+import { formatLocationExportLabel } from "@/utils/locationUtils";
 import {
   CellValue,
   SheetSpec,
@@ -98,6 +99,7 @@ export interface ExportExpenseRow {
   repeatLabel: string;
   isRecurring: boolean;
   expectedDate: string;
+  location: string;
   notes: string;
   rawItem: ExpenseItem;
 }
@@ -115,6 +117,7 @@ export interface ExportIncomeRow {
   repeatLabel: string;
   isRecurring: boolean;
   expectedDate: string;
+  location: string;
   notes: string;
 }
 
@@ -500,6 +503,7 @@ export function aggregateExportData(params: {
             : formatRepeatLabel(repeat),
         isRecurring,
         expectedDate: (inc.expectedDate || "").trim(),
+        location: formatLocationExportLabel(inc.location),
         notes: flattenText(inc.note),
       });
     });
@@ -585,6 +589,7 @@ export function aggregateExportData(params: {
           repeatLabel: "Месечно",
           isRecurring: true,
           expectedDate: "",
+          location: "",
           notes: "Автоматично отчетен разход за ток",
           rawItem: syntheticItem,
         });
@@ -645,6 +650,7 @@ export function aggregateExportData(params: {
             : formatRepeatLabel(repeat),
         isRecurring,
         expectedDate: (item.expectedDate || "").trim(),
+        location: formatLocationExportLabel(item.location),
         notes,
         rawItem: item,
       });
@@ -1030,14 +1036,16 @@ export function exportTxtReport(data: ExportReportData): void {
       lines.push("   [Приходи]:");
       data.filteredIncomes.forEach((inc) => {
         const desc = inc.description ? ` (${inc.description})` : "";
-        lines.push(`     • ${(inc.category + desc).padEnd(32)}: +€${inc.amount.toFixed(2)} [${inc.date}] (${inc.statusLabel})`);
+        const loc = inc.location ? ` [Локация: ${inc.location}]` : "";
+        lines.push(`     • ${(inc.category + desc).padEnd(32)}: +€${inc.amount.toFixed(2)} [${inc.date}] (${inc.statusLabel})${loc}`);
       });
     }
     if (data.filteredExpenses.length > 0) {
       lines.push("   [Разходи]:");
       data.filteredExpenses.forEach((exp) => {
         const desc = exp.description ? ` (${exp.description})` : "";
-        lines.push(`     • ${(exp.category + desc).padEnd(32)}: €${exp.amount.toFixed(2)} [${exp.date}] (${exp.statusLabel})`);
+        const loc = exp.location ? ` [Локация: ${exp.location}]` : "";
+        lines.push(`     • ${(exp.category + desc).padEnd(32)}: €${exp.amount.toFixed(2)} [${exp.date}] (${exp.statusLabel})${loc}`);
       });
     }
     lines.push("");
@@ -1716,6 +1724,7 @@ function buildReportExpensesSheet(rowsData: ExportExpenseRow[]): SheetSpec {
     headerCell("Status"),
     headerCell("Repeat"),
     headerCell("Expected Date"),
+    headerCell("Location"),
     headerCell("Notes"),
   ];
 
@@ -1729,6 +1738,7 @@ function buildReportExpensesSheet(rowsData: ExportExpenseRow[]): SheetSpec {
     strCell(r.statusLabel),
     strCell(r.repeatLabel),
     dateCell(r.expectedDate),
+    strCell(r.location),
     strCell(r.notes),
   ]);
 
@@ -1737,7 +1747,7 @@ function buildReportExpensesSheet(rowsData: ExportExpenseRow[]): SheetSpec {
     rows: [header, ...body],
     freezeHeader: true,
     autoFilter: true,
-    minColWidths: [13, 10, 18, 20, 28, 14, 14, 15, 14, 34],
+    minColWidths: [13, 10, 18, 20, 28, 14, 14, 15, 14, 28, 34],
   };
 }
 
@@ -1751,6 +1761,7 @@ function buildReportIncomesSheet(rowsData: ExportIncomeRow[]): SheetSpec {
     headerCell("Status"),
     headerCell("Repeat"),
     headerCell("Expected Date"),
+    headerCell("Location"),
     headerCell("Notes"),
   ];
 
@@ -1763,6 +1774,7 @@ function buildReportIncomesSheet(rowsData: ExportIncomeRow[]): SheetSpec {
     strCell(r.statusLabel),
     strCell(r.repeatLabel),
     dateCell(r.expectedDate),
+    strCell(r.location),
     strCell(r.notes),
   ]);
 
@@ -1771,7 +1783,7 @@ function buildReportIncomesSheet(rowsData: ExportIncomeRow[]): SheetSpec {
     rows: [header, ...body],
     freezeHeader: true,
     autoFilter: true,
-    minColWidths: [13, 10, 18, 28, 14, 14, 15, 14, 32],
+    minColWidths: [13, 10, 18, 28, 14, 14, 15, 14, 28, 32],
   };
 }
 

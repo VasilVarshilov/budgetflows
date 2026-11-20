@@ -25,6 +25,7 @@ import {
 } from "@/utils/calendarEngine";
 import { formatRepeatLabel } from "@/utils/recurrenceEngine";
 import { CompletionSwitch } from "@/components/ui/RecurrenceCompletionRows";
+import { LocationCard } from "@/components/common/LocationCard";
 
 interface CalendarTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -272,99 +273,105 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                       handleOpenTransaction(ev);
                     }
                   }}
-                  className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-colors ${
+                  className={`p-3 rounded-xl border space-y-2.5 transition-colors ${
                     ev.isUpcoming
                       ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
                       : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
                   } ${onOpenEvent ? "cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-700" : ""}`}
                   title={onOpenEvent ? "Отвори прихода за преглед / редакция" : undefined}
                 >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                        {ev.categoryName}
-                      </span>
-                      {ev.isRecurring && (
-                        <Repeat
-                          className="w-3.5 h-3.5 text-indigo-500 shrink-0"
-                          aria-label="Повтарящ се"
-                        />
-                      )}
-                      {onOpenEvent && (
-                        <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                          {ev.categoryName}
+                        </span>
+                        {ev.isRecurring && (
+                          <Repeat
+                            className="w-3.5 h-3.5 text-indigo-500 shrink-0"
+                            aria-label="Повтарящ се"
+                          />
+                        )}
+                        {onOpenEvent && (
+                          <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+                        <span
+                          className={`inline-flex items-center gap-1 ${
+                            ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                          }`}
+                        >
+                          {ev.isCompleted ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                          ) : (
+                            <Clock className="w-3 h-3 text-amber-500" />
+                          )}
+                          {ev.isCompleted
+                            ? "Изпълнен"
+                            : ev.isProjected
+                            ? "Планиран по график"
+                            : "Предстоящ"}
+                        </span>
+                        {ev.isRecurring && (
+                          <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat)}</span>
+                        )}
+                      </div>
+                      {ev.note && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
+                          {ev.note}
+                        </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+
+                    <div
+                      className="flex items-center gap-2 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <span
-                        className={`inline-flex items-center gap-1 ${
-                          ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                        className={`text-sm font-bold tabular-nums ${
+                          ev.isUpcoming
+                            ? "text-amber-700 dark:text-amber-300"
+                            : "text-emerald-700 dark:text-emerald-400"
                         }`}
                       >
-                        {ev.isCompleted ? (
-                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                        ) : (
-                          <Clock className="w-3 h-3 text-amber-500" />
-                        )}
-                        {ev.isCompleted
-                          ? "Изпълнен"
-                          : ev.isProjected
-                          ? "Планиран по график"
-                          : "Предстоящ"}
+                        +€{ev.amount.toFixed(2)}
                       </span>
-                      {ev.isRecurring && (
-                        <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat)}</span>
+                      {!ev.isProjected &&
+                      ev.recordListType === "income" &&
+                      onToggleRecordCompletion ? (
+                        <CompletionSwitch
+                          checked={ev.isCompleted}
+                          onChange={(nextVal) =>
+                            onToggleRecordCompletion({
+                              monthKey: ev.monthKey,
+                              recordType: "income",
+                              id: ev.sourceId,
+                              nextCompleted: nextVal,
+                            })
+                          }
+                          ariaLabel={`Изпълнено за ${ev.categoryName}`}
+                          size="sm"
+                        />
+                      ) : (
+                        ev.isProjected &&
+                        onMaterializeProjectedEvent && (
+                          <button
+                            type="button"
+                            onClick={() => onMaterializeProjectedEvent(ev)}
+                            className="px-2 py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                            title="Запиши този планиран приход"
+                          >
+                            Запиши
+                          </button>
+                        )
                       )}
                     </div>
-                    {ev.note && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
-                        {ev.note}
-                      </p>
-                    )}
                   </div>
 
-                  <div
-                    className="flex items-center gap-2 shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span
-                      className={`text-sm font-bold tabular-nums ${
-                        ev.isUpcoming
-                          ? "text-amber-700 dark:text-amber-300"
-                          : "text-emerald-700 dark:text-emerald-400"
-                      }`}
-                    >
-                      +€{ev.amount.toFixed(2)}
-                    </span>
-                    {!ev.isProjected &&
-                    ev.recordListType === "income" &&
-                    onToggleRecordCompletion ? (
-                      <CompletionSwitch
-                        checked={ev.isCompleted}
-                        onChange={(nextVal) =>
-                          onToggleRecordCompletion({
-                            monthKey: ev.monthKey,
-                            recordType: "income",
-                            id: ev.sourceId,
-                            nextCompleted: nextVal,
-                          })
-                        }
-                        ariaLabel={`Изпълнено за ${ev.categoryName}`}
-                        size="sm"
-                      />
-                    ) : (
-                      ev.isProjected &&
-                      onMaterializeProjectedEvent && (
-                        <button
-                          type="button"
-                          onClick={() => onMaterializeProjectedEvent(ev)}
-                          className="px-2 py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                          title="Запиши този планиран приход"
-                        >
-                          Запиши
-                        </button>
-                      )
-                    )}
-                  </div>
+                  {(ev.location?.placeName || ev.location?.address) && (
+                    <LocationCard location={ev.location} showHeading compact />
+                  )}
                 </div>
               ))}
             </div>
@@ -391,101 +398,107 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                       handleOpenTransaction(ev);
                     }
                   }}
-                  className={`p-3 rounded-xl border flex items-center justify-between gap-2 transition-colors ${
+                  className={`p-3 rounded-xl border space-y-2.5 transition-colors ${
                     ev.isUpcoming
                       ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
                       : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
                   } ${onOpenEvent ? "cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700" : ""}`}
                   title={onOpenEvent ? "Отвори разхода за преглед / редакция" : undefined}
                 >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                        {ev.merchantName || ev.categoryName}
-                      </span>
-                      {ev.isRecurring && (
-                        <Repeat
-                          className="w-3.5 h-3.5 text-indigo-500 shrink-0"
-                          aria-label="Повтарящ се"
-                        />
-                      )}
-                      {onOpenEvent && (
-                        <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                          {ev.merchantName || ev.categoryName}
+                        </span>
+                        {ev.isRecurring && (
+                          <Repeat
+                            className="w-3.5 h-3.5 text-indigo-500 shrink-0"
+                            aria-label="Повтарящ се"
+                          />
+                        )}
+                        {onOpenEvent && (
+                          <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+                        <span
+                          className={`inline-flex items-center gap-1 ${
+                            ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                          }`}
+                        >
+                          {ev.isCompleted ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                          ) : (
+                            <Clock className="w-3 h-3 text-amber-500" />
+                          )}
+                          {ev.isCompleted
+                            ? "Изпълнен"
+                            : ev.isProjected
+                            ? "Планиран по график"
+                            : "Предстоящ"}
+                        </span>
+                        {ev.merchantName && <span>· {ev.categoryName}</span>}
+                        {ev.isRecurring && (
+                          <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat)}</span>
+                        )}
+                      </div>
+                      {ev.note && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
+                          {ev.note}
+                        </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+
+                    <div
+                      className="flex items-center gap-2 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <span
-                        className={`inline-flex items-center gap-1 ${
-                          ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                        className={`text-sm font-bold tabular-nums ${
+                          ev.isUpcoming
+                            ? "text-amber-700 dark:text-amber-300"
+                            : "text-rose-700 dark:text-rose-400"
                         }`}
                       >
-                        {ev.isCompleted ? (
-                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                        ) : (
-                          <Clock className="w-3 h-3 text-amber-500" />
-                        )}
-                        {ev.isCompleted
-                          ? "Изпълнен"
-                          : ev.isProjected
-                          ? "Планиран по график"
-                          : "Предстоящ"}
+                        -€{ev.amount.toFixed(2)}
                       </span>
-                      {ev.merchantName && <span>· {ev.categoryName}</span>}
-                      {ev.isRecurring && (
-                        <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat)}</span>
+                      {!ev.isProjected &&
+                      (ev.recordListType === "fixed" || ev.recordListType === "additional") &&
+                      onToggleRecordCompletion ? (
+                        <CompletionSwitch
+                          checked={ev.isCompleted}
+                          onChange={(nextVal) =>
+                            onToggleRecordCompletion({
+                              monthKey: ev.monthKey,
+                              recordType:
+                                ev.recordListType === "fixed" ? "fixed" : "additional",
+                              id: ev.sourceId,
+                              nextCompleted: nextVal,
+                            })
+                          }
+                          ariaLabel={`Изпълнено за ${ev.categoryName}`}
+                          size="sm"
+                        />
+                      ) : (
+                        ev.isProjected &&
+                        onMaterializeProjectedEvent && (
+                          <button
+                            type="button"
+                            onClick={() => onMaterializeProjectedEvent(ev)}
+                            className="px-2 py-1 text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                            title="Запиши този планиран разход"
+                          >
+                            Запиши
+                          </button>
+                        )
                       )}
                     </div>
-                    {ev.note && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
-                        {ev.note}
-                      </p>
-                    )}
                   </div>
 
-                  <div
-                    className="flex items-center gap-2 shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span
-                      className={`text-sm font-bold tabular-nums ${
-                        ev.isUpcoming
-                          ? "text-amber-700 dark:text-amber-300"
-                          : "text-rose-700 dark:text-rose-400"
-                      }`}
-                    >
-                      -€{ev.amount.toFixed(2)}
-                    </span>
-                    {!ev.isProjected &&
-                    (ev.recordListType === "fixed" || ev.recordListType === "additional") &&
-                    onToggleRecordCompletion ? (
-                      <CompletionSwitch
-                        checked={ev.isCompleted}
-                        onChange={(nextVal) =>
-                          onToggleRecordCompletion({
-                            monthKey: ev.monthKey,
-                            recordType:
-                              ev.recordListType === "fixed" ? "fixed" : "additional",
-                            id: ev.sourceId,
-                            nextCompleted: nextVal,
-                          })
-                        }
-                        ariaLabel={`Изпълнено за ${ev.categoryName}`}
-                        size="sm"
-                      />
-                    ) : (
-                      ev.isProjected &&
-                      onMaterializeProjectedEvent && (
-                        <button
-                          type="button"
-                          onClick={() => onMaterializeProjectedEvent(ev)}
-                          className="px-2 py-1 text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                          title="Запиши този планиран разход"
-                        >
-                          Запиши
-                        </button>
-                      )
-                    )}
-                  </div>
+                  {(ev.location?.placeName || ev.location?.address) && (
+                    <LocationCard location={ev.location} showHeading compact />
+                  )}
                 </div>
               ))}
             </div>
