@@ -706,7 +706,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
       {/* About Budget Force 365 Section */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
-          <BrandMark size={48} className="rounded-xl shadow-xs shrink-0" />
+          <BrandMark size={44} className="shrink-0" />
           <div className="space-y-1">
             <h3 className="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
               {APP_NAME}

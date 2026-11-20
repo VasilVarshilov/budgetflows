@@ -903,7 +903,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       {isCompletelyEmpty && (
         <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-600 text-white p-5 sm:p-6 rounded-2xl shadow-md border border-indigo-400/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-3.5">
-            <BrandMark size={48} className="rounded-xl shadow-md shrink-0 ring-2 ring-white/20" />
+            <BrandMark size={48} variant="appIcon" className="rounded-full shadow-md shrink-0 ring-2 ring-white/20" />
             <div className="space-y-0.5">
               <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">
                 Добре дошли в {APP_NAME}

@@ -603,7 +603,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
         <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-5 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row items-center justify-between gap-5">
           <div className="space-y-2 text-center sm:text-left">
             <div className="inline-flex items-center gap-2.5 justify-center sm:justify-start">
-              <BrandMark size={32} className="rounded-lg shadow-2xs" />
+              <BrandMark size={32} />
               <div className="text-left">
                 <div className="text-sm font-extrabold text-slate-900 dark:text-white leading-tight">
                   {APP_NAME}

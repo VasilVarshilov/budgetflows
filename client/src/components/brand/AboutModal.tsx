@@ -70,7 +70,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
         <div className="p-6 text-center space-y-4">
           <div className="flex justify-center">
-            <BrandMark size={64} className="shadow-md rounded-2xl" />
+            <BrandMark size={64} />
           </div>
 
           <div className="space-y-1.5">

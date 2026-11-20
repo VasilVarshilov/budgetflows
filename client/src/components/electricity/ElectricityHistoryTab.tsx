@@ -11,13 +11,10 @@ import {
   Sun,
   Moon,
   Lightbulb,
-  Plug,
   RefreshCw,
-  AlertTriangle,
   BarChart2,
   Clock,
   PlusCircle,
-  HelpCircle,
   Eye,
   X,
   Gauge,
@@ -38,7 +35,6 @@ import { ElectricityRecord } from "@/types";
 import {
   MONTHS_BG_LIST,
   sortElectricityRecordsChronologically,
-  isManualOrNoReadingsElectricityRecord,
   resolveElectricityMeterMode,
   getElectricityMeterTypeLabel,
   ResolvedElectricityMeterMode,
@@ -1019,366 +1015,152 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
             </button>
           </div>
         ) : (
-          <div>
-            {/* Mobile Stacked Cards View (< md) */}
-            <div className="block md:hidden space-y-3 p-3">
-              {filteredRecords.map((r) => {
-                const mode = resolveElectricityMeterMode(r);
-                const isManualEntry = mode === "manual";
-                const meterTypeBadgeLabel = getElectricityMeterTypeLabel(r);
-                const sourceBadgeLabel =
-                  r.source === "receipt"
-                    ? "Бележка (Разходи)"
-                    : r.sourceExpenseId
-                    ? "Ръчен запис (Разходи)"
-                    : isManualEntry
-                    ? "Ръчен запис"
-                    : null;
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-4 sm:p-5">
+            {filteredRecords.map((r) => {
+              const mode = resolveElectricityMeterMode(r);
+              const isManualEntry = mode === "manual";
+              const meterTypeBadgeLabel = getElectricityMeterTypeLabel(r);
+              const sourceBadgeLabel =
+                r.source === "receipt"
+                  ? "Бележка (Разходи)"
+                  : r.sourceExpenseId
+                  ? "Ръчен запис (Разходи)"
+                  : isManualEntry
+                  ? "Ръчен запис"
+                  : null;
 
-                return (
-                  <div
-                    key={r.id}
-                    onClick={() => setSelectedDetailRecord(r)}
-                    className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3 cursor-pointer hover:border-yellow-400/70 dark:hover:border-yellow-500/40 transition-colors"
-                  >
-                    {/* Header: Period & Invoice Total */}
-                    <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-2.5">
-                      <div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-bold text-slate-900 dark:text-white text-base">
-                            {r.periodLabel}
-                          </span>
-                          {!isManualEntry ? (
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                                mode === "single"
-                                  ? "bg-yellow-50 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800"
-                                  : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
-                              }`}
-                            >
-                              {meterTypeBadgeLabel}
-                            </span>
-                          ) : (
-                            sourceBadgeLabel && (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                {sourceBadgeLabel}
-                              </span>
-                            )
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          {new Date(r.createdAt).toLocaleDateString("bg-BG")}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-base font-extrabold text-slate-900 dark:text-white font-mono tabular-nums">
-                          €{r.totalCost.toFixed(2)}
-                        </div>
-                        <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                          EUR
-                        </div>
-                      </div>
-                    </div>
-
-                    {r.note && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400 font-medium italic bg-amber-50/60 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-100 dark:border-amber-900/50">
-                        "{r.note}"
-                      </p>
-                    )}
-
-                    {/* 2-Column Metrics */}
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 block mb-0.5">
-                          Потребление
-                        </span>
-                        <span className="font-bold text-amber-600 dark:text-amber-400 text-sm font-mono block">
-                          {r.consumption > 0 ? `${r.consumption.toFixed(2)} kWh` : "—"}
-                        </span>
-                        {!isManualEntry && (
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                            Дн: {r.consT1.toFixed(1)} | Нощ: {r.consT2.toFixed(1)}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 block mb-0.5">
-                          Единична цена
-                        </span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm font-mono block">
-                          {r.unitPrice > 0 ? `€${r.unitPrice.toFixed(4)}` : "—"}
-                        </span>
-                        {!isManualEntry && (
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                            Т1: {r.priceT1.toFixed(4)} | Т2: {r.priceT2.toFixed(4)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Meter Split */}
-                    {!isManualEntry ? (
-                      mode === "single" ? (
-                        <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-1.5">
-                            <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
-                            <span className="text-slate-600 dark:text-slate-300">Сметка ток:</span>
-                            <strong className="font-mono text-slate-900 dark:text-white">€{r.costEm1.toFixed(2)}</strong>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-1.5">
-                            <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
-                            <span className="text-slate-600 dark:text-slate-300">ЕМ 1:</span>
-                            <strong className="font-mono text-slate-900 dark:text-white">€{r.costEm1.toFixed(2)}</strong>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <Plug className="w-3.5 h-3.5 text-emerald-500" />
-                            <span className="text-slate-600 dark:text-slate-300">ЕМ 2:</span>
-                            <strong className="font-mono text-emerald-700 dark:text-emerald-400">€{r.em2Remainder.toFixed(2)}</strong>
-                          </div>
-                        </div>
-                      )
-                    ) : null}
-
-                    {/* Readings Summary & Actions */}
-                    <div className="flex items-center justify-between pt-1 text-xs">
-                      <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                        {isManualEntry
-                          ? "Ръчно въведена сметка без показания"
-                          : `Показания: ${r.previousReading.toFixed(0)} → ${r.currentReading.toFixed(0)}`}
-                      </span>
-
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedDetailRecord(r)}
-                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition-colors cursor-pointer"
-                          title="Детайли на отчета"
-                          aria-label="Детайли на отчета"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(r.id)}
-                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
-                          title="Изтрий този отчет"
-                          aria-label="Изтрий отчет"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Desktop Table View (>= md) */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/70 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 text-xs uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-700">
-                    <th className="py-3 px-4">Период</th>
-                    <th className="py-3 px-4">Старо показание</th>
-                    <th className="py-3 px-4">Ново показание</th>
-                    <th className="py-3 px-4">Потребление (kWh)</th>
-                    <th className="py-3 px-4">Единична цена</th>
-                    <th className="py-3 px-4">Разпределение</th>
-                    <th className="py-3 px-4">Общо (€)</th>
-                    <th className="py-3 px-4 text-center">Действия</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                  {filteredRecords.map((r) => {
-                    const mode = resolveElectricityMeterMode(r);
-                    const isManualEntry = mode === "manual";
-                    const meterTypeBadgeLabel = getElectricityMeterTypeLabel(r);
-                    const sourceBadgeLabel =
-                      r.source === "receipt"
-                        ? "Бележка (Разходи)"
-                        : r.sourceExpenseId
-                        ? "Ръчен запис (Разходи)"
-                        : isManualEntry
-                        ? "Ръчен запис"
-                        : null;
-
-                    return (
-                      <tr
-                        key={r.id}
-                        onClick={() => setSelectedDetailRecord(r)}
-                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group cursor-pointer"
+              return (
+                <article
+                  key={r.id}
+                  onClick={() => setSelectedDetailRecord(r)}
+                  className="flex flex-col justify-between p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-yellow-400/80 dark:hover:border-yellow-500/50 transition-colors cursor-pointer min-w-0"
+                >
+                  <div>
+                    {/* Priority 1 & 4: Period + Calculator Type Badge */}
+                    <div className="flex items-start justify-between gap-2 min-w-0">
+                      <h4 className="font-bold text-slate-900 dark:text-white text-base leading-snug truncate">
+                        {r.periodLabel}
+                      </h4>
+                      <span
+                        className={`shrink-0 whitespace-nowrap text-[11px] font-bold px-2.5 py-0.5 rounded-md border ${
+                          mode === "single"
+                            ? "bg-yellow-50 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800"
+                            : mode === "double"
+                            ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+                            : "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                        }`}
                       >
-                        {/* Period + Badge */}
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2 flex-wrap">
-                            <span>{r.periodLabel}</span>
-                            {!isManualEntry ? (
-                              <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                                  mode === "single"
-                                    ? "bg-yellow-50 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800"
-                                    : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
-                                }`}
-                              >
-                                {meterTypeBadgeLabel}
-                              </span>
-                            ) : (
-                              sourceBadgeLabel && (
-                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                  {sourceBadgeLabel}
-                                </span>
-                              )
-                            )}
+                        {!isManualEntry
+                          ? meterTypeBadgeLabel
+                          : sourceBadgeLabel || meterTypeBadgeLabel}
+                      </span>
+                    </div>
+
+                    {/* Priority 2: Total Cost */}
+                    <div className="mt-3 mb-3.5">
+                      <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                        Общо:
+                      </div>
+                      <div className="text-2xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight mt-0.5">
+                        €{r.totalCost.toFixed(2)}
+                      </div>
+                      {r.note && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400 italic mt-1.5 line-clamp-2 break-words">
+                          „{r.note}“
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Priority 3 & Secondary Metrics */}
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 py-3 border-y border-slate-100 dark:border-slate-800 text-xs min-w-0">
+                      <div className="min-w-0">
+                        <dt className="text-slate-500 dark:text-slate-400 font-medium">
+                          Потребление:
+                        </dt>
+                        <dd className="font-mono tabular-nums font-bold text-amber-700 dark:text-amber-400 text-sm mt-0.5 truncate">
+                          {r.consumption > 0 ? `${r.consumption.toFixed(2)} kWh` : "—"}
+                        </dd>
+                        {!isManualEntry && (
+                          <dd className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 truncate">
+                            Т1: {r.consT1.toFixed(1)} · Т2: {r.consT2.toFixed(1)}
+                          </dd>
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <dt className="text-slate-500 dark:text-slate-400 font-medium">
+                          Единична цена:
+                        </dt>
+                        <dd className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200 text-sm mt-0.5 truncate">
+                          {r.unitPrice > 0 ? `€${r.unitPrice.toFixed(4)}/kWh` : "—"}
+                        </dd>
+                        {!isManualEntry && r.unitPrice > 0 && (
+                          <dd className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 truncate">
+                            Т1: {r.priceT1.toFixed(4)} · Т2: {r.priceT2.toFixed(4)}
+                          </dd>
+                        )}
+                      </div>
+
+                      {mode === "double" && (
+                        <>
+                          <div className="min-w-0">
+                            <dt className="text-slate-500 dark:text-slate-400 font-medium">
+                              ЕМ1:
+                            </dt>
+                            <dd className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white text-sm mt-0.5">
+                              €{r.costEm1.toFixed(2)}
+                            </dd>
                           </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            {new Date(r.createdAt).toLocaleDateString("bg-BG")}
+                          <div className="min-w-0">
+                            <dt className="text-slate-500 dark:text-slate-400 font-medium">
+                              ЕМ2:
+                            </dt>
+                            <dd className="font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-400 text-sm mt-0.5">
+                              €{r.em2Remainder.toFixed(2)}
+                            </dd>
                           </div>
-                          {r.note && (
-                            <div className="text-xs text-amber-600 dark:text-amber-400 font-medium italic mt-0.5">
-                              "{r.note}"
-                            </div>
-                          )}
-                        </td>
+                        </>
+                      )}
 
-                        {/* Previous Reading */}
-                        <td className="py-3.5 px-4 font-mono text-xs">
-                          {isManualEntry ? (
-                            <span className="text-slate-400">—</span>
-                          ) : (
-                            <>
-                              <div className="text-slate-800 dark:text-slate-200 font-semibold">
-                                {r.previousReading.toFixed(1)}
-                              </div>
-                              <div className="text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                                <Sun className="w-3 h-3 text-amber-500" /> {r.prevT1}
-                                <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.prevT2}
-                              </div>
-                            </>
-                          )}
-                        </td>
+                      <div className="col-span-2 flex items-center justify-between gap-2 pt-1">
+                        <dt className="text-slate-500 dark:text-slate-400 font-medium">
+                          Дата:
+                        </dt>
+                        <dd className="font-mono tabular-nums font-medium text-slate-700 dark:text-slate-300">
+                          {new Date(r.createdAt).toLocaleDateString("bg-BG")}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
 
-                        {/* Current Reading */}
-                        <td className="py-3.5 px-4 font-mono text-xs">
-                          {isManualEntry ? (
-                            <span className="text-slate-400">—</span>
-                          ) : (
-                            <>
-                              <div className="text-slate-800 dark:text-slate-200 font-semibold">
-                                {r.currentReading.toFixed(1)}
-                              </div>
-                              <div className="text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                                <Sun className="w-3 h-3 text-amber-500" /> {r.currT1}
-                                <Moon className="w-3 h-3 text-indigo-400 ml-1" /> {r.currT2}
-                              </div>
-                            </>
-                          )}
-                        </td>
-
-                        {/* Consumption */}
-                        <td className="py-3.5 px-4 font-mono">
-                          {r.consumption > 0 ? (
-                            <>
-                              <div className="font-bold text-amber-600 dark:text-amber-400 text-sm">
-                                {r.consumption.toFixed(2)} kWh
-                              </div>
-                              {!isManualEntry && (
-                                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
-                                  <span>Дн: {r.consT1.toFixed(1)}</span>
-                                  <span>Нощ: {r.consT2.toFixed(1)}</span>
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
-
-                        {/* Unit Price */}
-                        <td className="py-3.5 px-4 text-xs font-mono text-slate-600 dark:text-slate-400">
-                          {r.unitPrice > 0 ? (
-                            <>
-                              <div className="font-semibold text-slate-800 dark:text-slate-200">
-                                €{r.unitPrice.toFixed(4)}/kWh
-                              </div>
-                              {!isManualEntry && (
-                                <div className="text-slate-500 dark:text-slate-400 mt-0.5">
-                                  Т1: €{r.priceT1.toFixed(4)} | Т2: €{r.priceT2.toFixed(4)}
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-
-                        {/* Meter 1 vs Meter 2 / Single */}
-                        <td className="py-3.5 px-4 text-xs">
-                          {isManualEntry ? (
-                            <span className="text-slate-500 dark:text-slate-400 italic">
-                              Ръчно въведена сметка
-                            </span>
-                          ) : mode === "single" ? (
-                            <div className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-medium">
-                              <Lightbulb className="w-3 h-3 text-yellow-500" />
-                              <span>Сметка ток:</span>
-                              <strong className="font-mono">€{r.costEm1.toFixed(2)}</strong>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-medium">
-                                <Lightbulb className="w-3 h-3 text-yellow-500" />
-                                <span>ЕМ 1:</span>
-                                <strong className="font-mono">€{r.costEm1.toFixed(2)}</strong>
-                              </div>
-                              <div className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium mt-1">
-                                <Plug className="w-3 h-3 text-emerald-500" />
-                                <span>ЕМ 2:</span>
-                                <strong className="font-mono">€{r.em2Remainder.toFixed(2)}</strong>
-                              </div>
-                            </>
-                          )}
-                        </td>
-
-                        {/* Total Cost */}
-                        <td className="py-3.5 px-4">
-                          <div className="text-base font-bold text-slate-900 dark:text-white font-mono tabular-nums">
-                            €{r.totalCost.toFixed(2)}
-                          </div>
-                        </td>
-
-                        {/* Actions */}
-                        <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedDetailRecord(r)}
-                              className="p-2 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
-                              title="Детайли на отчета"
-                              aria-label="Детайли на отчета"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteId(r.id)}
-                              className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                              title="Изтрий този отчет от историята"
-                              aria-label="Изтрий отчет"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  {/* Card Actions */}
+                  <div
+                    className="flex items-center gap-2 pt-3 mt-auto"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDetailRecord(r)}
+                      className="flex-1 min-h-[44px] px-3 py-2 inline-flex items-center justify-center gap-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-slate-700 dark:text-slate-200 hover:text-indigo-700 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500/60"
+                      title="Преглед на детайлите"
+                    >
+                      <Eye className="w-4 h-4 shrink-0" />
+                      <span>Преглед</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(r.id)}
+                      className="min-h-[44px] px-3.5 py-2 inline-flex items-center justify-center gap-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-slate-600 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/60"
+                      title="Изтрий този отчет"
+                      aria-label="Изтрий отчет"
+                    >
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                      <span>Изтрий</span>
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </div>

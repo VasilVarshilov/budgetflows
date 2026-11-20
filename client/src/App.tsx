@@ -1080,7 +1080,7 @@ const AppContent: React.FC = () => {
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(99,102,241,0.12),transparent_60%)] dark:bg-[radial-gradient(circle_at_50%_40%,rgba(99,102,241,0.18),transparent_60%)]"
         />
         <div className="relative flex flex-col items-center text-center gap-5 max-w-sm animate-in fade-in duration-300">
-          <BrandMark size={76} className="shadow-xl shadow-indigo-500/20 rounded-3xl" />
+          <BrandMark size={76} className="drop-shadow-md" />
           <div className="space-y-1.5">
             <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
               {APP_NAME}
@@ -1134,7 +1134,7 @@ const AppContent: React.FC = () => {
           {/* Row 1: Brand Logo, Active Month & Controls */}
           <div className="flex justify-between items-center h-14 sm:h-15 gap-2 border-b border-slate-100 dark:border-slate-800/80">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-              <BrandMark size={34} className="sm:w-9 sm:h-9 rounded-xl shrink-0" />
+              <BrandMark size={32} className="sm:w-8 sm:h-8 shrink-0" />
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-extrabold text-slate-800 dark:text-white text-[15px] sm:text-lg tracking-tight truncate">
                   {APP_NAME}
