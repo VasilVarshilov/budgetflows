@@ -278,9 +278,7 @@ const AppContent: React.FC = () => {
     const { updatedMonthlyData: migratedMonthly, migratedCount } =
       normalizeMonthlyDataConsistency(rawMonthly);
     const { updatedMonthlyData: normalizedMonthly, generatedCount } =
-      generateDueRecurringInstances(migratedMonthly, {
-        activeMonthKey: activeMonth,
-      });
+      generateDueRecurringInstances(migratedMonthly);
     if (migratedCount > 0 || generatedCount > 0) {
       userStorage.setJSON(STORAGE_BASE_MONTHLY, normalizedMonthly, targetUid);
     }
@@ -319,14 +317,13 @@ const AppContent: React.FC = () => {
   }, [activeUid, isAuthLoading, isSwitchingAccount, loadAccountWorkspaceData]);
 
   // Automatically normalize, materialize due recurring Expenses & Incomes, and sync notifications
+  // Strictly independent of UI-selected month navigation (`currentMonth`): uses actual current date/time only.
   useEffect(() => {
     if (isAuthLoading || isSwitchingAccount) return;
     const { updatedMonthlyData: migratedMonthly, migratedCount } =
       normalizeMonthlyDataConsistency(monthlyDataRef.current);
-    const { updatedMonthlyData, generatedCount } = generateDueRecurringInstances(
-      migratedMonthly,
-      { activeMonthKey: currentMonth }
-    );
+    const { updatedMonthlyData, generatedCount } =
+      generateDueRecurringInstances(migratedMonthly);
     const targetUid = userStorage.getActiveUid();
 
     if (migratedCount > 0 || generatedCount > 0) {
@@ -348,20 +345,31 @@ const AppContent: React.FC = () => {
     }
   }, [
     monthlyData,
-    currentMonth,
     isAuthLoading,
     isSwitchingAccount,
     saveMonthlyToStorage,
     triggerAutoSync,
   ]);
 
-  // Reconcile notifications when Savings Goals change or window regains focus
+  // Reconcile recurring generation + notifications when Savings Goals change, window regains focus, or date rolls over
   useEffect(() => {
     if (isAuthLoading || isSwitchingAccount) return;
     const syncGoalAndTimeNotifications = () => {
       const uid = userStorage.getActiveUid();
+      const { updatedMonthlyData: migratedMonthly, migratedCount } =
+        normalizeMonthlyDataConsistency(monthlyDataRef.current);
+      const { updatedMonthlyData, generatedCount } =
+        generateDueRecurringInstances(migratedMonthly);
+
+      if (migratedCount > 0 || generatedCount > 0) {
+        monthlyDataRef.current = updatedMonthlyData;
+        saveMonthlyToStorage(updatedMonthlyData, uid);
+        setMonthlyData(updatedMonthlyData);
+        triggerAutoSync();
+      }
+
       const res = reconcileAllNotifications(notificationsStoreRef.current, {
-        monthlyData: monthlyDataRef.current,
+        monthlyData: updatedMonthlyData,
         goals: loadSavingsGoals(uid),
       });
       if (res.changed) {
@@ -378,7 +386,7 @@ const AppContent: React.FC = () => {
       window.removeEventListener("focus", syncGoalAndTimeNotifications);
       window.clearInterval(timer);
     };
-  }, [activeUid, isAuthLoading, isSwitchingAccount]);
+  }, [activeUid, isAuthLoading, isSwitchingAccount, saveMonthlyToStorage, triggerAutoSync]);
 
   // Emit backup/restore notification ONLY when triggered manually by the user (never for auto background sync)
   useEffect(() => {
@@ -882,6 +890,15 @@ const AppContent: React.FC = () => {
           timestamp: nowMs,
           type: "income",
           repeat: ev.repeat !== "never" ? ev.repeat : "monthly",
+          ...(typeof ev.recurrenceDayOfMonth === "number"
+            ? { recurrenceDayOfMonth: ev.recurrenceDayOfMonth }
+            : {}),
+          ...(typeof ev.recurrenceMonthOfYear === "number"
+            ? { recurrenceMonthOfYear: ev.recurrenceMonthOfYear }
+            : {}),
+          ...(typeof ev.recurrenceDayOfWeek === "number"
+            ? { recurrenceDayOfWeek: ev.recurrenceDayOfWeek }
+            : {}),
           isRecurring: true,
           isFixedItem: true,
           recurringTemplateId: ev.templateId,
@@ -937,6 +954,15 @@ const AppContent: React.FC = () => {
         timestamp: nowMs,
         sourceMonth: monthKey,
         repeat: ev.repeat !== "never" ? ev.repeat : "monthly",
+        ...(typeof ev.recurrenceDayOfMonth === "number"
+          ? { recurrenceDayOfMonth: ev.recurrenceDayOfMonth }
+          : {}),
+        ...(typeof ev.recurrenceMonthOfYear === "number"
+          ? { recurrenceMonthOfYear: ev.recurrenceMonthOfYear }
+          : {}),
+        ...(typeof ev.recurrenceDayOfWeek === "number"
+          ? { recurrenceDayOfWeek: ev.recurrenceDayOfWeek }
+          : {}),
         isRecurring: true,
         isFixedItem: true,
         recurrenceSourceId: ev.recurrenceSourceId || ev.sourceId,

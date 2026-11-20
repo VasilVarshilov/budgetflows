@@ -13,6 +13,7 @@ import { normalizeLocation } from "./locationUtils";
 import {
   advanceOccurrenceDate,
   getDismissedRecurrenceKeys,
+  getItemRecurrenceSchedule,
   isRecurringScheduleRoot,
   isRepeatingFrequency,
   normalizeRepeatValue,
@@ -47,6 +48,9 @@ export interface CalendarEvent {
   isUpcoming: boolean;
   isRecurring: boolean;
   repeat: RepeatFrequency;
+  recurrenceDayOfMonth?: number;
+  recurrenceMonthOfYear?: number;
+  recurrenceDayOfWeek?: number;
   isProjected: boolean;
   recurrenceSourceId?: string;
   recurrenceOccurrenceKey?: string;
@@ -308,6 +312,15 @@ export function getCalendarEventsForRange(
           isUpcoming: !completed,
           isRecurring,
           repeat,
+          ...(typeof item.recurrenceDayOfMonth === "number"
+            ? { recurrenceDayOfMonth: item.recurrenceDayOfMonth }
+            : {}),
+          ...(typeof item.recurrenceMonthOfYear === "number"
+            ? { recurrenceMonthOfYear: item.recurrenceMonthOfYear }
+            : {}),
+          ...(typeof item.recurrenceDayOfWeek === "number"
+            ? { recurrenceDayOfWeek: item.recurrenceDayOfWeek }
+            : {}),
           isProjected: false,
           recurrenceSourceId: item.recurrenceSourceId,
           recurrenceOccurrenceKey: item.recurrenceOccurrenceKey,
@@ -370,6 +383,15 @@ export function getCalendarEventsForRange(
           isUpcoming: !completed,
           isRecurring,
           repeat,
+          ...(typeof inc.recurrenceDayOfMonth === "number"
+            ? { recurrenceDayOfMonth: inc.recurrenceDayOfMonth }
+            : {}),
+          ...(typeof inc.recurrenceMonthOfYear === "number"
+            ? { recurrenceMonthOfYear: inc.recurrenceMonthOfYear }
+            : {}),
+          ...(typeof inc.recurrenceDayOfWeek === "number"
+            ? { recurrenceDayOfWeek: inc.recurrenceDayOfWeek }
+            : {}),
           isProjected: false,
           recurrenceSourceId: inc.recurrenceSourceId,
           recurrenceOccurrenceKey: inc.recurrenceOccurrenceKey,
@@ -381,9 +403,16 @@ export function getCalendarEventsForRange(
   // 2. Project future/range occurrences for recurring expense roots
   for (const root of recurringExpenseRoots) {
     if (root.repeat === "never") continue;
-    const anchorDay = root.anchorDate.getDate();
+    const schedule = getItemRecurrenceSchedule(root.item, root.monthKey);
+    const anchorDay = schedule.dayOfMonth ?? root.anchorDate.getDate();
     let stepIndex = 1;
-    let cursor = advanceOccurrenceDate(root.anchorDate, anchorDay, root.repeat, stepIndex);
+    let cursor = advanceOccurrenceDate(
+      root.anchorDate,
+      anchorDay,
+      root.repeat,
+      stepIndex,
+      schedule
+    );
 
     while (cursor <= rangeEndObj && stepIndex <= 240) {
       const occKey = toLocalDateKey(cursor);
@@ -410,6 +439,15 @@ export function getCalendarEventsForRange(
           isUpcoming: true,
           isRecurring: true,
           repeat: root.repeat,
+          ...(typeof schedule.dayOfMonth === "number"
+            ? { recurrenceDayOfMonth: schedule.dayOfMonth }
+            : {}),
+          ...(typeof schedule.monthOfYear === "number"
+            ? { recurrenceMonthOfYear: schedule.monthOfYear }
+            : {}),
+          ...(typeof schedule.dayOfWeek === "number"
+            ? { recurrenceDayOfWeek: schedule.dayOfWeek }
+            : {}),
           isProjected: true,
           recurrenceSourceId: root.item.id,
           recurrenceOccurrenceKey: occKey,
@@ -418,16 +456,29 @@ export function getCalendarEventsForRange(
       }
 
       stepIndex += 1;
-      cursor = advanceOccurrenceDate(root.anchorDate, anchorDay, root.repeat, stepIndex);
+      cursor = advanceOccurrenceDate(
+        root.anchorDate,
+        anchorDay,
+        root.repeat,
+        stepIndex,
+        schedule
+      );
     }
   }
 
   // 3. Project future/range occurrences for recurring income roots
   for (const root of recurringIncomeRoots) {
     if (root.repeat === "never") continue;
-    const anchorDay = root.anchorDate.getDate();
+    const schedule = getItemRecurrenceSchedule(root.item, root.monthKey);
+    const anchorDay = schedule.dayOfMonth ?? root.anchorDate.getDate();
     let stepIndex = 1;
-    let cursor = advanceOccurrenceDate(root.anchorDate, anchorDay, root.repeat, stepIndex);
+    let cursor = advanceOccurrenceDate(
+      root.anchorDate,
+      anchorDay,
+      root.repeat,
+      stepIndex,
+      schedule
+    );
 
     while (cursor <= rangeEndObj && stepIndex <= 240) {
       const occKey = toLocalDateKey(cursor);
@@ -453,6 +504,15 @@ export function getCalendarEventsForRange(
           isUpcoming: true,
           isRecurring: true,
           repeat: root.repeat,
+          ...(typeof schedule.dayOfMonth === "number"
+            ? { recurrenceDayOfMonth: schedule.dayOfMonth }
+            : {}),
+          ...(typeof schedule.monthOfYear === "number"
+            ? { recurrenceMonthOfYear: schedule.monthOfYear }
+            : {}),
+          ...(typeof schedule.dayOfWeek === "number"
+            ? { recurrenceDayOfWeek: schedule.dayOfWeek }
+            : {}),
           isProjected: true,
           recurrenceSourceId: root.item.id,
           recurrenceOccurrenceKey: occKey,
@@ -461,7 +521,13 @@ export function getCalendarEventsForRange(
       }
 
       stepIndex += 1;
-      cursor = advanceOccurrenceDate(root.anchorDate, anchorDay, root.repeat, stepIndex);
+      cursor = advanceOccurrenceDate(
+        root.anchorDate,
+        anchorDay,
+        root.repeat,
+        stepIndex,
+        schedule
+      );
     }
   }
 
@@ -502,6 +568,15 @@ export function getCalendarEventsForRange(
         isUpcoming: true,
         isRecurring: true,
         repeat: repeatMap[tpl.frequency] || "monthly",
+        ...(typeof tpl.dayOfMonth === "number"
+          ? { recurrenceDayOfMonth: tpl.dayOfMonth }
+          : {}),
+        ...(typeof tpl.monthOfYear === "number"
+          ? { recurrenceMonthOfYear: tpl.monthOfYear }
+          : {}),
+        ...(typeof tpl.dayOfWeek === "number"
+          ? { recurrenceDayOfWeek: tpl.dayOfWeek }
+          : {}),
         isProjected: true,
         templateId: tpl.id,
         recurrenceOccurrenceKey: occurrenceKey,

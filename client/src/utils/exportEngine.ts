@@ -500,7 +500,7 @@ export function aggregateExportData(params: {
             ? isRecurring
               ? "Месечно"
               : "Никога"
-            : formatRepeatLabel(repeat),
+            : formatRepeatLabel(repeat, inc),
         isRecurring,
         expectedDate: (inc.expectedDate || "").trim(),
         location: formatLocationExportLabel(inc.location),
@@ -647,7 +647,7 @@ export function aggregateExportData(params: {
             ? isRecurring
               ? "Месечно"
               : "Никога"
-            : formatRepeatLabel(repeat),
+            : formatRepeatLabel(repeat, item),
         isRecurring,
         expectedDate: (item.expectedDate || "").trim(),
         location: formatLocationExportLabel(item.location),

@@ -935,7 +935,7 @@ function buildExpensesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
 
       const typeLabel = isRecurring ? "Повтарящ се" : "Допълнителен";
       const completedLabel = completed ? "Да" : "Не";
-      const recurringLabel = repeat === "never" ? "Не" : formatRepeatLabel(repeat);
+      const recurringLabel = repeat === "never" ? "Не" : formatRepeatLabel(repeat, item);
       const { description, notes } = extractExpenseDescriptionAndNotes(item);
 
       collected.push({
@@ -1086,7 +1086,7 @@ function buildIncomesSheet(monthlyRecords: Record<string, MonthlyRecord>): {
 
       const typeLabel = isRecurring ? "Повтарящ се" : "Допълнителен";
       const completedLabel = completed ? "Да" : "Не";
-      const recurringLabel = repeat === "never" ? "Не" : formatRepeatLabel(repeat);
+      const recurringLabel = repeat === "never" ? "Не" : formatRepeatLabel(repeat, inc);
       const notes = flattenText(inc.note);
       const firstLineNote = inc.note
         ?.split(/\r?\n/)

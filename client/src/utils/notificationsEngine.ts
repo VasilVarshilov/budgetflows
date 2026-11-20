@@ -257,11 +257,14 @@ function isTransactionAlertType(type: AppNotification["type"]): boolean {
 }
 
 /**
- * Reconciles notifications against current `monthlyData` and `savingsGoals`:
- * 1. Generates due-today (`expectedDate === today`) and overdue (`expectedDate < today`) alerts.
- * 2. Deduplicates per transaction event and supersedes `due` alerts cleanly if overdue.
- * 3. Automatically resolves active alerts when `Completed = true`, deleted, or rescheduled.
- * 4. Checks Savings Goal milestones (25%, 50%, 75%, 100%) without duplicate firing.
+ * Reconciles notifications against `monthlyData` and `savingsGoals` strictly using
+ * the actual current date/time (`referenceDate` defaults to `new Date()`).
+ * NEVER depends on UI navigation state (selectedMonth, viewedMonth, calendarMonth, report period, or filters).
+ * 1. Generates due-today (`dueDateKey === todayKey`) and overdue (`dueDateKey < todayKey`) alerts.
+ * 2. Never generates notifications for future dates (`dueDateKey > todayKey`).
+ * 3. Deduplicates per transaction event and supersedes `due` alerts cleanly if overdue.
+ * 4. Automatically resolves active alerts when `Completed = true`, deleted, or rescheduled.
+ * 5. Checks Savings Goal milestones (50%, 100%) without duplicate firing.
  */
 export function reconcileAllNotifications(
   prevState: NotificationsStoreState,
@@ -284,10 +287,12 @@ export function reconcileAllNotifications(
   const findIndexByDedupe = (key: string) =>
     nextNotifications.findIndex((n) => n.dedupeKey === key);
 
+  const isIsoDateKey = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
   // Track which overdue record keys are currently active so due-today alert won't double up
   const overdueRecordKeys = new Set<string>();
   Array.from(txMap.entries()).forEach(([recKey, tx]) => {
-    if (!tx.completed && tx.dueDateKey < todayKey) {
+    if (!tx.completed && isIsoDateKey(tx.dueDateKey) && tx.dueDateKey < todayKey) {
       overdueRecordKeys.add(recKey);
     }
   });
@@ -363,6 +368,7 @@ export function reconcileAllNotifications(
   // B. Create / refresh Upcoming Today and Overdue notifications for uncompleted items
   for (const tx of Array.from(txMap.values())) {
     if (tx.completed) continue;
+    if (!isIsoDateKey(tx.dueDateKey)) continue;
     if (tx.dueDateKey > todayKey) continue;
 
     const isDueToday = tx.dueDateKey === todayKey;

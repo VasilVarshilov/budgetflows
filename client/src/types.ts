@@ -119,6 +119,12 @@ export interface ExpenseItem {
   isRecurring?: boolean;
   /** Explicit recurring schedule frequency for automatic future instance generation. */
   repeat?: RepeatFrequency;
+  /** Explicit recurring day of month (1-31) for monthly / quarterly / semiannual / yearly schedules. */
+  recurrenceDayOfMonth?: number;
+  /** Explicit recurring month index (0-11) for yearly schedules. */
+  recurrenceMonthOfYear?: number;
+  /** Explicit recurring day of week (0 = Sunday .. 6 = Saturday) for weekly / biweekly schedules. */
+  recurrenceDayOfWeek?: number;
   /** Parent record ID for auto-generated future recurring occurrences. */
   recurrenceSourceId?: string;
   /** Occurrence key (YYYY-MM-DD) for idempotent generation & dismissal tracking. */

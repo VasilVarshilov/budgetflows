@@ -43,10 +43,15 @@ import {
   toggleRecordCompletion,
 } from "@/utils/expenseStatus";
 import {
+  buildScheduleFieldsForRepeat,
+  daysInMonth,
   formatRepeatLabel,
+  getItemRecurrenceSchedule,
   isRepeatingFrequency,
   markRecurrenceDismissed,
+  MONTH_NAMES_FULL_BG,
   normalizeRepeatValue,
+  RecurrenceScheduleConfig,
   resolveItemRepeat,
 } from "@/utils/recurrenceEngine";
 import {
@@ -135,11 +140,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   const [formDayOfMonth, setFormDayOfMonth] = useState<number>(
     () => new Date().getDate()
   );
+  const [formMonthOfYear, setFormMonthOfYear] = useState<number>(
+    () => new Date().getMonth()
+  );
   const [formDayOfWeek, setFormDayOfWeek] = useState<number>(
     () => new Date().getDay()
   );
   const [formScheduleOnly, setFormScheduleOnly] = useState(false);
   const [formRepeat, setFormRepeat] = useState<RepeatFrequency>("never");
+  const [formSchedule, setFormSchedule] = useState<RecurrenceScheduleConfig>({});
   const [formCompleted, setFormCompleted] = useState<boolean>(true);
   const [formLocation, setFormLocation] = useState<TransactionLocation | undefined>(
     undefined
@@ -489,17 +498,26 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     scheduleTemplateOnly = false,
     defaultRepeat: RepeatFrequency = "never"
   ) => {
+    const now = new Date();
+    const todayDateStr = toLocalYyyyMmDd(now);
     setEditingEntry(null);
     setEditingTemplateId(null);
     setFormAmount("");
     setFormCategory(incomeCategories[0] || null);
-    setFormDate(toLocalYyyyMmDd(new Date()));
+    setFormDate(todayDateStr);
     setFormNote("");
     setFormFrequency("monthly");
-    setFormDayOfMonth(new Date().getDate());
-    setFormDayOfWeek(new Date().getDay());
+    setFormDayOfMonth(now.getDate());
+    setFormMonthOfYear(now.getMonth());
+    setFormDayOfWeek(now.getDay());
     setFormScheduleOnly(scheduleTemplateOnly);
     setFormRepeat(defaultRepeat);
+    setFormSchedule(
+      getItemRecurrenceSchedule({
+        repeat: defaultRepeat,
+        expectedDate: todayDateStr,
+      })
+    );
     setFormCompleted(true);
     setFormLocation(undefined);
     setFormIsGenerated(false);
@@ -527,11 +545,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormDayOfMonth(
       !isNaN(parsedDate.getTime()) ? parsedDate.getDate() : new Date().getDate()
     );
+    setFormMonthOfYear(
+      !isNaN(parsedDate.getTime()) ? parsedDate.getMonth() : new Date().getMonth()
+    );
     setFormDayOfWeek(
       !isNaN(parsedDate.getTime()) ? parsedDate.getDay() : new Date().getDay()
     );
     setFormScheduleOnly(false);
     setFormRepeat(resolveItemRepeat(entry.item));
+    setFormSchedule(getItemRecurrenceSchedule(entry.item, entry.monthKey));
     setFormCompleted(isRecordCompleted(entry.item));
     setFormLocation(entry.item.location);
     setFormIsGenerated(Boolean(entry.item.recurrenceSourceId));
@@ -551,13 +573,22 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         colorClass: tpl.categoryColor || "bg-emerald-100 text-emerald-600",
       };
     setFormCategory(matchedCat);
+    const tplStart = tpl.startDate ? new Date(tpl.startDate + "T12:00:00") : new Date();
     setFormDate(tpl.startDate || toLocalYyyyMmDd(new Date()));
     setFormNote(tpl.note || "");
     setFormFrequency(tpl.frequency);
     setFormDayOfMonth(tpl.dayOfMonth || 1);
+    setFormMonthOfYear(
+      typeof tpl.monthOfYear === "number"
+        ? tpl.monthOfYear
+        : !isNaN(tplStart.getTime())
+        ? tplStart.getMonth()
+        : 0
+    );
     setFormDayOfWeek(typeof tpl.dayOfWeek === "number" ? tpl.dayOfWeek : 1);
     setFormScheduleOnly(true);
     setFormRepeat("never");
+    setFormSchedule({});
     setFormCompleted(true);
     setFormLocation(tpl.location);
     setFormIsGenerated(false);
@@ -637,7 +668,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
           dayOfMonth:
             formFrequency === "weekly" ? undefined : Number(formDayOfMonth) || 1,
           monthOfYear:
-            formFrequency === "yearly" ? selectedDateObj.getMonth() : undefined,
+            formFrequency === "yearly" ? formMonthOfYear : undefined,
           dayOfWeek:
             formFrequency === "weekly" ? Number(formDayOfWeek) : undefined,
           startDate: safeDateStr,
@@ -657,6 +688,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       const nowIso = new Date().toISOString();
       const effectiveRepeat = normalizeRepeatValue(formRepeat);
       const isFixed = isRepeatingFrequency(effectiveRepeat);
+      const scheduleFields = buildScheduleFieldsForRepeat(
+        effectiveRepeat,
+        formSchedule,
+        safeDateStr,
+        targetMonthKey
+      );
       const updatedItem: IncomeItem = {
         ...editingEntry.item,
         categoryId: formCategory.id,
@@ -669,6 +706,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         date: selectedDateObj.toISOString(),
         expectedDate: safeDateStr,
         repeat: effectiveRepeat,
+        ...scheduleFields,
         isRecurring: isFixed,
         isFixedItem: isFixed,
         completed: formCompleted,
@@ -716,7 +754,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         dayOfMonth:
           formFrequency === "weekly" ? undefined : Number(formDayOfMonth) || 1,
         monthOfYear:
-          formFrequency === "yearly" ? selectedDateObj.getMonth() : undefined,
+          formFrequency === "yearly" ? formMonthOfYear : undefined,
         dayOfWeek:
           formFrequency === "weekly" ? Number(formDayOfWeek) : undefined,
         startDate: safeDateStr,
@@ -742,6 +780,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     const nowIso = new Date(nowMs).toISOString();
     const effectiveRepeat = normalizeRepeatValue(formRepeat);
     const isFixed = isRepeatingFrequency(effectiveRepeat);
+    const scheduleFields = buildScheduleFieldsForRepeat(
+      effectiveRepeat,
+      formSchedule,
+      safeDateStr,
+      targetMonthKey
+    );
     const newIncome: IncomeItem = {
       id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
       categoryId: formCategory.id,
@@ -757,6 +801,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       timestamp: nowMs,
       type: "income",
       repeat: effectiveRepeat,
+      ...scheduleFields,
       isRecurring: isFixed,
       isFixedItem: isFixed,
       completed: formCompleted,
@@ -790,6 +835,22 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     const nowIso = new Date(nowMs).toISOString();
     const templateRepeat = normalizeRepeatValue(template.frequency);
     const templateLocation = normalizeLocation(template.location);
+    const templateDayOfMonth =
+      template.frequency !== "weekly"
+        ? template.dayOfMonth || dueDateObj.getDate()
+        : undefined;
+    const templateMonthOfYear =
+      template.frequency === "yearly"
+        ? typeof template.monthOfYear === "number"
+          ? template.monthOfYear
+          : dueDateObj.getMonth()
+        : undefined;
+    const templateDayOfWeek =
+      template.frequency === "weekly"
+        ? typeof template.dayOfWeek === "number"
+          ? template.dayOfWeek
+          : dueDateObj.getDay()
+        : undefined;
     const confirmedIncome: IncomeItem = {
       id: `inc_${nowMs}_${Math.random().toString(36).substring(2, 6)}`,
       categoryId: template.categoryId,
@@ -811,6 +872,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       recurrenceSourceId: template.id,
       recurrenceOccurrenceKey: occurrenceKey,
       repeat: templateRepeat !== "never" ? templateRepeat : "monthly",
+      ...(typeof templateDayOfMonth === "number"
+        ? { recurrenceDayOfMonth: templateDayOfMonth }
+        : {}),
+      ...(typeof templateMonthOfYear === "number"
+        ? { recurrenceMonthOfYear: templateMonthOfYear }
+        : {}),
+      ...(typeof templateDayOfWeek === "number"
+        ? { recurrenceDayOfWeek: templateDayOfWeek }
+        : {}),
       completed: true,
       status: "completed",
       completedAt: nowIso,
@@ -1630,7 +1700,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-slate-500 dark:text-slate-400">
                           <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 whitespace-nowrap shrink-0">
                             <Repeat className="w-3 h-3 shrink-0" />
-                            <span>{formatRepeatLabel(item.repeat)}</span>
+                            <span>{formatRepeatLabel(item.repeat, item)}</span>
                           </span>
                           <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
                             ·
@@ -2065,6 +2135,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                     const d = new Date(val + "T12:00:00");
                     if (!isNaN(d.getTime())) {
                       setFormDayOfMonth(d.getDate());
+                      setFormMonthOfYear(d.getMonth());
                       setFormDayOfWeek(d.getDay());
                     }
                   }}
@@ -2097,6 +2168,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 <RecurrenceCompletionRows
                   repeat={formRepeat}
                   onRepeatChange={setFormRepeat}
+                  schedule={formSchedule}
+                  onScheduleChange={setFormSchedule}
+                  anchorDate={formDate}
                   completed={formCompleted}
                   onCompletedChange={setFormCompleted}
                   completedHint={
@@ -2154,6 +2228,55 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               </option>
                             ))}
                           </select>
+                        </div>
+                      ) : formFrequency === "yearly" ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                              Ден
+                            </label>
+                            <select
+                              value={Math.min(
+                                formDayOfMonth,
+                                daysInMonth(2024, formMonthOfYear)
+                              )}
+                              onChange={(e) =>
+                                setFormDayOfMonth(Number(e.target.value) || 1)
+                              }
+                              className="w-full px-2.5 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums"
+                            >
+                              {Array.from(
+                                { length: daysInMonth(2024, formMonthOfYear) },
+                                (_, i) => i + 1
+                              ).map((dNum) => (
+                                <option key={dNum} value={dNum}>
+                                  {dNum}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                              Месец
+                            </label>
+                            <select
+                              value={formMonthOfYear}
+                              onChange={(e) => {
+                                const nextMoy = Number(e.target.value);
+                                setFormMonthOfYear(nextMoy);
+                                setFormDayOfMonth((prev) =>
+                                  Math.min(prev, daysInMonth(2024, nextMoy))
+                                );
+                              }}
+                              className="w-full px-2.5 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            >
+                              {MONTH_NAMES_FULL_BG.map((mName, idx) => (
+                                <option key={mName} value={idx}>
+                                  {mName}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       ) : (
                         <div>

@@ -68,12 +68,16 @@ import { LocationCard } from "@/components/common/LocationCard";
 import { LocationPickerField } from "@/components/common/LocationPickerField";
 import { normalizeLocation } from "@/utils/locationUtils";
 import {
+  buildScheduleFieldsForRepeat,
+  extractScheduleDefaultsFromDate,
   formatRepeatLabel,
+  getItemRecurrenceSchedule,
   isRepeatingFrequency,
   markRecurrenceDismissed,
   normalizeRepeatValue,
   parseMonthKeyToYearMonth,
   partitionExpensesByRepeat,
+  RecurrenceScheduleConfig,
   resolveItemRepeat,
 } from "@/utils/recurrenceEngine";
 import {
@@ -455,6 +459,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   // Sync state if month changes (without triggering a phantom auto-save)
   useEffect(() => {
     if (lastMonthRef.current === currentMonth) return;
+    lastMonthRef.current = currentMonth;
 
     const { fixed: nextFixed, additional: nextAdditional } =
       resolveMonthExpensesFromData(initialData);
@@ -527,6 +532,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     getDefaultDateKeyForMonth(currentMonth)
   );
   const [expenseRepeat, setExpenseRepeat] = useState<RepeatFrequency>("never");
+  const [expenseSchedule, setExpenseSchedule] = useState<RecurrenceScheduleConfig>({});
   const [expenseCompleted, setExpenseCompleted] = useState<boolean>(true);
   const [expenseLocation, setExpenseLocation] = useState<TransactionLocation | undefined>(
     undefined
@@ -545,6 +551,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   );
   const [editExpenseBudgetCategoryId, setEditExpenseBudgetCategoryId] = useState<string>("");
   const [editExpenseRepeat, setEditExpenseRepeat] = useState<RepeatFrequency>("never");
+  const [editExpenseSchedule, setEditExpenseSchedule] = useState<RecurrenceScheduleConfig>({});
   const [editExpenseCompleted, setEditExpenseCompleted] = useState<boolean>(true);
   const [editExpenseLocation, setEditExpenseLocation] = useState<TransactionLocation | undefined>(
     undefined
@@ -583,6 +590,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     getDefaultDateKeyForMonth(currentMonth)
   );
   const [fixedRepeat, setFixedRepeat] = useState<RepeatFrequency>("monthly");
+  const [fixedSchedule, setFixedSchedule] = useState<RecurrenceScheduleConfig>(() => ({
+    dayOfMonth: extractScheduleDefaultsFromDate(getDefaultDateKeyForMonth(currentMonth), currentMonth).dayOfMonth,
+  }));
   const [fixedCompleted, setFixedCompleted] = useState<boolean>(true);
   const [fixedLocation, setFixedLocation] = useState<TransactionLocation | undefined>(
     undefined
@@ -601,6 +611,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   );
   const [editFixedBudgetCategoryId, setEditFixedBudgetCategoryId] = useState<string>("");
   const [editFixedRepeat, setEditFixedRepeat] = useState<RepeatFrequency>("monthly");
+  const [editFixedSchedule, setEditFixedSchedule] = useState<RecurrenceScheduleConfig>({});
   const [editFixedCompleted, setEditFixedCompleted] = useState<boolean>(true);
   const [editFixedLocation, setEditFixedLocation] = useState<TransactionLocation | undefined>(
     undefined
@@ -663,15 +674,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     }
 
     // Wait until month transition state has finished syncing before saving again
-    if (lastMonthRef.current !== currentMonth) {
-      lastMonthRef.current = currentMonth;
-      if (syncingMonthSnapshotRef.current === dataString) {
-        prevDataRef.current = dataString;
-        syncingMonthSnapshotRef.current = null;
-      }
-      return;
-    }
-
     if (syncingMonthSnapshotRef.current !== null) {
       if (syncingMonthSnapshotRef.current === dataString) {
         prevDataRef.current = dataString;
@@ -956,6 +958,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
     const normalizedLocation = normalizeLocation(expenseLocation);
+    const scheduleFields = buildScheduleFieldsForRepeat(
+      normalizedRepeat,
+      expenseSchedule,
+      safeDateKey,
+      targetMonthKey
+    );
 
     const newExpense: ExpenseItem = {
       id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
@@ -973,6 +981,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       createdAt: nowIso,
       timestamp: nowMs,
       repeat: normalizedRepeat,
+      ...scheduleFields,
       isRecurring: goesToFixed,
       isFixedItem: goesToFixed ? true : undefined,
       completed: expenseCompleted,
@@ -1019,6 +1028,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setNote("");
     setExpenseDate(getDefaultDateKeyForMonth(currentMonth));
     setExpenseRepeat("never");
+    setExpenseSchedule({});
     setExpenseCompleted(true);
     setExpenseLocation(undefined);
   };
@@ -1084,6 +1094,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditExpenseDate(resolveRecordDateKey(expense, resolvedMonth));
     setEditExpenseBudgetCategoryId(expense.budgetCategoryId || "");
     setEditExpenseRepeat(resolveItemRepeat(expense));
+    setEditExpenseSchedule(getItemRecurrenceSchedule(expense, resolvedMonth));
     setEditExpenseCompleted(isRecordCompleted(expense));
     setEditExpenseLocation(expense.location);
     setEditExpenseIsGenerated(Boolean(expense.recurrenceSourceId));
@@ -1111,6 +1122,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const effectiveRepeat = normalizeRepeatValue(editExpenseRepeat);
     const willBeFixed = isRepeatingFrequency(effectiveRepeat);
     const normalizedLocation = normalizeLocation(editExpenseLocation);
+    const scheduleFields = buildScheduleFieldsForRepeat(
+      effectiveRepeat,
+      editExpenseSchedule,
+      safeDateKey,
+      targetMonth
+    );
 
     const buildUpdated = (item: ExpenseItem): ExpenseItem => ({
       ...item,
@@ -1128,6 +1145,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryId: editExpenseBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       repeat: effectiveRepeat,
+      ...scheduleFields,
       isRecurring: willBeFixed,
       isFixedItem: willBeFixed ? true : undefined,
       completed: editExpenseCompleted,
@@ -1344,6 +1362,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const goesToFixed = isRepeatingFrequency(normalizedRepeat);
 
     const normalizedLocation = normalizeLocation(fixedLocation);
+    const scheduleFields = buildScheduleFieldsForRepeat(
+      normalizedRepeat,
+      fixedSchedule,
+      safeDateKey,
+      targetMonthKey
+    );
 
     const newItem: ExpenseItem = {
       id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
@@ -1360,6 +1384,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       createdAt: nowIso,
       timestamp: nowMs,
       repeat: normalizedRepeat,
+      ...scheduleFields,
       isRecurring: goesToFixed,
       isFixedItem: goesToFixed ? true : undefined,
       completed: fixedCompleted,
@@ -1399,12 +1424,16 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     }
 
     // Reset form (Fixed defaults back to "monthly")
+    const resetFixedDate = getDefaultDateKeyForMonth(currentMonth);
     setIsAddingFixed(false);
     setSelectedFixedCategory(null);
     setSelectedFixedBudgetCategoryId("");
     setFixedAmount("");
-    setFixedDate(getDefaultDateKeyForMonth(currentMonth));
+    setFixedDate(resetFixedDate);
     setFixedRepeat("monthly");
+    setFixedSchedule({
+      dayOfMonth: extractScheduleDefaultsFromDate(resetFixedDate, currentMonth).dayOfMonth,
+    });
     setFixedCompleted(true);
     setFixedLocation(undefined);
   };
@@ -1429,6 +1458,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setEditFixedDate(resolveRecordDateKey(item, currentMonth));
     setEditFixedBudgetCategoryId(item.budgetCategoryId || "");
     setEditFixedRepeat(resolveItemRepeat(item));
+    setEditFixedSchedule(getItemRecurrenceSchedule(item, currentMonth));
     setEditFixedCompleted(isRecordCompleted(item));
     setEditFixedLocation(item.location);
     setEditFixedIsGenerated(Boolean(item.recurrenceSourceId));
@@ -1457,6 +1487,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     const effectiveRepeat = normalizeRepeatValue(editFixedRepeat);
     const willStayFixed = isRepeatingFrequency(effectiveRepeat);
     const normalizedLocation = normalizeLocation(editFixedLocation);
+    const scheduleFields = buildScheduleFieldsForRepeat(
+      effectiveRepeat,
+      editFixedSchedule,
+      safeDateKey,
+      targetMonthKey
+    );
 
     const updatedItem: ExpenseItem = {
       ...existingItem,
@@ -1472,6 +1508,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryId: editFixedBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       repeat: effectiveRepeat,
+      ...scheduleFields,
       isRecurring: willStayFixed,
       isFixedItem: willStayFixed ? true : undefined,
       completed: editFixedCompleted,
@@ -1940,6 +1977,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <RecurrenceCompletionRows
             repeat={expenseRepeat}
             onRepeatChange={setExpenseRepeat}
+            schedule={expenseSchedule}
+            onScheduleChange={setExpenseSchedule}
+            anchorDate={expenseDate}
             completed={expenseCompleted}
             onCompletedChange={setExpenseCompleted}
           />
@@ -2109,6 +2149,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               <RecurrenceCompletionRows
                 repeat={fixedRepeat}
                 onRepeatChange={setFixedRepeat}
+                schedule={fixedSchedule}
+                onScheduleChange={setFixedSchedule}
+                anchorDate={fixedDate}
                 completed={fixedCompleted}
                 onCompletedChange={setFixedCompleted}
               />
@@ -2244,6 +2287,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     <RecurrenceCompletionRows
                       repeat={editFixedRepeat}
                       onRepeatChange={setEditFixedRepeat}
+                      schedule={editFixedSchedule}
+                      onScheduleChange={setEditFixedSchedule}
+                      anchorDate={editFixedDate}
                       completed={editFixedCompleted}
                       onCompletedChange={setEditFixedCompleted}
                       completedHint={
@@ -2291,7 +2337,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               const formattedDate = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
               const repeatLabel =
                 item.repeat && item.repeat !== "never"
-                  ? formatRepeatLabel(item.repeat)
+                  ? formatRepeatLabel(item.repeat, item)
                   : "Периодичен";
 
               return (
@@ -2675,6 +2721,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <RecurrenceCompletionRows
                         repeat={editExpenseRepeat}
                         onRepeatChange={setEditExpenseRepeat}
+                        schedule={editExpenseSchedule}
+                        onScheduleChange={setEditExpenseSchedule}
+                        anchorDate={editExpenseDate}
                         completed={editExpenseCompleted}
                         onCompletedChange={setEditExpenseCompleted}
                         completedHint={
@@ -2806,7 +2855,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               >
                                 <Repeat className="w-3 h-3 shrink-0" />
                                 {expense.repeat && expense.repeat !== "never"
-                                  ? formatRepeatLabel(expense.repeat)
+                                  ? formatRepeatLabel(expense.repeat, expense)
                                   : "Периодичен"}
                               </span>
                             ) : expense.isFixedItem ? (

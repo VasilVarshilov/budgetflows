@@ -73,8 +73,12 @@ interface UpcomingDashboardItem {
   merchantName?: string;
   date: string;
   dateKey: string;
+  expectedDate?: string;
   amount: number;
   repeat?: RepeatFrequency;
+  recurrenceDayOfMonth?: number;
+  recurrenceMonthOfYear?: number;
+  recurrenceDayOfWeek?: number;
 }
 
 interface DashboardTabProps {
@@ -355,8 +359,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               merchantName: item.merchantName,
               date: item.date || "",
               dateKey: resolveRecordDateKey(item, key),
+              expectedDate: item.expectedDate,
               amount: amt,
               repeat: item.repeat,
+              recurrenceDayOfMonth: item.recurrenceDayOfMonth,
+              recurrenceMonthOfYear: item.recurrenceMonthOfYear,
+              recurrenceDayOfWeek: item.recurrenceDayOfWeek,
             });
             return;
           }
@@ -418,8 +426,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               merchantName: item.merchantName,
               date: item.date || "",
               dateKey: resolveRecordDateKey(item, key),
+              expectedDate: item.expectedDate,
               amount: amt,
               repeat: item.repeat,
+              recurrenceDayOfMonth: item.recurrenceDayOfMonth,
+              recurrenceMonthOfYear: item.recurrenceMonthOfYear,
+              recurrenceDayOfWeek: item.recurrenceDayOfWeek,
             });
             return;
           }
@@ -499,8 +511,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               merchantName: inc.merchantName,
               date: inc.date || "",
               dateKey: resolveRecordDateKey(inc, key),
+              expectedDate: inc.expectedDate,
               amount: amt,
               repeat: inc.repeat,
+              recurrenceDayOfMonth: inc.recurrenceDayOfMonth,
+              recurrenceMonthOfYear: inc.recurrenceMonthOfYear,
+              recurrenceDayOfWeek: inc.recurrenceDayOfWeek,
             });
             return;
           }
@@ -559,8 +575,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           merchantName: item.merchantName,
           date: item.date || "",
           dateKey: dKey,
+          expectedDate: item.expectedDate,
           amount: Number(item.amount) || 0,
           repeat: item.repeat,
+          recurrenceDayOfMonth: item.recurrenceDayOfMonth,
+          recurrenceMonthOfYear: item.recurrenceMonthOfYear,
+          recurrenceDayOfWeek: item.recurrenceDayOfWeek,
         };
         if (dKey === todayKey) dueToday.push(entry);
         else overdue.push(entry);
@@ -1596,7 +1616,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                       {hasRepeat && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70 whitespace-nowrap shrink-0">
                           <Repeat className="w-3 h-3 shrink-0" />
-                          <span>{formatRepeatLabel(item.repeat)}</span>
+                          <span>{formatRepeatLabel(item.repeat, item)}</span>
                         </span>
                       )}
                       {(periodType === "year" || periodType === "custom") && (
