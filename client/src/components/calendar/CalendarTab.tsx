@@ -312,7 +312,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                           : "Предстоящ"}
                       </span>
                       {ev.isRecurring && (
-                        <span>· {formatRepeatLabel(ev.repeat)}</span>
+                        <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat)}</span>
                       )}
                     </div>
                     {ev.note && (
@@ -432,7 +432,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                       </span>
                       {ev.merchantName && <span>· {ev.categoryName}</span>}
                       {ev.isRecurring && (
-                        <span>· {formatRepeatLabel(ev.repeat)}</span>
+                        <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat)}</span>
                       )}
                     </div>
                     {ev.note && (

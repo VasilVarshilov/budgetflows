@@ -25,7 +25,6 @@ import {
   Gift,
   GraduationCap,
   Bus,
-  CarTaxiFront,
   ShoppingBag,
   CircleHelp,
   RefreshCw,
@@ -85,6 +84,7 @@ import {
   AVAILABLE_ICONS_MAP,
   loadStoredCategories,
   getCategoryBadgeClasses,
+  resolveCategoryDisplayIcon,
 } from "@/utils/categoryStorage";
 import {
   loadBudgets,
@@ -221,7 +221,7 @@ const PREDEFINED_CATEGORIES: ExpenseCategory[] = [
   {
     id: "taxi",
     name: "Такси и услуги",
-    iconName: "CarTaxiFront",
+    iconName: "Receipt",
     colorClass: "bg-yellow-50 text-yellow-600",
   },
   {
@@ -880,7 +880,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     return {
       id: item.categoryId || item.categoryName || "other",
       name: item.categoryName || "Други",
-      iconName: item.categoryIcon || "ShoppingBag",
+      iconName:
+        resolveCategoryDisplayIcon(item.categoryIcon, item.categoryName) ||
+        "ShoppingBag",
       colorClass: item.categoryColor || "bg-slate-100 text-slate-600",
     };
   };
@@ -2249,13 +2251,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <div
                         className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.categoryColor)}`}
                       >
-                        {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
-                          React.createElement(ICON_MAP[item.categoryIcon], {
-                            className: "w-4 h-4 text-current",
-                          })
-                        ) : (
-                          <div className="w-2 h-2 rounded-full bg-current" />
-                        )}
+                        {(() => {
+                          const fixedIcon = resolveCategoryDisplayIcon(
+                            item.categoryIcon,
+                            item.categoryName
+                          );
+                          return fixedIcon && ICON_MAP[fixedIcon] ? (
+                            React.createElement(ICON_MAP[fixedIcon], {
+                              className: "w-4 h-4 text-current",
+                            })
+                          ) : (
+                            <div className="w-2 h-2 rounded-full bg-current" />
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         <span
@@ -2313,7 +2321,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   {/* Row 2: Clean Inline Metadata (Zero Duplication) + Compact Mobile Actions */}
                   <div className="flex items-center justify-between gap-2 mt-1 pl-[42px] sm:pl-[46px]">
                     <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-slate-500 dark:text-slate-400">
-                      <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 shrink-0">
+                      <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 whitespace-nowrap shrink-0">
                         <Repeat className="w-3 h-3 shrink-0" />
                         <span>{repeatLabel}</span>
                       </span>
@@ -2669,14 +2677,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <div
                           className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${getCategoryBadgeClasses(expense.categoryColor)}`}
                         >
-                          {expense.categoryIcon &&
-                          ICON_MAP[expense.categoryIcon] ? (
-                            React.createElement(ICON_MAP[expense.categoryIcon], {
-                              className: "w-4 h-4 sm:w-5 sm:h-5 text-current",
-                            })
-                          ) : (
-                            <div className="w-2.5 h-2.5 rounded-full bg-current" />
-                          )}
+                          {(() => {
+                            const expIcon = resolveCategoryDisplayIcon(
+                              expense.categoryIcon,
+                              expense.categoryName
+                            );
+                            return expIcon && ICON_MAP[expIcon] ? (
+                              React.createElement(ICON_MAP[expIcon], {
+                                className: "w-4 h-4 sm:w-5 sm:h-5 text-current",
+                              })
+                            ) : (
+                              <div className="w-2.5 h-2.5 rounded-full bg-current" />
+                            );
+                          })()}
                         </div>
 
                         <div className="min-w-0 flex-1 space-y-1">
@@ -2717,7 +2730,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             {/* Repeat indicator (no duplicate "Повтарящ се" + "Месечно") */}
                             {hasRepeatFrequency ? (
                               <span
-                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0"
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap shrink-0"
                                 title="Повтарящ се разход"
                               >
                                 <Repeat className="w-3 h-3 shrink-0" />
@@ -2726,7 +2739,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                   : "Периодичен"}
                               </span>
                             ) : expense.isFixedItem ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
                                 Повтарящ се
                               </span>
                             ) : null}

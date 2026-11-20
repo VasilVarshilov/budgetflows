@@ -30,6 +30,12 @@ import { useCloudSync } from "@/utils/cloudSyncContext";
 import { BackupData } from "@/types";
 import { GoogleAuthCard } from "@/components/auth/GoogleAuthCard";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
+import {
+  APP_DESCRIPTION,
+  APP_NAME,
+  APP_TAGLINE,
+  BrandMark,
+} from "@/components/brand/BrandLogo";
 
 interface BackupRestoreSectionProps {
   onDataRestored?: () => void;
@@ -296,7 +302,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <span>
                   <strong className="text-slate-800 dark:text-slate-100">Excel книга (.xlsx):</strong>{" "}
-                  единен файл <span className="font-medium">BudgetFlow_Export.xlsx</span> със 7 листа
+                  единен файл <span className="font-medium">BudgetForce365_Export.xlsx</span> със 7 листа
                   (Expenses, Incomes, Savings, Electricity, Categories, Budgets, Summary).
                 </span>
               </div>
@@ -366,7 +372,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                   Кликнете тук за избор на файл
                 </span>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Поддържа файлове с архив на BudgetFlows (.json)
+                  Поддържа файлове с архив на {APP_NAME} (.json)
                 </p>
               </div>
             </div>
@@ -437,7 +443,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                     Приложение
                   </div>
                   <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                    {pendingBackup.appName || "BudgetFlows"}
+                    {pendingBackup.appName || APP_NAME}
                   </div>
                 </div>
               </div>
@@ -696,6 +702,24 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
         onClose={() => setIsDriveRestoreOpen(false)}
         onSuccess={handleDriveRestoreSuccess}
       />
+
+      {/* About Budget Force 365 Section */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+          <BrandMark size={48} className="rounded-xl shadow-xs shrink-0" />
+          <div className="space-y-1">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {APP_NAME}
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              {APP_DESCRIPTION}
+            </p>
+            <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+              {APP_TAGLINE}
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

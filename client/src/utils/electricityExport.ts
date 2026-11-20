@@ -60,7 +60,7 @@ export function exportElectricityHistoryToTxt(
 
   const lines: string[] = [
     "=======================================================================",
-    "                    BUDGETFLOWS - ИСТОРИЯ НА ТОКА                      ",
+    "                BUDGET FORCE 365 - ИСТОРИЯ НА ТОКА                     ",
     "               ОТЧЕТ И АНАЛИЗ НА РАЗХОДИТЕ ЗА ЕЛЕКТРОЕНЕРГИЯ           ",
     "=======================================================================",
     `Период:              ${periodLabel}`,
@@ -119,7 +119,7 @@ export function exportElectricityHistoryToTxt(
   }
 
   lines.push("Бележка: Всички суми и тарифи са в EUR (€).");
-  lines.push("Генерирано автоматично от BudgetFlows. Всички права запазени.");
+  lines.push("Генерирано автоматично от Budget Force 365 • May the Budget Force be with you.");
   lines.push("=======================================================================");
 
   const content = lines.join("\n");
@@ -128,7 +128,7 @@ export function exportElectricityHistoryToTxt(
   const link = document.createElement("a");
   link.href = url;
   const safePeriod = periodLabel.replace(/[\s/\\:]+/g, "_");
-  link.download = `Electricity_History_${safePeriod}.txt`;
+  link.download = `BudgetForce365_Electricity_History_${safePeriod}.txt`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -194,7 +194,7 @@ export async function exportElectricityHistoryToPng(
   // Title & Subtitle
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 22px sans-serif";
-  ctx.fillText("⚡ BUDGETFLOWS • ИСТОРИЯ НА ЕЛЕКТРОЕНЕРГИЯ", 40, 50);
+  ctx.fillText("⚡ BUDGET FORCE 365 • ИСТОРИЯ НА ЕЛЕКТРОЕНЕРГИЯ", 40, 50);
 
   ctx.fillStyle = "#94a3b8";
   ctx.font = "14px sans-serif";
@@ -316,7 +316,7 @@ export async function exportElectricityHistoryToPng(
   ctx.fillStyle = "#94a3b8";
   ctx.font = "12px sans-serif";
   ctx.fillText(
-    `BudgetFlows • Всички цени са в EUR (€) с включен ДДС • Общо ${totalRecords} записа`,
+    `Budget Force 365 • May the Budget Force be with you. • Общо ${totalRecords} записа`,
     40,
     height - 30
   );
@@ -325,7 +325,7 @@ export async function exportElectricityHistoryToPng(
   const dataUrl = canvas.toDataURL("image/png");
   const link = document.createElement("a");
   link.href = dataUrl;
-  link.download = `Electricity_Report_${safePeriod}.png`;
+  link.download = `BudgetForce365_Electricity_Report_${safePeriod}.png`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

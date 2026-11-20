@@ -243,7 +243,7 @@ export function gatherApplicationData(owner?: {
 
   return {
     version: "1.0",
-    appName: "BudgetFlows",
+    appName: "Budget Force 365",
     exportDate: nowIso,
     dataUpdatedAt: localDataUpdatedAt || nowIso,
     ...(effectiveOwnerUid ? { ownerUid: effectiveOwnerUid } : {}),
@@ -299,7 +299,7 @@ export function exportBackupFile(owner?: {
   const timeStr = `${String(now.getHours()).padStart(2, "0")}-${String(
     now.getMinutes()
   ).padStart(2, "0")}`;
-  const filename = `BudgetFlows_Backup_${dateStr}_${timeStr}.json`;
+  const filename = `BudgetForce365_Backup_${dateStr}_${timeStr}.json`;
 
   const blob = new Blob([jsonString], { type: "application/json;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -321,7 +321,7 @@ export interface ValidationResult {
 }
 
 /**
- * Validates any uploaded JSON text to ensure it's a valid BudgetFlows backup.
+ * Validates any uploaded JSON text to ensure it's a valid Budget Force 365 backup.
  * Normalizes both direct version 1.0 backups and legacy raw dumps.
  */
 export function validateAndParseBackupFile(rawText: string): ValidationResult {
@@ -431,7 +431,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
 
     const normalizedBackup: BackupData = {
       version: parsed.version || "1.0",
-      appName: parsed.appName || "BudgetFlows",
+      appName: parsed.appName || "Budget Force 365",
       exportDate: parsed.exportDate || new Date().toISOString(),
       ...(typeof parsed.dataUpdatedAt === "string"
         ? { dataUpdatedAt: parsed.dataUpdatedAt }
@@ -498,7 +498,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
 
     const normalizedBackup: BackupData = {
       version: "legacy",
-      appName: "BudgetFlows",
+      appName: "Budget Force 365",
       exportDate: new Date().toISOString(),
       summary: {
         incomeCount: savings.filter((s: any) => s.type === "income").length,
@@ -534,7 +534,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
   return {
     isValid: false,
     errorMessage:
-      "Файлът не съдържа разпознати структури на BudgetFlows (липсват данни за разходи, спестявания или ток).",
+      "Файлът не съдържа разпознати структури на Budget Force 365 (липсват данни за разходи, спестявания или ток).",
   };
 }
 

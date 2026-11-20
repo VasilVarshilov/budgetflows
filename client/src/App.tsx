@@ -32,7 +32,9 @@ import { NotificationCenter } from "@/components/notifications/NotificationCente
 import { ThemeProvider } from "@/utils/themeContext";
 import { CloudSyncProvider, useCloudSync } from "@/utils/cloudSyncContext";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
-import { Cloud, DownloadCloud, LogIn, UploadCloud, AlertTriangle } from "lucide-react";
+import { BrandMark, APP_NAME, APP_TAGLINE } from "@/components/brand/BrandLogo";
+import { AboutModal } from "@/components/brand/AboutModal";
+import { Cloud, DownloadCloud, Info, LogIn, Share2, UploadCloud, AlertTriangle } from "lucide-react";
 
 // Utils & Types
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
@@ -51,12 +53,14 @@ import {
   createEmptyNotificationsState,
   deleteNotification,
   dismissNotification,
+  dispatchManualBackupNotification,
   loadNotificationsStore,
+  MANUAL_BACKUP_NOTIFICATION_EVENT,
+  ManualBackupAction,
   markAllNotificationsAsRead,
   markNotificationAsRead,
   reconcileAllNotifications,
   recordBackupSuccessNotification,
-  recordRecurringGeneratedNotification,
   saveNotificationsStore,
 } from "@/utils/notificationsEngine";
 import {
@@ -192,6 +196,8 @@ const AppContent: React.FC = () => {
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isGlobalRestoreModalOpen, setIsGlobalRestoreModalOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const [monthlyData, setMonthlyData] = useState<
     Record<string, MonthlyRecord>
@@ -206,7 +212,6 @@ const AppContent: React.FC = () => {
   const {
     triggerAutoSync,
     syncStatus,
-    lastSyncTime,
     user,
     storedProfile,
     activeUid,
@@ -232,12 +237,6 @@ const AppContent: React.FC = () => {
 
   const notificationsStoreRef = useRef<NotificationsStoreState>(notificationsStore);
   notificationsStoreRef.current = notificationsStore;
-
-  const prevSyncStatusRef = useRef<string>("idle");
-  const lastObservedSyncTimeRef = useRef<{ uid: string; value: string | null }>({
-    uid: "",
-    value: null,
-  });
 
   const displayUser = user || storedProfile;
 
@@ -269,7 +268,7 @@ const AppContent: React.FC = () => {
       storedMonthly && typeof storedMonthly === "object" ? storedMonthly : {};
     const { updatedMonthlyData: migratedMonthly, migratedCount } =
       normalizeMonthlyDataConsistency(rawMonthly);
-    const { updatedMonthlyData: normalizedMonthly, generatedCount, generatedItems } =
+    const { updatedMonthlyData: normalizedMonthly, generatedCount } =
       generateDueRecurringInstances(migratedMonthly, {
         activeMonthKey: activeMonth,
       });
@@ -277,19 +276,13 @@ const AppContent: React.FC = () => {
       userStorage.setJSON(STORAGE_BASE_MONTHLY, normalizedMonthly, targetUid);
     }
 
-    // Load and reconcile account-isolated notifications
-    let nextNotifState = loadNotificationsStore(targetUid);
-    let notifChanged = false;
-    if (generatedCount > 0 && generatedItems.length > 0) {
-      const recNotif = recordRecurringGeneratedNotification(nextNotifState, generatedItems);
-      nextNotifState = recNotif.nextState;
-      notifChanged = notifChanged || recNotif.changed;
-    }
+    // Load and reconcile account-isolated notifications (actionable due/overdue & milestones)
+    const nextNotifState = loadNotificationsStore(targetUid);
     const reconciled = reconcileAllNotifications(nextNotifState, {
       monthlyData: normalizedMonthly,
       goals: loadSavingsGoals(targetUid),
     });
-    if (reconciled.changed || notifChanged) {
+    if (reconciled.changed) {
       saveNotificationsStore(reconciled.nextState, targetUid);
     }
     notificationsStoreRef.current = reconciled.nextState;
@@ -321,7 +314,7 @@ const AppContent: React.FC = () => {
     if (isAuthLoading || isSwitchingAccount) return;
     const { updatedMonthlyData: migratedMonthly, migratedCount } =
       normalizeMonthlyDataConsistency(monthlyDataRef.current);
-    const { updatedMonthlyData, generatedCount, generatedItems } = generateDueRecurringInstances(
+    const { updatedMonthlyData, generatedCount } = generateDueRecurringInstances(
       migratedMonthly,
       { activeMonthKey: currentMonth }
     );
@@ -334,19 +327,12 @@ const AppContent: React.FC = () => {
       triggerAutoSync();
     }
 
-    // Reconcile transaction & milestone notifications whenever monthlyData updates (including auto-resolution)
-    let workingNotifs = notificationsStoreRef.current;
-    let notifChanged = false;
-    if (generatedCount > 0 && generatedItems.length > 0) {
-      const recRes = recordRecurringGeneratedNotification(workingNotifs, generatedItems);
-      workingNotifs = recRes.nextState;
-      notifChanged = notifChanged || recRes.changed;
-    }
-    const recAll = reconcileAllNotifications(workingNotifs, {
+    // Reconcile actionable transaction & milestone notifications whenever monthlyData updates
+    const recAll = reconcileAllNotifications(notificationsStoreRef.current, {
       monthlyData: updatedMonthlyData,
       goals: loadSavingsGoals(targetUid),
     });
-    if (recAll.changed || notifChanged) {
+    if (recAll.changed) {
       notificationsStoreRef.current = recAll.nextState;
       saveNotificationsStore(recAll.nextState, targetUid);
       setNotificationsStore(recAll.nextState);
@@ -385,33 +371,31 @@ const AppContent: React.FC = () => {
     };
   }, [activeUid, isAuthLoading, isSwitchingAccount]);
 
-  // Emit Successful Backup notification when Google Drive upload finishes
+  // Emit backup/restore notification ONLY when triggered manually by the user (never for auto background sync)
   useEffect(() => {
     if (isAuthLoading || isSwitchingAccount) return;
-    const prevStatus = prevSyncStatusRef.current;
-    prevSyncStatusRef.current = syncStatus;
-
-    if (lastObservedSyncTimeRef.current.uid !== activeUid) {
-      lastObservedSyncTimeRef.current = { uid: activeUid, value: lastSyncTime };
-      return;
-    }
-
-    if (
-      prevStatus === "syncing" &&
-      syncStatus === "synced" &&
-      lastSyncTime &&
-      lastSyncTime !== lastObservedSyncTimeRef.current.value
-    ) {
-      lastObservedSyncTimeRef.current.value = lastSyncTime;
+    const handleManualBackupEvent = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ action?: ManualBackupAction; timestamp?: string }>)?.detail;
+      const action: ManualBackupAction =
+        detail?.action === "manual_restore" ? "manual_restore" : "manual_backup";
+      const timestamp = detail?.timestamp || new Date().toISOString();
       const uid = userStorage.getActiveUid();
-      const res = recordBackupSuccessNotification(notificationsStoreRef.current, lastSyncTime);
+      const res = recordBackupSuccessNotification(
+        notificationsStoreRef.current,
+        timestamp,
+        action
+      );
       if (res.changed) {
         notificationsStoreRef.current = res.nextState;
         saveNotificationsStore(res.nextState, uid);
         setNotificationsStore(res.nextState);
       }
-    }
-  }, [syncStatus, lastSyncTime, activeUid, isAuthLoading, isSwitchingAccount]);
+    };
+    window.addEventListener(MANUAL_BACKUP_NOTIFICATION_EVENT, handleManualBackupEvent);
+    return () => {
+      window.removeEventListener(MANUAL_BACKUP_NOTIFICATION_EVENT, handleManualBackupEvent);
+    };
+  }, [activeUid, isAuthLoading, isSwitchingAccount]);
 
   const saveSavingsToStorage = useCallback(
     (updated: IncomeItem[], explicitUid?: string) => {
@@ -1027,16 +1011,54 @@ const AppContent: React.FC = () => {
 
   if (isAuthLoading || isSwitchingAccount) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 transition-colors">
-         <div className="flex flex-col items-center gap-4">
-            <Loader2 className="w-10 h-10 text-indigo-600 dark:text-indigo-400 animate-spin" />
-            <p className="text-slate-600 dark:text-slate-300 font-medium text-sm">
-              {isSwitchingAccount ? "Превключване на профил и зареждане на данни..." : "Зареждане на профила..."}
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 px-4 transition-colors">
+        <div className="flex flex-col items-center text-center gap-4 max-w-sm">
+          <BrandMark size={68} className="shadow-lg rounded-2xl" />
+          <div className="space-y-1">
+            <h1 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+              {APP_NAME}
+            </h1>
+            <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+              {APP_TAGLINE}
             </p>
-         </div>
+          </div>
+          <div className="flex items-center gap-2 pt-1 text-slate-600 dark:text-slate-300 font-medium text-xs sm:text-sm">
+            <Loader2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-spin shrink-0" />
+            <span>
+              {isSwitchingAccount
+                ? "Превключване на профил и зареждане на данни..."
+                : "Зареждане на профила..."}
+            </span>
+          </div>
+        </div>
       </div>
     );
   }
+
+  const handleShareApp = async () => {
+    const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({
+          title: APP_NAME,
+          text: `${APP_NAME} — ${APP_TAGLINE}`,
+          url: shareUrl,
+        });
+        return;
+      }
+    } catch {
+      // Dismissed or fallback to clipboard
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && shareUrl) {
+        await navigator.clipboard.writeText(`${APP_NAME} — ${APP_TAGLINE}\n${shareUrl}`);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 3000);
+      }
+    } catch {
+      // Ignore clipboard permission errors
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
@@ -1044,15 +1066,13 @@ const AppContent: React.FC = () => {
         <div className="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8">
           {/* Row 1: Brand Logo, Active Month & Controls */}
           <div className="flex justify-between items-center h-14 sm:h-15 gap-2 border-b border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center gap-2.5 shrink-0">
-              <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 dark:from-indigo-500 dark:to-indigo-600 p-2 rounded-xl shadow-xs text-white">
-                <LayoutDashboard className="w-5 h-5" />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-slate-800 dark:text-white text-lg tracking-tight">
-                  Budget Flow
+            <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+              <BrandMark size={36} className="shadow-xs rounded-xl" />
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-extrabold text-slate-800 dark:text-white text-base sm:text-lg tracking-tight whitespace-nowrap">
+                  {APP_NAME}
                 </span>
-                <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50">
+                <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap">
                   {currentMonth}
                 </span>
               </div>
@@ -1155,6 +1175,8 @@ const AppContent: React.FC = () => {
                 </button>
               )}
 
+              <ThemeToggle />
+
               <NotificationCenter
                 store={notificationsStore}
                 onMarkAsRead={handleMarkNotificationRead}
@@ -1168,8 +1190,6 @@ const AppContent: React.FC = () => {
                   handleToggleRecordCompletion(monthKey, kind, recordId, true)
                 }
               />
-
-              <ThemeToggle />
             </div>
           </div>
 
@@ -1313,12 +1333,38 @@ const AppContent: React.FC = () => {
       </main>
 
       <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto transition-colors mb-16 md:mb-0">
-        <div className="max-w-6xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-          <p className="text-center text-xs text-slate-500 dark:text-slate-400">
-            Budget Flow Application © {new Date().getFullYear()}
-          </p>
+        <div className="max-w-6xl mx-auto px-4 py-5 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
+              {APP_NAME} © {new Date().getFullYear()}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="text-indigo-600 dark:text-indigo-400 font-medium">
+              {APP_TAGLINE}
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => setIsAboutOpen(true)}
+              className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-white font-medium transition-colors cursor-pointer"
+            >
+              <Info className="w-3.5 h-3.5" />
+              <span>За приложението</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleShareApp}
+              className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors cursor-pointer"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>{shareCopied ? "Копирано!" : "Сподели"}</span>
+            </button>
+          </div>
         </div>
       </footer>
+
+      <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
 
       {/* Mobile "More" Drawer / Sheet (md:hidden) */}
       {isMobileMoreOpen && (
@@ -1538,7 +1584,10 @@ const AppContent: React.FC = () => {
                     onClick={async () => {
                       setIsResolvingConflict(true);
                       try {
-                        await resolveConflictUseLocal();
+                        const res = await resolveConflictUseLocal();
+                        if (res?.success) {
+                          dispatchManualBackupNotification("manual_backup");
+                        }
                       } finally {
                         setIsResolvingConflict(false);
                       }
@@ -1559,7 +1608,10 @@ const AppContent: React.FC = () => {
                     type="button"
                     disabled={isResolvingConflict}
                     onClick={() => {
-                      resolveConflictRestoreCloud("merge");
+                      const res = resolveConflictRestoreCloud("merge");
+                      if (res?.success) {
+                        dispatchManualBackupNotification("manual_restore");
+                      }
                     }}
                     className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
                   >

@@ -251,7 +251,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
 
     const lines: string[] = [];
     lines.push("================================================================================");
-    lines.push("               ОТЧЕТ ЗА СПЕСТЯВАНИЯ И ТРАНЗАКЦИИ (BudgetFlows)                 ");
+    lines.push("            ОТЧЕТ ЗА СПЕСТЯВАНИЯ И ТРАНЗАКЦИИ (Budget Force 365)             ");
     lines.push("================================================================================");
     lines.push(`Период: ${periodLabel}`);
     lines.push(`Генериран на: ${new Date().toLocaleString("bg-BG")}`);
@@ -299,6 +299,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
     });
 
     lines.push("--------------------------------------------------------------------------------");
+    lines.push(" Budget Force 365 • May the Budget Force be with you.");
     lines.push("================================================================================\n");
 
     const content = lines.join("\n");
@@ -306,7 +307,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Spestyavaniya_Otchet_${periodLabel.replace(/[\s\(\)]+/g, "_")}.txt`;
+    link.download = `BudgetForce365_Savings_${periodLabel.replace(/[\s\(\)]+/g, "_")}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

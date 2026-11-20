@@ -13,8 +13,21 @@ import { GeneratedRecurringItemMeta } from "./recurrenceEngine";
 import { STORAGE_BASE_NOTIFICATIONS, userStorage } from "./userStorage";
 
 export const NOTIFICATIONS_UPDATED_EVENT = "budgetflows:notifications-updated";
+export const MANUAL_BACKUP_NOTIFICATION_EVENT = "budgetforce365:manual-backup-notification";
 
-const GOAL_MILESTONES = [25, 50, 75, 100] as const;
+export type ManualBackupAction = "manual_backup" | "manual_restore";
+
+export function dispatchManualBackupNotification(action: ManualBackupAction): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(MANUAL_BACKUP_NOTIFICATION_EVENT, {
+        detail: { action, timestamp: new Date().toISOString() },
+      })
+    );
+  }
+}
+
+const GOAL_MILESTONES = [50, 100] as const;
 const MAX_NOTIFICATIONS_HISTORY = 200;
 
 export function createEmptyNotificationsState(): NotificationsStoreState {
@@ -116,6 +129,14 @@ export function loadNotificationsStore(uid?: string): NotificationsStoreState {
   for (const item of rawList) {
     const normalized = normalizeNotification(item);
     if (!normalized || seenKeys.has(normalized.dedupeKey)) continue;
+    // Prune low-value automatic background sync & auto-generated recurring batch spam
+    if (normalized.type === "recurring_generated") continue;
+    if (
+      normalized.type === "backup_success" &&
+      normalized.dedupeKey.startsWith("backup_drive:")
+    ) {
+      continue;
+    }
     seenKeys.add(normalized.dedupeKey);
     notifications.push(normalized);
   }
@@ -604,18 +625,20 @@ export function recordRecurringGeneratedNotification(
 }
 
 /**
- * Adds a deduplicated notification when a Google Drive backup completes cleanly.
+ * Adds a deduplicated notification ONLY for explicit user-initiated Google Drive backup/restore actions.
+ * Automatic background syncs must never call this.
  */
 export function recordBackupSuccessNotification(
   prevState: NotificationsStoreState,
-  syncIsoTimestamp: string
+  syncIsoTimestamp: string,
+  action: ManualBackupAction = "manual_backup"
 ): { nextState: NotificationsStoreState; changed: boolean } {
   const cleanIso = (syncIsoTimestamp || "").trim();
   if (!cleanIso) {
     return { nextState: prevState, changed: false };
   }
 
-  const dedupeKey = `backup_drive:${cleanIso}`;
+  const dedupeKey = `manual_backup:${action}:${cleanIso}`;
   if (
     prevState.suppressedKeys[dedupeKey] ||
     prevState.notifications.some((n) => n.dedupeKey === dedupeKey)
@@ -624,13 +647,16 @@ export function recordBackupSuccessNotification(
   }
 
   const nowIso = new Date().toISOString();
+  const isRestore = action === "manual_restore";
   const notification: AppNotification = {
     id: makeNotificationId("notif"),
     dedupeKey,
     type: "backup_success",
     status: "unread",
-    title: "Google Drive архив",
-    message: "Google Drive архивът е обновен.",
+    title: isRestore ? "Възстановяване от Google Drive" : "Google Drive архив",
+    message: isRestore
+      ? "Данните от Google Drive бяха възстановени успешно."
+      : "Ръчният архив в Google Drive е запазен успешно.",
     createdAt: nowIso,
     updatedAt: nowIso,
     target: {

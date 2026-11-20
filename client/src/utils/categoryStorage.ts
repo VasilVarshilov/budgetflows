@@ -229,7 +229,7 @@ export const DEFAULT_CATEGORIES: ExpenseCategory[] = [
   { id: "education", name: "Образование", iconName: "GraduationCap", colorClass: "bg-blue-100 text-blue-500" },
   { id: "health", name: "Здраве", iconName: "Heart", colorClass: "bg-red-50 text-red-600" },
   { id: "transport", name: "Транспорт", iconName: "Bus", colorClass: "bg-slate-100 text-slate-600" },
-  { id: "taxi", name: "Такси и услуги", iconName: "CarTaxiFront", colorClass: "bg-yellow-50 text-yellow-600" },
+  { id: "taxi", name: "Такси и услуги", iconName: "Receipt", colorClass: "bg-yellow-50 text-yellow-600" },
   { id: "other", name: "Други", iconName: "ShoppingBag", colorClass: "bg-emerald-100 text-emerald-500" },
 ];
 
@@ -295,6 +295,23 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
       keywords: ["кола", "авто", "сервиз", "гуми", "паркинг", "винетка", "гражданска", "автомивка", "масло", "гараж", "car", "auto", "паркиране"],
       iconName: "Car",
       colorClass: "bg-zinc-100 text-zinc-700",
+    },
+    // Administrative, Bank, Government & Service Fees (must match before ride-sharing "taxi")
+    {
+      keywords: [
+        "такси и услуги",
+        "банкови такси",
+        "държавни такси",
+        "общински такси",
+        "административ",
+        "такса",
+        "данък",
+        "данъци",
+        "нотариус",
+        "комисион",
+      ],
+      iconName: "Receipt",
+      colorClass: "bg-yellow-50 text-yellow-600",
     },
     // Taxi & Ride Share
     {
@@ -581,6 +598,23 @@ export function getAiSuggestedIconAndColor(categoryName: string): {
 }
 
 /**
+ * Normalizes legacy category icon assignments for display without altering historical data records.
+ */
+export function resolveCategoryDisplayIcon(
+  iconName?: string,
+  categoryName?: string
+): string | undefined {
+  if (
+    iconName === "CarTaxiFront" &&
+    categoryName &&
+    categoryName.trim().toLowerCase() === "такси и услуги"
+  ) {
+    return "Receipt";
+  }
+  return iconName;
+}
+
+/**
  * Loads categories from account-isolated userStorage. If none exist, returns default categories.
  * Automatically preserves any existing custom categories or modifications.
  */
@@ -605,9 +639,17 @@ export function loadStoredCategories(): ExpenseCategory[] {
       return DEFAULT_CATEGORIES;
     }
 
-    // Ensure all predefined default categories exist in case this is a fresh setup or older storage
+    // Ensure all predefined default categories exist and migrate legacy "Такси и услуги" icon
     const existingIds = new Set(loadedList.map((c) => c.id));
-    const merged = [...loadedList];
+    const merged = loadedList.map((c) => {
+      if (
+        c.iconName === "CarTaxiFront" &&
+        (c.id === "taxi" || c.name?.trim().toLowerCase() === "такси и услуги")
+      ) {
+        return { ...c, iconName: "Receipt" };
+      }
+      return c;
+    });
 
     for (const def of DEFAULT_CATEGORIES) {
       if (!existingIds.has(def.id)) {

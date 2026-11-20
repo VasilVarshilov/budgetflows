@@ -33,6 +33,8 @@ import {
   isOriginMismatchError,
 } from "@/utils/googleAuth";
 import { getFirebaseConfig } from "@/utils/firebaseConfig";
+import { APP_NAME, APP_TAGLINE, BrandMark } from "@/components/brand/BrandLogo";
+import { dispatchManualBackupNotification } from "@/utils/notificationsEngine";
 
 interface GoogleAuthCardProps {
   onOpenRestoreModal: () => void;
@@ -240,6 +242,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       const res = await backupNow();
       if (res.success) {
         setFeedback({ type: "success", text: res.message });
+        dispatchManualBackupNotification("manual_backup");
       } else {
         setFeedback({ type: "error", text: res.message });
       }
@@ -424,7 +427,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 <span>Firebase Console</span>
                 <ExternalLink className="w-3 h-3" />
               </a>{" "}
-              и изберете проекта си (напр. <code>budgetflows</code>).
+              и изберете проекта си (напр. <code>budget-force-365</code>).
             </li>
             <li>
               В лявото меню отворете <strong>Build &gt; Authentication</strong>.
@@ -598,7 +601,18 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       {/* Body: Connected User Profile OR Official Google Sign-In */}
       {!isAuthenticated ? (
         <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-5 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row items-center justify-between gap-5">
-          <div className="space-y-1 text-center sm:text-left">
+          <div className="space-y-2 text-center sm:text-left">
+            <div className="inline-flex items-center gap-2.5 justify-center sm:justify-start">
+              <BrandMark size={32} className="rounded-lg shadow-2xs" />
+              <div className="text-left">
+                <div className="text-sm font-extrabold text-slate-900 dark:text-white leading-tight">
+                  {APP_NAME}
+                </div>
+                <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                  {APP_TAGLINE}
+                </div>
+              </div>
+            </div>
             <h3 className="font-bold text-slate-800 dark:text-white text-sm sm:text-base">
               Влезте с Google, за да синхронизирате архива си с Google Drive
             </h3>
@@ -797,6 +811,9 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                       setIsResolvingConflict(true);
                       try {
                         const res = await resolveConflictUseLocal();
+                        if (res.success) {
+                          dispatchManualBackupNotification("manual_backup");
+                        }
                         setFeedback({
                           type: res.success ? "success" : "error",
                           text: res.message,
@@ -818,6 +835,9 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                     disabled={isResolvingConflict}
                     onClick={() => {
                       const res = resolveConflictRestoreCloud("merge");
+                      if (res.success) {
+                        dispatchManualBackupNotification("manual_restore");
+                      }
                       setFeedback({
                           type: res.success ? "success" : "error",
                           text: res.message,
@@ -1036,11 +1056,9 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Сигурни ли сте, че искате да изтриете файла{" "}
-              <code className="text-indigo-600 dark:text-indigo-400 font-mono font-semibold">
-                budgetflows-backup.json
-              </code>{" "}
-              от вашия Google Drive?
+              Сигурни ли сте, че искате да изтриете облачния архивен файл на{" "}
+              <strong className="text-slate-800 dark:text-slate-100">{APP_NAME}</strong>{" "}
+              от вашия Google Drive (<code>appDataFolder</code>)?
             </p>
 
             {/* Safety Guarantee Callout */}

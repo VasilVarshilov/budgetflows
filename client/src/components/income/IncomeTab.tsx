@@ -1612,7 +1612,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                       {/* Row 2: Compact Inline Metadata + Mobile Actions */}
                       <div className="flex items-center justify-between gap-2 mt-1 pl-[42px] sm:pl-[46px]">
                         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-slate-500 dark:text-slate-400">
-                          <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 shrink-0">
+                          <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400 whitespace-nowrap shrink-0">
                             <Repeat className="w-3 h-3 shrink-0" />
                             <span>{formatRepeatLabel(item.repeat)}</span>
                           </span>

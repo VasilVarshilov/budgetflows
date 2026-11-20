@@ -53,7 +53,7 @@ export interface ExportReportFilters {
   recurringFilter: ExportRecurringFilter;
 }
 
-export const REPORT_EXCEL_FILENAME = "BudgetFlow_Report.xlsx";
+export const REPORT_EXCEL_FILENAME = "BudgetForce365_Report.xlsx";
 
 export const REPORT_EXCEL_WORKSHEET_NAMES = [
   "Summary",
@@ -955,7 +955,7 @@ export function exportTxtReport(data: ExportReportData): void {
   const subDivider = "--------------------------------------------------------------------------------";
 
   lines.push(divider);
-  lines.push("                 ФИНАНСОВ И БЮДЖЕТЕН ОТЧЕТ (BudgetFlows)                       ");
+  lines.push("               ФИНАНСОВ И БЮДЖЕТЕН ОТЧЕТ (Budget Force 365)                  ");
   lines.push("                 Reporting & Export Center - Текстов Доклад                    ");
   lines.push(divider);
   lines.push(`Период на отчета    : ${data.periodLabel}`);
@@ -1057,7 +1057,7 @@ export function exportTxtReport(data: ExportReportData): void {
   }
 
   lines.push(divider);
-  lines.push(" BudgetFlows App • Автоматично генериран текстов отчет за личен бюджет");
+  lines.push(" Budget Force 365 • May the Budget Force be with you. • Финансов отчет");
   lines.push(divider);
 
   const fileContent = lines.join("\n");
@@ -1066,7 +1066,7 @@ export function exportTxtReport(data: ExportReportData): void {
   const anchor = document.createElement("a");
   const cleanLabel = data.periodLabel.replace(/[\s\.\–\-\/\:]+/g, "_");
   anchor.href = url;
-  anchor.download = `BudgetFlows_Report_${cleanLabel}.txt`;
+  anchor.download = `BudgetForce365_Report_${cleanLabel}.txt`;
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
@@ -1112,7 +1112,7 @@ export function exportPngReport(data: ExportReportData): Promise<void> {
       ctx.save();
       // App Badge
       ctx.fillStyle = "rgba(99, 102, 241, 0.15)";
-      roundRect(ctx, 48, 42, 160, 28, 6);
+      roundRect(ctx, 48, 42, 224, 28, 6);
       ctx.fill();
       ctx.strokeStyle = "rgba(129, 140, 248, 0.4)";
       ctx.lineWidth = 1;
@@ -1120,7 +1120,7 @@ export function exportPngReport(data: ExportReportData): Promise<void> {
 
       ctx.fillStyle = "#a5b4fc";
       ctx.font = "bold 12px Inter, system-ui, -apple-system, sans-serif";
-      ctx.fillText("BUDGETFLOWS REPORT", 60, 61);
+      ctx.fillText("BUDGET FORCE 365 REPORT", 60, 61);
 
       // Title
       ctx.fillStyle = "#ffffff";
@@ -1553,7 +1553,7 @@ export function exportPngReport(data: ExportReportData): Promise<void> {
 
       ctx.fillStyle = "#64748b";
       ctx.font = "12px Inter, system-ui, -apple-system, sans-serif";
-      ctx.fillText("BudgetFlows • Професионален мениджър на лични финанси и домакински бюджет", 48, footerY + 8);
+      ctx.fillText("Budget Force 365 • May the Budget Force be with you.", 48, footerY + 8);
 
       ctx.textAlign = "right";
       ctx.fillText(`Страница 1 от 1 • Доклад #${Date.now().toString().slice(-6)}`, width - 48, footerY + 8);
@@ -1570,7 +1570,7 @@ export function exportPngReport(data: ExportReportData): Promise<void> {
           const anchor = document.createElement("a");
           const cleanLabel = data.periodLabel.replace(/[\s\.\–\-\/\:]+/g, "_");
           anchor.href = url;
-          anchor.download = `BudgetFlows_Report_${cleanLabel}.png`;
+          anchor.download = `BudgetForce365_Report_${cleanLabel}.png`;
           document.body.appendChild(anchor);
           anchor.click();
           document.body.removeChild(anchor);
@@ -1616,7 +1616,7 @@ function roundRect(
 
 function buildReportSummarySheet(data: ExportReportData): SheetSpec {
   const rows: CellValue[][] = [
-    [sectionCell("Финансов отчет — BudgetFlow (Reports & Export Center)")],
+    [sectionCell("Финансов отчет — Budget Force 365 (Reports & Export Center)")],
     [headerCell("Показател"), headerCell("Стойност"), headerCell("Допълнителна информация")],
     [boldTextCell("Export Type"), strCell("Excel (.xlsx)"), strCell("UTF-8 / ECMA-376")],
     [boldTextCell("Period"), strCell(data.periodLabel), strCell(data.dateRangeText)],
@@ -1869,7 +1869,7 @@ export function buildReportExcelBytes(data: ExportReportData): Uint8Array {
 }
 
 /**
- * Generates and downloads `BudgetFlow_Report.xlsx` strictly respecting all active filters
+ * Generates and downloads `BudgetForce365_Report.xlsx` strictly respecting all active filters
  * in the Reports & Export Center.
  */
 export function exportExcelReport(data: ExportReportData): {

@@ -33,7 +33,7 @@ import {
 // Public Types & Entry Point
 // =========================================================================
 
-export const EXCEL_EXPORT_FILENAME = "BudgetFlow_Export.xlsx";
+export const EXCEL_EXPORT_FILENAME = "BudgetForce365_Export.xlsx";
 
 export const EXCEL_WORKSHEET_NAMES = [
   "Expenses",
@@ -1547,9 +1547,9 @@ function buildSummarySheet(params: {
   const rows: CellValue[][] = [];
 
   // Section 1: Metadata
-  rows.push([sectionCell("Обобщение на експорта — BudgetFlow")]);
+  rows.push([sectionCell("Обобщение на експорта — Budget Force 365")]);
   rows.push([headerCell("Показател"), headerCell("Стойност")]);
-  rows.push([boldTextCell("Приложение"), strCell(snapshot.appName || "BudgetFlows")]);
+  rows.push([boldTextCell("Приложение"), strCell(snapshot.appName || "Budget Force 365")]);
   rows.push([boldTextCell("Дата на експорт"), dateCell(exportIsoDate)]);
   rows.push([
     boldTextCell("Потребителски профил"),
@@ -1837,7 +1837,7 @@ export function createExcelWorkbookBlob(owner?: {
 }
 
 /**
- * Generates and downloads `BudgetFlow_Export.xlsx` containing 7 separate worksheets:
+ * Generates and downloads `BudgetForce365_Export.xlsx` containing 7 separate worksheets:
  * Expenses, Incomes, Savings, Electricity, Categories, Budgets, Summary.
  */
 export function exportExcelWorkbook(owner?: {

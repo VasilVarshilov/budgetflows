@@ -20,6 +20,7 @@ import { useCloudSync } from "@/utils/cloudSyncContext";
 import { BackupData } from "@/types";
 import { DriveFileInfo } from "@/utils/googleDriveBackup";
 import { gatherApplicationData } from "@/utils/backupRestore";
+import { dispatchManualBackupNotification } from "@/utils/notificationsEngine";
 
 interface DriveRestoreModalProps {
   isOpen: boolean;
@@ -92,6 +93,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
     try {
       const res = restoreCloudBackup(backup, importMode, fileInfo?.modifiedTime);
       if (res.success) {
+        dispatchManualBackupNotification("manual_restore");
         onSuccess();
         onClose();
       } else {
@@ -131,7 +133,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                 Възстановяване от Google Drive (Restore From Drive)
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Профил: <strong className="text-slate-700 dark:text-slate-200">{user?.email || "Текущ Google профил"}</strong> • <code>budgetflows-backup.json</code>
+                Профил: <strong className="text-slate-700 dark:text-slate-200">{user?.email || "Текущ Google профил"}</strong> · Google Drive <code>appDataFolder</code>
               </p>
             </div>
           </div>
