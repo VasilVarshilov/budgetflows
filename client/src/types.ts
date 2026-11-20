@@ -52,6 +52,7 @@ export interface ElectricityRecord {
   em2Remainder: number;
   
   note?: string;
+  meterMode?: "single" | "double";
   source?: "calculator" | "manual" | "receipt" | "imported";
   sourceExpenseId?: string;
 }

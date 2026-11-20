@@ -18,7 +18,10 @@ import {
   X,
 } from 'lucide-react';
 import { InputGroup } from '@/components/ui/InputGroup';
-import { calculateElectricity } from '@/utils/calculations';
+import {
+  calculateElectricity,
+  calculateSingleMeterElectricity,
+} from '@/utils/calculations';
 import { ElectricityInputs, ElectricityResults, ElectricityRecord, MonthlyRecord } from '@/types';
 import { getCurrentMonthBulgarian, parseDecimalInput } from '@/utils/formatting';
 import { ElectricityHistoryTab } from './ElectricityHistoryTab';
@@ -35,6 +38,8 @@ import {
   STORAGE_BASE_ELECTRICITY_LAST,
 } from '@/utils/userStorage';
 
+const STORAGE_BASE_ELECTRICITY_SINGLE_LAST = 'ElectricitySingleLastReadings';
+
 interface ManualElectricityExpensePayload {
   amount: number;
   month: string;
@@ -46,17 +51,20 @@ interface ManualElectricityExpensePayload {
 }
 
 interface ElectricityTabProps {
-  onAddToExpenses: (em1: number, em2: number) => void;
+  onAddToExpenses: (em1: number, em2?: number) => void;
   monthlyData?: Record<string, MonthlyRecord>;
   onAddManualElectricityExpense?: (entry: ManualElectricityExpensePayload) => void;
 }
+
+type ElectricitySubTab = 'single' | 'double' | 'history';
 
 export const ElectricityTab: React.FC<ElectricityTabProps> = ({
   onAddToExpenses,
   monthlyData,
   onAddManualElectricityExpense,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'calculator' | 'history'>('calculator');
+  const [activeSubTab, setActiveSubTab] = useState<ElectricitySubTab>('single');
+  const [lastCalcMode, setLastCalcMode] = useState<'single' | 'double'>('single');
   const [historyRecords, setHistoryRecords] = useState<ElectricityRecord[]>(() =>
     getStoredElectricityHistory()
   );
@@ -68,9 +76,9 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
   const [calcYear, setCalcYear] = useState<string>(currentYearStr);
   const [calcNote, setCalcNote] = useState<string>('');
 
-  const loadLastReadings = (): ElectricityInputs => {
+  const loadLastReadings = (storageKey: string): ElectricityInputs => {
     try {
-      const saved = userStorage.getItem(STORAGE_BASE_ELECTRICITY_LAST);
+      const saved = userStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
@@ -97,12 +105,37 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
     };
   };
 
-  const [inputs, setInputs] = useState<ElectricityInputs>(() => loadLastReadings());
+  // Single-meter calculator state (Default tab: 1 Електромер)
+  const [singleInputs, setSingleInputs] = useState<ElectricityInputs>(() =>
+    loadLastReadings(STORAGE_BASE_ELECTRICITY_SINGLE_LAST)
+  );
+  const [singleLastCalculatedInputs, setSingleLastCalculatedInputs] =
+    useState<ElectricityInputs | null>(null);
+  const [singleShowAutoShiftNotice, setSingleShowAutoShiftNotice] = useState(false);
+  const [singleResults, setSingleResults] = useState<ElectricityResults | null>(null);
+  const [singleIsAdded, setSingleIsAdded] = useState(false);
 
-  const [lastCalculatedInputs, setLastCalculatedInputs] = useState<ElectricityInputs | null>(null);
+  // Two-meter calculator state (2 Електромера - completely preserved)
+  const [inputs, setInputs] = useState<ElectricityInputs>(() =>
+    loadLastReadings(STORAGE_BASE_ELECTRICITY_LAST)
+  );
+  const [lastCalculatedInputs, setLastCalculatedInputs] =
+    useState<ElectricityInputs | null>(null);
   const [showAutoShiftNotice, setShowAutoShiftNotice] = useState(false);
   const [results, setResults] = useState<ElectricityResults | null>(null);
   const [isAdded, setIsAdded] = useState(false);
+
+  const isSingleMode = activeSubTab === 'single';
+  const activeInputs = isSingleMode ? singleInputs : inputs;
+  const setActiveInputs = isSingleMode ? setSingleInputs : setInputs;
+  const activeLastCalculatedInputs = isSingleMode
+    ? singleLastCalculatedInputs
+    : lastCalculatedInputs;
+  const activeShowAutoShiftNotice = isSingleMode
+    ? singleShowAutoShiftNotice
+    : showAutoShiftNotice;
+  const activeResults = isSingleMode ? singleResults : results;
+  const activeIsAdded = isSingleMode ? singleIsAdded : isAdded;
 
   // Manual Entry Modal State
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -117,7 +150,10 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
   useEffect(() => {
     const reload = () => {
       setHistoryRecords(getStoredElectricityHistory());
-      setInputs(loadLastReadings());
+      setSingleInputs(loadLastReadings(STORAGE_BASE_ELECTRICITY_SINGLE_LAST));
+      setSingleResults(null);
+      setSingleIsAdded(false);
+      setInputs(loadLastReadings(STORAGE_BASE_ELECTRICITY_LAST));
       setResults(null);
       setIsAdded(false);
     };
@@ -140,6 +176,86 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
   }, [historyRecords, monthlyData]);
 
   const handleCalculate = () => {
+    if (isSingleMode) {
+      const res = calculateSingleMeterElectricity(singleInputs);
+      setSingleResults(res);
+      setSingleLastCalculatedInputs({ ...singleInputs });
+      setSingleIsAdded(false);
+
+      if (res.isValid) {
+        const oldT1Num = parseDecimalInput(singleInputs.oldT1) || 0;
+        const oldT2Num = parseDecimalInput(singleInputs.oldT2) || 0;
+        const newT1Num = parseDecimalInput(singleInputs.newT1) || 0;
+        const newT2Num = parseDecimalInput(singleInputs.newT2) || 0;
+        const priceT1Num = parseDecimalInput(singleInputs.priceT1) || 0;
+        const priceT2Num = parseDecimalInput(singleInputs.priceT2) || 0;
+
+        const unitPriceAvg =
+          res.totalCons > 0 ? res.costEm1 / res.totalCons : priceT1Num;
+
+        const newRecord: ElectricityRecord = {
+          id: `elec_${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          month: calcMonth,
+          year: calcYear,
+          periodLabel: `${calcMonth} ${calcYear}`,
+          previousReading: oldT1Num + oldT2Num,
+          prevT1: oldT1Num,
+          prevT2: oldT2Num,
+          currentReading: newT1Num + newT2Num,
+          currT1: newT1Num,
+          currT2: newT2Num,
+          consumption: res.totalCons,
+          consT1: res.consT1,
+          consT2: res.consT2,
+          priceT1: priceT1Num,
+          priceT2: priceT2Num,
+          unitPrice: unitPriceAvg,
+          costEm1: res.costEm1,
+          em2Remainder: 0,
+          totalCost: Number(res.costEm1.toFixed(2)),
+          note: calcNote.trim() || undefined,
+          meterMode: 'single',
+          source: 'calculator',
+        };
+
+        const updatedHistory = addElectricityRecord(newRecord);
+        setHistoryRecords(updatedHistory);
+      }
+
+      if (singleInputs.newT1 || singleInputs.newT2) {
+        const nextOldT1 = singleInputs.newT1 || singleInputs.oldT1;
+        const nextOldT2 = singleInputs.newT2 || singleInputs.oldT2;
+
+        try {
+          userStorage.setItem(
+            STORAGE_BASE_ELECTRICITY_SINGLE_LAST,
+            JSON.stringify({
+              oldT1: nextOldT1,
+              oldT2: nextOldT2,
+              priceT1: singleInputs.priceT1,
+              priceT2: singleInputs.priceT2,
+              invoiceTotal: singleInputs.invoiceTotal,
+            })
+          );
+        } catch (e) {
+          console.error("Failed to save single-meter last readings", e);
+        }
+
+        setSingleInputs((prev) => ({
+          ...prev,
+          oldT1: nextOldT1,
+          newT1: '',
+          oldT2: nextOldT2,
+          newT2: '',
+        }));
+
+        setSingleShowAutoShiftNotice(true);
+        setTimeout(() => setSingleShowAutoShiftNotice(false), 8000);
+      }
+      return;
+    }
+
     const res = calculateElectricity(inputs);
     setResults(res);
     setLastCalculatedInputs({ ...inputs });
@@ -183,6 +299,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
         em2Remainder: res.em2Remainder,
         totalCost: invoiceTotalNum,
         note: calcNote.trim() || undefined,
+        meterMode: "double",
         source: "calculator",
       };
 
@@ -305,18 +422,56 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
   };
 
   const handleAddToExpenses = () => {
-    if (results && results.isValid) {
-      onAddToExpenses(results.costEm1, results.em2Remainder);
+    if (!activeResults || !activeResults.isValid) return;
+    if (isSingleMode) {
+      onAddToExpenses(activeResults.costEm1);
+      setSingleIsAdded(true);
+      setTimeout(() => setSingleIsAdded(false), 3000);
+    } else {
+      onAddToExpenses(activeResults.costEm1, activeResults.em2Remainder);
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 3000);
     }
   };
 
   const handleDownloadCalculations = () => {
-    if (!results) return;
-    const calcInputs = lastCalculatedInputs || inputs;
+    if (!activeResults) return;
+    const calcInputs = activeLastCalculatedInputs || activeInputs;
 
-    const content = `
+    const content = isSingleMode
+      ? `
+КАЛКУЛАЦИИ ЗА ЕЛЕКТРОЕНЕРГИЯ (1 ЕЛЕКТРОМЕР)
+-------------------------------------------
+Дата: ${new Date().toLocaleDateString('bg-BG')}
+Период: ${calcMonth} ${calcYear}
+
+ВХОДНИ ДАННИ:
+Старо Т1: ${calcInputs.oldT1}
+Ново Т1:  ${calcInputs.newT1}
+Старо Т2: ${calcInputs.oldT2}
+Ново Т2:  ${calcInputs.newT2}
+
+ЦЕНИ (с ДДС):
+Дневна тарифа (Т1): €${calcInputs.priceT1} / kWh
+Нощна тарифа (Т2):  €${calcInputs.priceT2} / kWh
+
+ИЗЧИСЛЕНИЯ:
+1. Консумация
+   Т1 (Дневна) = ${calcInputs.newT1} - ${calcInputs.oldT1} = ${activeResults.consT1.toFixed(3)} kWh
+   Т2 (Нощна)  = ${calcInputs.newT2} - ${calcInputs.oldT2} = ${activeResults.consT2.toFixed(3)} kWh
+   Обща консумация = ${activeResults.totalCons.toFixed(3)} kWh
+
+2. Стойност
+   (Т1 * Цена) + (Т2 * Цена)
+   (${activeResults.consT1.toFixed(3)} * ${calcInputs.priceT1}) + (${activeResults.consT2.toFixed(3)} * ${calcInputs.priceT2})
+   = €${activeResults.costEm1.toFixed(2)}
+
+-------------------------------------------
+КРАЙНА СУМА:
+Сметка ток: €${activeResults.costEm1.toFixed(2)}
+-------------------------------------------
+    `.trim()
+      : `
 КАЛКУЛАЦИИ ЗА ЕЛЕКТРОЕНЕРГИЯ
 ---------------------------
 Дата: ${new Date().toLocaleDateString('bg-BG')}
@@ -335,24 +490,24 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
 ИЗЧИСЛЕНИЯ:
 1. Консумация
-   Т1 (Дневна) = ${calcInputs.newT1} - ${calcInputs.oldT1} = ${results.consT1.toFixed(3)} kWh
-   Т2 (Нощна)  = ${calcInputs.newT2} - ${calcInputs.oldT2} = ${results.consT2.toFixed(3)} kWh
-   Общо Електромер 1 = ${results.totalCons.toFixed(3)} kWh
+   Т1 (Дневна) = ${calcInputs.newT1} - ${calcInputs.oldT1} = ${activeResults.consT1.toFixed(3)} kWh
+   Т2 (Нощна)  = ${calcInputs.newT2} - ${calcInputs.oldT2} = ${activeResults.consT2.toFixed(3)} kWh
+   Общо Електромер 1 = ${activeResults.totalCons.toFixed(3)} kWh
 
 2. Стойност Електромер 1
    (Т1 * Цена) + (Т2 * Цена)
-   (${results.consT1.toFixed(3)} * ${calcInputs.priceT1}) + (${results.consT2.toFixed(3)} * ${calcInputs.priceT2})
-   = €${results.costEm1.toFixed(2)}
+   (${activeResults.consT1.toFixed(3)} * ${calcInputs.priceT1}) + (${activeResults.consT2.toFixed(3)} * ${calcInputs.priceT2})
+   = €${activeResults.costEm1.toFixed(2)}
 
 3. Стойност Електромер 2 (Остатък)
    Фактура - Електромер 1
-   ${calcInputs.invoiceTotal} - ${results.costEm1.toFixed(2)}
-   = €${results.em2Remainder.toFixed(2)}
+   ${calcInputs.invoiceTotal} - ${activeResults.costEm1.toFixed(2)}
+   = €${activeResults.em2Remainder.toFixed(2)}
 
 ---------------------------
 КРАЙНИ СУМИ:
-Сметка Електромер 1: €${results.costEm1.toFixed(2)}
-Сметка Електромер 2: €${results.em2Remainder.toFixed(2)}
+Сметка Електромер 1: €${activeResults.costEm1.toFixed(2)}
+Сметка Електромер 2: €${activeResults.em2Remainder.toFixed(2)}
 ---------------------------
     `.trim();
 
@@ -370,28 +525,46 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Sub-tab Navigation */}
-      <div className="flex border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm p-1.5 gap-2 transition-colors">
+      <div className="flex flex-wrap border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm p-1.5 gap-2 transition-colors">
         <button
-          onClick={() => setActiveSubTab('calculator')}
-          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-5 rounded-lg font-bold text-sm transition-all ${
-            activeSubTab === 'calculator'
+          onClick={() => {
+            setActiveSubTab('single');
+            setLastCalcMode('single');
+          }}
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-4 sm:px-5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer ${
+            activeSubTab === 'single'
               ? 'bg-yellow-500 text-slate-950 shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Calculator className="w-4 h-4" />
-          <span>Калкулатор</span>
+          <Calculator className="w-4 h-4 shrink-0" />
+          <span>1 Електромер</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveSubTab('double');
+            setLastCalcMode('double');
+          }}
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-4 sm:px-5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer ${
+            activeSubTab === 'double'
+              ? 'bg-yellow-500 text-slate-950 shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Calculator className="w-4 h-4 shrink-0" />
+          <span>2 Електромера</span>
         </button>
 
         <button
           onClick={() => setActiveSubTab('history')}
-          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-5 rounded-lg font-bold text-sm transition-all ${
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-2.5 px-4 sm:px-5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer ${
             activeSubTab === 'history'
               ? 'bg-yellow-500 text-slate-950 shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <History className="w-4 h-4" />
+          <History className="w-4 h-4 shrink-0" />
           <span>История на тока</span>
           {mergedHistoryRecords.length > 0 && (
             <span
@@ -407,13 +580,15 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
         </button>
       </div>
 
-      {/* Tab 1: Calculator */}
-      {activeSubTab === 'calculator' && (
+      {/* Calculator View: 1 Електромер (default) & 2 Електромера (current calculator preserved) */}
+      {(activeSubTab === 'single' || activeSubTab === 'double') && (
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-yellow-100 dark:border-slate-800 transition-colors">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
               <Zap className="w-6 h-6 text-yellow-500" />
-              Електроенергия Калкулатор
+              {isSingleMode
+                ? 'Електроенергия Калкулатор — 1 Електромер'
+                : 'Електроенергия Калкулатор — 2 Електромера'}
             </h2>
             <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
               <button
@@ -494,47 +669,48 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 <InputGroup
                   label="Старо Т1"
-                  value={inputs.oldT1}
-                  onChange={(v) => setInputs((prev) => ({ ...prev, oldT1: v }))}
+                  value={activeInputs.oldT1}
+                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, oldT1: v }))}
                 />
                 <InputGroup
                   label="Ново Т1"
-                  value={inputs.newT1}
-                  onChange={(v) => setInputs((prev) => ({ ...prev, newT1: v }))}
+                  value={activeInputs.newT1}
+                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, newT1: v }))}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <InputGroup
                   label="Старо Т2"
-                  value={inputs.oldT2}
-                  onChange={(v) => setInputs((prev) => ({ ...prev, oldT2: v }))}
+                  value={activeInputs.oldT2}
+                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, oldT2: v }))}
                 />
                 <InputGroup
                   label="Ново Т2"
-                  value={inputs.newT2}
-                  onChange={(v) => setInputs((prev) => ({ ...prev, newT2: v }))}
+                  value={activeInputs.newT2}
+                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, newT2: v }))}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4 pt-2">
                 <InputGroup
                   label="Цена Т1 (Дневна, €/kWh)"
-                  value={inputs.priceT1}
-                  onChange={(v) => setInputs((prev) => ({ ...prev, priceT1: v }))}
+                  value={activeInputs.priceT1}
+                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, priceT1: v }))}
                 />
                 <InputGroup
                   label="Цена Т2 (Нощна, €/kWh)"
-                  value={inputs.priceT2}
-                  onChange={(v) => setInputs((prev) => ({ ...prev, priceT2: v }))}
+                  value={activeInputs.priceT2}
+                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, priceT2: v }))}
                 />
               </div>
 
               <div className="pt-2">
                 <InputGroup
                   label="Обща сума по фактура (€)"
-                  value={inputs.invoiceTotal}
-                  onChange={(v) => setInputs((prev) => ({ ...prev, invoiceTotal: v }))}
+                  value={activeInputs.invoiceTotal}
+                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, invoiceTotal: v }))}
+                  placeholder={isSingleMode ? "по избор" : undefined}
                 />
               </div>
 
@@ -560,7 +736,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                 Изчисли и запиши в историята
               </button>
 
-              {showAutoShiftNotice && (
+              {activeShowAutoShiftNotice && (
                 <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-medium space-y-2 animate-in fade-in duration-200">
                   <div className="flex items-center gap-2">
                     <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -587,7 +763,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
             <div className="flex flex-col h-full">
               <h3 className="font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mb-4">Резултати</h3>
 
-              {results ? (
+              {activeResults ? (
                 <div className="flex-1 bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col gap-6">
                   {/* Header */}
                   <div className="flex items-center justify-between border-b border-slate-700 pb-4">
@@ -605,9 +781,9 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                     </span>
                   </div>
 
-                  {!results.isValid ? (
+                  {!activeResults.isValid ? (
                     <div className="text-red-400 bg-red-900/20 p-4 rounded-lg border border-red-800/50 text-sm">
-                      {results.errors.map((e, i) => (
+                      {activeResults.errors.map((e, i) => (
                         <p key={i}>• {e}</p>
                       ))}
                     </div>
@@ -620,78 +796,82 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                             <Sun className="w-4 h-4 text-amber-400" />
                             <span>Консумация Т1 (дневна):</span>
                           </div>
-                          <span className="font-mono font-bold">{results.consT1.toFixed(3)} kWh</span>
+                          <span className="font-mono font-bold">{activeResults.consT1.toFixed(3)} kWh</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-2 text-slate-300">
                             <Moon className="w-4 h-4 text-indigo-400" />
                             <span>Консумация Т2 (нощна):</span>
                           </div>
-                          <span className="font-mono font-bold">{results.consT2.toFixed(3)} kWh</span>
+                          <span className="font-mono font-bold">{activeResults.consT2.toFixed(3)} kWh</span>
                         </div>
                         <div className="flex justify-between items-center pt-2 border-t border-slate-700/50">
                           <div className="flex items-center gap-2 text-white font-medium">
                             <Zap className="w-4 h-4 text-yellow-400" />
-                            <span>Общо електромер 1:</span>
+                            <span>{isSingleMode ? 'Обща консумация:' : 'Общо електромер 1:'}</span>
                           </div>
                           <span className="font-mono font-bold text-yellow-400">
-                            {results.totalCons.toFixed(3)} kWh
+                            {activeResults.totalCons.toFixed(3)} kWh
                           </span>
                         </div>
                       </div>
 
                       {/* Cards */}
                       <div className="space-y-3">
-                        {/* EM1 Card */}
+                        {/* Cost Card (Single meter: Сметка ток / Two meters: Сметка електромер 1) */}
                         <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <Lightbulb className="w-6 h-6 text-yellow-200" />
                             <span className="text-sm font-medium text-slate-200">
-                              Сметка електромер 1:
+                              {isSingleMode ? 'Сметка ток:' : 'Сметка електромер 1:'}
                             </span>
                           </div>
                           <span className="text-2xl font-bold text-white">
-                            €{results.costEm1.toFixed(2)}
+                            €{activeResults.costEm1.toFixed(2)}
                           </span>
                         </div>
 
-                        {/* EM2 Card */}
-                        <div className="bg-emerald-900/30 border border-emerald-800/50 p-4 rounded-xl flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <Plug className="w-6 h-6 text-emerald-400" />
-                            <span className="text-sm font-medium text-emerald-100">
-                              Сметка електромер 2:
+                        {/* EM2 Card (ONLY for 2 meters) */}
+                        {!isSingleMode && (
+                          <div className="bg-emerald-900/30 border border-emerald-800/50 p-4 rounded-xl flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Plug className="w-6 h-6 text-emerald-400" />
+                              <span className="text-sm font-medium text-emerald-100">
+                                Сметка електромер 2:
+                              </span>
+                            </div>
+                            <span className="text-2xl font-bold text-emerald-400">
+                              €{activeResults.em2Remainder.toFixed(2)}
                             </span>
                           </div>
-                          <span className="text-2xl font-bold text-emerald-400">
-                            €{results.em2Remainder.toFixed(2)}
-                          </span>
-                        </div>
+                        )}
                       </div>
 
-                      {/* Invoice Total */}
-                      <div className="flex justify-between items-center px-2">
-                        <div className="flex items-center gap-2 text-slate-400 text-sm">
-                          <FileText className="w-4 h-4" />
-                          <span>Обща сума по фактурата:</span>
+                      {/* Invoice Total (ONLY for 2 meters) */}
+                      {!isSingleMode && (
+                        <div className="flex justify-between items-center px-2">
+                          <div className="flex items-center gap-2 text-slate-400 text-sm">
+                            <FileText className="w-4 h-4" />
+                            <span>Обща сума по фактурата:</span>
+                          </div>
+                          <span className="font-bold text-lg text-white">
+                            €{(parseDecimalInput(inputs.invoiceTotal || '0') || 0).toFixed(2)}
+                          </span>
                         </div>
-                        <span className="font-bold text-lg text-white">
-                          €{(parseDecimalInput(inputs.invoiceTotal || '0') || 0).toFixed(2)}
-                        </span>
-                      </div>
+                      )}
 
                       {/* Actions */}
                       <div className="space-y-3 mt-auto pt-4">
                         <button
                           onClick={handleAddToExpenses}
-                          disabled={isAdded}
-                          className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg ${
-                            isAdded
+                          disabled={activeIsAdded}
+                          className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
+                            activeIsAdded
                               ? 'bg-green-600 text-white transform scale-[0.98]'
                               : 'bg-emerald-600 text-white hover:bg-emerald-500 hover:translate-y-[-1px]'
                           }`}
                         >
-                          {isAdded ? (
+                          {activeIsAdded ? (
                             <>
                               <Check className="w-5 h-5" />
                               Добавено към разходи!
@@ -706,7 +886,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
                         <button
                           onClick={handleDownloadCalculations}
-                          className="w-full py-3 bg-slate-800 text-slate-300 border border-slate-700 rounded-xl font-medium hover:bg-slate-700 hover:text-white transition-all flex items-center justify-center gap-2"
+                          className="w-full py-3 bg-slate-800 text-slate-300 border border-slate-700 rounded-xl font-medium hover:bg-slate-700 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <Download className="w-5 h-5" />
                           Калкулации (.txt)
@@ -731,12 +911,12 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
         </div>
       )}
 
-      {/* Tab 2: Electricity History */}
+      {/* Tab 3: Electricity History */}
       {activeSubTab === 'history' && (
         <ElectricityHistoryTab
           records={mergedHistoryRecords}
           onDeleteRecord={handleDeleteHistoryRecord}
-          onSwitchToCalculator={() => setActiveSubTab('calculator')}
+          onSwitchToCalculator={() => setActiveSubTab(lastCalcMode)}
           onOpenManualEntry={handleOpenManualModal}
         />
       )}

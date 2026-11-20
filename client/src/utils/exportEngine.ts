@@ -13,6 +13,7 @@ import {
   resolveCategoriesForBudget,
 } from "@/utils/budgetStorage";
 import { loadStoredCategories } from "@/utils/categoryStorage";
+import { getElectricityMeterTypeLabel } from "@/utils/electricityStorage";
 import {
   formatRepeatLabel,
   isRepeatingFrequency,
@@ -141,6 +142,7 @@ export interface ExportBudgetRow {
 export interface ExportElectricityRow {
   date: string;
   sortTs: number;
+  meterType: string;
   consumption: number;
   pricePerKwh: number;
   totalCost: number;
@@ -911,6 +913,7 @@ export function aggregateExportData(params: {
       filteredElectricity.push({
         date,
         sortTs,
+        meterType: getElectricityMeterTypeLabel(rec),
         consumption,
         pricePerKwh: round5(unitPriceRaw),
         totalCost,
@@ -1842,6 +1845,7 @@ function buildReportBudgetsSheet(rowsData: ExportBudgetRow[]): SheetSpec {
 function buildReportElectricitySheet(rowsData: ExportElectricityRow[]): SheetSpec {
   const header: CellValue[] = [
     headerCell("Date"),
+    headerCell("Type"),
     headerCell("Consumption"),
     headerCell("Price Per kWh"),
     headerCell("Total Cost"),
@@ -1849,6 +1853,7 @@ function buildReportElectricitySheet(rowsData: ExportElectricityRow[]): SheetSpe
 
   const body: CellValue[][] = rowsData.map((r) => [
     dateCell(r.date),
+    strCell(r.meterType),
     currencyCell(r.consumption),
     numCell(r.pricePerKwh, STYLE.PRICE_5DEC),
     currencyCell(r.totalCost),
@@ -1859,7 +1864,7 @@ function buildReportElectricitySheet(rowsData: ExportElectricityRow[]): SheetSpe
     rows: [header, ...body],
     freezeHeader: true,
     autoFilter: true,
-    minColWidths: [14, 18, 18, 16],
+    minColWidths: [14, 18, 18, 18, 16],
   };
 }
 

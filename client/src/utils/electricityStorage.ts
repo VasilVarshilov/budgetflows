@@ -21,6 +21,42 @@ export const MONTHS_BG_LIST = [
   "Декември",
 ];
 
+export type ResolvedElectricityMeterMode = "single" | "double" | "manual";
+
+export function isManualOrNoReadingsElectricityRecord(
+  r: ElectricityRecord
+): boolean {
+  return Boolean(
+    r.source === "manual" ||
+      r.source === "receipt" ||
+      (r.consumption === 0 &&
+        r.previousReading === 0 &&
+        r.currentReading === 0 &&
+        r.costEm1 === 0 &&
+        r.em2Remainder === 0)
+  );
+}
+
+/**
+ * Resolves the calculator type of any historical electricity record without mutating legacy data.
+ * Legacy records saved prior to `meterMode` introduction used the 2-meter calculator.
+ */
+export function resolveElectricityMeterMode(
+  r: ElectricityRecord
+): ResolvedElectricityMeterMode {
+  if (isManualOrNoReadingsElectricityRecord(r)) return "manual";
+  if (r.meterMode === "single") return "single";
+  if (r.meterMode === "double") return "double";
+  return "double";
+}
+
+export function getElectricityMeterTypeLabel(r: ElectricityRecord): string {
+  const mode = resolveElectricityMeterMode(r);
+  if (mode === "single") return "1 Електромер";
+  if (mode === "double") return "2 Електромера";
+  return "Ръчен запис";
+}
+
 // Initial realistic seed records so user immediately sees charts and history
 const DEFAULT_SEED_RECORDS: ElectricityRecord[] = [
   {

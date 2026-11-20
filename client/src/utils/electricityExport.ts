@@ -1,8 +1,21 @@
 import { ElectricityRecord } from "@/types";
+import {
+  getElectricityMeterTypeLabel,
+  resolveElectricityMeterMode,
+} from "./electricityStorage";
 
 export interface ElectricityFilterInfo {
   selectedYear: string; // "all" or "2026"
   selectedMonth: string; // "all" or "Ноември"
+  meterTypeFilter?: "all" | "single" | "double";
+}
+
+export function getElectricityMeterFilterLabel(
+  meterTypeFilter?: "all" | "single" | "double"
+): string {
+  if (meterTypeFilter === "single") return "1 Електромер";
+  if (meterTypeFilter === "double") return "2 Електромера";
+  return "Всички";
 }
 
 export function getElectricityFilterLabel(filter: ElectricityFilterInfo): string {
@@ -26,6 +39,7 @@ export function exportElectricityHistoryToTxt(
   filter: ElectricityFilterInfo
 ) {
   const periodLabel = getElectricityFilterLabel(filter);
+  const meterFilterLabel = getElectricityMeterFilterLabel(filter.meterTypeFilter);
   const now = new Date();
   const dateFormatted = now.toLocaleDateString("bg-BG", {
     day: "2-digit",
@@ -42,8 +56,16 @@ export function exportElectricityHistoryToTxt(
   const totalConsT1 = records.reduce((sum, r) => sum + r.consT1, 0);
   const totalConsT2 = records.reduce((sum, r) => sum + r.consT2, 0);
   const totalCost = records.reduce((sum, r) => sum + r.totalCost, 0);
-  const totalCostEm1 = records.reduce((sum, r) => sum + r.costEm1, 0);
-  const totalCostEm2 = records.reduce((sum, r) => sum + r.em2Remainder, 0);
+
+  const singleRecords = records.filter(
+    (r) => resolveElectricityMeterMode(r) === "single"
+  );
+  const doubleRecords = records.filter(
+    (r) => resolveElectricityMeterMode(r) === "double"
+  );
+  const totalSingleCost = singleRecords.reduce((sum, r) => sum + r.totalCost, 0);
+  const totalDoubleEm1 = doubleRecords.reduce((sum, r) => sum + r.costEm1, 0);
+  const totalDoubleEm2 = doubleRecords.reduce((sum, r) => sum + r.em2Remainder, 0);
 
   const recordsWithConsumption = records.filter((r) => r.consumption > 0);
   const costForMeasured = recordsWithConsumption.reduce(
@@ -58,12 +80,34 @@ export function exportElectricityHistoryToTxt(
   const avgUnitPrice =
     totalConsumption > 0 ? costForMeasured / totalConsumption : 0;
 
+  const costSummaryLines: string[] =
+    doubleRecords.length > 0 && singleRecords.length === 0
+      ? [
+          `• Общ разход (Фактури):       €${totalCost.toFixed(2)}`,
+          `    - Електромер 1:           €${totalDoubleEm1.toFixed(2)}`,
+          `    - Електромер 2 (Остатък): €${totalDoubleEm2.toFixed(2)}`,
+        ]
+      : singleRecords.length > 0 && doubleRecords.length === 0
+      ? [`• Общ разход (1 Електромер):  €${totalCost.toFixed(2)}`]
+      : [
+          `• Общ разход:                 €${totalCost.toFixed(2)}`,
+          ...(singleRecords.length > 0
+            ? [`    - 1 Електромер (${singleRecords.length}):     €${totalSingleCost.toFixed(2)}`]
+            : []),
+          ...(doubleRecords.length > 0
+            ? [
+                `    - 2 Електромера (${doubleRecords.length}):    ЕМ 1: €${totalDoubleEm1.toFixed(2)} | ЕМ 2: €${totalDoubleEm2.toFixed(2)}`,
+              ]
+            : []),
+        ];
+
   const lines: string[] = [
     "=======================================================================",
     "                BUDGET FORCE 365 - ИСТОРИЯ НА ТОКА                     ",
     "               ОТЧЕТ И АНАЛИЗ НА РАЗХОДИТЕ ЗА ЕЛЕКТРОЕНЕРГИЯ           ",
     "=======================================================================",
     `Период:              ${periodLabel}`,
+    `Тип калкулатор:      ${meterFilterLabel}`,
     `Дата на генериране:  ${dateFormatted} г., ${timeFormatted} ч.`,
     `Общ брой отчети:     ${totalRecords}`,
     "-----------------------------------------------------------------------",
@@ -76,9 +120,7 @@ export function exportElectricityHistoryToTxt(
     `    - Нощна тарифа (Т2):      ${totalConsT2.toFixed(3)} kWh (${
       totalConsumption > 0 ? ((totalConsT2 / totalConsumption) * 100).toFixed(1) : 0
     }%)`,
-    `• Общ разход (Фактури):       €${totalCost.toFixed(2)}`,
-    `    - Електромер 1:           €${totalCostEm1.toFixed(2)}`,
-    `    - Електромер 2 (Остатък): €${totalCostEm2.toFixed(2)}`,
+    ...costSummaryLines,
     `• Средно потребление/отчет:   ${avgConsumption.toFixed(3)} kWh`,
     `• Средна сметка/отчет:        €${avgCost.toFixed(2)}`,
     `• Средна цена за kWh:         €${avgUnitPrice.toFixed(4)} / kWh`,
@@ -91,26 +133,28 @@ export function exportElectricityHistoryToTxt(
     lines.push("Няма намерени записи за избрания период.");
   } else {
     records.forEach((r, idx) => {
-      const isManual =
-        r.source === "manual" ||
-        r.source === "receipt" ||
-        (r.consumption === 0 &&
-          r.previousReading === 0 &&
-          r.currentReading === 0 &&
-          r.costEm1 === 0 &&
-          r.em2Remainder === 0);
-      lines.push(`Отчет #${idx + 1} - Период: ${r.periodLabel}${isManual ? " [Ръчен запис]" : ""}`);
-      if (!isManual) {
+      const mode = resolveElectricityMeterMode(r);
+      const typeLabel = getElectricityMeterTypeLabel(r);
+      lines.push(`Отчет #${idx + 1} - Период: ${r.periodLabel} [${typeLabel}]`);
+      lines.push(`  • Тип:              ${typeLabel}`);
+      if (mode !== "manual") {
         lines.push(`  • Старо показание:  Т1: ${r.prevT1.toFixed(1)} | Т2: ${r.prevT2.toFixed(1)} | Общо: ${r.previousReading.toFixed(1)}`);
         lines.push(`  • Ново показание:   Т1: ${r.currT1.toFixed(1)} | Т2: ${r.currT2.toFixed(1)} | Общо: ${r.currentReading.toFixed(1)}`);
         lines.push(`  • Потребление:      Т1: ${r.consT1.toFixed(3)} kWh | Т2: ${r.consT2.toFixed(3)} kWh | Общо: ${r.consumption.toFixed(3)} kWh`);
         lines.push(`  • Единична цена:    Т1: €${r.priceT1.toFixed(5)}/kWh | Т2: €${r.priceT2.toFixed(5)}/kWh | Средна: €${r.unitPrice.toFixed(4)}/kWh`);
-        lines.push(`  • Стойност ЕМ 1:    €${r.costEm1.toFixed(2)}`);
-        lines.push(`  • Стойност ЕМ 2:    €${r.em2Remainder.toFixed(2)}`);
-      } else if (r.consumption > 0) {
-        lines.push(`  • Потребление:      ${r.consumption.toFixed(3)} kWh`);
+        if (mode === "single") {
+          lines.push(`  • Сметка ток:       €${r.costEm1.toFixed(2)}`);
+        } else {
+          lines.push(`  • Стойност ЕМ 1:    €${r.costEm1.toFixed(2)}`);
+          lines.push(`  • Стойност ЕМ 2:    €${r.em2Remainder.toFixed(2)}`);
+          lines.push(`  • Обща фактура:     €${r.totalCost.toFixed(2)}`);
+        }
+      } else {
+        if (r.consumption > 0) {
+          lines.push(`  • Потребление:      ${r.consumption.toFixed(3)} kWh`);
+        }
+        lines.push(`  • Сума:             €${r.totalCost.toFixed(2)}`);
       }
-      lines.push(`  • Обща фактура:     €${r.totalCost.toFixed(2)}`);
       if (r.note) {
         lines.push(`  • Забележка:        ${r.note}`);
       }
@@ -128,7 +172,11 @@ export function exportElectricityHistoryToTxt(
   const link = document.createElement("a");
   link.href = url;
   const safePeriod = periodLabel.replace(/[\s/\\:]+/g, "_");
-  link.download = `BudgetForce365_Electricity_History_${safePeriod}.txt`;
+  const safeType =
+    filter.meterTypeFilter && filter.meterTypeFilter !== "all"
+      ? `_${filter.meterTypeFilter}`
+      : "";
+  link.download = `BudgetForce365_Electricity_History_${safePeriod}${safeType}.txt`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -143,6 +191,7 @@ export async function exportElectricityHistoryToPng(
   filter: ElectricityFilterInfo
 ) {
   const periodLabel = getElectricityFilterLabel(filter);
+  const meterFilterLabel = getElectricityMeterFilterLabel(filter.meterTypeFilter);
   const now = new Date();
   const dateFormatted = now.toLocaleDateString("bg-BG", {
     day: "2-digit",
@@ -164,7 +213,7 @@ export async function exportElectricityHistoryToPng(
   const avgUnitPrice =
     totalConsumption > 0 ? costForMeasured / totalConsumption : 0;
 
-  const width = 1100;
+  const width = 1220;
   const tableRowsCount = Math.max(records.length, 1);
   const height = 400 + tableRowsCount * 44 + 100;
 
@@ -198,7 +247,11 @@ export async function exportElectricityHistoryToPng(
 
   ctx.fillStyle = "#94a3b8";
   ctx.font = "14px sans-serif";
-  ctx.fillText(`Период: ${periodLabel} • Генериран: ${dateFormatted}`, 40, 80);
+  ctx.fillText(
+    `Период: ${periodLabel} • Тип: ${meterFilterLabel} • Генериран: ${dateFormatted}`,
+    40,
+    80
+  );
 
   // 4 KPI Cards
   const kpiY = 145;
@@ -254,24 +307,20 @@ export async function exportElectricityHistoryToPng(
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 12px sans-serif";
   ctx.fillText("ПЕРИОД", 56, tableY + 26);
-  ctx.fillText("СТАРО ПОК.", 200, tableY + 26);
-  ctx.fillText("НОВО ПОК.", 330, tableY + 26);
-  ctx.fillText("ПОТРЕБЛЕНИЕ", 470, tableY + 26);
-  ctx.fillText("ЕД. ЦЕНА", 640, tableY + 26);
-  ctx.fillText("ЕМ 1 (€)", 770, tableY + 26);
-  ctx.fillText("ЕМ 2 (€)", 880, tableY + 26);
-  ctx.fillText("ОБЩО (€)", 980, tableY + 26);
+  ctx.fillText("ТИП", 195, tableY + 26);
+  ctx.fillText("СТАРО ПОК.", 330, tableY + 26);
+  ctx.fillText("НОВО ПОК.", 455, tableY + 26);
+  ctx.fillText("ПОТРЕБЛЕНИЕ", 585, tableY + 26);
+  ctx.fillText("ЕД. ЦЕНА", 740, tableY + 26);
+  ctx.fillText("ЕМ 1 (€)", 865, tableY + 26);
+  ctx.fillText("ЕМ 2 (€)", 975, tableY + 26);
+  ctx.fillText("ОБЩО (€)", 1080, tableY + 26);
 
   // Table rows
   records.forEach((r, idx) => {
-    const isManual =
-      r.source === "manual" ||
-      r.source === "receipt" ||
-      (r.consumption === 0 &&
-        r.previousReading === 0 &&
-        r.currentReading === 0 &&
-        r.costEm1 === 0 &&
-        r.em2Remainder === 0);
+    const mode = resolveElectricityMeterMode(r);
+    const typeLabel = getElectricityMeterTypeLabel(r);
+    const isManual = mode === "manual";
     const rowY = tableY + 42 + idx * 44;
     if (idx % 2 === 1) {
       ctx.fillStyle = "#f8fafc";
@@ -288,28 +337,33 @@ export async function exportElectricityHistoryToPng(
     ctx.font = "bold 13px sans-serif";
     ctx.fillText(r.periodLabel, 56, rowY + 27);
 
+    ctx.fillStyle =
+      mode === "single" ? "#b45309" : mode === "double" ? "#4338ca" : "#64748b";
+    ctx.font = "bold 11px sans-serif";
+    ctx.fillText(typeLabel, 195, rowY + 27);
+
     ctx.fillStyle = "#475569";
     ctx.font = "12px monospace";
-    ctx.fillText(isManual ? "—" : `${r.previousReading.toFixed(1)}`, 200, rowY + 27);
-    ctx.fillText(isManual ? "—" : `${r.currentReading.toFixed(1)}`, 330, rowY + 27);
+    ctx.fillText(isManual ? "—" : `${r.previousReading.toFixed(1)}`, 330, rowY + 27);
+    ctx.fillText(isManual ? "—" : `${r.currentReading.toFixed(1)}`, 455, rowY + 27);
 
     ctx.fillStyle = "#b45309";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText(r.consumption > 0 ? `${r.consumption.toFixed(2)} kWh` : "—", 470, rowY + 27);
+    ctx.fillText(r.consumption > 0 ? `${r.consumption.toFixed(2)} kWh` : "—", 585, rowY + 27);
 
     ctx.fillStyle = "#64748b";
     ctx.font = "12px sans-serif";
-    ctx.fillText(r.unitPrice > 0 ? `€${r.unitPrice.toFixed(4)}` : "—", 640, rowY + 27);
+    ctx.fillText(r.unitPrice > 0 ? `€${r.unitPrice.toFixed(4)}` : "—", 740, rowY + 27);
 
     ctx.fillStyle = "#1e293b";
-    ctx.fillText(isManual ? "—" : `€${r.costEm1.toFixed(2)}`, 770, rowY + 27);
+    ctx.fillText(isManual ? "—" : `€${r.costEm1.toFixed(2)}`, 865, rowY + 27);
 
-    ctx.fillStyle = "#047857";
-    ctx.fillText(isManual ? "—" : `€${r.em2Remainder.toFixed(2)}`, 880, rowY + 27);
+    ctx.fillStyle = mode === "double" ? "#047857" : "#94a3b8";
+    ctx.fillText(mode === "double" ? `€${r.em2Remainder.toFixed(2)}` : "—", 975, rowY + 27);
 
     ctx.fillStyle = "#0f172a";
     ctx.font = "bold 13px sans-serif";
-    ctx.fillText(`€${r.totalCost.toFixed(2)}`, 980, rowY + 27);
+    ctx.fillText(`€${r.totalCost.toFixed(2)}`, 1080, rowY + 27);
   });
 
   // Footer
@@ -322,10 +376,14 @@ export async function exportElectricityHistoryToPng(
   );
 
   const safePeriod = periodLabel.replace(/[\s/\\:]+/g, "_");
+  const safeType =
+    filter.meterTypeFilter && filter.meterTypeFilter !== "all"
+      ? `_${filter.meterTypeFilter}`
+      : "";
   const dataUrl = canvas.toDataURL("image/png");
   const link = document.createElement("a");
   link.href = dataUrl;
-  link.download = `BudgetForce365_Electricity_Report_${safePeriod}.png`;
+  link.download = `BudgetForce365_Electricity_Report_${safePeriod}${safeType}.png`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

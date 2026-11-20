@@ -423,9 +423,9 @@ const AppContent: React.FC = () => {
     []
   );
 
-  // Add Electricity to Expenses
+  // Add Electricity to Expenses (supports both 2-meter EM1+EM2 and 1-meter single bill)
   const handleAddElectricityToExpenses = useCallback(
-    (em1Amount: number, em2Amount: number) => {
+    (em1Amount: number, em2Amount?: number) => {
       const targetUid = userStorage.getActiveUid();
       const prev = monthlyDataRef.current;
       const monthKey = getCurrentMonthBulgarian();
@@ -453,49 +453,75 @@ const AppContent: React.FC = () => {
 
       const existingExpenses = existing.expenses?.additional_expenses || [];
 
-      // Remove any existing electricity expenses to avoid duplicates
+      // Remove any existing electricity calculator expenses to avoid duplicates
       const filteredExpenses = existingExpenses.filter(
         (e) => !e.categoryName.startsWith("Сметка Ток")
       );
 
-      // Create two new electricity expense items
       const nowMs = Date.now();
       const nowIso = new Date(nowMs).toISOString();
-      const em1Expense: ExpenseItem = {
-        id: `electricity_em1_${nowMs}`,
-        categoryId: "electricity",
-        categoryName: "Сметка Ток - Електромер 1",
-        categoryIcon: "Zap",
-        categoryColor: "bg-yellow-100 text-yellow-600",
-        amount: em1Amount,
-        note: "",
-        date: nowIso,
-        createdAt: nowIso,
-        timestamp: nowMs,
-        completed: true,
-        status: "completed",
-        repeat: "never",
-        completedAt: nowIso,
-      };
+      const newElectricityItems: ExpenseItem[] = [];
 
-      const em2Ms = nowMs + 1;
-      const em2Iso = new Date(em2Ms).toISOString();
-      const em2Expense: ExpenseItem = {
-        id: `electricity_em2_${em2Ms}`,
-        categoryId: "electricity",
-        categoryName: "Сметка Ток - Електромер 2",
-        categoryIcon: "Zap",
-        categoryColor: "bg-yellow-100 text-yellow-600",
-        amount: em2Amount,
-        note: "",
-        date: em2Iso,
-        createdAt: em2Iso,
-        timestamp: em2Ms,
-        completed: true,
-        status: "completed",
-        repeat: "never",
-        completedAt: em2Iso,
-      };
+      if (typeof em2Amount === "number") {
+        // Two-meter mode: preserve exact EM1 + EM2 expenses
+        const em1Expense: ExpenseItem = {
+          id: `electricity_em1_${nowMs}`,
+          categoryId: "electricity",
+          categoryName: "Сметка Ток - Електромер 1",
+          categoryIcon: "Zap",
+          categoryColor: "bg-yellow-100 text-yellow-600",
+          amount: em1Amount,
+          note: "",
+          date: nowIso,
+          createdAt: nowIso,
+          timestamp: nowMs,
+          completed: true,
+          status: "completed",
+          repeat: "never",
+          completedAt: nowIso,
+        };
+
+        const em2Ms = nowMs + 1;
+        const em2Iso = new Date(em2Ms).toISOString();
+        const em2Expense: ExpenseItem = {
+          id: `electricity_em2_${em2Ms}`,
+          categoryId: "electricity",
+          categoryName: "Сметка Ток - Електромер 2",
+          categoryIcon: "Zap",
+          categoryColor: "bg-yellow-100 text-yellow-600",
+          amount: em2Amount,
+          note: "",
+          date: em2Iso,
+          createdAt: em2Iso,
+          timestamp: em2Ms,
+          completed: true,
+          status: "completed",
+          repeat: "never",
+          completedAt: em2Iso,
+        };
+
+        newElectricityItems.push(em1Expense, em2Expense);
+      } else {
+        // Single-meter mode: add single electricity bill expense
+        const singleExpense: ExpenseItem = {
+          id: `electricity_em1_${nowMs}`,
+          categoryId: "electricity",
+          categoryName: "Сметка Ток",
+          categoryIcon: "Zap",
+          categoryColor: "bg-yellow-100 text-yellow-600",
+          amount: em1Amount,
+          note: "",
+          date: nowIso,
+          createdAt: nowIso,
+          timestamp: nowMs,
+          completed: true,
+          status: "completed",
+          repeat: "never",
+          completedAt: nowIso,
+        };
+
+        newElectricityItems.push(singleExpense);
+      }
 
       const updated: MonthlyRecord = {
         ...existing,
@@ -503,7 +529,7 @@ const AppContent: React.FC = () => {
           saved_em2_eur: existing.expenses?.saved_em2_eur || 0,
           // Keep existing fixed expenses
           fixed_expenses: existing.expenses?.fixed_expenses || [],
-          additional_expenses: [...filteredExpenses, em1Expense, em2Expense],
+          additional_expenses: [...filteredExpenses, ...newElectricityItems],
         },
       };
 

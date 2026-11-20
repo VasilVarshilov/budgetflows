@@ -13,6 +13,7 @@ import {
   loadBudgets,
 } from "@/utils/budgetStorage";
 import { loadStoredCategories, loadStoredIncomeCategories } from "@/utils/categoryStorage";
+import { getElectricityMeterTypeLabel } from "@/utils/electricityStorage";
 import { parseExpenseNote } from "@/utils/expenseFormatter";
 import { isRecordCompleted } from "@/utils/expenseStatus";
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
@@ -1316,6 +1317,7 @@ function buildElectricitySheet(records: ElectricityRecord[]): {
           currencyCell(Number(rec.costEm1) || 0),
           currencyCell(Number(rec.em2Remainder) || 0),
           currencyCell(Number(rec.totalCost) || 0),
+          strCell(getElectricityMeterTypeLabel(rec)),
           strCell(translateElectricitySource(rec.source)),
           strCell(flattenText(rec.note)),
         ],
@@ -1335,12 +1337,13 @@ function buildElectricitySheet(records: ElectricityRecord[]): {
     headerCell("Prev T2 (kWh)"),
     headerCell("Curr T2 (kWh)"),
     headerCell("Cons T2 (kWh)"),
-    headerCell("Total Cons EM1 (kWh)"),
+    headerCell("Total Cons (kWh)"),
     headerCell("Price T1 (EUR/kWh)"),
     headerCell("Price T2 (EUR/kWh)"),
     headerCell("Cost EM1 (EUR)"),
     headerCell("EM2 Remainder (EUR)"),
     headerCell("Total Invoice (EUR)"),
+    headerCell("Calculator Type"),
     headerCell("Source"),
     headerCell("Notes"),
   ];
@@ -1351,7 +1354,7 @@ function buildElectricitySheet(records: ElectricityRecord[]): {
       rows: [headerRow, ...collected.map((c) => c.row)],
       freezeHeader: true,
       autoFilter: true,
-      minColWidths: [13, 18, 13, 8, 14, 14, 14, 14, 14, 14, 19, 17, 17, 15, 18, 18, 16, 26],
+      minColWidths: [13, 18, 13, 8, 14, 14, 14, 14, 14, 14, 19, 17, 17, 15, 18, 18, 18, 16, 26],
     },
     count: collected.length,
     totalCost: round2(totalCost),

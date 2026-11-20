@@ -18,6 +18,9 @@ import {
   Clock,
   PlusCircle,
   HelpCircle,
+  Eye,
+  X,
+  Gauge,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -35,6 +38,10 @@ import { ElectricityRecord } from "@/types";
 import {
   MONTHS_BG_LIST,
   sortElectricityRecordsChronologically,
+  isManualOrNoReadingsElectricityRecord,
+  resolveElectricityMeterMode,
+  getElectricityMeterTypeLabel,
+  ResolvedElectricityMeterMode,
 } from "@/utils/electricityStorage";
 import {
   exportElectricityHistoryToTxt,
@@ -44,17 +51,7 @@ import {
 import { useTheme } from "@/utils/themeContext";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 
-function isManualOrNoReadingsRecord(r: ElectricityRecord): boolean {
-  return Boolean(
-    r.source === "manual" ||
-      r.source === "receipt" ||
-      (r.consumption === 0 &&
-        r.previousReading === 0 &&
-        r.currentReading === 0 &&
-        r.costEm1 === 0 &&
-        r.em2Remainder === 0)
-  );
-}
+type MeterTypeFilter = "all" | "single" | "double";
 
 interface ElectricityHistoryTabProps {
   records: ElectricityRecord[];
@@ -75,7 +72,9 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
 
   const [selectedYear, setSelectedYear] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [meterTypeFilter, setMeterTypeFilter] = useState<MeterTypeFilter>("all");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [selectedDetailRecord, setSelectedDetailRecord] = useState<ElectricityRecord | null>(null);
 
   // Available unique years from records or default
   const availableYears = useMemo(() => {
@@ -97,10 +96,16 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
       if (selectedMonth !== "all" && r.month !== selectedMonth) {
         return false;
       }
+      if (meterTypeFilter !== "all") {
+        const mode = resolveElectricityMeterMode(r);
+        if (mode !== meterTypeFilter) {
+          return false;
+        }
+      }
       return true;
     });
     return sortElectricityRecordsChronologically(filtered, "desc");
-  }, [records, selectedYear, selectedMonth]);
+  }, [records, selectedYear, selectedMonth, meterTypeFilter]);
 
   // Aggregate stats (exclude consumption===0 manual entries from kWh averages so they don't skew kWh stats)
   const stats = useMemo(() => {
@@ -109,9 +114,24 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
       (sum, r) => sum + r.consumption,
       0
     );
+    const totalConsT1 = filteredRecords.reduce((sum, r) => sum + r.consT1, 0);
+    const totalConsT2 = filteredRecords.reduce((sum, r) => sum + r.consT2, 0);
     const totalCost = filteredRecords.reduce((sum, r) => sum + r.totalCost, 0);
-    const totalEm1 = filteredRecords.reduce((sum, r) => sum + r.costEm1, 0);
-    const totalEm2 = filteredRecords.reduce((sum, r) => sum + r.em2Remainder, 0);
+
+    const singleRecords = filteredRecords.filter(
+      (r) => resolveElectricityMeterMode(r) === "single"
+    );
+    const doubleRecords = filteredRecords.filter(
+      (r) => resolveElectricityMeterMode(r) === "double"
+    );
+    const manualRecords = filteredRecords.filter(
+      (r) => resolveElectricityMeterMode(r) === "manual"
+    );
+
+    const totalSingleCost = singleRecords.reduce((sum, r) => sum + r.totalCost, 0);
+    const totalDoubleCost = doubleRecords.reduce((sum, r) => sum + r.totalCost, 0);
+    const totalEm1 = doubleRecords.reduce((sum, r) => sum + r.costEm1, 0);
+    const totalEm2 = doubleRecords.reduce((sum, r) => sum + r.em2Remainder, 0);
 
     const recordsWithConsumption = filteredRecords.filter(
       (r) => r.consumption > 0
@@ -128,17 +148,39 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
     const avgPrice =
       totalConsumption > 0 ? costForMeasured / totalConsumption : 0;
 
+    let displayMode: "single" | "double" | "mixed" = "double";
+    if (meterTypeFilter === "single") {
+      displayMode = "single";
+    } else if (meterTypeFilter === "double") {
+      displayMode = "double";
+    } else if (singleRecords.length > 0 && doubleRecords.length === 0) {
+      displayMode = "single";
+    } else if (singleRecords.length > 0 && doubleRecords.length > 0) {
+      displayMode = "mixed";
+    } else {
+      displayMode = "double";
+    }
+
     return {
       totalCount,
+      measuredCount: recordsWithConsumption.length,
+      singleCount: singleRecords.length,
+      doubleCount: doubleRecords.length,
+      manualCount: manualRecords.length,
       totalConsumption,
+      totalConsT1,
+      totalConsT2,
       totalCost,
+      totalSingleCost,
+      totalDoubleCost,
       totalEm1,
       totalEm2,
       avgConsumption,
       avgCost,
       avgPrice,
+      displayMode,
     };
-  }, [filteredRecords]);
+  }, [filteredRecords, meterTypeFilter]);
 
   // Chronological data for charts (oldest to newest)
   const chartData = useMemo(() => {
@@ -154,18 +196,29 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
       seenLabels.set(baseLabel, seenCount);
       const shortPeriod =
         seenCount > 1 ? `${baseLabel} (${seenCount})` : baseLabel;
-      const hasMeterSplit = r.costEm1 > 0 || r.em2Remainder > 0;
+      const mode: ResolvedElectricityMeterMode = resolveElectricityMeterMode(r);
+      const typeLabel = getElectricityMeterTypeLabel(r);
+      const effectiveUnitPrice =
+        r.unitPrice > 0
+          ? r.unitPrice
+          : r.consumption > 0
+          ? r.totalCost / r.consumption
+          : 0;
 
       return {
         period: r.periodLabel,
         shortPeriod,
+        meterMode: mode,
+        typeLabel,
         consumption: Number(r.consumption.toFixed(2)),
         consT1: Number(r.consT1.toFixed(2)),
         consT2: Number(r.consT2.toFixed(2)),
         totalCost: Number(r.totalCost.toFixed(2)),
-        costEm1: hasMeterSplit ? Number(r.costEm1.toFixed(2)) : null,
-        em2Remainder: hasMeterSplit ? Number(r.em2Remainder.toFixed(2)) : null,
-        isManual: isManualOrNoReadingsRecord(r),
+        costEm1: mode === "double" ? Number(r.costEm1.toFixed(2)) : null,
+        em2Remainder: mode === "double" ? Number(r.em2Remainder.toFixed(2)) : null,
+        avgUnitPrice:
+          effectiveUnitPrice > 0 ? Number(effectiveUnitPrice.toFixed(4)) : null,
+        isManual: mode === "manual",
       };
     });
   }, [filteredRecords]);
@@ -173,11 +226,13 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
   const handleResetFilters = () => {
     setSelectedYear("all");
     setSelectedMonth("all");
+    setMeterTypeFilter("all");
   };
 
   const currentFilterInfo: ElectricityFilterInfo = {
     selectedYear,
     selectedMonth,
+    meterTypeFilter,
   };
 
   const handleExportTxt = () => {
@@ -190,13 +245,16 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
 
   const handleDelete = (id: string) => {
     onDeleteRecord(id);
+    if (selectedDetailRecord?.id === id) {
+      setSelectedDetailRecord(null);
+    }
     setConfirmDeleteId(null);
   };
 
   return (
     <div className="space-y-6">
       {/* Filters and Export Bar */}
-      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors">
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-colors">
         {/* Left side: Filters */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 text-sm font-semibold">
@@ -232,7 +290,35 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
             ))}
           </select>
 
-          {(selectedYear !== "all" || selectedMonth !== "all") && (
+          {/* Calculator Type Filter */}
+          <div
+            role="group"
+            aria-label="Филтър по тип електромер"
+            className="inline-flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700"
+          >
+            {(
+              [
+                { id: "all", label: "Всички" },
+                { id: "single", label: "1 Електромер" },
+                { id: "double", label: "2 Електромера" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setMeterTypeFilter(opt.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                  meterTypeFilter === opt.id
+                    ? "bg-yellow-500 text-slate-950 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {(selectedYear !== "all" || selectedMonth !== "all" || meterTypeFilter !== "all") && (
             <button
               onClick={handleResetFilters}
               className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold flex items-center gap-1 px-2 py-1 bg-indigo-50 dark:bg-indigo-950/60 rounded-md transition-colors cursor-pointer"
@@ -248,7 +334,7 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
         </div>
 
         {/* Right side: Export buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleExportTxt}
             disabled={filteredRecords.length === 0}
@@ -272,104 +358,232 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
       </div>
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Consumption */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-yellow-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
-          <div className="flex items-center justify-between text-yellow-600 dark:text-yellow-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Общо потребление
-            </span>
-            <div className="p-2 bg-yellow-50 dark:bg-yellow-950/60 rounded-lg">
-              <Zap className="w-5 h-5 text-yellow-500 dark:text-yellow-400" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-800 dark:text-white">
-            {stats.totalConsumption.toFixed(2)}{" "}
-            <span className="text-sm font-normal text-slate-500 dark:text-slate-400">kWh</span>
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
-            <span>Средно/месец:</span>
-            <span className="font-semibold text-slate-700 dark:text-slate-300">
-              {stats.avgConsumption.toFixed(2)} kWh
-            </span>
-          </div>
-        </div>
-
-        {/* Total Cost */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-emerald-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
-          <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Общ разход (Фактури)
-            </span>
-            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 rounded-lg">
-              <CreditCard className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
-            €{stats.totalCost.toFixed(2)}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
-            <span>Средно/отчет:</span>
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
-              €{stats.avgCost.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        {/* Meter 1 vs Meter 2 */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-indigo-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
-          <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Разпределение ЕМ1 / ЕМ2
-            </span>
-            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 rounded-lg">
-              <Lightbulb className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            </div>
-          </div>
-          <div className="flex items-baseline justify-between">
-            <div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">ЕМ 1:</div>
-              <div className="text-lg font-bold text-slate-800 dark:text-white">
-                €{stats.totalEm1.toFixed(2)}
+      {stats.displayMode === "single" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Общо потребление */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-yellow-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+            <div className="flex items-center justify-between text-yellow-600 dark:text-yellow-400 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Общо потребление
+              </span>
+              <div className="p-2 bg-yellow-50 dark:bg-yellow-950/60 rounded-lg">
+                <Zap className="w-5 h-5 text-yellow-500 dark:text-yellow-400" />
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-slate-500 dark:text-slate-400">ЕМ 2 (Остатък):</div>
-              <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                €{stats.totalEm2.toFixed(2)}
+            <div className="text-2xl font-bold text-slate-800 dark:text-white">
+              {stats.totalConsumption.toFixed(2)}{" "}
+              <span className="text-sm font-normal text-slate-500 dark:text-slate-400">kWh</span>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+              <span>Т1 / Т2:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                {stats.totalConsT1.toFixed(0)} / {stats.totalConsT2.toFixed(0)} kWh
+              </span>
+            </div>
+          </div>
+
+          {/* Общ разход */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-emerald-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+            <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Общ разход
+              </span>
+              <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 rounded-lg">
+                <CreditCard className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
               </div>
             </div>
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
-            <span>Средна сметка/отчет:</span>
-            <span className="font-semibold text-slate-700 dark:text-slate-300">
-              €{stats.avgCost.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        {/* Average Unit Price */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-sky-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
-          <div className="flex items-center justify-between text-sky-600 dark:text-sky-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Средна цена за kWh
-            </span>
-            <div className="p-2 bg-sky-50 dark:bg-sky-950/60 rounded-lg">
-              <TrendingUp className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+            <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
+              €{stats.totalCost.toFixed(2)}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+              <span>Средно/отчет:</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                €{stats.avgCost.toFixed(2)}
+              </span>
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
-            €{stats.avgPrice.toFixed(4)}{" "}
-            <span className="text-sm font-normal text-slate-500 dark:text-slate-400">/kWh</span>
+
+          {/* Средна цена / kWh */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-sky-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+            <div className="flex items-center justify-between text-sky-600 dark:text-sky-400 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Средна цена / kWh
+              </span>
+              <div className="p-2 bg-sky-50 dark:bg-sky-950/60 rounded-lg">
+                <TrendingUp className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
+              €{stats.avgPrice.toFixed(4)}{" "}
+              <span className="text-sm font-normal text-slate-500 dark:text-slate-400">/kWh</span>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+              <span>Тарифна единица:</span>
+              <span className="font-semibold text-sky-700 dark:text-sky-400">
+                €/kWh (EUR)
+              </span>
+            </div>
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
-            <span>Тарифна единица:</span>
-            <span className="font-semibold text-sky-700 dark:text-sky-400">
-              €/kWh (EUR)
-            </span>
+
+          {/* Средно потребление */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-indigo-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+            <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Средно потребление
+              </span>
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 rounded-lg">
+                <Gauge className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
+              {stats.avgConsumption.toFixed(2)}{" "}
+              <span className="text-sm font-normal text-slate-500 dark:text-slate-400">kWh</span>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+              <span>Отчетени периоди:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                {stats.measuredCount} отчета
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Total Consumption */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-yellow-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+            <div className="flex items-center justify-between text-yellow-600 dark:text-yellow-400 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Общо потребление
+              </span>
+              <div className="p-2 bg-yellow-50 dark:bg-yellow-950/60 rounded-lg">
+                <Zap className="w-5 h-5 text-yellow-500 dark:text-yellow-400" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-slate-800 dark:text-white">
+              {stats.totalConsumption.toFixed(2)}{" "}
+              <span className="text-sm font-normal text-slate-500 dark:text-slate-400">kWh</span>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+              <span>Средно/месец:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                {stats.avgConsumption.toFixed(2)} kWh
+              </span>
+            </div>
+          </div>
+
+          {/* Total Cost */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-emerald-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+            <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                {stats.displayMode === "mixed" ? "Общ разход" : "Общ разход (Фактури)"}
+              </span>
+              <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 rounded-lg">
+                <CreditCard className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
+              €{stats.totalCost.toFixed(2)}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+              <span>Средно/отчет:</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                €{stats.avgCost.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* Meter 1 vs Meter 2 (or Mixed Mode Breakdown) */}
+          {stats.displayMode === "mixed" ? (
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-indigo-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+              <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Разпределение по тип
+                </span>
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 rounded-lg">
+                  <Lightbulb className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    1 Ел. ({stats.singleCount}):
+                  </div>
+                  <div className="text-lg font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                    €{stats.totalSingleCost.toFixed(2)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    2 Ел. ({stats.doubleCount}):
+                  </div>
+                  <div className="text-lg font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
+                    €{stats.totalDoubleCost.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+                <span>ЕМ1 / ЕМ2 (2 Ел.):</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300 tabular-nums">
+                  €{stats.totalEm1.toFixed(0)} / €{stats.totalEm2.toFixed(0)}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-indigo-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+              <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Разпределение ЕМ1 / ЕМ2
+                </span>
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 rounded-lg">
+                  <Lightbulb className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">ЕМ 1:</div>
+                  <div className="text-lg font-bold text-slate-800 dark:text-white">
+                    €{stats.totalEm1.toFixed(2)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">ЕМ 2 (Остатък):</div>
+                  <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                    €{stats.totalEm2.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+                <span>Средна сметка/отчет:</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  €{stats.avgCost.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Average Unit Price */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-sky-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-colors">
+            <div className="flex items-center justify-between text-sky-600 dark:text-sky-400 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Средна цена за kWh
+              </span>
+              <div className="p-2 bg-sky-50 dark:bg-sky-950/60 rounded-lg">
+                <TrendingUp className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-slate-800 dark:text-white tabular-nums">
+              €{stats.avgPrice.toFixed(4)}{" "}
+              <span className="text-sm font-normal text-slate-500 dark:text-slate-400">/kWh</span>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between">
+              <span>Тарифна единица:</span>
+              <span className="font-semibold text-sky-700 dark:text-sky-400">
+                €/kWh (EUR)
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Charts Section: 1. Consumption Trend Chart, 2. Cost Trend Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -412,7 +626,12 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                       const d = payload[0].payload;
                       return (
                         <div className="bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl border border-slate-700 space-y-1">
-                          <p className="font-bold text-yellow-400">{d.period}</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-bold text-yellow-400">{d.period}</p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                              {d.typeLabel}
+                            </span>
+                          </div>
                           {d.consumption === 0 ? (
                             <p className="text-slate-300 pt-1">
                               Ръчен запис (без отчетени kWh)
@@ -469,7 +688,11 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                   Тренд на разходите (€)
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Обща фактура спрямо Електромер 1 и Електромер 2
+                  {stats.displayMode === "single"
+                    ? "Месечен разход за електроенергия (1 Електромер)"
+                    : stats.displayMode === "mixed"
+                    ? "Общ разход по периоди (1 Електромер и 2 Електромера)"
+                    : "Обща фактура спрямо Електромер 1 и Електромер 2"}
                 </p>
               </div>
             </div>
@@ -496,15 +719,20 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                       const d = payload[0].payload;
                       return (
                         <div className="bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl border border-slate-700 space-y-1">
-                          <p className="font-bold text-emerald-400">{d.period}</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-bold text-emerald-400">{d.period}</p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                              {d.typeLabel}
+                            </span>
+                          </div>
                           <div className="pt-1 space-y-0.5">
                             <p className="text-slate-300">
-                              Обща фактура:{" "}
+                              {d.meterMode === "double" ? "Обща фактура:" : "Сметка ток:"}{" "}
                               <span className="font-mono font-bold text-white">
                                 €{Number(d.totalCost).toFixed(2)}
                               </span>
                             </p>
-                            {d.costEm1 !== null ? (
+                            {d.meterMode === "double" && d.costEm1 !== null ? (
                               <>
                                 <p className="text-slate-300">
                                   Електромер 1:{" "}
@@ -519,8 +747,12 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                                   </span>
                                 </p>
                               </>
+                            ) : d.meterMode === "single" ? (
+                              <p className="text-amber-300/90">
+                                Консумация: {d.consumption} kWh (1 Електромер)
+                              </p>
                             ) : (
-                              <p className="text-slate-400 italic">Ръчен запис (без разделение ЕМ1/ЕМ2)</p>
+                              <p className="text-slate-400 italic">Ръчен запис</p>
                             )}
                           </div>
                         </div>
@@ -531,7 +763,11 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                     wrapperStyle={{ fontSize: "11px", paddingTop: "8px", color: isDark ? "#cbd5e1" : "#475569" }}
                     formatter={(val) =>
                       val === "totalCost"
-                        ? "Общо по фактура (€)"
+                        ? stats.displayMode === "single"
+                          ? "Сметка ток (€)"
+                          : stats.displayMode === "mixed"
+                          ? "Общ разход (€)"
+                          : "Общо по фактура (€)"
                         : val === "costEm1"
                         ? "Електромер 1 (€)"
                         : "Електромер 2 (€)"
@@ -546,26 +782,30 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                     activeDot={{ r: 6 }}
                     name="totalCost"
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="costEm1"
-                    stroke="#f59e0b"
-                    strokeWidth={1.8}
-                    strokeDasharray="4 4"
-                    dot={{ r: 3, fill: "#f59e0b" }}
-                    connectNulls
-                    name="costEm1"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="em2Remainder"
-                    stroke="#06b6d4"
-                    strokeWidth={1.8}
-                    strokeDasharray="4 4"
-                    dot={{ r: 3, fill: "#06b6d4" }}
-                    connectNulls
-                    name="em2Remainder"
-                  />
+                  {stats.displayMode !== "single" && stats.doubleCount > 0 && (
+                    <>
+                      <Line
+                        type="monotone"
+                        dataKey="costEm1"
+                        stroke="#f59e0b"
+                        strokeWidth={1.8}
+                        strokeDasharray="4 4"
+                        dot={{ r: 3, fill: "#f59e0b" }}
+                        connectNulls={stats.displayMode === "double"}
+                        name="costEm1"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="em2Remainder"
+                        stroke="#06b6d4"
+                        strokeWidth={1.8}
+                        strokeDasharray="4 4"
+                        dot={{ r: 3, fill: "#06b6d4" }}
+                        connectNulls={stats.displayMode === "double"}
+                        name="em2Remainder"
+                      />
+                    </>
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -576,6 +816,156 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Additional One-Meter / Mixed Insights: Average €/kWh Trend & Day vs Night Usage */}
+      {(stats.displayMode === "single" || (stats.displayMode === "mixed" && stats.singleCount > 0)) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Average €/kWh Trend Chart */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col transition-colors">
+            <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-sky-100 dark:bg-sky-950/60 rounded-lg text-sky-600 dark:text-sky-400">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
+                    Средна цена (€/kWh) по периоди
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Ефективна цена на електроенергията за киловатчас
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-56 w-full">
+              {chartData.some((d) => d.avgUnitPrice !== null) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
+                    <XAxis
+                      dataKey="shortPeriod"
+                      tick={axisTickStyle}
+                      axisLine={{ stroke: gridStroke }}
+                    />
+                    <YAxis
+                      tick={axisTickStyle}
+                      axisLine={{ stroke: gridStroke }}
+                      tickFormatter={(v) => `€${Number(v).toFixed(2)}`}
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload || !payload.length) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div className="bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl border border-slate-700 space-y-1">
+                            <p className="font-bold text-sky-400">{d.period}</p>
+                            <p className="text-slate-300">
+                              Средна цена:{" "}
+                              <span className="font-mono font-bold text-white">
+                                {d.avgUnitPrice !== null ? `€${Number(d.avgUnitPrice).toFixed(4)}/kWh` : "—"}
+                              </span>
+                            </p>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="avgUnitPrice"
+                      stroke="#0ea5e9"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: "#0ea5e9" }}
+                      connectNulls
+                      name="Средна цена (€/kWh)"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-slate-500 dark:text-slate-400 text-xs">
+                  Няма данни за изчисление на средна цена за kWh.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Day vs Night (T1 / T2) Usage Summary */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-colors">
+            <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-100 dark:bg-indigo-950/60 rounded-lg text-indigo-600 dark:text-indigo-400">
+                  <Sun className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
+                    Дневна (Т1) спрямо Нощна (Т2) тарифа
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Съотношение на консумацията за избрания период
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {stats.totalConsumption > 0 ? (
+              <div className="space-y-5 my-auto">
+                {(() => {
+                  const t1Pct = (stats.totalConsT1 / stats.totalConsumption) * 100;
+                  const t2Pct = (stats.totalConsT2 / stats.totalConsumption) * 100;
+                  return (
+                    <>
+                      <div className="w-full h-4 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                        <div
+                          style={{ width: `${t1Pct}%` }}
+                          className="bg-amber-500 h-full transition-all"
+                          title={`Т1 Дневна: ${t1Pct.toFixed(1)}%`}
+                        />
+                        <div
+                          style={{ width: `${t2Pct}%` }}
+                          className="bg-indigo-500 h-full transition-all"
+                          title={`Т2 Нощна: ${t2Pct.toFixed(1)}%`}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-3.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/50">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-300">
+                            <Sun className="w-4 h-4" />
+                            <span>Т1 Дневна</span>
+                          </div>
+                          <div className="text-xl font-bold text-slate-900 dark:text-white font-mono mt-1">
+                            {stats.totalConsT1.toFixed(2)} kWh
+                          </div>
+                          <div className="text-xs text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
+                            {t1Pct.toFixed(1)}% от общото
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-900/50">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                            <Moon className="w-4 h-4" />
+                            <span>Т2 Нощна</span>
+                          </div>
+                          <div className="text-xl font-bold text-slate-900 dark:text-white font-mono mt-1">
+                            {stats.totalConsT2.toFixed(2)} kWh
+                          </div>
+                          <div className="text-xs text-indigo-700 dark:text-indigo-400 font-semibold mt-0.5">
+                            {t2Pct.toFixed(1)}% от общото
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="h-44 flex items-center justify-center text-slate-500 dark:text-slate-400 text-xs">
+                Няма отчетени kWh за сравнение на дневна и нощна тарифа.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Table View */}
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden transition-colors">
@@ -631,10 +1021,11 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
         ) : (
           <div>
             {/* Mobile Stacked Cards View (< md) */}
-            <div className="block md:hidden space-y-3">
+            <div className="block md:hidden space-y-3 p-3">
               {filteredRecords.map((r) => {
-                const isConfirming = confirmDeleteId === r.id;
-                const isManualEntry = isManualOrNoReadingsRecord(r);
+                const mode = resolveElectricityMeterMode(r);
+                const isManualEntry = mode === "manual";
+                const meterTypeBadgeLabel = getElectricityMeterTypeLabel(r);
                 const sourceBadgeLabel =
                   r.source === "receipt"
                     ? "Бележка (Разходи)"
@@ -647,22 +1038,35 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                 return (
                   <div
                     key={r.id}
-                    className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3"
+                    onClick={() => setSelectedDetailRecord(r)}
+                    className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-3 cursor-pointer hover:border-yellow-400/70 dark:hover:border-yellow-500/40 transition-colors"
                   >
                     {/* Header: Period & Invoice Total */}
                     <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-2.5">
                       <div>
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-slate-900 dark:text-white text-base">
                             {r.periodLabel}
                           </span>
-                          {sourceBadgeLabel && (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                              {sourceBadgeLabel}
+                          {!isManualEntry ? (
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                mode === "single"
+                                  ? "bg-yellow-50 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800"
+                                  : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+                              }`}
+                            >
+                              {meterTypeBadgeLabel}
                             </span>
+                          ) : (
+                            sourceBadgeLabel && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                {sourceBadgeLabel}
+                              </span>
+                            )
                           )}
                         </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                           {new Date(r.createdAt).toLocaleDateString("bg-BG")}
                         </div>
                       </div>
@@ -715,21 +1119,31 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
 
                     {/* Meter Split */}
                     {!isManualEntry ? (
-                      <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
-                          <span className="text-slate-600 dark:text-slate-300">ЕМ 1:</span>
-                          <strong className="font-mono text-slate-900 dark:text-white">€{r.costEm1.toFixed(2)}</strong>
+                      mode === "single" ? (
+                        <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
+                            <span className="text-slate-600 dark:text-slate-300">Сметка ток:</span>
+                            <strong className="font-mono text-slate-900 dark:text-white">€{r.costEm1.toFixed(2)}</strong>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <Plug className="w-3.5 h-3.5 text-emerald-500" />
-                          <span className="text-slate-600 dark:text-slate-300">ЕМ 2:</span>
-                          <strong className="font-mono text-emerald-700 dark:text-emerald-400">€{r.em2Remainder.toFixed(2)}</strong>
+                      ) : (
+                        <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
+                            <span className="text-slate-600 dark:text-slate-300">ЕМ 1:</span>
+                            <strong className="font-mono text-slate-900 dark:text-white">€{r.costEm1.toFixed(2)}</strong>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Plug className="w-3.5 h-3.5 text-emerald-500" />
+                            <span className="text-slate-600 dark:text-slate-300">ЕМ 2:</span>
+                            <strong className="font-mono text-emerald-700 dark:text-emerald-400">€{r.em2Remainder.toFixed(2)}</strong>
+                          </div>
                         </div>
-                      </div>
+                      )
                     ) : null}
 
-                    {/* Readings Summary & Delete Action */}
+                    {/* Readings Summary & Actions */}
                     <div className="flex items-center justify-between pt-1 text-xs">
                       <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                         {isManualEntry
@@ -737,14 +1151,26 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           : `Показания: ${r.previousReading.toFixed(0)} → ${r.currentReading.toFixed(0)}`}
                       </span>
 
-                      <button
-                        onClick={() => setConfirmDeleteId(r.id)}
-                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
-                        title="Изтрий този отчет"
-                        aria-label="Изтрий отчет"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDetailRecord(r)}
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition-colors cursor-pointer"
+                          title="Детайли на отчета"
+                          aria-label="Детайли на отчета"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(r.id)}
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
+                          title="Изтрий този отчет"
+                          aria-label="Изтрий отчет"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -761,15 +1187,16 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                     <th className="py-3 px-4">Ново показание</th>
                     <th className="py-3 px-4">Потребление (kWh)</th>
                     <th className="py-3 px-4">Единична цена</th>
-                    <th className="py-3 px-4">Сметка ЕМ 1 / ЕМ 2</th>
-                    <th className="py-3 px-4">Общо фактура</th>
-                    <th className="py-3 px-4 text-center">Действие</th>
+                    <th className="py-3 px-4">Разпределение</th>
+                    <th className="py-3 px-4">Общо (€)</th>
+                    <th className="py-3 px-4 text-center">Действия</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
                   {filteredRecords.map((r) => {
-                    const isConfirming = confirmDeleteId === r.id;
-                    const isManualEntry = isManualOrNoReadingsRecord(r);
+                    const mode = resolveElectricityMeterMode(r);
+                    const isManualEntry = mode === "manual";
+                    const meterTypeBadgeLabel = getElectricityMeterTypeLabel(r);
                     const sourceBadgeLabel =
                       r.source === "receipt"
                         ? "Бележка (Разходи)"
@@ -782,19 +1209,32 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                     return (
                       <tr
                         key={r.id}
-                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group"
+                        onClick={() => setSelectedDetailRecord(r)}
+                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group cursor-pointer"
                       >
-                        {/* Period */}
+                        {/* Period + Badge */}
                         <td className="py-3.5 px-4">
                           <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2 flex-wrap">
                             <span>{r.periodLabel}</span>
-                            {sourceBadgeLabel && (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                {sourceBadgeLabel}
+                            {!isManualEntry ? (
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                  mode === "single"
+                                    ? "bg-yellow-50 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800"
+                                    : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+                                }`}
+                              >
+                                {meterTypeBadgeLabel}
                               </span>
+                            ) : (
+                              sourceBadgeLabel && (
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                  {sourceBadgeLabel}
+                                </span>
+                              )
                             )}
                           </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                             {new Date(r.createdAt).toLocaleDateString("bg-BG")}
                           </div>
                           {r.note && (
@@ -875,12 +1315,18 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           )}
                         </td>
 
-                        {/* Meter 1 vs Meter 2 */}
+                        {/* Meter 1 vs Meter 2 / Single */}
                         <td className="py-3.5 px-4 text-xs">
                           {isManualEntry ? (
                             <span className="text-slate-500 dark:text-slate-400 italic">
                               Ръчно въведена сметка
                             </span>
+                          ) : mode === "single" ? (
+                            <div className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-medium">
+                              <Lightbulb className="w-3 h-3 text-yellow-500" />
+                              <span>Сметка ток:</span>
+                              <strong className="font-mono">€{r.costEm1.toFixed(2)}</strong>
+                            </div>
                           ) : (
                             <>
                               <div className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-medium">
@@ -904,16 +1350,28 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                           </div>
                         </td>
 
-                        {/* Delete Action */}
-                        <td className="py-3.5 px-4 text-center">
-                          <button
-                            onClick={() => setConfirmDeleteId(r.id)}
-                            className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                            title="Изтрий този отчет от историята"
-                            aria-label="Изтрий отчет"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        {/* Actions */}
+                        <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedDetailRecord(r)}
+                              className="p-2 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="Детайли на отчета"
+                              aria-label="Детайли на отчета"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(r.id)}
+                              className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="Изтрий този отчет от историята"
+                              aria-label="Изтрий отчет"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -924,6 +1382,181 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Record Details Modal */}
+      {selectedDetailRecord && (() => {
+        const detailMode = resolveElectricityMeterMode(selectedDetailRecord);
+        const detailTypeLabel = getElectricityMeterTypeLabel(selectedDetailRecord);
+        const isManualDetail = detailMode === "manual";
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
+            onClick={() => setSelectedDetailRecord(null)}
+          >
+            <div
+              className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-yellow-50 dark:bg-yellow-950/60 text-yellow-600 dark:text-yellow-400 rounded-xl">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                      Отчет за ток — {selectedDetailRecord.periodLabel}
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Записан на {new Date(selectedDetailRecord.createdAt).toLocaleDateString("bg-BG")}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetailRecord(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  aria-label="Затвори"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 text-sm">
+                {/* Calculator Type Row */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                    Тип:
+                  </span>
+                  <span
+                    className={`text-xs font-bold px-2.5 py-1 rounded-md border ${
+                      detailMode === "single"
+                        ? "bg-yellow-50 dark:bg-yellow-950/60 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800"
+                        : detailMode === "double"
+                        ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+                        : "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                    }`}
+                  >
+                    {detailTypeLabel}
+                  </span>
+                </div>
+
+                {!isManualDetail && (
+                  <>
+                    {/* Readings */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                        <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                          Старо показание
+                        </div>
+                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                          {selectedDetailRecord.previousReading.toFixed(1)}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                          Т1: {selectedDetailRecord.prevT1} | Т2: {selectedDetailRecord.prevT2}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                        <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                          Ново показание
+                        </div>
+                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                          {selectedDetailRecord.currentReading.toFixed(1)}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                          Т1: {selectedDetailRecord.currT1} | Т2: {selectedDetailRecord.currT2}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Consumption & Unit Price */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200/70 dark:border-amber-900/40">
+                        <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 mb-1">
+                          Консумация
+                        </div>
+                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                          {selectedDetailRecord.consumption.toFixed(3)} kWh
+                        </div>
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono mt-0.5">
+                          Т1: {selectedDetailRecord.consT1.toFixed(2)} | Т2: {selectedDetailRecord.consT2.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-900/40">
+                        <div className="text-[11px] font-semibold text-sky-700 dark:text-sky-300 mb-1">
+                          Средна цена
+                        </div>
+                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                          €{selectedDetailRecord.unitPrice.toFixed(4)} /kWh
+                        </div>
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono mt-0.5">
+                          Т1: €{selectedDetailRecord.priceT1.toFixed(4)} | Т2: €{selectedDetailRecord.priceT2.toFixed(4)}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Cost Breakdown */}
+                <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-900/50 space-y-2">
+                  {detailMode === "double" ? (
+                    <>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 dark:text-slate-300">Сметка Електромер 1:</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                          €{selectedDetailRecord.costEm1.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 dark:text-slate-300">Сметка Електромер 2 (Остатък):</span>
+                        <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                          €{selectedDetailRecord.em2Remainder.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between pt-2 border-t border-emerald-200/80 dark:border-emerald-800/50">
+                        <span className="font-bold text-slate-800 dark:text-slate-100">Обща фактура:</span>
+                        <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
+                          €{selectedDetailRecord.totalCost.toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  ) : detailMode === "single" ? (
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 dark:text-slate-100">Сметка ток (1 Електромер):</span>
+                      <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
+                        €{selectedDetailRecord.costEm1.toFixed(2)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 dark:text-slate-100">Сума:</span>
+                      <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
+                        €{selectedDetailRecord.totalCost.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {selectedDetailRecord.note && (
+                  <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300">
+                    <span className="font-semibold">Забележка: </span>
+                    {selectedDetailRecord.note}
+                  </div>
+                )}
+              </div>
+
+              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetailRecord(null)}
+                  className="px-4 py-2 text-xs font-bold bg-slate-900 dark:bg-slate-700 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-600 cursor-pointer"
+                >
+                  Затвори
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete Confirmation Modal */}
       <ConfirmDeleteDialog
