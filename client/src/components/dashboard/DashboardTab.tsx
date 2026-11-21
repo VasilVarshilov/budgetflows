@@ -1,85 +1,45 @@
 import React, { useState, useMemo } from "react";
 import {
-  TrendingUp,
-  CreditCard,
-  PiggyBank,
-  Scale,
-  Calendar,
-  CalendarDays,
   ChevronDown,
-  ArrowUpRight,
   ArrowDownLeft,
-  Filter,
-  PieChart as PieChartIcon,
-  BarChart2,
-  LineChart as LineChartIcon,
-  Zap,
-  Info,
   Plus,
   Download,
-  FileText,
   Target,
-  AlertTriangle,
-  AlertCircle,
-  ArrowRight,
-  Sparkles,
-  Clock,
-  CheckCircle2,
-  Repeat,
 } from "lucide-react";
 import { ExportCenterModal } from "@/components/export/ExportCenterModal";
-import {
-  ResponsiveContainer,
-  Cell,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-} from "recharts";
-import { MonthlyRecord, IncomeItem, ExpenseItem, RepeatFrequency } from "@/types";
+import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 import { getCategoryColor } from "@/utils/colors";
-import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
 import {
   loadBudgets,
   calculateAllBudgetsStatus,
 } from "@/utils/budgetStorage";
-import { AVAILABLE_ICONS_MAP, resolveCategoryDisplayIcon } from "@/utils/categoryStorage";
-import { MonthToMonthComparison } from "@/components/common/MonthToMonthComparison";
-import { BudgetControlSection } from "./BudgetControlSection";
-import { AiRecommendationsSection } from "./AiRecommendationsSection";
 import { computeMonthToMonthComparison } from "@/utils/comparisonStorage";
 import { generateLocalFinancialAnalysis } from "@/utils/aiAnalysisEngine";
 import { useTheme } from "@/utils/themeContext";
 import { loadAppSettings, saveAppSettings } from "@/utils/incomeStorage";
 import { isCompletedExpense, isPlannedExpense, isRecordCompleted } from "@/utils/expenseStatus";
-import { formatRepeatLabel, isRepeatingFrequency } from "@/utils/recurrenceEngine";
-import { CompletionSwitch } from "@/components/ui/RecurrenceCompletionRows";
-import { parseLocalDateKey, resolveRecordDateKey, toLocalDateKey } from "@/utils/calendarEngine";
+import { isRepeatingFrequency } from "@/utils/recurrenceEngine";
+import { resolveRecordDateKey, toLocalDateKey } from "@/utils/calendarEngine";
 import { BrandMark, APP_NAME, APP_TAGLINE } from "@/components/brand/BrandLogo";
-
-interface UpcomingDashboardItem {
-  id: string;
-  monthKey: string;
-  kind: "fixed" | "additional" | "income";
-  categoryName: string;
-  categoryIcon?: string;
-  categoryColor?: string;
-  note?: string;
-  merchantName?: string;
-  date: string;
-  dateKey: string;
-  expectedDate?: string;
-  amount: number;
-  repeat?: RepeatFrequency;
-  recurrenceDayOfMonth?: number;
-  recurrenceMonthOfYear?: number;
-  recurrenceDayOfWeek?: number;
-}
+import {
+  ELECTRICITY_UPDATED_EVENT,
+  getStoredElectricityHistory,
+  mergeElectricityHistoryWithManualExpenses,
+} from "@/utils/electricityStorage";
+import {
+  SAVINGS_GOALS_UPDATED_EVENT,
+  computeSavingsAllocationSummary,
+  loadSavingsGoals,
+} from "@/utils/savingsGoalsStorage";
+import { DashboardCarousel } from "./DashboardCarousel";
+import { DashboardCardContent, UpcomingDashboardItem } from "./DashboardCards";
+import {
+  DashboardCardId,
+  loadDashboardCardOrder,
+  loadLastDashboardCardId,
+  saveDashboardCardOrder,
+  saveLastDashboardCardId,
+} from "./dashboardCardConfig";
 
 interface DashboardTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -139,21 +99,6 @@ const YEARS = [
   (CURRENT_YEAR + 1).toString(),
 ];
 
-const PALETTE = [
-  "#3b82f6", // blue
-  "#10b981", // emerald
-  "#f59e0b", // amber
-  "#ef4444", // red
-  "#8b5cf6", // purple
-  "#06b6d4", // cyan
-  "#ec4899", // pink
-  "#f97316", // orange
-  "#6366f1", // indigo
-  "#14b8a6", // teal
-  "#84cc16", // lime
-  "#a855f7", // violet
-];
-
 export const DashboardTab: React.FC<DashboardTabProps> = ({
   monthlyData,
   globalSavings,
@@ -192,26 +137,71 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   });
 
   const [budgetsRevision, setBudgetsRevision] = React.useState(0);
+  const [electricityRevision, setElectricityRevision] = React.useState(0);
+  const [savingsGoalsRevision, setSavingsGoalsRevision] = React.useState(0);
+
+  // Swipeable Card Carousel State (persisted per account)
+  const [cardOrder, setCardOrder] = useState<DashboardCardId[]>(() =>
+    loadDashboardCardOrder()
+  );
+  const [activeCardId, setActiveCardId] = useState<DashboardCardId>(() =>
+    loadLastDashboardCardId()
+  );
+  const [cardViewModes, setCardViewModes] = useState<
+    Partial<Record<DashboardCardId, "summary" | "chart">>
+  >({});
+  const [expandedCardId, setExpandedCardId] = useState<DashboardCardId | null>(null);
 
   React.useEffect(() => {
     const handleRestored = () => {
       setSavingsTargetPercent(loadAppSettings().savingsTargetPercent ?? 20);
       setBudgetsRevision((v) => v + 1);
+      setElectricityRevision((v) => v + 1);
+      setSavingsGoalsRevision((v) => v + 1);
+      setCardOrder(loadDashboardCardOrder());
+      setActiveCardId(loadLastDashboardCardId());
+    };
+    const handleAccountChanged = () => {
+      handleRestored();
+      setExpandedCardId(null);
     };
     const handleBudgetOrCatUpdate = () => {
       setBudgetsRevision((v) => v + 1);
     };
+    const handleElectricityUpdate = () => {
+      setElectricityRevision((v) => v + 1);
+    };
+    const handleSavingsGoalsUpdate = () => {
+      setSavingsGoalsRevision((v) => v + 1);
+    };
     window.addEventListener("homebudget:data-restored", handleRestored);
+    window.addEventListener("budgetflows:account-changed", handleAccountChanged);
     window.addEventListener("homebudget:budgets-updated", handleBudgetOrCatUpdate);
     window.addEventListener("homebudget:categories-updated", handleBudgetOrCatUpdate);
+    window.addEventListener(ELECTRICITY_UPDATED_EVENT, handleElectricityUpdate);
+    window.addEventListener(SAVINGS_GOALS_UPDATED_EVENT, handleSavingsGoalsUpdate);
     window.addEventListener("storage", handleBudgetOrCatUpdate);
     return () => {
       window.removeEventListener("homebudget:data-restored", handleRestored);
+      window.removeEventListener("budgetflows:account-changed", handleAccountChanged);
       window.removeEventListener("homebudget:budgets-updated", handleBudgetOrCatUpdate);
       window.removeEventListener("homebudget:categories-updated", handleBudgetOrCatUpdate);
+      window.removeEventListener(ELECTRICITY_UPDATED_EVENT, handleElectricityUpdate);
+      window.removeEventListener(SAVINGS_GOALS_UPDATED_EVENT, handleSavingsGoalsUpdate);
       window.removeEventListener("storage", handleBudgetOrCatUpdate);
     };
   }, []);
+
+  const handleSelectCard = (nextId: DashboardCardId) => {
+    setActiveCardId(nextId);
+    saveLastDashboardCardId(nextId);
+    setExpandedCardId((prev) => (prev && prev !== nextId ? null : prev));
+  };
+
+  const handleChangeCardOrder = (nextOrder: DashboardCardId[]) => {
+    const normalized = saveDashboardCardOrder(nextOrder);
+    setCardOrder(normalized);
+  };
 
   const handleSavingsTargetChange = (rawValue: string) => {
     const parsed = parseFloat(rawValue);
@@ -882,17 +872,20 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     return generateLocalFinancialAnalysis(monthlyData, globalSavings);
   }, [monthlyData, globalSavings, budgetsRevision]);
 
-  const { isDark } = useTheme();
+  // Read-only Electricity History & Savings Goals summary for Dashboard cards
+  const electricityHistory = useMemo(() => {
+    return mergeElectricityHistoryWithManualExpenses(
+      getStoredElectricityHistory(),
+      monthlyData
+    );
+  }, [monthlyData, electricityRevision]);
 
-  const gridStroke = isDark ? "#334155" : "#f1f5f9";
-  const axisTickStyle = { fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" };
-  const chartTooltipStyle = {
-    backgroundColor: isDark ? "#0f172a" : "#ffffff",
-    borderColor: isDark ? "#334155" : "#e2e8f0",
-    color: isDark ? "#f8fafc" : "#0f172a",
-    borderRadius: "12px",
-    boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.4)",
-  };
+  const savingsAllocationSummary = useMemo(() => {
+    const goals = loadSavingsGoals();
+    return computeSavingsAllocationSummary(globalSavings, goals, monthlyData);
+  }, [globalSavings, monthlyData, savingsGoalsRevision]);
+
+  const { isDark } = useTheme();
 
   const isCompletelyEmpty =
     Object.keys(monthlyData || {}).length === 0 && (globalSavings || []).length === 0;
@@ -1089,961 +1082,64 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* 1. Income Card */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Приходи
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <ArrowDownLeft className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              €{totalIncome.toFixed(2)}
-            </span>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              <span>Повт.: €{totalFixedIncome.toFixed(2)}</span>
-              <span>·</span>
-              <span>Доп.: €{totalAdditionalIncome.toFixed(2)}</span>
-              <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 font-semibold ml-auto">
-                <TrendingUp className="w-3.5 h-3.5 mr-0.5" />
-                {incomeCount} бр.
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 2. Expenses Card */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Разходи
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
-              <ArrowUpRight className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              €{totalExpenses.toFixed(2)}
-            </span>
-            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              <span>Повт.: €{totalFixed.toFixed(2)}</span>
-              <span>·</span>
-              <span>Доп.: €{totalVariable.toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 3. Savings Card */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Спестявания
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <PiggyBank className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              €{periodSavings.toFixed(2)}
-            </span>
-            <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <span>Общ наличен фонд:</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200 tabular-nums">
-                €{lifetimeSavings.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 4. Net Balance Card (Net Balance = Income - Expenses) */}
-        <div
-          className={`p-5 rounded-2xl border shadow-xs hover:shadow-md transition-all ${
-            netBalance >= 0
-              ? "bg-gradient-to-br from-emerald-50/50 to-white dark:from-emerald-950/30 dark:to-slate-900 border-emerald-200/80 dark:border-emerald-800/80"
-              : "bg-gradient-to-br from-rose-50/50 to-white dark:from-rose-950/30 dark:to-slate-900 border-rose-200/80 dark:border-rose-800/80"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Нетно салдо
-            </span>
-            <div
-              className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-                netBalance >= 0
-                  ? "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300"
-                  : "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
-              }`}
-            >
-              <Scale className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <span
-              className={`text-2xl font-black tracking-tight tabular-nums ${
-                netBalance >= 0
-                  ? "text-emerald-700 dark:text-emerald-300"
-                  : "text-rose-600 dark:text-rose-400"
-              }`}
-            >
-              {netBalance >= 0 ? "+" : ""}€{netBalance.toFixed(2)}
-            </span>
-            <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <span className="font-medium">Приходи − Разходи</span>
-              {totalIncome > 0 && (
-                <span
-                  className={`font-semibold ml-auto tabular-nums ${
-                    netBalance >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-rose-600 dark:text-rose-400"
-                  }`}
-                >
-                  {((netBalance / totalIncome) * 100).toFixed(0)}%
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Additional Summary: Realized vs Upcoming & Expected Totals */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs transition-colors">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
-          <div>
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <span>Реализирани и предстоящи</span>
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Само записите с включено „Изпълнено“ влизат в реалния баланс, бюджетите и отчетите
-            </p>
-          </div>
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Очаквани = Реализирани + Предстоящи
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-4">
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
-              Реализирани разходи
-            </span>
-            <span className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-1 block">
-              €{totalExpenses.toFixed(2)}
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-amber-50/85 dark:bg-amber-950/40 border border-amber-300/90 dark:border-amber-800/80 shadow-2xs">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>Предстоящи разходи</span>
-              </span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 tabular-nums">
-                {upcomingExpenseItems.length}
-              </span>
-            </div>
-            <span className="text-xl font-extrabold text-amber-800 dark:text-amber-200 tabular-nums mt-1.5 block">
-              €{totalPlannedExpenses.toFixed(2)}
-            </span>
-            <span className="text-[11px] text-amber-700/80 dark:text-amber-400/90 mt-1 block tabular-nums">
-              Очаквани общо: €{(totalExpenses + totalPlannedExpenses).toFixed(2)}
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/70">
-            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 block">
-              Реализирани приходи
-            </span>
-            <span className="text-xl font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums mt-1 block">
-              €{totalIncome.toFixed(2)}
-            </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
-              Повтарящи се: €{totalFixedIncome.toFixed(2)}
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-800/70">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>Очаквани приходи</span>
-              </span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 tabular-nums">
-                {upcomingIncomeItems.length}
-              </span>
-            </div>
-            <span className="text-xl font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums mt-1.5 block">
-              +€{totalExpectedIncome.toFixed(2)}
-            </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block tabular-nums">
-              Общо очаквани: €{(totalIncome + totalExpectedIncome).toFixed(2)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Upcoming Today & Overdue Attention Strip (synced with Notifications) */}
-      {(dueTodayItems.length > 0 || overdueItems.length > 0) && (
-        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 transition-colors">
-          <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                  overdueItems.length > 0
-                    ? "bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400"
-                    : "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400"
-                }`}
-              >
-                {overdueItems.length > 0 ? (
-                  <AlertCircle className="w-4 h-4" />
-                ) : (
-                  <Clock className="w-4 h-4" />
-                )}
-              </div>
-              <div>
-                <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                  Предстоящи днес
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                  {dueTodayItems.length} за днес
-                  {overdueItems.length > 0 ? ` · ${overdueItems.length} с изминал падеж` : ""}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() =>
-                onOpenCalendar
-                  ? onOpenCalendar((overdueItems[0] || dueTodayItems[0])?.dateKey)
-                  : onNavigateTab?.("calendar")
-              }
-              className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-            >
-              <CalendarDays className="w-3.5 h-3.5" />
-              <span>Календар</span>
-            </button>
-          </div>
-
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
-            {[...overdueItems, ...dueTodayItems].map((item) => {
-              const isOverdue = overdueItems.some(
-                (o) => o.id === item.id && o.monthKey === item.monthKey
-              );
-              const isIncome = item.kind === "income";
-              const dateLabel = parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG");
-              return (
-                <div
-                  key={`today_${item.kind}_${item.monthKey}_${item.id}`}
-                  onClick={() =>
-                    onOpenRecord
-                      ? onOpenRecord({
-                          kind: item.kind,
-                          monthKey: item.monthKey,
-                          id: item.id,
-                        })
-                      : onOpenCalendar?.(item.dateKey)
-                  }
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      if (onOpenRecord) {
-                        onOpenRecord({
-                          kind: item.kind,
-                          monthKey: item.monthKey,
-                          id: item.id,
-                        });
-                      } else {
-                        onOpenCalendar?.(item.dateKey);
-                      }
-                    }
-                  }}
-                  className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg px-2 -mx-2 transition-colors cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                        {item.categoryName}
-                      </span>
-                      <span
-                        className={`text-xs font-semibold tabular-nums shrink-0 ${
-                          isOverdue
-                            ? "text-rose-600 dark:text-rose-400"
-                            : isIncome
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-amber-600 dark:text-amber-400"
-                        }`}
-                      >
-                        {isOverdue
-                          ? `Просрочен (${dateLabel})`
-                          : isIncome
-                          ? "Очакван приход днес"
-                          : "Падеж днес"}
-                      </span>
-                    </div>
-                    {(item.merchantName || item.note) && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                        {[item.merchantName, item.note].filter(Boolean).join(" · ")}
-                      </p>
-                    )}
-                  </div>
-
-                  <div
-                    className="flex items-center gap-2.5 shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span
-                      className={`text-sm font-bold tabular-nums ${
-                        isIncome
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : isOverdue
-                          ? "text-rose-600 dark:text-rose-400"
-                          : "text-slate-900 dark:text-white"
-                      }`}
-                    >
-                      {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onToggleRecordCompletion?.(item.monthKey, item.kind, item.id, true)
-                      }
-                      className="min-h-[32px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Изпълнено</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Dedicated Upcoming Payments & Income Widget */}
-      <div className="bg-gradient-to-br from-amber-50/80 via-white to-white dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-5 rounded-2xl border border-amber-300/90 dark:border-amber-800/75 shadow-xs space-y-4 transition-colors">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-amber-200/75 dark:border-amber-800/60">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/70 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-200/80 dark:border-amber-700/60">
-              <Clock className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                  Предстоящи плащания и приходи
-                </h3>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 tabular-nums">
-                  {upcomingItems.length}
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                {upcomingItems.length > 0
-                  ? `Натиснете запис, за да отворите датата му в Календар (${currentPeriodLabel})`
-                  : `Няма предстоящи плащания и приходи за ${currentPeriodLabel}`}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-center text-right">
-            {upcomingExpenseItems.length > 0 && (
-              <div className="px-3 py-1.5 rounded-xl bg-amber-100/80 dark:bg-amber-900/50 border border-amber-200 dark:border-amber-800/70 text-left">
-                <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 block">
-                  Предстоящи разходи ({upcomingExpenseItems.length})
-                </span>
-                <span className="text-sm sm:text-base font-extrabold text-amber-900 dark:text-amber-200 tabular-nums">
-                  €{totalPlannedExpenses.toFixed(2)}
-                </span>
-              </div>
-            )}
-            {upcomingIncomeItems.length > 0 && (
-              <div className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/70 text-left">
-                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 block">
-                  Очаквани приходи ({upcomingIncomeItems.length})
-                </span>
-                <span className="text-sm sm:text-base font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
-                  +€{totalExpectedIncome.toFixed(2)}
-                </span>
-              </div>
-            )}
-            {upcomingExpenseItems.length === 0 && upcomingIncomeItems.length === 0 && (
-              <span className="text-sm font-bold text-slate-400 dark:text-slate-500 tabular-nums">
-                €0.00
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() =>
-                onOpenCalendar
-                  ? onOpenCalendar(upcomingItems[0]?.dateKey)
-                  : onNavigateTab?.("calendar")
-              }
-              className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
-            >
-              <CalendarDays className="w-3.5 h-3.5" />
-              <span>Отвори Календар</span>
-            </button>
-          </div>
-        </div>
-
-        {upcomingItems.length > 0 ? (
-          <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 border border-amber-200/80 dark:border-amber-800/70 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
-            {upcomingItems.map((item) => {
-              const isIncome = item.kind === "income";
-              const displayIconName = resolveCategoryDisplayIcon(
-                item.categoryIcon,
-                item.categoryName
-              );
-              const IconComponent =
-                (displayIconName && AVAILABLE_ICONS_MAP[displayIconName]) ||
-                (isIncome ? ArrowDownLeft : Clock);
-              const formattedDate = parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG");
-              const hasRepeat = Boolean(item.repeat && item.repeat !== "never");
-              const secondaryLabel = [item.merchantName, item.note]
-                .filter(Boolean)
-                .join(" · ");
-
-              return (
-                <div
-                  key={`${item.kind}_${item.monthKey}_${item.id}`}
-                  onClick={() =>
-                    onOpenCalendar
-                      ? onOpenCalendar(item.dateKey)
-                      : onNavigateTab?.("calendar")
-                  }
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      if (onOpenCalendar) onOpenCalendar(item.dateKey);
-                      else onNavigateTab?.("calendar");
-                    }
-                  }}
-                  className="px-3.5 py-2.5 bg-white dark:bg-slate-900 hover:bg-amber-50/60 dark:hover:bg-amber-950/30 transition-colors cursor-pointer space-y-1.5"
-                  title="Отвори датата в Календар"
-                >
-                  {/* Row 1: Icon + Title + Status Tag | Amount + Desktop Actions */}
-                  <div className="flex items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                          isIncome
-                            ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
-                            : "bg-amber-100/80 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300"
-                        }`}
-                      >
-                        <IconComponent className="w-4 h-4" />
-                      </div>
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">
-                          {item.categoryName}
-                        </p>
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0 border ${
-                            isIncome
-                              ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/70"
-                              : "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/70"
-                          }`}
-                        >
-                          <Clock className="w-3 h-3 shrink-0" />
-                          <span>{isIncome ? "Очакван" : "Предстоящ"}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <span
-                        className={`font-bold text-sm sm:text-base tabular-nums ${
-                          isIncome
-                            ? "text-emerald-700 dark:text-emerald-300"
-                            : "text-amber-800 dark:text-amber-300"
-                        }`}
-                      >
-                        {isIncome ? "+" : "-"}€{item.amount.toFixed(2)}
-                      </span>
-                      {onOpenRecord && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenRecord({
-                              kind: item.kind,
-                              monthKey: item.monthKey,
-                              id: item.id,
-                            });
-                          }}
-                          className="hidden sm:inline-flex min-h-[30px] items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-                          title="Отвори записа за редакция"
-                        >
-                          Отвори
-                        </button>
-                      )}
-                      <div
-                        className="hidden sm:flex items-center gap-1.5"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                          Изпълнено
-                        </span>
-                        <CompletionSwitch
-                          checked={false}
-                          onChange={() =>
-                            onToggleRecordCompletion?.(item.monthKey, item.kind, item.id, true)
-                          }
-                          ariaLabel={`Отбележи „${item.categoryName}“ като изпълнено`}
-                          size="sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Row 2: Flexible Metadata Chips + Description | Mobile Compact Actions */}
-                  <div className="flex items-start justify-between gap-2 pl-0 sm:pl-10">
-                    <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/80 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/70 tabular-nums whitespace-nowrap shrink-0">
-                        <CalendarDays className="w-3 h-3 shrink-0" />
-                        <span>{formattedDate}</span>
-                      </span>
-                      {hasRepeat && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70 whitespace-nowrap shrink-0">
-                          <Repeat className="w-3 h-3 shrink-0" />
-                          <span>{formatRepeatLabel(item.repeat, item)}</span>
-                        </span>
-                      )}
-                      {(periodType === "year" || periodType === "custom") && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 whitespace-nowrap shrink-0">
-                          {item.monthKey}
-                        </span>
-                      )}
-                      {secondaryLabel && (
-                        <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-full min-w-0">
-                          {secondaryLabel}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Mobile Compact Actions */}
-                    <div
-                      className="flex sm:hidden items-center gap-1.5 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {onOpenRecord && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onOpenRecord({
-                              kind: item.kind,
-                              monthKey: item.monthKey,
-                              id: item.id,
-                            })
-                          }
-                          className="min-h-[30px] inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
-                        >
-                          Отвори
-                        </button>
-                      )}
-                      <CompletionSwitch
-                        checked={false}
-                        onChange={() =>
-                          onToggleRecordCompletion?.(item.monthKey, item.kind, item.id, true)
-                        }
-                        ariaLabel={`Отбележи „${item.categoryName}“ като изпълнено`}
-                        size="sm"
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="py-5 px-4 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-            <span className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              Всички записи за периода са изпълнени или няма добавени предстоящи плащания и приходи.
-            </span>
-            <div className="flex items-center gap-3 shrink-0">
-              <button
-                type="button"
-                onClick={() => onNavigateTab?.("monthly")}
-                className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer whitespace-nowrap shrink-0"
-              >
-                + Разход
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigateTab?.("income")}
-                className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline cursor-pointer whitespace-nowrap shrink-0"
-              >
-                + Приход
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Automatic Savings Suggestions Card */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-            <PiggyBank className="w-5 h-5" />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-              Автоматично предложение за спестяване
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              При приходи от{" "}
-              <strong className="text-slate-800 dark:text-slate-200 tabular-nums">
-                €{totalIncome.toFixed(2)}
-              </strong>{" "}
-              и цел{" "}
-              <strong className="text-emerald-600 dark:text-emerald-400 tabular-nums">
-                {savingsTargetPercent}%
-              </strong>
-              : препоръчително заделяне{" "}
-              <strong className="text-emerald-700 dark:text-emerald-300 tabular-nums">
-                €{recommendedSavings.toFixed(2)}
-              </strong>
-              {totalIncome > 0 && (
-                <>
-                  {" · "}
-                  {netBalance >= recommendedSavings
-                    ? "Нетният баланс покрива целта ви"
-                    : `Недостиг до целта: €${Math.max(0, recommendedSavings - Math.max(0, netBalance)).toFixed(2)}`}
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 shrink-0">
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-            <span>Цел (%):</span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={savingsTargetPercent}
-              onChange={(e) => handleSavingsTargetChange(e.target.value)}
-              className="w-18 px-2.5 py-1.5 min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-900 dark:text-white text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              aria-label="Цел за спестяване в проценти"
-            />
-          </label>
-
-          <div className="px-3.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-right">
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 block font-medium">
-              Препоръчително спестяване
-            </span>
-            <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
-              €{recommendedSavings.toFixed(2)}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => onNavigateTab?.("income")}
-            className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            Управление на приходи
-          </button>
-        </div>
-      </div>
-
-      {/* Budget and Expense Control Section */}
-      <BudgetControlSection
-        budgetData={budgetData}
-        currentPeriodLabel={currentPeriodLabel}
-        onNavigateTab={onNavigateTab}
-      />
-
-      {/* Month-to-Month Comparison Section */}
-      <MonthToMonthComparison comparisonData={monthComparisonData} />
-
-      {/* Charts Grid: 2x2 Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Chart 1: Expenses by Category (Pie Chart) */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col transition-colors">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                <PieChartIcon className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
-                  Разходи по категории
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Дял на отделните видове харчове
-                </p>
-              </div>
-            </div>
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700">
-              Общо: €{totalExpenses.toFixed(2)}
-            </span>
-          </div>
-
-          <CategoryDistributionChart
-            items={categoryBreakdown}
-            totalLabel="Общо"
-            emptyTitle="Няма разходи за този период"
-            emptyActionLabel="+ Въведи разход"
-            onEmptyAction={() => onNavigateTab?.("monthly")}
+      {/* Swipeable Card-Based Dashboard Carousel */}
+      <DashboardCarousel
+        cardOrder={cardOrder}
+        activeCardId={activeCardId}
+        onSelectCard={handleSelectCard}
+        onChangeOrder={handleChangeCardOrder}
+        renderCard={(cardId, { isActive }) => (
+          <DashboardCardContent
+            cardId={cardId}
+            isActive={isActive}
+            viewMode={cardViewModes[cardId] ?? "summary"}
+            isExpanded={expandedCardId === cardId}
+            onToggleViewMode={(mode) =>
+              setCardViewModes((prev) => ({ ...prev, [cardId]: mode }))
+            }
+            onToggleExpand={() =>
+              setExpandedCardId((prev) => (prev === cardId ? null : cardId))
+            }
+            periodType={periodType}
+            currentPeriodLabel={currentPeriodLabel}
+            totalIncome={totalIncome}
+            totalFixedIncome={totalFixedIncome}
+            totalAdditionalIncome={totalAdditionalIncome}
+            incomeCount={incomeCount}
+            totalExpectedIncome={totalExpectedIncome}
+            upcomingIncomeItems={upcomingIncomeItems}
+            totalFixed={totalFixed}
+            totalVariable={totalVariable}
+            totalExpenses={totalExpenses}
+            totalPlannedExpenses={totalPlannedExpenses}
+            upcomingExpenseItems={upcomingExpenseItems}
+            categoryBreakdown={categoryBreakdown}
+            upcomingItems={upcomingItems}
+            dueTodayItems={dueTodayItems}
+            overdueItems={overdueItems}
+            periodSavings={periodSavings}
+            lifetimeSavings={lifetimeSavings}
+            savingsTargetPercent={savingsTargetPercent}
+            recommendedSavings={recommendedSavings}
+            onSavingsTargetChange={handleSavingsTargetChange}
+            savingsAllocationSummary={savingsAllocationSummary}
+            netBalance={netBalance}
+            budgetData={budgetData}
+            monthComparisonData={monthComparisonData}
+            aiAnalysis={aiAnalysis}
+            electricityHistory={electricityHistory}
+            incomeVsExpensesData={incomeVsExpensesData}
+            monthlyTrendData={monthlyTrendData}
+            savingsTrendData={savingsTrendData}
+            isDark={isDark}
+            onNavigateTab={onNavigateTab}
+            onOpenCalendar={onOpenCalendar}
+            onOpenRecord={onOpenRecord}
+            onToggleRecordCompletion={onToggleRecordCompletion}
+            onOpenExportCenter={() => setIsExportCenterOpen(true)}
           />
-        </div>
-
-        {/* Chart 2: Income vs Expenses (Bar Chart) */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col transition-colors">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                <BarChart2 className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
-                  Приходи спрямо Разходи
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Сравнение на входящи и изходящи потоци
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="h-[220px] w-full">
-            {periodType === "year" || periodType === "custom" ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={incomeVsExpensesData}
-                  margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-                  <XAxis dataKey="monthName" tick={axisTickStyle} stroke={gridStroke} />
-                  <YAxis tick={axisTickStyle} stroke={gridStroke} />
-                  <Tooltip
-                    contentStyle={chartTooltipStyle}
-                    formatter={(val: any) => [`€${Number(val).toFixed(2)}`]}
-                  />
-                  <Legend
-                    wrapperStyle={{ fontSize: 11, paddingTop: 6, color: isDark ? "#cbd5e1" : "#475569" }}
-                    formatter={(val) =>
-                      val === "income" ? "Приходи" : "Разходи"
-                    }
-                  />
-                  <Bar
-                    dataKey="income"
-                    name="income"
-                    fill="#10b981"
-                    radius={[4, 4, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="expenses"
-                    name="expenses"
-                    fill="#ef4444"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={incomeVsExpensesData}
-                  margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-                  <XAxis dataKey="name" tick={axisTickStyle} stroke={gridStroke} />
-                  <YAxis tick={axisTickStyle} stroke={gridStroke} />
-                  <Tooltip
-                    contentStyle={chartTooltipStyle}
-                    formatter={(val: any) => [`€${Number(val).toFixed(2)}`, "Сума"]}
-                  />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                    {incomeVsExpensesData.map((entry: any, index: number) => (
-                      <Cell key={`bar-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* Chart 3: Monthly Trend (Line Chart) */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col transition-colors">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-lg">
-                <LineChartIcon className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
-                  Месечна тенденция на разходите
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Динамика през годината (€)
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="h-[220px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={monthlyTrendData}
-                margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-                <XAxis dataKey="month" tick={axisTickStyle} stroke={gridStroke} />
-                <YAxis tick={axisTickStyle} stroke={gridStroke} />
-                <Tooltip
-                  contentStyle={chartTooltipStyle}
-                  formatter={(val: any, name: any) => [
-                    `€${Number(val).toFixed(2)}`,
-                    name === "expenses" ? "Разходи" : "Приходи",
-                  ]}
-                />
-                <Legend
-                  wrapperStyle={{ fontSize: 11, paddingTop: 6, color: isDark ? "#cbd5e1" : "#475569" }}
-                  formatter={(val) => (val === "expenses" ? "Разходи" : "Приходи")}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="expenses"
-                  stroke="#6366f1"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: "#6366f1" }}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="income"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  dot={{ r: 2.5, fill: "#10b981" }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Chart 4: Savings Trend (Line Chart) */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col transition-colors">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                <PiggyBank className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
-                  Натрупване на спестявания
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Кумулативен баланс на спестовния фонд
-                </p>
-              </div>
-            </div>
-            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800">
-              Баланс: €{lifetimeSavings.toFixed(2)}
-            </span>
-          </div>
-
-          <div className="h-[220px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={savingsTrendData}
-                margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-                <XAxis dataKey="month" tick={axisTickStyle} stroke={gridStroke} />
-                <YAxis tick={axisTickStyle} stroke={gridStroke} />
-                <Tooltip
-                  contentStyle={chartTooltipStyle}
-                  formatter={(val: any) => [`€${Number(val).toFixed(2)}`, "Спестявания"]}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="balance"
-                  stroke="#10b981"
-                  strokeWidth={3}
-                  dot={{ r: 3.5, fill: "#10b981" }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* Top 3 AI Recommendations & Insights Section */}
-      <AiRecommendationsSection
-        aiAnalysis={aiAnalysis}
-        onNavigateTab={onNavigateTab}
+        )}
       />
-
-      {/* Quick Actions Shortcuts */}
-      <div className="bg-gradient-to-r from-slate-900 to-indigo-950 rounded-2xl p-6 text-white flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md">
-        <div>
-          <h4 className="font-bold text-base text-white">Бързи действия</h4>
-          <p className="text-xs text-slate-300 mt-0.5">
-            Добавете нови плащания или изчислете текущата сметка за ток
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => onNavigateTab?.("monthly")}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold backdrop-blur-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Добави разход
-          </button>
-          <button
-            onClick={() => onNavigateTab?.("income")}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold transition-colors shadow-xs cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Добави приход
-          </button>
-          <button
-            onClick={() => onNavigateTab?.("electricity")}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-yellow-500 hover:bg-yellow-600 text-slate-950 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            Сметка ТОК
-          </button>
-          <button
-            onClick={() => onNavigateTab?.("budgets")}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500/80 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-colors shadow-xs cursor-pointer"
-          >
-            <Target className="w-3.5 h-3.5" />
-            Бюджети
-          </button>
-          <button
-            onClick={() => onNavigateTab?.("ai-analysis")}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-            AI Анализ
-          </button>
-          <button
-            onClick={() => setIsExportCenterOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors shadow-xs cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Експорт на отчет
-          </button>
-        </div>
-      </div>
 
       {/* Reporting & Export Center Modal */}
       <ExportCenterModal
