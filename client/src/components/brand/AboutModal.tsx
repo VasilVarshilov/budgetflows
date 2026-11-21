@@ -70,14 +70,14 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
         <div className="p-6 text-center space-y-4">
           <div className="flex justify-center">
-            <BrandMark size={64} />
+            <BrandMark size={88} detail="full" />
           </div>
 
           <div className="space-y-1.5">
             <h4 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              {APP_NAME}
+              Budget Force <span className="text-sky-600 dark:text-sky-400">365</span>
             </h4>
-            <p className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
+            <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
               {APP_TAGLINE}
             </p>
           </div>

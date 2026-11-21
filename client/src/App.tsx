@@ -32,7 +32,12 @@ import { NotificationCenter } from "@/components/notifications/NotificationCente
 import { ThemeProvider } from "@/utils/themeContext";
 import { CloudSyncProvider, useCloudSync } from "@/utils/cloudSyncContext";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
-import { BrandMark, APP_NAME, APP_TAGLINE } from "@/components/brand/BrandLogo";
+import {
+  BrandHeaderLockup,
+  BrandSplashLockup,
+  APP_NAME,
+  APP_TAGLINE,
+} from "@/components/brand/BrandLogo";
 import { AboutModal } from "@/components/brand/AboutModal";
 import { Cloud, DownloadCloud, Info, LogIn, Share2, UploadCloud, AlertTriangle } from "lucide-react";
 
@@ -1079,25 +1084,18 @@ const AppContent: React.FC = () => {
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(99,102,241,0.12),transparent_60%)] dark:bg-[radial-gradient(circle_at_50%_40%,rgba(99,102,241,0.18),transparent_60%)]"
         />
-        <div className="relative flex flex-col items-center text-center gap-5 max-w-sm animate-in fade-in duration-300">
-          <BrandMark size={76} className="drop-shadow-md" />
-          <div className="space-y-1.5">
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              {APP_NAME}
-            </h1>
-            <p className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
-              {APP_TAGLINE}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 pt-1 text-slate-500 dark:text-slate-400 font-medium text-xs">
-            <Loader2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-spin shrink-0" />
-            <span>
-              {isSwitchingAccount
-                ? "Превключване на профил и зареждане на данни..."
-                : "Зареждане на финансите..."}
-            </span>
-          </div>
-        </div>
+        <BrandSplashLockup
+          statusMessage={
+            <div className="flex items-center gap-2 pt-1 text-slate-500 dark:text-slate-400 font-medium text-xs">
+              <Loader2 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 animate-spin shrink-0" />
+              <span>
+                {isSwitchingAccount
+                  ? "Превключване на профил и зареждане на данни..."
+                  : "Зареждане на финансите..."}
+              </span>
+            </div>
+          }
+        />
       </div>
     );
   }
@@ -1133,16 +1131,11 @@ const AppContent: React.FC = () => {
         <div className="max-w-6xl mx-auto header-safe-x">
           {/* Row 1: Brand Logo, Active Month & Controls */}
           <div className="flex justify-between items-center h-14 sm:h-15 gap-2 border-b border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-              <BrandMark size={32} className="sm:w-8 sm:h-8 shrink-0" />
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="font-extrabold text-slate-800 dark:text-white text-[15px] sm:text-lg tracking-tight truncate">
-                  {APP_NAME}
-                </span>
-                <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap shrink-0">
-                  {currentMonth}
-                </span>
-              </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <BrandHeaderLockup />
+              <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap shrink-0">
+                {currentMonth}
+              </span>
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
