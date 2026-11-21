@@ -648,6 +648,11 @@ export interface DaySummaryTotals {
   upcomingExpensesTotal: number;
   completedIncomesTotal: number;
   upcomingIncomesTotal: number;
+  completedExpensesCount: number;
+  upcomingExpensesCount: number;
+  completedIncomesCount: number;
+  upcomingIncomesCount: number;
+  completedNet: number;
   net: number;
 }
 
@@ -658,26 +663,49 @@ export function summarizeDayEvents(dayEvents: CalendarEvent[]): DaySummaryTotals
   let upcomingExpensesTotal = 0;
   let completedIncomesTotal = 0;
   let upcomingIncomesTotal = 0;
+  let completedExpensesCount = 0;
+  let upcomingExpensesCount = 0;
+  let completedIncomesCount = 0;
+  let upcomingIncomesCount = 0;
 
   for (const ev of dayEvents) {
+    const amount = Number(ev.amount) || 0;
+    const completed = ev.isCompleted && !ev.isProjected;
     if (ev.kind === "expense") {
-      expensesTotal += ev.amount;
-      if (ev.isCompleted) completedExpensesTotal += ev.amount;
-      else upcomingExpensesTotal += ev.amount;
+      expensesTotal += amount;
+      if (completed) {
+        completedExpensesTotal += amount;
+        completedExpensesCount += 1;
+      } else {
+        upcomingExpensesTotal += amount;
+        upcomingExpensesCount += 1;
+      }
     } else {
-      incomesTotal += ev.amount;
-      if (ev.isCompleted) completedIncomesTotal += ev.amount;
-      else upcomingIncomesTotal += ev.amount;
+      incomesTotal += amount;
+      if (completed) {
+        completedIncomesTotal += amount;
+        completedIncomesCount += 1;
+      } else {
+        upcomingIncomesTotal += amount;
+        upcomingIncomesCount += 1;
+      }
     }
   }
 
+  const r = (n: number) => Math.round(n * 100) / 100;
+
   return {
-    expensesTotal: Math.round(expensesTotal * 100) / 100,
-    incomesTotal: Math.round(incomesTotal * 100) / 100,
-    completedExpensesTotal: Math.round(completedExpensesTotal * 100) / 100,
-    upcomingExpensesTotal: Math.round(upcomingExpensesTotal * 100) / 100,
-    completedIncomesTotal: Math.round(completedIncomesTotal * 100) / 100,
-    upcomingIncomesTotal: Math.round(upcomingIncomesTotal * 100) / 100,
-    net: Math.round((incomesTotal - expensesTotal) * 100) / 100,
+    expensesTotal: r(expensesTotal),
+    incomesTotal: r(incomesTotal),
+    completedExpensesTotal: r(completedExpensesTotal),
+    upcomingExpensesTotal: r(upcomingExpensesTotal),
+    completedIncomesTotal: r(completedIncomesTotal),
+    upcomingIncomesTotal: r(upcomingIncomesTotal),
+    completedExpensesCount,
+    upcomingExpensesCount,
+    completedIncomesCount,
+    upcomingIncomesCount,
+    completedNet: r(completedIncomesTotal - completedExpensesTotal),
+    net: r(incomesTotal - expensesTotal),
   };
 }

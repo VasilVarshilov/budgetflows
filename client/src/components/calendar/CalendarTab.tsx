@@ -137,13 +137,9 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   }, [filteredEvents]);
 
   const monthPrefix = `${viewCursor.year}-${String(viewCursor.month + 1).padStart(2, "0")}-`;
-  const { currentMonthSummary, upcomingExpensesCount, upcomingIncomesCount } = useMemo(() => {
+  const currentMonthSummary = useMemo(() => {
     const inMonthEvents = filteredEvents.filter((e) => e.dateKey.startsWith(monthPrefix));
-    return {
-      currentMonthSummary: summarizeDayEvents(inMonthEvents),
-      upcomingExpensesCount: inMonthEvents.filter((e) => e.kind === "expense" && e.isUpcoming).length,
-      upcomingIncomesCount: inMonthEvents.filter((e) => e.kind === "income" && e.isUpcoming).length,
-    };
+    return summarizeDayEvents(inMonthEvents);
   }, [filteredEvents, monthPrefix]);
 
   const selectedDayEvents = useMemo(
@@ -221,34 +217,60 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="grid grid-cols-3 gap-2">
             <div className="p-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/50">
               <span className="text-[11px] text-emerald-700 dark:text-emerald-300 block">
-                Приходи
+                Приходи ({selectedDaySummary.completedIncomesCount})
               </span>
-              <span className="text-sm font-bold text-emerald-800 dark:text-emerald-200 tabular-nums">
-                +€{selectedDaySummary.incomesTotal.toFixed(2)}
+              <span className="text-sm font-bold text-emerald-800 dark:text-emerald-200 tabular-nums block">
+                {selectedDaySummary.completedIncomesTotal > 0
+                  ? `+€${selectedDaySummary.completedIncomesTotal.toFixed(2)}`
+                  : "€0.00"}
               </span>
+              {selectedDaySummary.upcomingIncomesTotal > 0 && (
+                <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums block mt-0.5">
+                  Очаквани: +€{selectedDaySummary.upcomingIncomesTotal.toFixed(2)}
+                </span>
+              )}
             </div>
             <div className="p-2.5 rounded-lg bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/70 dark:border-rose-900/50">
               <span className="text-[11px] text-rose-700 dark:text-rose-300 block">
-                Разходи
+                Разходи ({selectedDaySummary.completedExpensesCount})
               </span>
-              <span className="text-sm font-bold text-rose-800 dark:text-rose-200 tabular-nums">
-                -€{selectedDaySummary.expensesTotal.toFixed(2)}
+              <span className="text-sm font-bold text-rose-800 dark:text-rose-200 tabular-nums block">
+                {selectedDaySummary.completedExpensesTotal > 0
+                  ? `-€${selectedDaySummary.completedExpensesTotal.toFixed(2)}`
+                  : "€0.00"}
               </span>
+              {selectedDaySummary.upcomingExpensesTotal > 0 && (
+                <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums block mt-0.5">
+                  Предстоящи: -€{selectedDaySummary.upcomingExpensesTotal.toFixed(2)}
+                </span>
+              )}
             </div>
             <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
               <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
                 Нето за деня
               </span>
               <span
-                className={`text-sm font-bold tabular-nums ${
-                  selectedDaySummary.net >= 0
+                className={`text-sm font-bold tabular-nums block ${
+                  selectedDaySummary.completedNet >= 0
                     ? "text-emerald-700 dark:text-emerald-400"
                     : "text-rose-600 dark:text-rose-400"
                 }`}
               >
-                {selectedDaySummary.net >= 0 ? "+" : "-"}€
-                {Math.abs(selectedDaySummary.net).toFixed(2)}
+                {selectedDaySummary.completedNet > 0
+                  ? "+"
+                  : selectedDaySummary.completedNet < 0
+                  ? "-"
+                  : ""}
+                €{Math.abs(selectedDaySummary.completedNet).toFixed(2)}
               </span>
+              {(selectedDaySummary.upcomingIncomesTotal > 0 ||
+                selectedDaySummary.upcomingExpensesTotal > 0) && (
+                <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums block mt-0.5">
+                  С очаквани:{" "}
+                  {selectedDaySummary.net > 0 ? "+" : selectedDaySummary.net < 0 ? "-" : ""}€
+                  {Math.abs(selectedDaySummary.net).toFixed(2)}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -256,9 +278,22 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         {/* Incomes Section */}
         {incomes.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400 flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400 flex items-center justify-between gap-2">
               <span>Приходи ({incomes.length})</span>
-              <span className="tabular-nums">+€{selectedDaySummary.incomesTotal.toFixed(2)}</span>
+              <span className="tabular-nums text-right">
+                {selectedDaySummary.completedIncomesTotal > 0 && (
+                  <span>+€{selectedDaySummary.completedIncomesTotal.toFixed(2)}</span>
+                )}
+                {selectedDaySummary.completedIncomesTotal > 0 &&
+                  selectedDaySummary.upcomingIncomesTotal > 0 && (
+                    <span className="text-slate-400 mx-1">·</span>
+                  )}
+                {selectedDaySummary.upcomingIncomesTotal > 0 && (
+                  <span className="text-amber-700 dark:text-amber-300">
+                    Очакв. +€{selectedDaySummary.upcomingIncomesTotal.toFixed(2)}
+                  </span>
+                )}
+              </span>
             </h4>
             <div className="space-y-2">
               {incomes.map((ev) => (
@@ -381,9 +416,22 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         {/* Expenses Section */}
         {expenses.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-xs font-bold uppercase tracking-wide text-rose-600 dark:text-rose-400 flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2">
               <span>Разходи ({expenses.length})</span>
-              <span className="tabular-nums">-€{selectedDaySummary.expensesTotal.toFixed(2)}</span>
+              <span className="tabular-nums text-right">
+                {selectedDaySummary.completedExpensesTotal > 0 && (
+                  <span>-€{selectedDaySummary.completedExpensesTotal.toFixed(2)}</span>
+                )}
+                {selectedDaySummary.completedExpensesTotal > 0 &&
+                  selectedDaySummary.upcomingExpensesTotal > 0 && (
+                    <span className="text-slate-400 mx-1">·</span>
+                  )}
+                {selectedDaySummary.upcomingExpensesTotal > 0 && (
+                  <span className="text-amber-700 dark:text-amber-300">
+                    Предст. -€{selectedDaySummary.upcomingExpensesTotal.toFixed(2)}
+                  </span>
+                )}
+              </span>
             </h4>
             <div className="space-y-2">
               {expenses.map((ev) => (
@@ -575,20 +623,32 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       {/* Month Summary Strip + Filter Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs space-y-3">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              Месечни приходи
+          <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50">
+            <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 shrink-0" />
+              <span>Месечни приходи</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-200/80 dark:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums">
+                ({currentMonthSummary.completedIncomesCount})
+              </span>
             </span>
-            <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
-              +€{currentMonthSummary.incomesTotal.toFixed(2)}
+            <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums mt-0.5 block">
+              {currentMonthSummary.completedIncomesTotal > 0
+                ? `+€${currentMonthSummary.completedIncomesTotal.toFixed(2)}`
+                : "€0.00"}
             </span>
           </div>
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              Месечни разходи
+          <div className="p-3 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/50">
+            <span className="text-[11px] font-semibold text-rose-800 dark:text-rose-300 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 shrink-0" />
+              <span>Месечни разходи</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-rose-200/80 dark:bg-rose-900/70 text-rose-900 dark:text-rose-200 text-[10px] font-extrabold tabular-nums">
+                ({currentMonthSummary.completedExpensesCount})
+              </span>
             </span>
-            <span className="text-base font-extrabold text-rose-600 dark:text-rose-400 tabular-nums">
-              -€{currentMonthSummary.expensesTotal.toFixed(2)}
+            <span className="text-base font-extrabold text-rose-600 dark:text-rose-400 tabular-nums mt-0.5 block">
+              {currentMonthSummary.completedExpensesTotal > 0
+                ? `-€${currentMonthSummary.completedExpensesTotal.toFixed(2)}`
+                : "€0.00"}
             </span>
           </div>
           <div className="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-950/35 border border-amber-300/80 dark:border-amber-800/70">
@@ -596,7 +656,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               <Clock className="w-3 h-3 shrink-0" />
               <span>Предстоящи разходи</span>
               <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-[10px] font-extrabold tabular-nums">
-                ({upcomingExpensesCount})
+                ({currentMonthSummary.upcomingExpensesCount})
               </span>
             </span>
             <span className="text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 block">
@@ -608,7 +668,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               <Clock className="w-3 h-3 shrink-0" />
               <span>Очаквани приходи</span>
               <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-[10px] font-extrabold tabular-nums">
-                ({upcomingIncomesCount})
+                ({currentMonthSummary.upcomingIncomesCount})
               </span>
             </span>
             <span className="text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 block">
@@ -708,19 +768,45 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Compact Day Indicators & Totals */}
+                  {/* Compact Day Indicators & Totals (Completed vs Upcoming separated) */}
                   {dayEvents.length > 0 && (
                     <div className="space-y-0.5 w-full mt-1">
-                      {dayTotals.incomesTotal > 0 && (
+                      {dayTotals.completedIncomesTotal > 0 && (
                         <div className="flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 tabular-nums truncate">
                           <ArrowDownLeft className="w-2.5 h-2.5 shrink-0 hidden sm:inline" />
-                          <span className="truncate">+€{dayTotals.incomesTotal.toFixed(0)}</span>
+                          <span className="truncate">
+                            +€{dayTotals.completedIncomesTotal.toFixed(0)}
+                          </span>
                         </div>
                       )}
-                      {dayTotals.expensesTotal > 0 && (
+                      {dayTotals.upcomingIncomesTotal > 0 && (
+                        <div
+                          className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums truncate"
+                          title="Очаквани приходи"
+                        >
+                          <Clock className="w-2.5 h-2.5 shrink-0 hidden sm:inline" />
+                          <span className="truncate">
+                            +€{dayTotals.upcomingIncomesTotal.toFixed(0)}
+                          </span>
+                        </div>
+                      )}
+                      {dayTotals.completedExpensesTotal > 0 && (
                         <div className="flex items-center gap-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 tabular-nums truncate">
                           <ArrowUpRight className="w-2.5 h-2.5 shrink-0 hidden sm:inline" />
-                          <span className="truncate">-€{dayTotals.expensesTotal.toFixed(0)}</span>
+                          <span className="truncate">
+                            -€{dayTotals.completedExpensesTotal.toFixed(0)}
+                          </span>
+                        </div>
+                      )}
+                      {dayTotals.upcomingExpensesTotal > 0 && (
+                        <div
+                          className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 dark:text-orange-400 tabular-nums truncate"
+                          title="Предстоящи разходи"
+                        >
+                          <Clock className="w-2.5 h-2.5 shrink-0 hidden sm:inline" />
+                          <span className="truncate">
+                            -€{dayTotals.upcomingExpensesTotal.toFixed(0)}
+                          </span>
                         </div>
                       )}
                     </div>
