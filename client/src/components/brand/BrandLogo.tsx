@@ -26,7 +26,6 @@ interface TonePalette {
   ringInner: string;
   brassLit: string;
   brassShadow: string;
-  coreBg: string;
   coreRim: string;
   bfText: string;
   arrowTip: string;
@@ -44,8 +43,7 @@ function getToneClasses(variant: BrandLogoVariant): TonePalette {
       ringInner: "fill-[#8F5D1B]",
       brassLit: "fill-[#F7D47E]",
       brassShadow: "fill-[#A96F24]",
-      coreBg: "fill-[#0A1232]",
-      coreRim: "fill-[#F0C468]",
+      coreRim: "fill-[#E8BA5D]",
       bfText: "fill-[#F8FAFC]",
       arrowTip: "fill-[#38BDF8]",
       arrowTail: "fill-[#2563EB]",
@@ -61,9 +59,8 @@ function getToneClasses(variant: BrandLogoVariant): TonePalette {
       ringInner: "fill-[#7D4E10]",
       brassLit: "fill-[#DCA135]",
       brassShadow: "fill-[#8D5915]",
-      coreBg: "fill-[#141C4B]",
-      coreRim: "fill-[#D49B35]",
-      bfText: "fill-[#FFFFFF]",
+      coreRim: "fill-[#C98E2B]",
+      bfText: "fill-[#141C4B]",
       arrowTip: "fill-[#0EA5E9]",
       arrowTail: "fill-[#2563EB]",
       cardinalText: "fill-[#8D5915]",
@@ -77,9 +74,8 @@ function getToneClasses(variant: BrandLogoVariant): TonePalette {
     ringInner: "fill-[#7D4E10] dark:fill-[#8F5D1B]",
     brassLit: "fill-[#DCA135] dark:fill-[#F7D47E]",
     brassShadow: "fill-[#8D5915] dark:fill-[#A96F24]",
-    coreBg: "fill-[#141C4B] dark:fill-[#0A1232]",
-    coreRim: "fill-[#D49B35] dark:fill-[#F0C468]",
-    bfText: "fill-[#FFFFFF] dark:fill-[#F8FAFC]",
+    coreRim: "fill-[#C98E2B] dark:fill-[#E8BA5D]",
+    bfText: "fill-[#141C4B] dark:fill-[#F8FAFC]",
     arrowTip: "fill-[#0EA5E9] dark:fill-[#38BDF8]",
     arrowTail: "fill-[#2563EB] dark:fill-[#2563EB]",
     cardinalText: "fill-[#8D5915] dark:fill-[#E3B556]",
@@ -98,20 +94,20 @@ function makeRingPath(rOut: number, rIn: number, cx = 50, cy = 50): string {
 
 const COMPACT_OUTER_RING = makeRingPath(36.5, 32.8);
 const COMPACT_INNER_BEZEL = makeRingPath(32.8, 31.6);
-const DIAL_TRACK_RING = makeRingPath(26.0, 24.8);
-const CORE_RIM_RING = makeRingPath(14.8, 12.9);
+const CORE_HAIRLINE_RING = makeRingPath(11.8, 11.1);
 
+/* BF scaled ~0.85x around (50, 50) so the compass dominates visual hierarchy */
 const BF_LETTER_B =
-  "M 42.6 44.8 H 46.8 C 48.6 44.8 49.6 45.7 49.6 47.3 C 49.6 48.4 49.0 49.2 48.1 49.6 C 49.2 50.0 49.9 51.0 49.9 52.4 C 49.9 54.2 48.7 55.2 46.9 55.2 H 42.6 Z M 44.5 46.4 V 49.0 H 46.5 C 47.4 49.0 47.8 48.5 47.8 47.7 C 47.8 46.9 47.4 46.4 46.5 46.4 Z M 44.5 50.6 V 53.6 H 46.7 C 47.7 53.6 48.2 53.0 48.2 52.1 C 48.2 51.2 47.7 50.6 46.7 50.6 Z";
+  "M 43.7 45.6 H 47.3 C 48.8 45.6 49.7 46.3 49.7 47.7 C 49.7 48.6 49.2 49.3 48.4 49.7 C 49.3 50.0 49.9 50.9 49.9 52.0 C 49.9 53.6 48.9 54.4 47.4 54.4 H 43.7 Z M 45.3 46.9 V 49.2 H 47.0 C 47.8 49.2 48.1 48.7 48.1 48.0 C 48.1 47.3 47.8 46.9 47.0 46.9 Z M 45.3 50.5 V 53.1 H 47.2 C 48.0 53.1 48.5 52.6 48.5 51.8 C 48.5 51.0 48.0 50.5 47.2 50.5 Z";
 
 const BF_LETTER_F =
-  "M 51.4 44.8 H 57.4 V 46.5 H 53.3 V 49.1 H 56.8 V 50.8 H 53.3 V 55.2 H 51.4 Z";
+  "M 51.2 45.6 H 56.3 V 47.0 H 52.8 V 49.2 H 55.8 V 50.7 H 52.8 V 54.4 H 51.2 Z";
 
 /**
  * Concept 1 (Recommended): "Chronometer Meridian"
- * Prioritizes a refined 4-point Brass & Deep-Navy luxury compass rose, frames a restrained,
- * legible BF core in the center, and launches an integrated Bright Blue NE growth arrow (↗)
- * seamlessly along the upper-right perimeter of the core bezel.
+ * Prioritizes a refined 4-point Brass & Deep-Navy luxury compass rose whose arms flow
+ * directly into a hairline gold center ring around a restrained BF core, with a clean
+ * two-tone Bright Blue NE growth arrow (↗) emerging directly from the NE hub shoulder.
  */
 export const BrandLogoConcept1: React.FC<{
   size?: number;
@@ -136,9 +132,8 @@ export const BrandLogoConcept1: React.FC<{
     >
       {isAppIcon && <circle cx="50" cy="50" r="49" fill="#081029" />}
 
-      {/* Compass Dial Face + Indigo Concentric Bearing Track */}
+      {/* Unified Compass Dial Face (no isolating concentric dark-blue rings) */}
       <circle cx="50" cy="50" r={showFull ? 32.5 : 34.0} className={tones.dialBg} />
-      <path d={DIAL_TRACK_RING} className={tones.dialRing} />
 
       {/* Two-Tone Brass Compass Bezel Ring */}
       <path
@@ -160,33 +155,32 @@ export const BrandLogoConcept1: React.FC<{
         </g>
       )}
 
-      {/* 4 Primary Faceted Compass Points (N, S, W, E) */}
+      {/* 4 Primary Faceted Compass Points (N, S, W, E) extending cleanly to the central hairline hub */}
       {/* North */}
-      <path d={`M 50 ${50 - tipDist} L 50 36 L 44.8 36 Z`} className={tones.brassLit} />
-      <path d={`M 50 ${50 - tipDist} L 55.2 36 L 50 36 Z`} className={tones.brassShadow} />
+      <path d={`M 50 ${50 - tipDist} L 50 38.6 L 46.1 38.6 Z`} className={tones.brassLit} />
+      <path d={`M 50 ${50 - tipDist} L 53.9 38.6 L 50 38.6 Z`} className={tones.brassShadow} />
       {/* South */}
-      <path d={`M 50 ${50 + tipDist} L 50 64 L 44.8 64 Z`} className={tones.brassShadow} />
-      <path d={`M 50 ${50 + tipDist} L 55.2 64 L 50 64 Z`} className={tones.brassLit} />
+      <path d={`M 50 ${50 + tipDist} L 50 61.4 L 46.1 61.4 Z`} className={tones.brassShadow} />
+      <path d={`M 50 ${50 + tipDist} L 53.9 61.4 L 50 61.4 Z`} className={tones.brassLit} />
       {/* West */}
-      <path d={`M ${50 - tipDist} 50 L 36 50 L 36 44.8 Z`} className={tones.brassLit} />
-      <path d={`M ${50 - tipDist} 50 L 36 55.2 L 36 50 Z`} className={tones.brassShadow} />
+      <path d={`M ${50 - tipDist} 50 L 38.6 50 L 38.6 46.1 Z`} className={tones.brassLit} />
+      <path d={`M ${50 - tipDist} 50 L 38.6 53.9 L 38.6 50 Z`} className={tones.brassShadow} />
       {/* East */}
-      <path d={`M ${50 + tipDist} 50 L 64 50 L 64 44.8 Z`} className={tones.brassLit} />
-      <path d={`M ${50 + tipDist} 50 L 64 55.2 L 64 50 Z`} className={tones.brassShadow} />
+      <path d={`M ${50 + tipDist} 50 L 61.4 50 L 61.4 46.1 Z`} className={tones.brassLit} />
+      <path d={`M ${50 + tipDist} 50 L 61.4 53.9 L 61.4 50 Z`} className={tones.brassShadow} />
 
-      {/* Central Deep-Navy Core + Brass Rim */}
-      <circle cx="50" cy="50" r="13.8" className={tones.coreBg} />
-      <path d={CORE_RIM_RING} className={tones.coreRim} />
-
-      {/* Integrated Bright Blue Growth Arrow (↗) hugging NE core rim smoothly */}
+      {/* Integrated Two-Tone Bright Blue Growth Arrow (↗) emerging cleanly from the NE hub */}
       <path
-        d="M 54.0 64.2 C 63.4 61.2 65.4 50.0 62.6 41.2 L 60.4 39.2 C 62.8 48.2 61.0 58.6 52.8 62.6 Z"
-        className={tones.arrowTail}
-      />
-      <path
-        d="M 58.6 40.1 L 69.8 28.9 L 66.9 26.0 L 78.6 21.4 L 74.0 33.1 L 71.1 30.2 L 60.6 42.1 Z"
+        d="M 57.3 41.1 L 70.1 28.3 L 66.9 25.1 L 79.0 21.0 L 58.1 41.9 Z"
         className={tones.arrowTip}
       />
+      <path
+        d="M 58.1 41.9 L 79.0 21.0 L 74.9 33.1 L 71.7 29.9 L 58.9 42.7 Z"
+        className={tones.arrowTail}
+      />
+
+      {/* Thin Metallic Gold Hub Ring unifying the 4 compass arms with the BF center */}
+      <path d={CORE_HAIRLINE_RING} className={tones.coreRim} />
 
       {/* Restrained BF Core Letters */}
       <path d={BF_LETTER_B} fillRule="evenodd" className={tones.bfText} />
@@ -213,8 +207,8 @@ export const BrandLogoConcept1: React.FC<{
 
 /**
  * Concept 2: "Navigator Dual-Ring"
- * Concentric twin Brass & Indigo-Purple navigation bezel with perimeter N/E/S/W spires,
- * centered BF medallion, and a clean NE growth shaft emerging from the inner bezel.
+ * Twin Brass navigation bezel with perimeter N/E/S/W spires, integrated hairline gold hub,
+ * restrained BF core, and a two-tone NE growth shaft emerging from the inner hub.
  */
 export const BrandLogoConcept2: React.FC<{
   size?: number;
@@ -235,7 +229,7 @@ export const BrandLogoConcept2: React.FC<{
     >
       <circle cx="50" cy="50" r="40" className={tones.dialBg} />
       <path d={makeRingPath(41.5, 38.5)} className={tones.ringOuter} />
-      <path d={makeRingPath(34.5, 32.8)} className={tones.dialRing} />
+      <path d={makeRingPath(34.5, 33.6)} className={tones.ringInner} />
 
       {/* 4 Perimeter Cardinal Spires */}
       <path d="M 50 4 L 54.2 14 H 45.8 Z" className={tones.brassLit} />
@@ -243,15 +237,18 @@ export const BrandLogoConcept2: React.FC<{
       <path d="M 4 50 L 14 45.8 V 54.2 Z" className={tones.brassLit} />
       <path d="M 96 50 L 86 45.8 V 54.2 Z" className={tones.brassShadow} />
 
-      {/* Center Core */}
-      <circle cx="50" cy="50" r="15.5" className={tones.coreBg} />
-      <path d={makeRingPath(16.6, 14.6)} className={tones.coreRim} />
-
-      {/* Integrated Growth Arrow */}
+      {/* Integrated Two-Tone Growth Arrow */}
       <path
-        d="M 59.8 38.4 L 72.5 25.7 L 69.2 22.4 L 82.0 18.0 L 77.6 30.8 L 74.3 27.5 L 61.6 40.2 Z"
+        d="M 57.6 40.8 L 72.1 26.3 L 68.8 23.0 L 82.0 18.0 L 58.4 41.6 Z"
         className={tones.arrowTip}
       />
+      <path
+        d="M 58.4 41.6 L 82.0 18.0 L 77.0 31.2 L 73.7 27.9 L 59.2 42.4 Z"
+        className={tones.arrowTail}
+      />
+
+      {/* Thin Metallic Gold Hub Ring */}
+      <path d={makeRingPath(12.2, 11.4)} className={tones.coreRim} />
 
       <path d={BF_LETTER_B} fillRule="evenodd" className={tones.bfText} />
       <path d={BF_LETTER_F} className={tones.bfText} />
@@ -262,7 +259,7 @@ export const BrandLogoConcept2: React.FC<{
 /**
  * Concept 3: "Apex Bearing"
  * Open 270° Brass navigation bezel broken toward North-East, framed by 4 minimal diamond
- * compass needles, an Indigo-Purple BF center core, and a Bright Blue NE growth vector.
+ * compass needles, an integrated hairline gold hub for BF, and a Bright Blue NE growth vector.
  */
 export const BrandLogoConcept3: React.FC<{
   size?: number;
@@ -294,14 +291,17 @@ export const BrandLogoConcept3: React.FC<{
       <path d="M 5 50 L 21 46.5 V 53.5 Z" className={tones.brassLit} />
       <path d="M 95 50 L 79 46.5 V 53.5 Z" className={tones.brassShadow} />
 
-      <circle cx="50" cy="50" r="14.5" className={tones.coreBg} />
-      <path d={makeRingPath(15.6, 13.7)} className={tones.coreRim} />
-
       {/* Growth Arrow bridging the NE opening */}
       <path
-        d="M 59.2 38.8 L 72.2 25.8 L 68.8 22.4 L 82.8 17.2 L 77.6 31.2 L 74.2 27.8 L 61.2 40.8 Z"
+        d="M 57.6 40.8 L 72.1 26.3 L 68.7 22.9 L 82.8 17.2 L 58.4 41.6 Z"
         className={tones.arrowTip}
       />
+      <path
+        d="M 58.4 41.6 L 82.8 17.2 L 77.1 31.3 L 73.7 27.9 L 59.2 42.4 Z"
+        className={tones.arrowTail}
+      />
+
+      <path d={makeRingPath(12.2, 11.4)} className={tones.coreRim} />
 
       <path d={BF_LETTER_B} fillRule="evenodd" className={tones.bfText} />
       <path d={BF_LETTER_F} className={tones.bfText} />
