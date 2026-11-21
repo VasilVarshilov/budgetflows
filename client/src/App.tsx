@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import {
   Zap,
   Calendar,
@@ -53,6 +53,7 @@ import {
 import { toggleRecordCompletion } from "@/utils/expenseStatus";
 import { upsertElectricityRecordFromExpense } from "@/utils/electricityStorage";
 import { loadSavingsGoals, SAVINGS_GOALS_UPDATED_EVENT } from "@/utils/savingsGoalsStorage";
+import { resetPageScrollToTop, smoothScrollToTop } from "@/utils/scrollUtils";
 import {
   clearAllNotifications,
   createEmptyNotificationsState,
@@ -204,6 +205,9 @@ const AppContent: React.FC = () => {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [minSplashElapsed, setMinSplashElapsed] = useState(false);
+  const mainContentRef = useRef<HTMLElement | null>(null);
+  const pendingRecordTargetRef = useRef<OpenRecordTarget | null>(null);
+  pendingRecordTargetRef.current = pendingRecordTarget;
 
   // Ensure initial branding splash remains visible for at least 2.4s while app initializes in parallel
   useEffect(() => {
@@ -212,6 +216,34 @@ const AppContent: React.FC = () => {
     }, 2400);
     return () => window.clearTimeout(timer);
   }, []);
+
+  // Reset scroll to the top whenever switching tabs so each tab behaves like a separate screen
+  useLayoutEffect(() => {
+    resetPageScrollToTop(mainContentRef.current);
+
+    if (pendingRecordTargetRef.current) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      if (!pendingRecordTargetRef.current) {
+        resetPageScrollToTop(mainContentRef.current);
+      }
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [activeTab]);
+
+  const handleSelectTab = useCallback(
+    (tabId: Tab) => {
+      setIsMobileMoreOpen(false);
+      if (tabId === activeTab) {
+        smoothScrollToTop(190, mainContentRef.current);
+        return;
+      }
+      setActiveTab(tabId);
+    },
+    [activeTab]
+  );
 
   const [monthlyData, setMonthlyData] = useState<
     Record<string, MonthlyRecord>
@@ -1263,7 +1295,7 @@ const AppContent: React.FC = () => {
                   <button
                     key={tab.id}
                     type="button"
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => handleSelectTab(tab.id)}
                     className={`flex items-center justify-center gap-1.5 py-2 px-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                       isActive
                         ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold shadow-xs border border-slate-200/80 dark:border-slate-700/80"
@@ -1289,6 +1321,7 @@ const AppContent: React.FC = () => {
 
       {/* Main Content (keyed by activeUid + workspaceRevision so switching accounts cleanly remounts all local tab state) */}
       <main
+        ref={mainContentRef}
         key={`${activeUid}-${workspaceRevision}`}
         className="flex-1 max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 w-full pb-28 md:pb-8"
       >
@@ -1296,7 +1329,7 @@ const AppContent: React.FC = () => {
           <DashboardTab
             monthlyData={monthlyData}
             globalSavings={globalSavings}
-            onNavigateTab={setActiveTab}
+            onNavigateTab={handleSelectTab}
             onOpenCalendar={handleOpenCalendar}
             onOpenRecord={handleOpenDashboardRecord}
             onTriggerSync={triggerAutoSync}
@@ -1340,7 +1373,7 @@ const AppContent: React.FC = () => {
             }
             onMaterializeProjectedEvent={handleMaterializeProjectedEvent}
             onOpenEvent={handleOpenRecordFromCalendar}
-            onNavigateTab={setActiveTab}
+            onNavigateTab={handleSelectTab}
           />
         )}
 
@@ -1371,7 +1404,7 @@ const AppContent: React.FC = () => {
         {activeTab === "budgets" && (
           <BudgetManagementTab
             monthlyData={monthlyData}
-            onNavigateTab={setActiveTab}
+            onNavigateTab={handleSelectTab}
           />
         )}
 
@@ -1380,7 +1413,7 @@ const AppContent: React.FC = () => {
             monthlyData={monthlyData}
             globalSavings={globalSavings}
             currentMonth={currentMonth}
-            onNavigateTab={setActiveTab}
+            onNavigateTab={handleSelectTab}
           />
         )}
 
@@ -1464,10 +1497,7 @@ const AppContent: React.FC = () => {
                   <button
                     key={tab.id}
                     type="button"
-                    onClick={() => {
-                      setActiveTab(tab.id);
-                      setIsMobileMoreOpen(false);
-                    }}
+                    onClick={() => handleSelectTab(tab.id)}
                     className={`w-full min-h-[52px] flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer ${
                       isActive
                         ? tab.drawerActiveClass
@@ -1509,10 +1539,7 @@ const AppContent: React.FC = () => {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setIsMobileMoreOpen(false);
-                }}
+                onClick={() => handleSelectTab(tab.id)}
                 className={`min-h-[48px] flex flex-col items-center justify-center transition-all cursor-pointer ${
                   isActive
                     ? `${tab.accentColor} font-bold scale-105`

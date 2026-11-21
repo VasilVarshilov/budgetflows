@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Zap,
   Calculator,
@@ -37,6 +37,7 @@ import {
   userStorage,
   STORAGE_BASE_ELECTRICITY_LAST,
 } from '@/utils/userStorage';
+import { getPageScrollTop, smoothScrollToTop } from '@/utils/scrollUtils';
 
 const STORAGE_BASE_ELECTRICITY_SINGLE_LAST = 'ElectricitySingleLastReadings';
 
@@ -65,9 +66,20 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<ElectricitySubTab>('single');
   const [lastCalcMode, setLastCalcMode] = useState<'single' | 'double'>('single');
+  const isFirstSubTabRenderRef = useRef(true);
   const [historyRecords, setHistoryRecords] = useState<ElectricityRecord[]>(() =>
     getStoredElectricityHistory()
   );
+
+  useEffect(() => {
+    if (isFirstSubTabRenderRef.current) {
+      isFirstSubTabRenderRef.current = false;
+      return;
+    }
+    if (getPageScrollTop() > 24) {
+      smoothScrollToTop(190);
+    }
+  }, [activeSubTab]);
 
   // Month & Year for calculation record
   const currentMonthName = useCurrentMonthName();
