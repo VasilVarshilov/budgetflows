@@ -43,8 +43,94 @@ function splitQuantityAndName(rawName: string): { name: string; quantity?: numbe
   return { name: cleaned };
 }
 
+function isLineFormattedReceiptItem(
+  line: string,
+  existingItems?: ReceiptItemDetail[]
+): boolean {
+  const clean = line.replace(/^[•\-*\s]+/, "").trim();
+  if (!clean) return true;
+
+  // Matches formatted bullet/price line like "1 x Beer - €3.00" or "Beer - €3.00 (ориг. €4.00, -€1.00)"
+  const strippedDiscount = clean
+    .replace(
+      /\s*\((?:ориг\.|orig\.?)\s*[$€£лв.]?\s*\d+[.,]\d{2}.*?\)\s*$/i,
+      ""
+    )
+    .trim();
+
+  if (
+    /^.+?\s*(?:[-—:=]|\.{2,}|\s{2,})\s*[$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?$/i.test(
+      strippedDiscount
+    )
+  ) {
+    return true;
+  }
+
+  if (existingItems && existingItems.length > 0) {
+    const lowerClean = strippedDiscount.toLowerCase();
+    for (const item of existingItems) {
+      const itemNameLower = (item.name || "").trim().toLowerCase();
+      if (
+        itemNameLower &&
+        lowerClean.includes(itemNameLower) &&
+        /\d+[.,]\d{2}/.test(lowerClean)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function extractManualNoteLines(
+  note?: string,
+  merchantName?: string,
+  existingItems?: ReceiptItemDetail[]
+): string | undefined {
+  if (!note || !note.trim()) return undefined;
+  const trimmed = note.trim();
+
+  // If this is a legacy single-line run-on receipt blob (2+ inline prices), don't treat it as a manual note
+  if (!trimmed.includes("\n")) {
+    const normalizedMerchant = (merchantName || "").trim().toLowerCase();
+    if (
+      normalizedMerchant &&
+      trimmed.replace(/^[•\-*\s]+/, "").trim().toLowerCase() === normalizedMerchant
+    ) {
+      return undefined;
+    }
+    if (isLineFormattedReceiptItem(trimmed, existingItems)) {
+      return undefined;
+    }
+    const priceMatches = trimmed.match(/([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)\b/gi);
+    if (priceMatches && priceMatches.length >= 2) {
+      return undefined;
+    }
+    return trimmed;
+  }
+
+  const normalizedMerchant = (merchantName || "").trim().toLowerCase();
+  const manualLines: string[] = [];
+
+  for (const rawLine of trimmed.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const stripped = line.replace(/^[•\-*\s]+/, "").trim();
+    if (normalizedMerchant && stripped.toLowerCase() === normalizedMerchant) {
+      continue;
+    }
+    if (isLineFormattedReceiptItem(line, existingItems)) {
+      continue;
+    }
+    manualLines.push(line);
+  }
+
+  return manualLines.length > 0 ? manualLines.join("\n") : undefined;
+}
+
 /**
- * Parses an expense note into structured merchant name and items.
+ * Parses an expense note into structured merchant name, items, and genuine manual user comment.
  * Supports:
  * 1. Pre-structured multiline notes (e.g. "Lidl\n2 x Coca Cola - €4.80\n1 x Water - €1.20")
  * 2. Single-line formatted receipt item (e.g. "2 x Coca Cola - €4.80")
@@ -56,12 +142,12 @@ export function parseExpenseNote(
   existingMerchant?: string,
   existingItems?: ReceiptItemDetail[]
 ): ParsedExpenseNote {
-  // If already structured and has items, return directly
+  // If already structured and has items, preserve any genuine manual comment lines separately
   if (existingItems && existingItems.length > 0) {
     return {
       merchantName: existingMerchant,
       items: existingItems,
-      plainNote: note,
+      plainNote: extractManualNoteLines(note, existingMerchant, existingItems),
       isReceipt: true,
       currencySymbol: "€",
     };
@@ -89,11 +175,17 @@ export function parseExpenseNote(
       .filter(Boolean);
     let merchant = existingMerchant;
     const items: ReceiptItemDetail[] = [];
+    const manualLines: string[] = [];
 
     let startIndex = 0;
-    // If first line doesn't look like an item with a price, treat it as the merchant name
+    // If first line doesn't look like an item with a price, treat it as merchant name only if no explicit merchant exists
     if (lines.length > 1 && !/(\d+[.,]\d{2})\b/.test(lines[0])) {
-      merchant = lines[0].replace(/^[•\-*\s]+/, "").trim();
+      const firstLineClean = lines[0].replace(/^[•\-*\s]+/, "").trim();
+      if (!merchant) {
+        merchant = firstLineClean;
+      } else if (firstLineClean.toLowerCase() !== merchant.trim().toLowerCase()) {
+        manualLines.push(lines[0]);
+      }
       startIndex = 1;
     }
 
@@ -166,6 +258,9 @@ export function parseExpenseNote(
             });
             if (priceInfo.currency) detectedCurrency = priceInfo.currency;
           }
+        } else {
+          // Non-item line (user comment)
+          manualLines.push(lines[i]);
         }
       }
     }
@@ -174,7 +269,7 @@ export function parseExpenseNote(
       return {
         merchantName: merchant,
         items,
-        plainNote: trimmed,
+        plainNote: manualLines.length > 0 ? manualLines.join("\n") : undefined,
         isReceipt: true,
         currencySymbol: detectedCurrency,
       };

@@ -326,7 +326,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60 p-4 shadow-2xs transition-colors">
             <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 mb-1">
               <TrendingUp className="w-3.5 h-3.5" />
-              <span>Приходи</span>
+              <span>Реализирани приходи</span>
             </div>
             <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
               +€{totalIncomeForMonth.toFixed(2)}
@@ -336,7 +336,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 dark:border-rose-900/60 p-4 shadow-2xs transition-colors">
             <div className="flex items-center gap-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 mb-1">
               <CreditCard className="w-3.5 h-3.5" />
-              <span>Разходи</span>
+              <span>Реализирани разходи</span>
             </div>
             <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
               -€{totalExpense.toFixed(2)}
@@ -469,7 +469,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
 
             <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
               <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                Общо разходи
+                Реализирани разходи
               </span>
               <span className="text-xl font-bold text-slate-800 dark:text-white tabular-nums">
                 €{totalExpense.toFixed(2)}

@@ -47,6 +47,7 @@ import {
   Target,
   Layers,
   Clock,
+  StickyNote,
 } from "lucide-react";
 import {
   ExpenseCategory,
@@ -1806,7 +1807,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
           <div className="text-right pl-2 border-l border-slate-100 dark:border-slate-800">
             <span className="text-[11px] text-slate-500 dark:text-slate-400 block uppercase font-medium tracking-wider">
-              Общо разходи
+              Реализирани разходи
             </span>
             <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">
               €{totalExpenses.toFixed(2)}
@@ -2492,6 +2493,32 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     </div>
                   </div>
 
+                  {(() => {
+                    const parsedFixed = parseExpenseNote(
+                      item.note,
+                      item.merchantName,
+                      item.receiptItems
+                    );
+                    const hasFixedNote =
+                      Boolean(parsedFixed.plainNote) &&
+                      parsedFixed.plainNote!.trim().toLowerCase() !==
+                        item.categoryName.trim().toLowerCase();
+                    if (!hasFixedNote) return null;
+                    return (
+                      <div className="mt-2 pl-[42px] sm:pl-[46px]">
+                        <div className="p-2.5 bg-amber-50/60 dark:bg-amber-950/25 rounded-lg border border-amber-200/70 dark:border-amber-800/60 space-y-1">
+                          <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                            <StickyNote className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                            Бележка
+                          </span>
+                          <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-line break-words leading-relaxed">
+                            {parsedFixed.plainNote}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {(item.location?.placeName || item.location?.address) && (
                     <div className="mt-2.5 pl-[42px] sm:pl-[46px]">
                       <LocationCard location={item.location} showHeading compact />
@@ -2943,6 +2970,21 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
                     )}
 
+                    {/* Manual User Note (Highest priority: always shown above receipt items) */}
+                    {parsedReceipt.plainNote && (
+                      <div className="pl-0 sm:pl-13">
+                        <div className="p-3 bg-amber-50/65 dark:bg-amber-950/25 rounded-xl border border-amber-200/80 dark:border-amber-800/60 space-y-1">
+                          <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                            <StickyNote className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                            Бележка
+                          </span>
+                          <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-line break-words leading-relaxed">
+                            {parsedReceipt.plainNote}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Receipt Items (Structured, Collapsible Details, Vertical list) */}
                     {hasReceiptItems && (
                       <div className="pl-0 sm:pl-13">
@@ -3034,13 +3076,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             </div>
                           )}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Standard Note (when no receipt items exist) */}
-                    {!hasReceiptItems && parsedReceipt.plainNote && (
-                      <div className="pl-0 sm:pl-13 text-xs text-slate-600 dark:text-slate-400 italic break-words leading-relaxed">
-                        {parsedReceipt.plainNote}
                       </div>
                     )}
 

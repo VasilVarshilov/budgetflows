@@ -1232,7 +1232,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-4">
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
-              Похарчени
+              Реализирани разходи
             </span>
             <span className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-1 block">
               €{totalExpenses.toFixed(2)}

@@ -626,7 +626,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50">
             <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 shrink-0" />
-              <span>Месечни приходи</span>
+              <span>Реализирани приходи</span>
               <span className="px-1.5 py-0.2 rounded-full bg-emerald-200/80 dark:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums">
                 ({currentMonthSummary.completedIncomesCount})
               </span>
@@ -640,7 +640,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="p-3 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/50">
             <span className="text-[11px] font-semibold text-rose-800 dark:text-rose-300 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 shrink-0" />
-              <span>Месечни разходи</span>
+              <span>Реализирани разходи</span>
               <span className="px-1.5 py-0.2 rounded-full bg-rose-200/80 dark:bg-rose-900/70 text-rose-900 dark:text-rose-200 text-[10px] font-extrabold tabular-nums">
                 ({currentMonthSummary.completedExpensesCount})
               </span>

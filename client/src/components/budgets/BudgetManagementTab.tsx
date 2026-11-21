@@ -19,7 +19,9 @@ import {
   Save,
   Check,
   Receipt,
+  StickyNote,
 } from "lucide-react";
+import { parseExpenseNote } from "@/utils/expenseFormatter";
 import { MonthlyRecord, BudgetConfig, ExpenseCategory } from "@/types";
 import {
   loadBudgets,
@@ -816,14 +818,24 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           </div>
                         ) : (
                           item.expenses.map((exp) => {
-                            const title = exp.merchantName || exp.note?.split("\n")[0] || exp.categoryName;
+                            const parsed = parseExpenseNote(
+                              exp.note,
+                              exp.merchantName,
+                              exp.receiptItems
+                            );
+                            const title = exp.merchantName || parsed.merchantName || exp.categoryName;
                             const dateStr = exp.date ? exp.date.split("T")[0] : "";
                             const hasSubItems = exp.receiptItems && exp.receiptItems.length > 0;
+                            const manualNote =
+                              parsed.plainNote &&
+                              parsed.plainNote.trim().toLowerCase() !== title.trim().toLowerCase()
+                                ? parsed.plainNote
+                                : undefined;
 
                             return (
                               <div
                                 key={exp.id}
-                                className="p-2.5 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-100 dark:border-slate-800 text-xs space-y-1 shadow-2xs"
+                                className="p-2.5 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-100 dark:border-slate-800 text-xs space-y-1.5 shadow-2xs"
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="font-bold text-slate-800 dark:text-slate-100 truncate">
@@ -842,6 +854,18 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                     </span>
                                   )}
                                 </div>
+
+                                {manualNote && (
+                                  <div className="p-2 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/60 space-y-0.5">
+                                    <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                                      <StickyNote className="w-3 h-3 shrink-0" />
+                                      Бележка
+                                    </span>
+                                    <p className="text-[11px] text-slate-700 dark:text-slate-200 whitespace-pre-line break-words">
+                                      {manualNote}
+                                    </p>
+                                  </div>
+                                )}
 
                                 {hasSubItems && (
                                   <div className="pt-1 mt-1 border-t border-slate-200/50 dark:border-slate-700/50 space-y-0.5">

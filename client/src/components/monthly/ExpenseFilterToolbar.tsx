@@ -399,7 +399,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             <strong className="text-slate-900 dark:text-white font-bold">
               €{totalFilteredSum.toFixed(2)}
             </strong>{" "}
-            похарчени
+            реализирани разходи
           </span>
           {totalFilteredPlannedSum > 0 && (
             <>

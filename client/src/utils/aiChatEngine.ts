@@ -1448,7 +1448,7 @@ export function answerFinancialChatQuestion(
       answer: en
         ? `Expected total spending for ${range.label}: ${fmtEur(expectedTotal)} (Completed: ${fmtEur(completedSum)} + Upcoming: ${fmtEur(plannedSum)} across ${scopedPlanned.length} upcoming items).`
         : `Очаквани общи разходи за ${range.label}: ${fmtEur(expectedTotal)} — Изпълнени ${fmtEur(completedSum)} (${scopedCompleted.length} бр.) + Предстоящи ${fmtEur(plannedSum)} (${scopedPlanned.length} бр.).`,
-      calculation: `Похарчени ${fmtEur(completedSum)} + Предстоящи ${fmtEur(plannedSum)} = Очаквани ${fmtEur(expectedTotal)}`,
+      calculation: `Реализирани разходи ${fmtEur(completedSum)} + Предстоящи разходи ${fmtEur(plannedSum)} = Очаквани разходи ${fmtEur(expectedTotal)}`,
       timeRangeLabel: range.label,
       matchedExpenses: matched,
       totalMatchedAmount: parseFloat(expectedTotal.toFixed(2)),
