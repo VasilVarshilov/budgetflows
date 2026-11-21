@@ -688,7 +688,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-100 dark:border-slate-800/80">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-3 border-y border-slate-100 dark:border-slate-800/80">
               <div>
                 <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
                   Повтарящи се
@@ -705,11 +705,19 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   €{totalVariable.toFixed(2)}
                 </span>
               </div>
-              <div className="text-right">
+              <div>
+                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
+                  Предстоящи разходи
+                </span>
+                <span className="text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 tabular-nums mt-0.5 block">
+                  €{totalPlannedExpenses.toFixed(2)}
+                </span>
+              </div>
+              <div className="sm:text-right">
                 <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
                   Очаквани общо
                 </span>
-                <span className="text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 tabular-nums mt-0.5 block">
+                <span className="text-sm sm:text-base font-bold text-sky-600 dark:text-sky-400 tabular-nums mt-0.5 block">
                   €{(totalExpenses + totalPlannedExpenses).toFixed(2)}
                 </span>
               </div>
