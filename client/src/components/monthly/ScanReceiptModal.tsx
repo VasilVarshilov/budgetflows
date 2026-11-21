@@ -41,7 +41,11 @@ import {
   isValidCalendarDate,
 } from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
-import { parseExpenseNote } from "@/utils/expenseFormatter";
+import {
+  parseExpenseNote,
+  splitReceiptItemsWithSelection,
+  mergeAdjacentSplitReceiptItems,
+} from "@/utils/expenseFormatter";
 import { loadBudgets, findMatchingBudgetCategoryId } from "@/utils/budgetStorage";
 
 export interface OCRReceiptResult {
@@ -761,6 +765,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [merchantName, setMerchantName] = useState<string>("");
   const [receiptItems, setReceiptItems] = useState<ReceiptItemDetail[]>([]);
   const [selectedItemIndices, setSelectedItemIndices] = useState<Set<number>>(new Set());
+  const [splitBillEnabled, setSplitBillEnabled] = useState<boolean>(false);
   const [rawText, setRawText] = useState<string>("");
   const [confidence, setConfidence] = useState<"high" | "medium" | "low">("high");
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -816,7 +821,29 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const scanRunIdRef = useRef<number>(0);
+  const aiStageTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const preSplitSnapshotRef = useRef<{
+    items: ReceiptItemDetail[];
+    selectedIndices: Set<number>;
+  } | null>(null);
+  const modifiedAfterSplitRef = useRef<boolean>(false);
+
+  const clearAiStageTimers = useCallback(() => {
+    if (aiStageTimersRef.current.length > 0) {
+      aiStageTimersRef.current.forEach((t) => clearTimeout(t));
+      aiStageTimersRef.current = [];
+    }
+  }, []);
+
+  const abortActiveAiRequest = useCallback(() => {
+    clearAiStageTimers();
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, [clearAiStageTimers]);
 
   // Auto-expand notes textarea based on content without internal scrollbars
   const adjustNotesHeight = useCallback(() => {
@@ -842,10 +869,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   // Cleanup on close
   const handleClose = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
+    scanRunIdRef.current += 1;
+    abortActiveAiRequest();
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
@@ -864,6 +889,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setMerchantName("");
     setReceiptItems([]);
     setSelectedItemIndices(new Set());
+    setSplitBillEnabled(false);
+    preSplitSnapshotRef.current = null;
+    modifiedAfterSplitRef.current = false;
     setRawText("");
     setWarnings([]);
     setShowCategoryPicker(false);
@@ -892,7 +920,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setEditingItemIndex(null);
     setScanElapsedSeconds(0);
     onClose();
-  }, [onClose]);
+  }, [abortActiveAiRequest, imageMeta, onClose]);
+
+  // Cancel scanning cleanly so in-flight requests never hijack the UI
+  const handleCancelScan = useCallback(() => {
+    scanRunIdRef.current += 1;
+    abortActiveAiRequest();
+    setErrorMessage(null);
+    setScanStatusMessage("Инициализиране на OCR скенера...");
+    setStep("upload");
+  }, [abortActiveAiRequest]);
 
   // Elapsed timer while scanning
   useEffect(() => {
@@ -926,18 +963,20 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   // Skip directly to manual review
   const handleSkipToManual = useCallback(
     (reason = "Ръчно попълване от потребителя") => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
+      scanRunIdRef.current += 1;
+      abortActiveAiRequest();
       addDebugLog("parsed_total", "Прескачане към ръчно въвеждане: " + reason);
       setMerchantName((prev) => prev || "Касова бележка");
       setDate((prev) => prev || new Date().toISOString().split("T")[0]);
       setConfidence("low");
+      setAiUnavailable(false);
+      setAiFallbackReason(null);
+      setAiSucceeded(false);
+      setAiSourceBadge("Ръчно въвеждане");
       setProcessingWarning("Ръчен режим: попълнете сумата, търговеца и артикулите по-долу.");
       setStep("review");
     },
-    [addDebugLog]
+    [abortActiveAiRequest, addDebugLog]
   );
 
   // Apply item selection changes: recalculate amount and regenerate notes with ONLY selected items
@@ -1039,8 +1078,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     runScanWorkflow(imageMeta.prepared);
   };
 
-  // OCR Workflow (Original-resolution Tesseract bul+eng -> Deterministic BG Parser -> Optional Gemini Enrichment)
+  // OCR Workflow (Original-resolution Tesseract bul+eng -> Deterministic BG Parser -> Gemini AI Enrichment)
   const runScanWorkflow = async (prepared: PreparedReceiptImage) => {
+    scanRunIdRef.current += 1;
+    const runId = scanRunIdRef.current;
+    abortActiveAiRequest();
+
     setStep("scanning");
     setAiUnavailable(false);
     setAiFallbackReason(null);
@@ -1049,6 +1092,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDateEditedByUser(false);
     setShowAddItemForm(false);
     setEditingItemIndex(null);
+    setSplitBillEnabled(false);
+    preSplitSnapshotRef.current = null;
+    modifiedAfterSplitRef.current = false;
     setScanStatusMessage("1/3 Подготовка на оригиналното изображение за OCR (bul+eng)...");
     let ocrRawText = "";
     let ocrConfidence = 0;
@@ -1057,10 +1103,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       const ocrResult = await runClientOcr(
         prepared.ocrSource,
         (percent, status) => {
-          setScanStatusMessage(`2/3 OCR разпознаване (${percent}%): ${status}`);
+          if (scanRunIdRef.current === runId) {
+            setScanStatusMessage(`2/3 OCR разпознаване (${percent}%): ${status}`);
+          }
         },
         45000 // 45s timeout allows cold-downloading bul.traineddata.gz + eng.traineddata.gz reliably
       );
+      if (scanRunIdRef.current !== runId) return;
       ocrRawText = ocrResult.text;
       ocrConfidence = ocrResult.confidence;
       setOcrLanguageInfo({
@@ -1075,8 +1124,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           ocrRawText.slice(0, 600)
       );
     } catch (ocrErr: any) {
+      if (scanRunIdRef.current !== runId) return;
       addDebugLog("error", `Локалното OCR отне твърде много време или се провали: ${ocrErr?.message}`);
     }
+    if (scanRunIdRef.current !== runId) return;
 
     // 3. Deterministic Local Parsing (Bulgarian-first + Euro-first)
     const localParsed: ParsedReceiptData = parseReceiptTextLocally(ocrRawText);
@@ -1167,13 +1218,27 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setSelectedBudgetCategoryId(matchingBudgetId);
     }
 
-    // 4. Gemini AI Enrichment (Optional improvement - never overwrites valid OCR date or drops items)
-    setScanStatusMessage("3/3 Интелигентен AI анализ с Gemini...");
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    const timeoutTimer = setTimeout(() => {
-      controller.abort();
-    }, 40000); // 40s client timeout (> 2x18s server timeout) so server error diagnostics aren't cut short
+    // 4. Gemini AI Enrichment (Prioritized for accuracy - waits patiently while AI processes)
+    const CLIENT_AI_TIMEOUT_MS = 105000; // 105s client ceiling (> server primary 45s + fallback 30s + retries)
+    setScanStatusMessage("Анализиране с AI...");
+    clearAiStageTimers();
+    aiStageTimersRef.current = [
+      setTimeout(() => {
+        if (scanRunIdRef.current === runId) {
+          setScanStatusMessage("Анализиране с AI... (изчакване на по-точния AI резултат)");
+        }
+      }, 6000),
+      setTimeout(() => {
+        if (scanRunIdRef.current === runId) {
+          setScanStatusMessage("Анализиране с AI... (обработка на детайлите от бележката)");
+        }
+      }, 18000),
+      setTimeout(() => {
+        if (scanRunIdRef.current === runId) {
+          setScanStatusMessage("Анализиране с AI... (продължаваща обработка за максимална точност)");
+        }
+      }, 42000),
+    ];
 
     const rawConfiguredApiUrl = String(import.meta.env.VITE_API_BASE_URL || "").trim();
     const configuredApiBase = rawConfiguredApiUrl.replace(/\/+$/, "");
@@ -1190,11 +1255,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         isTimeout ||
         errorCode === "GEMINI_TIMEOUT" ||
         errorCode === "CLIENT_TIMEOUT" ||
+        errorCode === "CLIENT_ABORT_TIMEOUT" ||
         errorCode === "CLIENT_ABORT_40S_TIMEOUT" ||
         httpStatus === 504 ||
         httpStatus === 524
       ) {
-        return "AI анализът отне твърде дълго време.";
+        return "AI анализът надвиши допустимото време за изчакване.";
       }
       if (
         errorCode === "WORKER_EXCEPTION" ||
@@ -1202,7 +1268,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         errorCode === "INVALID_JSON" ||
         (typeof httpStatus === "number" && httpStatus >= 500)
       ) {
-        return "Възникна временен проблем при AI анализа.";
+        return "Възникна временен сървърен проблем при AI анализа.";
       }
       return "AI анализът временно не е наличен.";
     };
@@ -1223,15 +1289,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       });
       jsonPayloadBytes = new TextEncoder().encode(requestBodyStr).byteLength;
     } catch (serialErr: any) {
-      clearTimeout(timeoutTimer);
+      clearAiStageTimers();
       console.warn("[BudgetFlows OCR Network Diagnostics] Request serialization failed", {
         stage: "REQUEST_CREATION",
         error: serialErr?.message,
       });
+      if (scanRunIdRef.current !== runId) return;
       setAiUnavailable(true);
       setAiFallbackReason("AI анализът временно не е наличен.");
       setAiSucceeded(false);
-      setAiSourceBadge("OCR анализ");
+      setAiSourceBadge("Локален OCR (Fallback)");
       abortControllerRef.current = null;
       setStep("review");
       return;
@@ -1260,66 +1327,104 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       `OCR Request (${clientPlatform}) | Origin=${requestOrigin || "(none)"} | URL=${ocrEndpoint} | Method=${requestMethod} | Image=${prepared.diagnostics.originalWidth}x${prepared.diagnostics.originalHeight} (AI=${prepared.aiWidth}x${prepared.aiHeight}) | MIME=${prepared.diagnostics.originalMimeType}->${prepared.mimeType} | Orig=${prepared.originalSize}B | Compressed=${prepared.compressedSizeBytes}B | Base64=${prepared.base64SizeChars} chars | JSON=${jsonPayloadBytes}B (${(jsonPayloadBytes / 1024).toFixed(1)} KB)`
     );
 
-    let uploadStartMs = performance.now();
-    let uploadDurationMs = 0;
+    const sleepClient = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const overallDeadlineMs = Date.now() + CLIENT_AI_TIMEOUT_MS;
+    const maxClientAttempts = 2;
+    let shouldMoveToReview = true;
 
     try {
-      currentStage = "REQUEST_SEND";
-      uploadStartMs = performance.now();
-      const response = await fetch(ocrEndpoint, {
-        method: requestMethod,
-        mode: "cors",
-        credentials: "omit",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: requestBodyStr,
-      });
+      for (let clientAttempt = 0; clientAttempt < maxClientAttempts; clientAttempt++) {
+        if (scanRunIdRef.current !== runId) {
+          shouldMoveToReview = false;
+          return;
+        }
+        const remainingBudgetMs = overallDeadlineMs - Date.now();
+        if (remainingBudgetMs <= 2000) {
+          setAiUnavailable(true);
+          setAiFallbackReason(getFriendlyAiErrorMessage("CLIENT_TIMEOUT", null, true));
+          setAiSucceeded(false);
+          setAiSourceBadge("Локален OCR (Fallback)");
+          break;
+        }
 
-      uploadDurationMs = Math.round(performance.now() - uploadStartMs);
-      clearTimeout(timeoutTimer);
-      const contentType = response.headers.get("content-type") || "";
-      const geminiElapsed = Date.now() - geminiStart;
-      const finalRequestUrl = response.url || ocrEndpoint;
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        let didClientTimeout = false;
+        const timeoutTimer = setTimeout(() => {
+          didClientTimeout = true;
+          controller.abort();
+        }, remainingBudgetMs);
 
-      console.info("[BudgetFlows OCR Network Diagnostics] Response", {
-        stage: "JSON_PARSE",
-        clientPlatform,
-        requestOrigin,
-        requestUrl: finalRequestUrl,
-        requestMethod,
-        responseStatus: response.status,
-        responseContentType: contentType || "(empty)",
-        uploadDurationMs,
-        durationMs: geminiElapsed,
-      });
+        let uploadStartMs = performance.now();
+        let uploadDurationMs = 0;
 
-      if (contentType.includes("application/json")) {
-        currentStage = "JSON_PARSE";
-        const json = await response.json();
-        currentStage = "CLIENT_RESPONSE";
-        const serverErrorCode = String(json.errorCode || json.error || "NONE");
-        const resolvedWorkerErrorCode =
-          json.workerErrorCode ||
-          (!json.success &&
-          !json.modelAttempted &&
-          ["METHOD_NOT_ALLOWED", "INVALID_JSON", "ROUTE_NOT_FOUND", "WORKER_EXCEPTION", "MISSING_DATA", "SERVER_ERROR"].includes(
-            serverErrorCode
-          )
-            ? serverErrorCode
-            : "NONE");
-        const resolvedGeminiErrorCode =
-          json.geminiErrorCode ||
-          (!json.success && resolvedWorkerErrorCode === "NONE" ? serverErrorCode : "NONE");
-        const workerTimingSummary = json.workerTiming
-          ? `stage=${json.workerTiming.stage}, contentLength=${json.workerTiming.contentLength}, bodySize=${json.workerTiming.requestBodySize ?? "?"}B, rx=${json.workerTiming.requestReceivedTimestamp}, done=${json.workerTiming.requestCompletedTimestamp}`
-          : "not reported";
+        try {
+          currentStage = "REQUEST_SEND";
+          uploadStartMs = performance.now();
+          const response = await fetch(ocrEndpoint, {
+            method: requestMethod,
+            mode: "cors",
+            credentials: "omit",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            body: requestBodyStr,
+          });
 
-        addDebugLog(
-          "gemini_res",
-          `Gemini response received (${clientPlatform}) <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | WorkerTiming=(${workerTimingSummary})`,
-          json
-        );
+          uploadDurationMs = Math.round(performance.now() - uploadStartMs);
+          clearTimeout(timeoutTimer);
+          if (scanRunIdRef.current !== runId) {
+            shouldMoveToReview = false;
+            return;
+          }
+
+          const contentType = response.headers.get("content-type") || "";
+          const geminiElapsed = Date.now() - geminiStart;
+          const finalRequestUrl = response.url || ocrEndpoint;
+
+          console.info("[BudgetFlows OCR Network Diagnostics] Response", {
+            stage: "JSON_PARSE",
+            clientPlatform,
+            clientAttempt: clientAttempt + 1,
+            requestOrigin,
+            requestUrl: finalRequestUrl,
+            requestMethod,
+            responseStatus: response.status,
+            responseContentType: contentType || "(empty)",
+            uploadDurationMs,
+            durationMs: geminiElapsed,
+          });
+
+          if (contentType.includes("application/json")) {
+            currentStage = "JSON_PARSE";
+            const json = await response.json();
+            if (scanRunIdRef.current !== runId) {
+              shouldMoveToReview = false;
+              return;
+            }
+            currentStage = "CLIENT_RESPONSE";
+            const serverErrorCode = String(json.errorCode || json.error || "NONE");
+            const resolvedWorkerErrorCode =
+              json.workerErrorCode ||
+              (!json.success &&
+              !json.modelAttempted &&
+              ["METHOD_NOT_ALLOWED", "INVALID_JSON", "ROUTE_NOT_FOUND", "WORKER_EXCEPTION", "MISSING_DATA", "SERVER_ERROR"].includes(
+                serverErrorCode
+              )
+                ? serverErrorCode
+                : "NONE");
+            const resolvedGeminiErrorCode =
+              json.geminiErrorCode ||
+              (!json.success && resolvedWorkerErrorCode === "NONE" ? serverErrorCode : "NONE");
+            const workerTimingSummary = json.workerTiming
+              ? `stage=${json.workerTiming.stage}, contentLength=${json.workerTiming.contentLength}, bodySize=${json.workerTiming.requestBodySize ?? "?"}B, rx=${json.workerTiming.requestReceivedTimestamp}, done=${json.workerTiming.requestCompletedTimestamp}`
+              : "not reported";
+
+            addDebugLog(
+              "gemini_res",
+              `Gemini response received (${clientPlatform}, attempt=${clientAttempt + 1}) <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | WorkerTiming=(${workerTimingSummary})`,
+              json
+            );
 
         if (json.success && json.data) {
           const gData = json.data;
@@ -1580,97 +1685,169 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             `Gemini parsing completed -> merchant="${cleanAiMerchant || localParsed.merchantName}" | items=${resolvedItems.length} | category="${enrichedCat.name}"`
           );
 
-          setAiSucceeded(true);
-          setAiUnavailable(false);
-          setAiFallbackReason(null);
-          setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : "AI + OCR анализ");
-        } else {
-          const serverStage: OcrPipelineStage =
-            json.failingStage ||
-            json.workerTiming?.stage ||
-            (resolvedWorkerErrorCode !== "NONE" ? "WORKER_PARSE" : "GEMINI_RESPONSE");
-          const technicalReason = json.fallbackReason || json.message || serverErrorCode;
-          console.warn("[BudgetFlows OCR Network Diagnostics] Server Fallback", {
-            failingStage: serverStage,
-            requestUrl: finalRequestUrl,
-            httpStatus: json.httpStatus ?? response.status,
-            workerErrorCode: resolvedWorkerErrorCode,
-            geminiErrorCode: resolvedGeminiErrorCode,
-            technicalReason,
+              setAiSucceeded(true);
+              setAiUnavailable(false);
+              setAiFallbackReason(null);
+              setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : "AI + OCR анализ");
+              break;
+            } else {
+              const serverStage: OcrPipelineStage =
+                json.failingStage ||
+                json.workerTiming?.stage ||
+                (resolvedWorkerErrorCode !== "NONE" ? "WORKER_PARSE" : "GEMINI_RESPONSE");
+              const effectiveStatus = json.httpStatus ?? response.status;
+              const technicalReason = json.fallbackReason || json.message || serverErrorCode;
+              const isTransientWorkerFailure =
+                ["WORKER_EXCEPTION", "SERVER_ERROR", "HTTP_500", "HTTP_502", "HTTP_503", "HTTP_504"].includes(
+                  resolvedWorkerErrorCode
+                ) ||
+                ["WORKER_EXCEPTION", "SERVER_ERROR"].includes(serverErrorCode) ||
+                (typeof effectiveStatus === "number" &&
+                  effectiveStatus >= 500 &&
+                  serverErrorCode !== "GEMINI_TIMEOUT");
+
+              console.warn("[BudgetFlows OCR Network Diagnostics] Server Fallback", {
+                failingStage: serverStage,
+                clientAttempt: clientAttempt + 1,
+                requestUrl: finalRequestUrl,
+                httpStatus: effectiveStatus,
+                workerErrorCode: resolvedWorkerErrorCode,
+                geminiErrorCode: resolvedGeminiErrorCode,
+                technicalReason,
+              });
+              addDebugLog(
+                "gemini_res",
+                `Gemini fallback (attempt=${clientAttempt + 1}) -> Failing Stage=${serverStage} | HTTP Status=${effectiveStatus} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | reason=${technicalReason}`
+              );
+
+              if (
+                isTransientWorkerFailure &&
+                clientAttempt < maxClientAttempts - 1 &&
+                overallDeadlineMs - Date.now() > 8000
+              ) {
+                abortControllerRef.current = null;
+                setScanStatusMessage("Анализиране с AI... (повторен опит за максимална точност)");
+                await sleepClient(1200);
+                continue;
+              }
+
+              setAiUnavailable(true);
+              setAiFallbackReason(
+                getFriendlyAiErrorMessage(
+                  resolvedWorkerErrorCode !== "NONE" ? resolvedWorkerErrorCode : resolvedGeminiErrorCode,
+                  effectiveStatus,
+                  serverErrorCode === "GEMINI_TIMEOUT"
+                )
+              );
+              setAiSucceeded(false);
+              setAiSourceBadge("Локален OCR (Fallback)");
+              break;
+            }
+          } else {
+            console.warn("[BudgetFlows OCR Network Diagnostics] Non-JSON Response", {
+              failingStage: "JSON_PARSE",
+              clientAttempt: clientAttempt + 1,
+              requestOrigin,
+              requestUrl: finalRequestUrl,
+              httpStatus: response.status,
+              contentType: contentType || "(empty)",
+            });
+            addDebugLog(
+              "gemini_res",
+              `Gemini fallback (attempt=${clientAttempt + 1}) <- Failing Stage=JSON_PARSE | HTTP Status=${response.status} | ContentType=${contentType || "(empty)"}`
+            );
+
+            if (
+              response.status >= 500 &&
+              clientAttempt < maxClientAttempts - 1 &&
+              overallDeadlineMs - Date.now() > 8000
+            ) {
+              abortControllerRef.current = null;
+              setScanStatusMessage("Анализиране с AI... (повторен опит за максимална точност)");
+              await sleepClient(1200);
+              continue;
+            }
+
+            setAiUnavailable(true);
+            setAiFallbackReason(getFriendlyAiErrorMessage(null, response.status, false));
+            setAiSucceeded(false);
+            setAiSourceBadge("Локален OCR (Fallback)");
+            break;
+          }
+        } catch (gErr: any) {
+          uploadDurationMs = Math.round(performance.now() - uploadStartMs);
+          clearTimeout(timeoutTimer);
+
+          if (scanRunIdRef.current !== runId) {
+            shouldMoveToReview = false;
+            return;
+          }
+
+          const isAbort = gErr?.name === "AbortError";
+          if (isAbort && !didClientTimeout) {
+            // Cancelled or skipped explicitly by user
+            shouldMoveToReview = false;
+            return;
+          }
+
+          const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+          const failedClientStage: OcrPipelineStage =
+            currentStage === "JSON_PARSE" ? "JSON_PARSE" : "REQUEST_SEND";
+
+          console.warn("[BudgetFlows OCR Network Diagnostics] Request Failed", {
+            clientPlatform,
+            clientAttempt: clientAttempt + 1,
+            failingStage: failedClientStage,
+            requestOrigin,
+            requestUrl: ocrEndpoint,
+            requestMethod,
+            jsonPayloadBytes,
+            uploadDurationMs,
+            isAbort,
+            didClientTimeout,
+            isOffline,
+            errorName: gErr?.name,
+            errorMessage: gErr?.message,
           });
+
           addDebugLog(
             "gemini_res",
-            `Gemini fallback -> Failing Stage=${serverStage} | HTTP Status=${json.httpStatus ?? response.status} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | reason=${technicalReason}`
+            `Gemini failed (${clientPlatform}, attempt=${clientAttempt + 1}) <- Stage=${failedClientStage} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B | reason=${gErr?.message || "Network error"}`
           );
+
+          if (
+            !isAbort &&
+            !isOffline &&
+            clientAttempt < maxClientAttempts - 1 &&
+            overallDeadlineMs - Date.now() > 8000
+          ) {
+            abortControllerRef.current = null;
+            setScanStatusMessage("Анализиране с AI... (повторен опит за максимална точност)");
+            await sleepClient(1200);
+            continue;
+          }
+
           setAiUnavailable(true);
           setAiFallbackReason(
-            getFriendlyAiErrorMessage(
-              resolvedWorkerErrorCode !== "NONE" ? resolvedWorkerErrorCode : resolvedGeminiErrorCode,
-              json.httpStatus ?? response.status,
-              serverErrorCode === "GEMINI_TIMEOUT"
-            )
+            isOffline
+              ? "Няма интернет връзка. AI анализът временно не е наличен."
+              : getFriendlyAiErrorMessage(
+                  didClientTimeout || isAbort ? "CLIENT_TIMEOUT" : "NETWORK_ERROR",
+                  null,
+                  didClientTimeout || isAbort
+                )
           );
           setAiSucceeded(false);
-          setAiSourceBadge("OCR анализ");
+          setAiSourceBadge("Локален OCR (Fallback)");
+          break;
         }
-      } else {
-        console.warn("[BudgetFlows OCR Network Diagnostics] Non-JSON Response", {
-          failingStage: "JSON_PARSE",
-          requestOrigin,
-          requestUrl: finalRequestUrl,
-          httpStatus: response.status,
-          contentType: contentType || "(empty)",
-        });
-        addDebugLog(
-          "gemini_res",
-          `Gemini fallback <- Failing Stage=JSON_PARSE | HTTP Status=${response.status} | ContentType=${contentType || "(empty)"}`
-        );
-        setAiUnavailable(true);
-        setAiFallbackReason(getFriendlyAiErrorMessage(null, response.status, false));
-        setAiSucceeded(false);
-        setAiSourceBadge("OCR анализ");
       }
-    } catch (gErr: any) {
-      uploadDurationMs = Math.round(performance.now() - uploadStartMs);
-      clearTimeout(timeoutTimer);
-      const isAbort = gErr?.name === "AbortError";
-      const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
-      const failedClientStage: OcrPipelineStage =
-        currentStage === "JSON_PARSE" ? "JSON_PARSE" : "REQUEST_SEND";
-
-      console.warn("[BudgetFlows OCR Network Diagnostics] Request Failed", {
-        clientPlatform,
-        failingStage: failedClientStage,
-        requestOrigin,
-        requestUrl: ocrEndpoint,
-        requestMethod,
-        jsonPayloadBytes,
-        uploadDurationMs,
-        isAbort,
-        isOffline,
-        errorName: gErr?.name,
-        errorMessage: gErr?.message,
-      });
-
-      addDebugLog(
-        "gemini_res",
-        `Gemini failed (${clientPlatform}) <- Stage=${failedClientStage} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B | reason=${gErr?.message || "Network error"}`
-      );
-      setAiUnavailable(true);
-      setAiFallbackReason(
-        isOffline
-          ? "Няма интернет връзка. AI анализът временно не е наличен."
-          : getFriendlyAiErrorMessage(
-              isAbort ? "CLIENT_TIMEOUT" : "NETWORK_ERROR",
-              null,
-              isAbort
-            )
-      );
-      setAiSucceeded(false);
-      setAiSourceBadge("OCR анализ");
     } finally {
+      clearAiStageTimers();
       abortControllerRef.current = null;
-      setStep("review");
+      if (shouldMoveToReview && scanRunIdRef.current === runId) {
+        setStep("review");
+      }
     }
   };
 
@@ -1694,6 +1871,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   };
 
   const handleToggleReceiptItem = (index: number) => {
+    if (splitBillEnabled) {
+      modifiedAfterSplitRef.current = true;
+    }
     const next = new Set(selectedItemIndices);
     if (next.has(index)) {
       next.delete(index);
@@ -1704,12 +1884,109 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   };
 
   const handleSelectAllItems = () => {
+    if (splitBillEnabled) {
+      modifiedAfterSplitRef.current = true;
+    }
     const all = new Set(receiptItems.map((_, idx) => idx));
     applyItemSelection(all, receiptItems, detectedTotal);
   };
 
   const handleDeselectAllItems = () => {
+    if (splitBillEnabled) {
+      modifiedAfterSplitRef.current = true;
+    }
     applyItemSelection(new Set(), receiptItems, detectedTotal);
+  };
+
+  const buildUpdatedNotesWithSelection = (
+    prevNotes: string,
+    prevSelectedItems: ReceiptItemDetail[],
+    nextSelectedItems: ReceiptItemDetail[],
+    activeCurrency: string
+  ): string => {
+    const existingPlainNote = parseExpenseNote(
+      prevNotes,
+      merchantName,
+      prevSelectedItems
+    ).plainNote;
+    const formattedItems = formatReceiptNotes(nextSelectedItems, activeCurrency);
+    if (existingPlainNote && formattedItems) {
+      return `${existingPlainNote}\n${formattedItems}`;
+    }
+    return existingPlainNote || formattedItems;
+  };
+
+  const handleToggleSplitBill = (nextEnabled: boolean) => {
+    setSplitBillEnabled(nextEnabled);
+    if (receiptItems.length === 0) {
+      preSplitSnapshotRef.current = null;
+      modifiedAfterSplitRef.current = false;
+      return;
+    }
+
+    const activeCurrency = receiptCurrency || "€";
+    const prevSelectedItems = receiptItems.filter((_, idx) => selectedItemIndices.has(idx));
+
+    if (nextEnabled) {
+      preSplitSnapshotRef.current = {
+        items: receiptItems.map((it) => ({ ...it })),
+        selectedIndices: new Set(selectedItemIndices),
+      };
+      modifiedAfterSplitRef.current = false;
+
+      const { items: splitItems, selectedIndices: nextSelected } =
+        splitReceiptItemsWithSelection(receiptItems, selectedItemIndices);
+
+      setReceiptItems(splitItems);
+      setSelectedItemIndices(nextSelected);
+      setDetectedItemsCount(splitItems.length);
+      setEditingItemIndex(null);
+      setErrorMessage(null);
+
+      const nextSelectedItems = splitItems.filter((_, idx) => nextSelected.has(idx));
+      setNotes(
+        buildUpdatedNotesWithSelection(
+          notes,
+          prevSelectedItems,
+          nextSelectedItems,
+          activeCurrency
+        )
+      );
+    } else {
+      let restoredItems: ReceiptItemDetail[];
+      let restoredSelected: Set<number>;
+
+      if (preSplitSnapshotRef.current && !modifiedAfterSplitRef.current) {
+        restoredItems = preSplitSnapshotRef.current.items.map((it) => ({ ...it }));
+        restoredSelected = new Set(preSplitSnapshotRef.current.selectedIndices);
+      } else {
+        const merged = mergeAdjacentSplitReceiptItems(
+          receiptItems,
+          selectedItemIndices
+        );
+        restoredItems = merged.items;
+        restoredSelected = merged.selectedIndices;
+      }
+
+      setReceiptItems(restoredItems);
+      setSelectedItemIndices(restoredSelected);
+      setDetectedItemsCount(restoredItems.length);
+      setEditingItemIndex(null);
+      setErrorMessage(null);
+
+      const nextSelectedItems = restoredItems.filter((_, idx) => restoredSelected.has(idx));
+      setNotes(
+        buildUpdatedNotesWithSelection(
+          notes,
+          prevSelectedItems,
+          nextSelectedItems,
+          activeCurrency
+        )
+      );
+
+      preSplitSnapshotRef.current = null;
+      modifiedAfterSplitRef.current = false;
+    }
   };
 
   // Sync items list after manual addition, inline edit, or removal
@@ -1717,6 +1994,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     nextItems: ReceiptItemDetail[],
     nextSelected: Set<number>
   ) => {
+    if (splitBillEnabled) {
+      modifiedAfterSplitRef.current = true;
+    }
     setReceiptItems(nextItems);
     setSelectedItemIndices(nextSelected);
     setDetectedItemsCount(nextItems.length);
@@ -2275,7 +2555,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep("upload")}
+                  onClick={handleCancelScan}
                   className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                 >
                   Отказ
@@ -2319,13 +2599,38 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 </div>
               )}
 
-              {/* Clean User-Friendly AI Fallback Notice */}
-              {aiUnavailable && (
-                <div className="p-3.5 bg-slate-100 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
+              {/* Clear Distinction: AI Analysis Success vs Fallback to OCR */}
+              {aiSucceeded && (
+                <div className="p-3 bg-emerald-50/90 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex items-center justify-between flex-wrap gap-2 text-xs text-emerald-900 dark:text-emerald-200">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <div>
+                      <strong className="font-bold">AI Analysis Success</strong>
+                      <span className="ml-1.5 text-emerald-800 dark:text-emerald-300">
+                        Бележката е обработена и подобрена чрез AI за максимална точност.
+                      </span>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 font-semibold rounded-full text-[11px] text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800">
+                    {aiSourceBadge}
+                  </span>
+                </div>
+              )}
+
+              {aiUnavailable && !aiSucceeded && (
+                <div className="p-3.5 bg-amber-50/80 dark:bg-slate-800/90 border border-amber-300 dark:border-amber-700/70 rounded-2xl flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
                   <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
-                    <span>{aiFallbackReason || "AI анализът временно не е наличен."} Данните са извлечени чрез локално разпознаване.</span>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <strong className="text-slate-900 dark:text-white">Fallback to OCR</strong>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                        Локален OCR
+                      </span>
+                    </div>
+                    <div>
+                      <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
+                      <span>{aiFallbackReason || "AI анализът временно не е наличен."} Данните са извлечени чрез локално разпознаване.</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2911,6 +3216,52 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     )}
                   </div>
 
+                  {/* Раздели сметката (Split multi-quantity items into 1x lines) */}
+                  {receiptItems.length > 0 && (
+                    <div className="bg-white dark:bg-slate-900 px-3.5 py-3 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs">
+                      <label className="flex items-center justify-between gap-3 cursor-pointer select-none">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={splitBillEnabled}
+                            onChange={(e) => handleToggleSplitBill(e.target.checked)}
+                            className="w-4.5 h-4.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <span className="block text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                              Раздели сметката
+                            </span>
+                            <span className="block text-[11px] text-slate-600 dark:text-slate-300">
+                              {splitBillEnabled
+                                ? "Артикулите с к-во > 1 са разделени на отделни бройки (1 x)"
+                                : "Разделя артикулите с к-во > 1 по 1 брой и единична цена"}
+                            </span>
+                          </div>
+                        </div>
+                        {(() => {
+                          const multiQtyCount = receiptItems.filter(
+                            (it) => (it.quantity || 1) > 1
+                          ).length;
+                          if (splitBillEnabled) {
+                            return (
+                              <span className="shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                Активно
+                              </span>
+                            );
+                          }
+                          if (multiQtyCount > 0) {
+                            return (
+                              <span className="shrink-0 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                {multiQtyCount} с к-во &gt; 1
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </label>
+                    </div>
+                  )}
+
                   {/* Category Selector */}
                   <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
                     <div className="flex items-center justify-between">
@@ -3020,6 +3371,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       ref={notesTextareaRef}
                       value={notes}
                       onChange={(e) => {
+                        if (splitBillEnabled) {
+                          modifiedAfterSplitRef.current = true;
+                        }
                         setNotes(e.target.value);
                         adjustNotesHeight();
                       }}

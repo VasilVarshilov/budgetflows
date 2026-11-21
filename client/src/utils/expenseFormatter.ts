@@ -400,3 +400,147 @@ export function formatReceiptItemsToText(items: ReceiptItemDetail[], currency = 
     })
     .join("\n");
 }
+
+/**
+ * Splits a monetary total into `count` cent-rounded unit prices whose sum equals `totalAmount` exactly.
+ * Any rounding remainder is absorbed by the final item.
+ */
+export function splitAmountByCents(totalAmount: number, count: number): number[] {
+  const safeCount = Math.max(1, Math.round(count));
+  const totalCents = Math.max(0, Math.round(totalAmount * 100));
+  if (safeCount === 1) {
+    return [parseFloat((totalCents / 100).toFixed(2))];
+  }
+
+  let unitCents = Math.round(totalCents / safeCount);
+  if (unitCents * (safeCount - 1) > totalCents) {
+    unitCents = Math.floor(totalCents / safeCount);
+  }
+  const finalCents = totalCents - unitCents * (safeCount - 1);
+
+  const parts: number[] = [];
+  for (let i = 0; i < safeCount - 1; i++) {
+    parts.push(parseFloat((unitCents / 100).toFixed(2)));
+  }
+  parts.push(parseFloat((finalCents / 100).toFixed(2)));
+  return parts;
+}
+
+/**
+ * Expands any multi-quantity receipt item (quantity > 1) into individual `1 x` items,
+ * preserving exact line totals (cents-rounded with final-item adjustment) and selection state.
+ */
+export function splitReceiptItemsWithSelection(
+  items: ReceiptItemDetail[],
+  selectedIndices: Set<number>
+): { items: ReceiptItemDetail[]; selectedIndices: Set<number> } {
+  const expanded: ReceiptItemDetail[] = [];
+  const nextSelected = new Set<number>();
+
+  items.forEach((item, idx) => {
+    const qty = item.quantity && item.quantity > 1 ? Math.round(item.quantity) : 1;
+    const isSelected = selectedIndices.has(idx);
+
+    if (qty <= 1) {
+      const targetIdx = expanded.length;
+      expanded.push({
+        ...item,
+        quantity: 1,
+      });
+      if (isSelected) {
+        nextSelected.add(targetIdx);
+      }
+      return;
+    }
+
+    const netTotal = item.finalPrice ?? item.price;
+    const netParts = splitAmountByCents(netTotal, qty);
+    const hasDiscount =
+      Boolean(item.discount && item.discount > 0 && item.originalPrice !== undefined);
+    const origParts = hasDiscount
+      ? splitAmountByCents(item.originalPrice!, qty)
+      : undefined;
+
+    for (let u = 0; u < qty; u++) {
+      const targetIdx = expanded.length;
+      const unitNet = netParts[u];
+      if (hasDiscount && origParts) {
+        const unitOrig = origParts[u];
+        expanded.push({
+          name: item.name,
+          quantity: 1,
+          price: unitNet,
+          originalPrice: unitOrig,
+          discount: parseFloat(Math.max(0, unitOrig - unitNet).toFixed(2)),
+          finalPrice: unitNet,
+          ...(item.discountLabel ? { discountLabel: item.discountLabel } : {}),
+        });
+      } else {
+        expanded.push({
+          name: item.name,
+          quantity: 1,
+          price: unitNet,
+        });
+      }
+      if (isSelected) {
+        nextSelected.add(targetIdx);
+      }
+    }
+  });
+
+  return { items: expanded, selectedIndices: nextSelected };
+}
+
+export function splitReceiptItemsByQuantity(
+  items: ReceiptItemDetail[]
+): ReceiptItemDetail[] {
+  return splitReceiptItemsWithSelection(
+    items,
+    new Set(items.map((_, idx) => idx))
+  ).items;
+}
+
+/**
+ * Collapses adjacent identical items that share selection state back into grouped multi-quantity lines.
+ */
+export function mergeAdjacentSplitReceiptItems(
+  items: ReceiptItemDetail[],
+  selectedIndices: Set<number>
+): { items: ReceiptItemDetail[]; selectedIndices: Set<number> } {
+  const merged: ReceiptItemDetail[] = [];
+  const nextSelected = new Set<number>();
+
+  items.forEach((item, idx) => {
+    const isSelected = selectedIndices.has(idx);
+    const qty = item.quantity && item.quantity >= 1 ? Math.round(item.quantity) : 1;
+    const prev = merged[merged.length - 1];
+    const prevIdx = merged.length - 1;
+    const prevSelected = prevIdx >= 0 && nextSelected.has(prevIdx);
+
+    const canMergeWithPrev =
+      prev &&
+      prevSelected === isSelected &&
+      prev.name.trim().toLowerCase() === item.name.trim().toLowerCase() &&
+      !prev.discount &&
+      !item.discount;
+
+    if (canMergeWithPrev) {
+      const nextQty = (prev.quantity || 1) + qty;
+      const nextPrice = parseFloat((prev.price + (item.finalPrice ?? item.price)).toFixed(2));
+      merged[prevIdx] = {
+        ...prev,
+        quantity: nextQty,
+        price: nextPrice,
+      };
+    } else {
+      const targetIdx = merged.length;
+      merged.push({ ...item, quantity: qty });
+      if (isSelected) {
+        nextSelected.add(targetIdx);
+      }
+    }
+  });
+
+  return { items: merged, selectedIndices: nextSelected };
+}
+

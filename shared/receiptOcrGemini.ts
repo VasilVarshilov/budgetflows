@@ -1,7 +1,16 @@
 export const GEMINI_RECEIPT_MODELS = [
-  "gemini-3.1-flash-lite",
   "gemini-4-hydrogen",
+  "gemini-3.1-flash-lite",
 ] as const;
+
+const MODEL_TIMEOUT_MS: Record<string, number> = {
+  "gemini-4-hydrogen": 45000,
+  "gemini-3.1-flash-lite": 30000,
+};
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface GeminiReceiptItem {
   name: string;
@@ -175,9 +184,8 @@ export async function analyzeReceiptWithGemini(input: {
       const modelName = GEMINI_RECEIPT_MODELS[mIdx];
       const hasFallbackModel = mIdx < GEMINI_RECEIPT_MODELS.length - 1;
       lastModelAttempted = modelName;
-      const perModelTimeoutMs = 18000;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), perModelTimeoutMs);
+      const perModelTimeoutMs = MODEL_TIMEOUT_MS[modelName] ?? 35000;
+      const maxAttemptsForModel = 2;
 
       const generationConfig: Record<string, any> =
         modelName === "gemini-4-hydrogen"
@@ -187,77 +195,342 @@ export async function analyzeReceiptWithGemini(input: {
             }
           : {
               responseMimeType: "application/json",
-              temperature: 0.1,
             };
 
-      try {
-        console.log(
-          `[Gemini OCR] Gemini request started | model=${modelName} | timeoutMs=${perModelTimeoutMs}`
-        );
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": "aistudio-build",
-            },
-            signal: controller.signal,
-            body: JSON.stringify({
-              contents: [{ parts }],
-              generationConfig,
-            }),
-          }
-        );
+      for (let attempt = 0; attempt < maxAttemptsForModel; attempt++) {
+        const hasRetryOnSameModel = attempt < maxAttemptsForModel - 1;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), perModelTimeoutMs);
 
-        clearTimeout(timeoutId);
-        lastHttpStatus = response.status;
-        const elapsed = Date.now() - reqStart;
-        console.log(
-          `[Gemini OCR] Gemini response received | model=${modelName} | status=${response.status} | durationMs=${elapsed}`
-        );
-
-        if (!response.ok) {
-          const errText = await response.text();
-          let upstreamStatus: string | null = null;
-          let upstreamMessage: string | null = null;
-          try {
-            const parsedErr = JSON.parse(errText);
-            upstreamStatus = parsedErr?.error?.status || null;
-            upstreamMessage = parsedErr?.error?.message || null;
-          } catch {
-            // Raw text fallback
-          }
-          lastErrorDetail = (upstreamMessage || errText).slice(0, 300);
-          lastTimeoutReason =
-            response.status === 504 || upstreamStatus === "DEADLINE_EXCEEDED"
-              ? `Gemini API returned HTTP ${response.status} (${upstreamStatus || "DEADLINE_EXCEEDED"})`
-              : null;
-
-          if (response.status === 404) {
-            lastErrorCode = "MODEL_NOT_FOUND_404";
-            lastGeminiErrorCode = upstreamStatus || "MODEL_NOT_FOUND_404";
-            console.warn(
-              `[Gemini OCR] Model ${modelName} returned 404, checking next fallback model:`,
-              lastErrorDetail
-            );
-            continue;
-          }
-          if (response.status === 400 || response.status === 403) {
-            lastErrorCode = `AUTH_OR_REQUEST_${response.status}`;
-          } else if (response.status === 429) {
-            lastErrorCode = "RATE_LIMITED_429";
-          } else {
-            lastErrorCode = `HTTP_${response.status}`;
-          }
-          lastGeminiErrorCode = upstreamStatus
-            ? `${lastErrorCode} (${upstreamStatus})`
-            : lastErrorCode;
-          console.warn(
-            `[Gemini OCR] API error <- model=${modelName} | code=${lastErrorCode} | geminiStatus=${upstreamStatus || "none"} | body=${lastErrorDetail}`
+        try {
+          console.log(
+            `[Gemini OCR] Gemini request started | model=${modelName} | attempt=${attempt + 1}/${maxAttemptsForModel} | timeoutMs=${perModelTimeoutMs}`
           );
-          if (hasFallbackModel && response.status >= 500) {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "aistudio-build",
+              },
+              signal: controller.signal,
+              body: JSON.stringify({
+                contents: [{ parts }],
+                generationConfig,
+              }),
+            }
+          );
+
+          clearTimeout(timeoutId);
+          lastHttpStatus = response.status;
+          const elapsed = Date.now() - reqStart;
+          console.log(
+            `[Gemini OCR] Gemini response received | model=${modelName} | attempt=${attempt + 1} | status=${response.status} | durationMs=${elapsed}`
+          );
+
+          if (!response.ok) {
+            const errText = await response.text();
+            let upstreamStatus: string | null = null;
+            let upstreamMessage: string | null = null;
+            try {
+              const parsedErr = JSON.parse(errText);
+              upstreamStatus = parsedErr?.error?.status || null;
+              upstreamMessage = parsedErr?.error?.message || null;
+            } catch {
+              // Raw text fallback
+            }
+            lastErrorDetail = (upstreamMessage || errText).slice(0, 300);
+            lastTimeoutReason =
+              response.status === 504 || upstreamStatus === "DEADLINE_EXCEEDED"
+                ? `Gemini API returned HTTP ${response.status} (${upstreamStatus || "DEADLINE_EXCEEDED"})`
+                : null;
+
+            if (response.status === 404) {
+              lastErrorCode = "MODEL_NOT_FOUND_404";
+              lastGeminiErrorCode = upstreamStatus || "MODEL_NOT_FOUND_404";
+              console.warn(
+                `[Gemini OCR] Model ${modelName} returned 404, checking next fallback model:`,
+                lastErrorDetail
+              );
+              break; // move immediately to fallback model
+            }
+
+            const isNonRetryableAuthOrPayload =
+              response.status === 400 || response.status === 401 || response.status === 403;
+
+            if (response.status === 429) {
+              lastErrorCode = "RATE_LIMITED_429";
+            } else if (isNonRetryableAuthOrPayload) {
+              lastErrorCode = `AUTH_OR_REQUEST_${response.status}`;
+            } else {
+              lastErrorCode = `HTTP_${response.status}`;
+            }
+            lastGeminiErrorCode = upstreamStatus
+              ? `${lastErrorCode} (${upstreamStatus})`
+              : lastErrorCode;
+
+            console.warn(
+              `[Gemini OCR] API error <- model=${modelName} | attempt=${attempt + 1} | code=${lastErrorCode} | geminiStatus=${upstreamStatus || "none"} | body=${lastErrorDetail}`
+            );
+
+            if (isNonRetryableAuthOrPayload) {
+              return {
+                status: 200,
+                body: {
+                  success: false,
+                  error: lastErrorCode,
+                  errorCode: lastErrorCode,
+                  workerErrorCode: null,
+                  geminiErrorCode: lastGeminiErrorCode,
+                  timeoutReason: lastTimeoutReason,
+                  failingStage: "GEMINI_RESPONSE",
+                  httpStatus: response.status,
+                  modelAttempted: modelName,
+                  fallbackReason: `Gemini rejected request (HTTP ${response.status}${upstreamStatus ? ` / ${upstreamStatus}` : ""}): ${lastErrorDetail || "Invalid API key or request payload"}`,
+                  message: `Gemini returned status ${response.status} (${lastGeminiErrorCode}). Using local OCR.`,
+                },
+              };
+            }
+
+            // Retryable HTTP error (429 or 5xx): retry on same model with backoff, then try fallback model
+            if (hasRetryOnSameModel) {
+              const backoffMs = response.status === 429 ? 1600 : 1200;
+              await sleepMs(backoffMs);
+              continue;
+            }
+            if (hasFallbackModel) {
+              break; // try next model
+            }
+            return {
+              status: 200,
+              body: {
+                success: false,
+                error: lastErrorCode,
+                errorCode: lastErrorCode,
+                workerErrorCode: null,
+                geminiErrorCode: lastGeminiErrorCode,
+                timeoutReason: lastTimeoutReason,
+                failingStage: "GEMINI_RESPONSE",
+                httpStatus: response.status,
+                modelAttempted: modelName,
+                fallbackReason: `Gemini API HTTP ${response.status}${upstreamStatus ? ` (${upstreamStatus})` : ""}: ${lastErrorDetail || "Unknown error"}`,
+                message: `Gemini returned status ${response.status} (${lastGeminiErrorCode}). Using local OCR.`,
+              },
+            };
+          }
+
+          const result: any = await response.json();
+          const candidateParts: any[] = result.candidates?.[0]?.content?.parts || [];
+          const nonThoughtText = candidateParts
+            .filter((p) => typeof p?.text === "string" && !p?.thought)
+            .map((p) => p.text)
+            .join("")
+            .trim();
+          const rawContent =
+            nonThoughtText ||
+            (typeof candidateParts[0]?.text === "string"
+              ? candidateParts[0].text
+              : "");
+          const finishReason = result.candidates?.[0]?.finishReason || "UNKNOWN";
+          if (!rawContent) {
+            const emptyReason = `Empty response text from ${modelName} (finishReason=${finishReason})`;
+            console.warn(
+              `[Gemini OCR] Empty response -> model=${modelName} | attempt=${attempt + 1} | reason="${emptyReason}"`
+            );
+            lastErrorCode = "EMPTY_RESPONSE";
+            lastGeminiErrorCode = `EMPTY_RESPONSE (${finishReason})`;
+            lastErrorDetail = emptyReason;
+            if (hasRetryOnSameModel) {
+              await sleepMs(700);
+              continue;
+            }
+            if (hasFallbackModel) break;
+            return {
+              status: 200,
+              body: {
+                success: false,
+                error: "EMPTY_RESPONSE",
+                errorCode: "EMPTY_RESPONSE",
+                workerErrorCode: null,
+                geminiErrorCode: lastGeminiErrorCode,
+                timeoutReason: null,
+                failingStage: "GEMINI_RESPONSE",
+                httpStatus: response.status,
+                modelAttempted: modelName,
+                fallbackReason: emptyReason,
+                message: "No content returned from Gemini. Using local OCR.",
+              },
+            };
+          }
+
+          let parsedData: any;
+          try {
+            const cleaned = rawContent
+              .replace(/^```json\s*/i, "")
+              .replace(/^```\s*/i, "")
+              .replace(/\s*```$/, "")
+              .trim();
+            parsedData = JSON.parse(cleaned);
+          } catch {
+            const firstBrace = rawContent.indexOf("{");
+            const lastBrace = rawContent.lastIndexOf("}");
+            if (firstBrace !== -1 && lastBrace > firstBrace) {
+              try {
+                parsedData = JSON.parse(rawContent.slice(firstBrace, lastBrace + 1));
+              } catch {
+                parsedData = null;
+              }
+            }
+            if (!parsedData) {
+              const parseReason = `Invalid JSON returned by ${modelName} (finishReason=${finishReason}, len=${rawContent.length})`;
+              console.warn(
+                `[Gemini OCR] Failed to parse JSON (attempt ${attempt + 1}):`,
+                rawContent.slice(0, 300)
+              );
+              lastErrorCode = "PARSE_ERROR";
+              lastGeminiErrorCode = `PARSE_ERROR (${finishReason})`;
+              lastErrorDetail = parseReason;
+              if (hasRetryOnSameModel) {
+                await sleepMs(700);
+                continue;
+              }
+              if (hasFallbackModel) break;
+              return {
+                status: 200,
+                body: {
+                  success: false,
+                  error: "PARSE_ERROR",
+                  errorCode: "PARSE_ERROR",
+                  workerErrorCode: null,
+                  geminiErrorCode: lastGeminiErrorCode,
+                  timeoutReason: null,
+                  failingStage: "JSON_PARSE",
+                  httpStatus: response.status,
+                  modelAttempted: modelName,
+                  fallbackReason: parseReason,
+                  message: "Failed to parse Gemini response. Using local OCR.",
+                },
+              };
+            }
+          }
+
+          const normalizedItems: GeminiReceiptItem[] = Array.isArray(parsedData?.items)
+            ? parsedData.items
+                .map((it: any) => {
+                  const rawPrice = parseFloat(parseGeminiNum(it?.price).toFixed(2));
+                  const rawOrig = parseFloat(parseGeminiNum(it?.originalPrice).toFixed(2));
+                  const rawDisc = parseFloat(Math.abs(parseGeminiNum(it?.discount)).toFixed(2));
+                  const rawFinal = parseFloat(parseGeminiNum(it?.finalPrice).toFixed(2));
+                  const discLabel =
+                    typeof it?.discountLabel === "string" && it.discountLabel.trim()
+                      ? it.discountLabel.trim()
+                      : undefined;
+
+                  const hasDiscount = rawDisc > 0 && (rawOrig > rawDisc || rawPrice > 0);
+                  const originalPrice = hasDiscount
+                    ? rawOrig > 0
+                      ? rawOrig
+                      : parseFloat(((rawFinal || rawPrice) + rawDisc).toFixed(2))
+                    : undefined;
+                  const finalPrice = hasDiscount
+                    ? rawFinal > 0
+                      ? rawFinal
+                      : originalPrice !== undefined
+                      ? parseFloat(Math.max(0, originalPrice - rawDisc).toFixed(2))
+                      : rawPrice
+                    : undefined;
+                  const effectivePrice =
+                    finalPrice !== undefined
+                      ? finalPrice
+                      : rawPrice > 0
+                      ? rawPrice
+                      : rawOrig;
+
+                  const item: GeminiReceiptItem = {
+                    name: typeof it?.name === "string" ? it.name.trim() : "",
+                    price: parseFloat((effectivePrice || 0).toFixed(2)),
+                    quantity: Math.max(
+                      1,
+                      Math.round(parseGeminiNum(it?.quantity) || 1)
+                    ),
+                  };
+                  if (hasDiscount && originalPrice !== undefined && finalPrice !== undefined) {
+                    item.originalPrice = originalPrice;
+                    item.discount = rawDisc;
+                    item.finalPrice = finalPrice;
+                    if (discLabel) item.discountLabel = discLabel;
+                  }
+                  return item;
+                })
+                .filter((it: GeminiReceiptItem) => it.name.length > 0 && it.price >= 0 && (it.price > 0 || (it.originalPrice ?? 0) > 0))
+            : [];
+
+          const normalizedData: GeminiReceiptData = {
+            merchantName:
+              typeof parsedData?.merchantName === "string"
+                ? parsedData.merchantName.trim()
+                : "",
+            date:
+              typeof parsedData?.date === "string" ? parsedData.date.trim() : "",
+            totalAmount: parseFloat(parseGeminiNum(parsedData?.totalAmount).toFixed(2)),
+            expectedItemsCount:
+              typeof parsedData?.expectedItemsCount === "number" &&
+              Number.isFinite(parsedData.expectedItemsCount)
+                ? Math.round(parsedData.expectedItemsCount)
+                : null,
+            currency:
+              typeof parsedData?.currency === "string" && parsedData.currency.trim()
+                ? parsedData.currency.trim()
+                : "€",
+            suggestedCategory:
+              typeof parsedData?.suggestedCategory === "string"
+                ? parsedData.suggestedCategory.trim()
+                : "",
+            items: normalizedItems,
+            notesFormatted:
+              typeof parsedData?.notesFormatted === "string"
+                ? parsedData.notesFormatted.trim()
+                : "",
+          };
+
+          console.log(
+            `[Gemini OCR] Gemini parsing completed | model=${modelName} | attempt=${attempt + 1} | durationMs=${Date.now() - reqStart} | merchant="${normalizedData.merchantName}" | date="${normalizedData.date}" | total=${normalizedData.totalAmount} | items=${normalizedItems.length} | category="${normalizedData.suggestedCategory}"`
+          );
+
+          return {
+            status: 200,
+            body: {
+              success: true,
+              modelUsed: modelName,
+              httpStatus: response.status,
+              durationMs: Date.now() - reqStart,
+              data: normalizedData,
+            },
+          };
+        } catch (fetchErr: any) {
+          clearTimeout(timeoutId);
+          const isAbort = fetchErr?.name === "AbortError";
+          lastErrorCode = isAbort ? "GEMINI_TIMEOUT" : "NETWORK_ERROR";
+          lastGeminiErrorCode = lastErrorCode;
+          lastTimeoutReason = isAbort
+            ? `Server-side Gemini fetch timed out after ${perModelTimeoutMs}ms (model=${modelName})`
+            : null;
+          lastErrorDetail = isAbort
+            ? `Gemini timeout after ${perModelTimeoutMs}ms (model=${modelName})`
+            : fetchErr?.message || String(fetchErr);
+          console.warn(
+            `[Gemini OCR] Request exception <- model=${modelName} | attempt=${attempt + 1} | code=${lastErrorCode} | detail=${lastErrorDetail}`
+          );
+
+          // On non-timeout transient network error, retry once on same model after brief backoff
+          if (!isAbort && hasRetryOnSameModel) {
+            await sleepMs(1000);
             continue;
+          }
+          // Otherwise break to try fallback model (or finish if no fallback model left)
+          if (hasFallbackModel) {
+            break;
           }
           return {
             status: 200,
@@ -265,234 +538,19 @@ export async function analyzeReceiptWithGemini(input: {
               success: false,
               error: lastErrorCode,
               errorCode: lastErrorCode,
-              workerErrorCode: null,
+              workerErrorCode: isAbort ? null : "UPSTREAM_FETCH_ERROR",
               geminiErrorCode: lastGeminiErrorCode,
               timeoutReason: lastTimeoutReason,
-              failingStage: "GEMINI_RESPONSE",
-              httpStatus: response.status,
+              failingStage: "GEMINI_REQUEST",
+              httpStatus: lastHttpStatus,
               modelAttempted: modelName,
-              fallbackReason:
-                response.status === 400 || response.status === 403
-                  ? `Gemini rejected request (HTTP ${response.status}${upstreamStatus ? ` / ${upstreamStatus}` : ""}): ${lastErrorDetail || "Invalid API key or request payload"}`
-                  : `Gemini API HTTP ${response.status}${upstreamStatus ? ` (${upstreamStatus})` : ""}: ${lastErrorDetail || "Unknown error"}`,
-              message: `Gemini returned status ${response.status} (${lastGeminiErrorCode}). Using local OCR.`,
+              fallbackReason: isAbort
+                ? lastTimeoutReason || "Gemini timeout"
+                : `${lastErrorCode}: ${lastErrorDetail}`,
+              message: "Gemini analysis timed out or failed. Using local OCR.",
             },
           };
         }
-
-        const result: any = await response.json();
-        const candidateParts: any[] = result.candidates?.[0]?.content?.parts || [];
-        const nonThoughtText = candidateParts
-          .filter((p) => typeof p?.text === "string" && !p?.thought)
-          .map((p) => p.text)
-          .join("")
-          .trim();
-        const rawContent =
-          nonThoughtText ||
-          (typeof candidateParts[0]?.text === "string"
-            ? candidateParts[0].text
-            : "");
-        const finishReason = result.candidates?.[0]?.finishReason || "UNKNOWN";
-        if (!rawContent) {
-          const emptyReason = `Empty response text from ${modelName} (finishReason=${finishReason})`;
-          console.warn(
-            `[Gemini OCR] Fallback -> errorCode=EMPTY_RESPONSE | reason="${emptyReason}"`
-          );
-          lastErrorCode = "EMPTY_RESPONSE";
-          lastGeminiErrorCode = `EMPTY_RESPONSE (${finishReason})`;
-          if (hasFallbackModel) continue;
-          return {
-            status: 200,
-            body: {
-              success: false,
-              error: "EMPTY_RESPONSE",
-              errorCode: "EMPTY_RESPONSE",
-              workerErrorCode: null,
-              geminiErrorCode: lastGeminiErrorCode,
-              timeoutReason: null,
-              failingStage: "GEMINI_RESPONSE",
-              httpStatus: response.status,
-              modelAttempted: modelName,
-              fallbackReason: emptyReason,
-              message: "No content returned from Gemini. Using local OCR.",
-            },
-          };
-        }
-
-        let parsedData: any;
-        try {
-          const cleaned = rawContent
-            .replace(/^```json\s*/i, "")
-            .replace(/^```\s*/i, "")
-            .replace(/\s*```$/, "")
-            .trim();
-          parsedData = JSON.parse(cleaned);
-        } catch {
-          const firstBrace = rawContent.indexOf("{");
-          const lastBrace = rawContent.lastIndexOf("}");
-          if (firstBrace !== -1 && lastBrace > firstBrace) {
-            try {
-              parsedData = JSON.parse(rawContent.slice(firstBrace, lastBrace + 1));
-            } catch {
-              parsedData = null;
-            }
-          }
-          if (!parsedData) {
-            const parseReason = `Invalid JSON returned by ${modelName} (finishReason=${finishReason}, len=${rawContent.length})`;
-            console.warn(
-              `[Gemini OCR] Failed to parse JSON:`,
-              rawContent.slice(0, 300)
-            );
-            lastErrorCode = "PARSE_ERROR";
-            lastGeminiErrorCode = `PARSE_ERROR (${finishReason})`;
-            if (hasFallbackModel) continue;
-            return {
-              status: 200,
-              body: {
-                success: false,
-                error: "PARSE_ERROR",
-                errorCode: "PARSE_ERROR",
-                workerErrorCode: null,
-                geminiErrorCode: lastGeminiErrorCode,
-                timeoutReason: null,
-                failingStage: "JSON_PARSE",
-                httpStatus: response.status,
-                modelAttempted: modelName,
-                fallbackReason: parseReason,
-                message: "Failed to parse Gemini response. Using local OCR.",
-              },
-            };
-          }
-        }
-
-        const normalizedItems: GeminiReceiptItem[] = Array.isArray(parsedData?.items)
-          ? parsedData.items
-              .map((it: any) => {
-                const rawPrice = parseFloat(parseGeminiNum(it?.price).toFixed(2));
-                const rawOrig = parseFloat(parseGeminiNum(it?.originalPrice).toFixed(2));
-                const rawDisc = parseFloat(Math.abs(parseGeminiNum(it?.discount)).toFixed(2));
-                const rawFinal = parseFloat(parseGeminiNum(it?.finalPrice).toFixed(2));
-                const discLabel =
-                  typeof it?.discountLabel === "string" && it.discountLabel.trim()
-                    ? it.discountLabel.trim()
-                    : undefined;
-
-                const hasDiscount = rawDisc > 0 && (rawOrig > rawDisc || rawPrice > 0);
-                const originalPrice = hasDiscount
-                  ? rawOrig > 0
-                    ? rawOrig
-                    : parseFloat(((rawFinal || rawPrice) + rawDisc).toFixed(2))
-                  : undefined;
-                const finalPrice = hasDiscount
-                  ? rawFinal > 0
-                    ? rawFinal
-                    : originalPrice !== undefined
-                    ? parseFloat(Math.max(0, originalPrice - rawDisc).toFixed(2))
-                    : rawPrice
-                  : undefined;
-                const effectivePrice =
-                  finalPrice !== undefined
-                    ? finalPrice
-                    : rawPrice > 0
-                    ? rawPrice
-                    : rawOrig;
-
-                const item: GeminiReceiptItem = {
-                  name: typeof it?.name === "string" ? it.name.trim() : "",
-                  price: parseFloat((effectivePrice || 0).toFixed(2)),
-                  quantity: Math.max(
-                    1,
-                    Math.round(parseGeminiNum(it?.quantity) || 1)
-                  ),
-                };
-                if (hasDiscount && originalPrice !== undefined && finalPrice !== undefined) {
-                  item.originalPrice = originalPrice;
-                  item.discount = rawDisc;
-                  item.finalPrice = finalPrice;
-                  if (discLabel) item.discountLabel = discLabel;
-                }
-                return item;
-              })
-              .filter((it: GeminiReceiptItem) => it.name.length > 0 && it.price >= 0 && (it.price > 0 || (it.originalPrice ?? 0) > 0))
-          : [];
-
-        const normalizedData: GeminiReceiptData = {
-          merchantName:
-            typeof parsedData?.merchantName === "string"
-              ? parsedData.merchantName.trim()
-              : "",
-          date:
-            typeof parsedData?.date === "string" ? parsedData.date.trim() : "",
-          totalAmount: parseFloat(parseGeminiNum(parsedData?.totalAmount).toFixed(2)),
-          expectedItemsCount:
-            typeof parsedData?.expectedItemsCount === "number" &&
-            Number.isFinite(parsedData.expectedItemsCount)
-              ? Math.round(parsedData.expectedItemsCount)
-              : null,
-          currency:
-            typeof parsedData?.currency === "string" && parsedData.currency.trim()
-              ? parsedData.currency.trim()
-              : "€",
-          suggestedCategory:
-            typeof parsedData?.suggestedCategory === "string"
-              ? parsedData.suggestedCategory.trim()
-              : "",
-          items: normalizedItems,
-          notesFormatted:
-            typeof parsedData?.notesFormatted === "string"
-              ? parsedData.notesFormatted.trim()
-              : "",
-        };
-
-        console.log(
-          `[Gemini OCR] Gemini parsing completed | model=${modelName} | durationMs=${Date.now() - reqStart} | merchant="${normalizedData.merchantName}" | date="${normalizedData.date}" | total=${normalizedData.totalAmount} | items=${normalizedItems.length} | category="${normalizedData.suggestedCategory}"`
-        );
-
-        return {
-          status: 200,
-          body: {
-            success: true,
-            modelUsed: modelName,
-            httpStatus: response.status,
-            durationMs: Date.now() - reqStart,
-            data: normalizedData,
-          },
-        };
-      } catch (fetchErr: any) {
-        clearTimeout(timeoutId);
-        const isAbort = fetchErr?.name === "AbortError";
-        lastErrorCode = isAbort ? "GEMINI_TIMEOUT" : "NETWORK_ERROR";
-        lastGeminiErrorCode = lastErrorCode;
-        lastTimeoutReason = isAbort
-          ? `Server-side Gemini fetch timed out after ${perModelTimeoutMs}ms (model=${modelName})`
-          : null;
-        lastErrorDetail = isAbort
-          ? `Gemini timeout after ${perModelTimeoutMs}ms (model=${modelName})`
-          : fetchErr?.message || String(fetchErr);
-        console.warn(
-          `[Gemini OCR] Request exception <- model=${modelName} | code=${lastErrorCode} | detail=${lastErrorDetail}`
-        );
-        if (hasFallbackModel) {
-          continue;
-        }
-        return {
-          status: 200,
-          body: {
-            success: false,
-            error: lastErrorCode,
-            errorCode: lastErrorCode,
-            workerErrorCode: isAbort ? null : "UPSTREAM_FETCH_ERROR",
-            geminiErrorCode: lastGeminiErrorCode,
-            timeoutReason: lastTimeoutReason,
-            failingStage: "GEMINI_REQUEST",
-            httpStatus: lastHttpStatus,
-            modelAttempted: modelName,
-            fallbackReason: isAbort
-              ? lastTimeoutReason || "Gemini timeout"
-              : `${lastErrorCode}: ${lastErrorDetail}`,
-            message: "Gemini analysis timed out or failed. Using local OCR.",
-          },
-        };
       }
     }
 
