@@ -314,7 +314,7 @@ function MetricRow({
   tone = "default",
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   subValue?: string;
   tone?: "default" | "positive" | "negative" | "amber";
 }) {
@@ -555,25 +555,32 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             <MetricRow
               label="Реализирани приходи"
               value={`€${totalIncome.toFixed(2)}`}
-              subValue={`${incomeCount} бр. · Повт. €${totalFixedIncome.toFixed(2)} · Доп. €${totalAdditionalIncome.toFixed(2)}`}
               tone="positive"
             />
             <MetricRow
               label="Реализирани разходи"
               value={`€${totalExpenses.toFixed(2)}`}
-              subValue={`Повт. €${totalFixed.toFixed(2)} · Доп. €${totalVariable.toFixed(2)}`}
               tone="negative"
             />
             <MetricRow
               label="Спестявания за периода"
               value={`€${periodSavings.toFixed(2)}`}
-              subValue={`Общ наличен фонд: €${lifetimeSavings.toFixed(2)}`}
             />
             <MetricRow
-              label="Очаквани до края на периода"
-              value={`+€${totalExpectedIncome.toFixed(2)} / -€${totalPlannedExpenses.toFixed(2)}`}
-              subValue={`Общо очаквани: Приходи €${(totalIncome + totalExpectedIncome).toFixed(2)} · Разходи €${(totalExpenses + totalPlannedExpenses).toFixed(2)}`}
-              tone="amber"
+              label="Предстоящи до края на периода"
+              value={
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-sky-600 dark:text-sky-400">
+                    +€{totalExpectedIncome.toFixed(2)}
+                  </span>
+                  <span className="text-slate-400 dark:text-slate-500 font-normal">
+                    /
+                  </span>
+                  <span className="text-amber-600 dark:text-amber-400">
+                    -€{totalPlannedExpenses.toFixed(2)}
+                  </span>
+                </span>
+              }
             />
           </div>
         )}

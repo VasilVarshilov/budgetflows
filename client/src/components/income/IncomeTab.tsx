@@ -980,8 +980,6 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     return <IconComp className={className} />;
   };
 
-  const activeTemplatesCount = recurringTemplates.filter((t) => t.active).length;
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Top Header & Period Summary */}
@@ -1042,7 +1040,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         </div>
 
         {/* Period Total Summary Strip */}
-        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
               Реализирани приходи ({currentMonth})
@@ -1081,17 +1079,6 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 Предстоящи: +€{currentMonthAdditionalUpcoming.toFixed(2)}
               </span>
             )}
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Шаблони / за потвърждение
-            </span>
-            <span className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-              {dueExpectedIncomes.length}{" "}
-              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-                ({activeTemplatesCount} шаблона)
-              </span>
-            </span>
           </div>
         </div>
       </div>
