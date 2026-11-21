@@ -2993,18 +2993,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     {/* Item-List Operations: Раздели сметката + Добави бакшиш */}
                     <div className="space-y-2 pb-2 border-b border-slate-200 dark:border-slate-800">
                       {receiptItems.length > 0 && (
-                        <label className="flex items-center justify-between gap-3 py-1 cursor-pointer select-none min-h-[38px]">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <input
-                              type="checkbox"
-                              checked={splitBillEnabled}
-                              onChange={(e) => handleToggleSplitBill(e.target.checked)}
-                              className="w-4.5 h-4.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
-                            />
-                            <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                              Раздели сметката
-                            </span>
-                          </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={splitBillEnabled}
+                          onClick={() => handleToggleSplitBill(!splitBillEnabled)}
+                          className="w-full flex items-center justify-between gap-3 py-1 cursor-pointer select-none min-h-[38px] text-left"
+                        >
+                          <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                            Раздели сметката
+                          </span>
                           <span
                             aria-hidden="true"
                             className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
@@ -3019,7 +3017,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                               }`}
                             />
                           </span>
-                        </label>
+                        </button>
                       )}
 
                       <div className={receiptItems.length > 0 ? "pt-1.5 border-t border-slate-100 dark:border-slate-800/80" : ""}>
@@ -3458,14 +3456,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
                   {/* Notes & Items List (Auto-expanding without internal scrollbar) */}
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-                        Бележка / Артикули от бележката
-                      </label>
-                      <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
-                        Всеки артикул на нов ред (автоматично разширяване)
-                      </span>
-                    </div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                      Бележка / Артикули от бележката
+                    </label>
                     <textarea
                       ref={notesTextareaRef}
                       value={notes}
