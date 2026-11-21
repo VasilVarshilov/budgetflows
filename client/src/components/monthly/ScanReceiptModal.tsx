@@ -738,6 +738,12 @@ function matchCategory(
   return foodCat || availableCategories[0];
 }
 
+const TIP_ITEM_NAME = "Бакшиш";
+
+function isTipReceiptItem(item: Pick<ReceiptItemDetail, "name">): boolean {
+  return item.name.trim().toLowerCase() === "бакшиш";
+}
+
 export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   isOpen,
   onClose,
@@ -814,6 +820,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [editItemName, setEditItemName] = useState<string>("");
   const [editItemQuantity, setEditItemQuantity] = useState<string>("1");
   const [editItemPrice, setEditItemPrice] = useState<string>("");
+
+  // Tip Modal State
+  const [showTipModal, setShowTipModal] = useState<boolean>(false);
+  const [tipInputAmount, setTipInputAmount] = useState<string>("");
+  const [tipError, setTipError] = useState<string | null>(null);
 
   const [scanElapsedSeconds, setScanElapsedSeconds] = useState<number>(0);
 
@@ -918,6 +929,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setNewItemQuantity("1");
     setNewItemPrice("");
     setEditingItemIndex(null);
+    setShowTipModal(false);
+    setTipInputAmount("");
+    setTipError(null);
     setScanElapsedSeconds(0);
     onClose();
   }, [abortActiveAiRequest, imageMeta, onClose]);
@@ -1092,6 +1106,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDateEditedByUser(false);
     setShowAddItemForm(false);
     setEditingItemIndex(null);
+    setShowTipModal(false);
+    setTipInputAmount("");
+    setTipError(null);
     setSplitBillEnabled(false);
     preSplitSnapshotRef.current = null;
     modifiedAfterSplitRef.current = false;
@@ -1870,6 +1887,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
   };
 
+  const getEffectiveReceiptTotal = (
+    itemsList: ReceiptItemDetail[],
+    baseDetectedTotal: number
+  ): number => {
+    if (baseDetectedTotal <= 0) return 0;
+    const tipSum = itemsList
+      .filter(isTipReceiptItem)
+      .reduce((sum, it) => sum + (it.finalPrice ?? it.price), 0);
+    return parseFloat((baseDetectedTotal + tipSum).toFixed(2));
+  };
+
   const handleToggleReceiptItem = (index: number) => {
     if (splitBillEnabled) {
       modifiedAfterSplitRef.current = true;
@@ -1880,7 +1908,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     } else {
       next.add(index);
     }
-    applyItemSelection(next, receiptItems, detectedTotal);
+    applyItemSelection(next, receiptItems, getEffectiveReceiptTotal(receiptItems, detectedTotal));
   };
 
   const handleSelectAllItems = () => {
@@ -1888,14 +1916,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       modifiedAfterSplitRef.current = true;
     }
     const all = new Set(receiptItems.map((_, idx) => idx));
-    applyItemSelection(all, receiptItems, detectedTotal);
+    applyItemSelection(all, receiptItems, getEffectiveReceiptTotal(receiptItems, detectedTotal));
   };
 
   const handleDeselectAllItems = () => {
     if (splitBillEnabled) {
       modifiedAfterSplitRef.current = true;
     }
-    applyItemSelection(new Set(), receiptItems, detectedTotal);
+    applyItemSelection(new Set(), receiptItems, getEffectiveReceiptTotal(receiptItems, detectedTotal));
   };
 
   const buildUpdatedNotesWithSelection = (
@@ -2010,20 +2038,71 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     const activeCurrency = receiptCurrency || "€";
     setNotes(formatReceiptNotes(selectedItems, activeCurrency));
 
+    const effectiveTotal = getEffectiveReceiptTotal(nextItems, detectedTotal);
     if (nextItems.length === 0) {
       return;
     }
     if (selectedItems.length === 0) {
       setAmount("0.00");
     } else if (
-      detectedTotal > 0 &&
+      effectiveTotal > 0 &&
       selectedItems.length === nextItems.length &&
-      Math.abs(selectedSum - detectedTotal) <= 0.05
+      Math.abs(selectedSum - effectiveTotal) <= 0.05
     ) {
-      setAmount(detectedTotal.toFixed(2));
+      setAmount(effectiveTotal.toFixed(2));
     } else {
       setAmount(selectedSum.toFixed(2));
     }
+  };
+
+  const existingTipIndex = receiptItems.findIndex(isTipReceiptItem);
+  const existingTipItem = existingTipIndex !== -1 ? receiptItems[existingTipIndex] : null;
+
+  const handleOpenTipModal = () => {
+    setTipError(null);
+    setTipInputAmount(
+      existingTipItem ? (existingTipItem.finalPrice ?? existingTipItem.price).toFixed(2) : ""
+    );
+    setShowTipModal(true);
+  };
+
+  const handleSaveTip = () => {
+    const parsedTip = parseFloat(tipInputAmount.replace(",", "."));
+    if (isNaN(parsedTip) || parsedTip <= 0) {
+      setTipError("Моля, въведете валидна сума за бакшиш (по-голяма от 0).");
+      return;
+    }
+
+    const cleanTip = parseFloat(parsedTip.toFixed(2));
+    const hadItemsBeforeTip = receiptItems.length > 0;
+    const prevAmountNum = parseFloat(amount) || 0;
+    const existingIdx = receiptItems.findIndex(isTipReceiptItem);
+
+    let nextItems: ReceiptItemDetail[];
+    const nextSelected = new Set(selectedItemIndices);
+
+    if (existingIdx !== -1) {
+      nextItems = receiptItems.map((it, idx) =>
+        idx === existingIdx ? { name: TIP_ITEM_NAME, quantity: 1, price: cleanTip } : it
+      );
+      nextSelected.add(existingIdx);
+    } else {
+      nextItems = [
+        ...receiptItems,
+        { name: TIP_ITEM_NAME, quantity: 1, price: cleanTip },
+      ];
+      nextSelected.add(nextItems.length - 1);
+    }
+
+    commitItemsMutation(nextItems, nextSelected);
+
+    if (!hadItemsBeforeTip && prevAmountNum > 0) {
+      setAmount((prevAmountNum + cleanTip).toFixed(2));
+    }
+
+    setShowTipModal(false);
+    setTipInputAmount("");
+    setTipError(null);
   };
 
   // Step 4: Add manual item
@@ -2126,7 +2205,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const attachedDiscountSum = parseFloat(
     receiptItems.reduce((sum, item) => sum + (item.discount || 0), 0).toFixed(2)
   );
-  const receiptTotalDisplay = detectedTotal > 0 ? detectedTotal : itemsFullSum;
+  const activeTipSum = parseFloat(
+    receiptItems
+      .filter(isTipReceiptItem)
+      .reduce((sum, item) => sum + (item.finalPrice ?? item.price), 0)
+      .toFixed(2)
+  );
+  const effectiveDetectedTotal =
+    detectedTotal > 0 ? parseFloat((detectedTotal + activeTipSum).toFixed(2)) : 0;
+  const receiptTotalDisplay = effectiveDetectedTotal > 0 ? effectiveDetectedTotal : itemsFullSum;
   const selectedItemsList = receiptItems.filter((_, idx) => selectedItemIndices.has(idx));
   const isPartialSelection =
     receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length;
@@ -2903,6 +2990,55 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       </div>
                     </div>
 
+                    {/* Item-List Operations: Раздели сметката + Добави бакшиш */}
+                    <div className="space-y-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                      {receiptItems.length > 0 && (
+                        <label className="flex items-center justify-between gap-3 py-1 cursor-pointer select-none min-h-[38px]">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={splitBillEnabled}
+                              onChange={(e) => handleToggleSplitBill(e.target.checked)}
+                              className="w-4.5 h-4.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
+                            />
+                            <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                              Раздели сметката
+                            </span>
+                          </div>
+                          <span
+                            aria-hidden="true"
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                              splitBillEnabled
+                                ? "bg-indigo-600"
+                                : "bg-slate-300 dark:bg-slate-700"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4.5 w-4.5 transform rounded-full bg-white shadow-xs transition-transform ${
+                                splitBillEnabled ? "translate-x-5.5" : "translate-x-1"
+                              }`}
+                            />
+                          </span>
+                        </label>
+                      )}
+
+                      <div className={receiptItems.length > 0 ? "pt-1.5 border-t border-slate-100 dark:border-slate-800/80" : ""}>
+                        <button
+                          type="button"
+                          onClick={handleOpenTipModal}
+                          className="min-h-[38px] w-full sm:w-auto px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 transition-colors flex items-center justify-center sm:justify-start gap-2 cursor-pointer shadow-2xs active:scale-[0.99]"
+                        >
+                          <span aria-hidden="true">💰</span>
+                          <span>Добави бакшиш</span>
+                          {existingTipItem && (
+                            <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-200/80 dark:bg-amber-800/80 text-amber-950 dark:text-amber-100 tabular-nums">
+                              {formatDisplayPrice(existingTipItem.finalPrice ?? existingTipItem.price)}
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Step 4: Manual Add Item Inline Form */}
                     {showAddItemForm && (
                       <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2.5">
@@ -3087,8 +3223,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                       !isChecked ? "line-through" : ""
                                     }`}
                                   >
-                                    {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
-                                    {item.name}
+                                    {isTipReceiptItem(item) ? (
+                                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-xs font-bold">
+                                        <span aria-hidden="true">💰</span>
+                                        <span>{item.name}</span>
+                                      </span>
+                                    ) : (
+                                      <>
+                                        {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
+                                        {item.name}
+                                      </>
+                                    )}
                                   </span>
                                   {item.discount && item.discount > 0 && item.originalPrice !== undefined && (
                                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
@@ -3215,52 +3360,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       </div>
                     )}
                   </div>
-
-                  {/* Раздели сметката (Split multi-quantity items into 1x lines) */}
-                  {receiptItems.length > 0 && (
-                    <div className="bg-white dark:bg-slate-900 px-3.5 py-3 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs">
-                      <label className="flex items-center justify-between gap-3 cursor-pointer select-none">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={splitBillEnabled}
-                            onChange={(e) => handleToggleSplitBill(e.target.checked)}
-                            className="w-4.5 h-4.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <span className="block text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                              Раздели сметката
-                            </span>
-                            <span className="block text-[11px] text-slate-600 dark:text-slate-300">
-                              {splitBillEnabled
-                                ? "Артикулите с к-во > 1 са разделени на отделни бройки (1 x)"
-                                : "Разделя артикулите с к-во > 1 по 1 брой и единична цена"}
-                            </span>
-                          </div>
-                        </div>
-                        {(() => {
-                          const multiQtyCount = receiptItems.filter(
-                            (it) => (it.quantity || 1) > 1
-                          ).length;
-                          if (splitBillEnabled) {
-                            return (
-                              <span className="shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                Активно
-                              </span>
-                            );
-                          }
-                          if (multiQtyCount > 0) {
-                            return (
-                              <span className="shrink-0 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                {multiQtyCount} с к-во &gt; 1
-                              </span>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </label>
-                    </div>
-                  )}
 
                   {/* Category Selector */}
                   <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
@@ -3486,6 +3585,96 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Tip Input Sub-Modal */}
+      {showTipModal && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tip-modal-title"
+          onClick={() => setShowTipModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h4
+                id="tip-modal-title"
+                className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2"
+              >
+                <span aria-hidden="true">💰</span>
+                <span>Въведете бакшиш</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowTipModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
+                aria-label="Затвори"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Сума ({receiptCurrency || "€"})
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-600 dark:text-slate-300">
+                  {receiptCurrency || "€"}
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={tipInputAmount}
+                  onChange={(e) => {
+                    setTipInputAmount(e.target.value);
+                    if (tipError) setTipError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSaveTip();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setShowTipModal(false);
+                    }
+                  }}
+                  className="w-full pl-9 pr-3.5 py-3 text-lg font-extrabold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-amber-500 outline-none transition-all placeholder:text-slate-400"
+                  autoFocus
+                />
+              </div>
+              {tipError && (
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                  {tipError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowTipModal(false)}
+                className="min-h-[42px] px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
+              >
+                Отказ
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTip}
+                className="min-h-[42px] px-5 py-2 text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors shadow-sm cursor-pointer active:scale-95"
+              >
+                Добави
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Category Picker Sub-Modal */}
       {showCategoryPicker && (
