@@ -28,8 +28,16 @@ import {
   Trash2,
   Save,
 } from "lucide-react";
-import { ExpenseCategory, ExpenseItem, ReceiptItemDetail, BudgetConfig } from "@/types";
+import {
+  ExpenseCategory,
+  ExpenseItem,
+  ReceiptItemDetail,
+  BudgetConfig,
+  TransactionLocation,
+} from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
+import { LocationPickerField } from "@/components/common/LocationPickerField";
+import { normalizeLocation } from "@/utils/locationUtils";
 import { AVAILABLE_ICONS_MAP, getCategoryBadgeClasses } from "@/utils/categoryStorage";
 import {
   parseReceiptTextLocally,
@@ -769,6 +777,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [date, setDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState<string>("");
   const [merchantName, setMerchantName] = useState<string>("");
+  const [location, setLocation] = useState<TransactionLocation | undefined>(undefined);
   const [receiptItems, setReceiptItems] = useState<ReceiptItemDetail[]>([]);
   const [selectedItemIndices, setSelectedItemIndices] = useState<Set<number>>(new Set());
   const [splitBillEnabled, setSplitBillEnabled] = useState<boolean>(false);
@@ -898,6 +907,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setReceiptCurrency("€");
     setNotes("");
     setMerchantName("");
+    setLocation(undefined);
     setReceiptItems([]);
     setSelectedItemIndices(new Set());
     setSplitBillEnabled(false);
@@ -1110,6 +1120,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setTipInputAmount("");
     setTipError(null);
     setSplitBillEnabled(false);
+    setLocation(undefined);
     preSplitSnapshotRef.current = null;
     modifiedAfterSplitRef.current = false;
     setScanStatusMessage("1/3 Подготовка на оригиналното изображение за OCR (bul+eng)...");
@@ -2358,6 +2369,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       (b) => b.id === selectedBudgetCategoryId
     );
 
+    const normalizedLocation = normalizeLocation(location);
     const savedDateStr = date || new Date().toISOString().split("T")[0];
     const newExpense: ExpenseItem = {
       id: Date.now().toString(),
@@ -2375,6 +2387,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           ? `${cleanMerchant}\n${notes.trim()}`
           : notes.trim()
         : cleanMerchant || undefined,
+      ...(normalizedLocation ? { location: normalizedLocation } : {}),
       date: `${savedDateStr}T12:00:00.000Z`,
       isRecurring: false,
     };
@@ -2998,9 +3011,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           role="switch"
                           aria-checked={splitBillEnabled}
                           onClick={() => handleToggleSplitBill(!splitBillEnabled)}
-                          className="w-full flex items-center justify-between gap-3 py-1 cursor-pointer select-none min-h-[38px] text-left"
+                          className="inline-flex items-center justify-between gap-4 px-3.5 py-2 rounded-xl bg-slate-50/90 dark:bg-slate-800/75 border border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer select-none min-h-[40px]"
                         >
-                          <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                          <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
                             Раздели сметката
                           </span>
                           <span
@@ -3452,6 +3465,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-slate-500 dark:placeholder:text-slate-400"
                       />
                     </div>
+                  </div>
+
+                  {/* Location Section (Same implementation as Add / Edit Expense) */}
+                  <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs">
+                    <LocationPickerField
+                      value={location}
+                      onChange={setLocation}
+                      compact
+                    />
                   </div>
 
                   {/* Notes & Items List (Auto-expanding without internal scrollbar) */}
