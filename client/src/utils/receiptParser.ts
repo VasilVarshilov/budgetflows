@@ -32,6 +32,8 @@ export interface ParsedReceiptData {
   matchedRule?: string;
   merchantRule?: string;
   dateRule?: string;
+  detectedAddress?: string;
+  addressRule?: string;
   warnings: string[];
 }
 
@@ -2046,6 +2048,674 @@ export function formatReceiptNotes(
 }
 
 /**
+ * Known Bulgarian cities/towns for pairing standalone city lines (e.g. "Пловдив")
+ * with adjacent street lines (e.g. "ул. Перущица 8") and validating city-only candidates.
+ */
+const KNOWN_BG_CITIES = new Set<string>([
+  "софия", "sofia",
+  "пловдив", "plovdiv",
+  "варна", "varna",
+  "бургас", "burgas", "bourgas",
+  "русе", "ruse", "rousse",
+  "стара загора", "stara zagora",
+  "плевен", "pleven",
+  "сливен", "sliven",
+  "добрич", "dobrich",
+  "шумен", "shumen",
+  "перник", "pernik",
+  "хасково", "haskovo",
+  "ямбол", "yambol",
+  "пазарджик", "pazardzhik",
+  "благоевград", "blagoevgrad",
+  "велико търново", "veliko tarnovo",
+  "враца", "vratsa",
+  "габрово", "gabrovo",
+  "асеновград", "asenovgrad",
+  "видин", "vidin",
+  "казанлък", "kazanlak",
+  "кюстендил", "kyustendil",
+  "кърджали", "kardzhali",
+  "монтана", "montana",
+  "димитровград", "dimitrovgrad",
+  "търговище", "targovishte",
+  "ловеч", "lovech",
+  "силистра", "silistra",
+  "дупница", "dupnitsa",
+  "свищов", "svishtov",
+  "разград", "razgrad",
+  "горна оряховица", "gorna oryahovitsa",
+  "петрич", "petrich",
+  "смолян", "smolyan",
+  "сандански", "sandanski",
+  "самоков", "samokov",
+  "севлиево", "sevlievo",
+  "лом", "lom",
+  "карлово", "karlovo",
+  "велинград", "velingrad",
+  "нова загора", "nova zagora",
+  "троян", "troyan",
+  "айтос", "aytos",
+  "ботевград", "botevgrad",
+  "гоце делчев", "gotse delchev",
+  "пещера", "peshtera",
+  "харманли", "harmanli",
+  "карнобат", "karnobat",
+  "свиленград", "svilengrad",
+  "панагюрище", "panagyurishte",
+  "чирпан", "chirpan",
+  "попово", "popovo",
+  "раковски", "rakovski",
+  "първомай", "parvomay",
+  "несебър", "nesebar", "nessebar",
+  "поморие", "pomorie",
+  "созопол", "sozopol",
+  "банско", "bansko",
+  "козлодуй", "kozloduy",
+  "радомир", "radomir",
+  "балчик", "balchik",
+  "каварна", "kavarna",
+  "бяла слатина", "byala slatina",
+  "червен бряг", "cherven bryag",
+  "ихтиман", "ihtiman",
+  "стамболийски", "stamboliyski",
+  "костенец", "kostenets",
+  "своге", "svoge",
+  "елин пелин", "elin pelin",
+  "костинброд", "kostinbrod",
+  "божурище", "bozhurishte",
+  "равно поле", "ravno pole",
+  "слънчев бряг", "sunny beach",
+  "златни пясъци", "golden sands",
+]);
+
+const ADDRESS_PREFIX_LOWER_MAP: Record<string, string> = {
+  "гр.": "гр.",
+  "гр": "гр.",
+  "с.": "с.",
+  "ул.": "ул.",
+  "ул": "ул.",
+  "бул.": "бул.",
+  "бул": "бул.",
+  "ж.к.": "ж.к.",
+  "ж.к": "ж.к.",
+  "жк.": "ж.к.",
+  "жк": "ж.к.",
+  "кв.": "кв.",
+  "кв": "кв.",
+  "пл.": "пл.",
+  "пл": "пл.",
+  "бл.": "бл.",
+  "бл": "бл.",
+  "вх.": "вх.",
+  "вх": "вх.",
+  "ет.": "ет.",
+  "ет": "ет.",
+  "ап.": "ап.",
+  "ап": "ап.",
+  "обл.": "обл.",
+  "обл": "обл.",
+  "общ.": "общ.",
+  "общ": "общ.",
+  "п.к.": "п.к.",
+  "п.к": "п.к.",
+  "шосе": "шосе",
+  "местност": "местност",
+};
+
+const ADDRESS_LOWER_PREPOSITIONS = new Set([
+  "и", "в", "на", "от", "до", "за", "по", "с", "при", "над", "под", "край",
+]);
+
+function normalizeAddressOcrPrefixes(raw: string): string {
+  const repaired = repairCyrillicWordTokens(raw, /[а-яА-Я]/.test(raw));
+  return (
+    repaired
+      .replace(/[#*_~|]+/g, " ")
+      .replace(/\s+/g, " ")
+      // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (avoid digits before гр.)
+      .replace(
+        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)[гr][рp](?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z]{3,})/gi,
+        "$1гр. "
+      )
+      .replace(
+        /(^|[\s,;:(])[уy]л(?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        "$1ул. "
+      )
+      .replace(
+        /(^|[\s,;:(])[б6][уy]л(?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        "$1бул. "
+      )
+      .replace(
+        /(^|[\s,;:(])ж\s*[.,]?\s*к(?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        "$1ж.к. "
+      )
+      .replace(/(^|[\s,;:(])кв\s*\.\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1кв. ")
+      .replace(/(^|[\s,;:(])пл\s*\.\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1пл. ")
+      .replace(/(^|[\s,;:(])бл\s*\.\s*(?=\d)/gi, "$1бл. ")
+      .replace(/(^|[\s,;:(])с\s*\.\s*(?=[А-Яа-я]{3,})/gi, "$1с. ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+function formatAddressCasing(text: string): string {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (!trimmed) return "";
+
+  const tokens = trimmed.split(" ");
+  const contentLetters: string[] = [];
+  const contentUpperLetters: string[] = [];
+  for (const tok of tokens) {
+    const match = tok.match(/^([^а-яА-Яa-zA-Z0-9]*)(.*?)([^а-яА-Яa-zA-Z0-9]*)$/);
+    const core = match ? match[2] : tok;
+    const tail = match ? match[3] : "";
+    const coreLower = core.toLowerCase();
+    const lookupKey =
+      tail.startsWith(".") && ADDRESS_PREFIX_LOWER_MAP[`${coreLower}.`]
+        ? `${coreLower}.`
+        : coreLower;
+    if (core && ADDRESS_PREFIX_LOWER_MAP[lookupKey]) continue;
+    const letters = tok.match(/[а-яА-Яa-zA-Z]/g);
+    const upper = tok.match(/[А-ЯA-Z]/g);
+    if (letters) contentLetters.push(...letters);
+    if (upper) contentUpperLetters.push(...upper);
+  }
+  const isMostlyUpper =
+    contentLetters.length > 0 &&
+    contentUpperLetters.length / contentLetters.length >= 0.72;
+  return tokens
+    .map((tok, idx) => {
+      const match = tok.match(/^([^а-яА-Яa-zA-Z0-9]*)(.*?)([^а-яА-Яa-zA-Z0-9]*)$/);
+      if (!match) return tok;
+      const [, lead, core, tail] = match;
+      if (!core) return tok;
+      const coreLower = core.toLowerCase();
+      const lookupKey =
+        tail.startsWith(".") && ADDRESS_PREFIX_LOWER_MAP[`${coreLower}.`]
+          ? `${coreLower}.`
+          : coreLower;
+
+      const mappedPrefix = ADDRESS_PREFIX_LOWER_MAP[lookupKey];
+      if (mappedPrefix) {
+        const adjustedTail = mappedPrefix.endsWith(".")
+          ? tail.replace(/^\.+/, "")
+          : tail;
+        return `${lead}${mappedPrefix}${adjustedTail}`;
+      }
+
+      if (!isMostlyUpper) {
+        return tok;
+      }
+
+      // Preserve ordinal hyphenated tokens like "3-ТИ" -> "3-ти" or "1-ВИ" -> "1-ви"
+      if (/^\d+-[А-Я]+$/i.test(core)) {
+        return `${lead}${coreLower}${tail}`;
+      }
+
+      if (idx > 0 && ADDRESS_LOWER_PREPOSITIONS.has(coreLower)) {
+        return `${lead}${coreLower}${tail}`;
+      }
+
+      // Capitalize hyphenated parts cleanly (e.g. "СВЕТИ-ВЛАС" -> "Свети-Влас")
+      const formattedCore = core
+        .split("-")
+        .map((part) =>
+          part.length > 0
+            ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+            : part
+        )
+        .join("-");
+
+      return `${lead}${formattedCore}${tail}`;
+    })
+    .join(" ")
+    .replace(/\s*,\s*/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripAddressLineWrapper(line: string): {
+  cleaned: string;
+  hasExplicitAddressLabel: boolean;
+  hasBranchContext: boolean;
+  hasHqContext: boolean;
+} {
+  let working = normalizeAddressOcrPrefixes(line);
+  const cyr = toCyrillicMatchForm(working);
+
+  const hasExplicitAddressLabel =
+    /(?:^|\s)(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?))?|ADDRESS|ADDR\.?)\s*[:\-–]?/i.test(
+      working
+    ) ||
+    /(?:^|\s)АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?))?\s*[:\-–]?/.test(cyr);
+
+  const hasBranchContext =
+    /(?:^|\s)(?:ТЪРГОВСКИ\s+ОБЕКТ|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#)?\s*\d*|ФИЛИАЛ|БЕНЗИНОСТАНЦИЯ|АПТЕКА|РЕСТОРАНТ|АДРЕС\s+НА\s+ОБЕКТ)/i.test(
+      cyr
+    );
+
+  const hasHqContext =
+    /(?:ЕООД|ООД|ЕАД|АД|КД|СД|СЕДАЛИЩЕ|ЮРИДИЧЕСКИ\s+АДРЕС|ЦЕНТРАЛЕН\s+ОФИС)/i.test(
+      cyr
+    );
+
+  // Strip leading object/store/address label prefixes
+  working = working
+    .replace(
+      /^(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|ADDRESS|ADDR\.?)\s*[:\-–]?\s*/i,
+      ""
+    )
+    .replace(
+      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#)?\s*\d*|ФИЛИАЛ\s*(?:№|N|#)?\s*\d*|БЕНЗИНОСТАНЦИЯ\s*(?:№|N|#)?\s*\d*)\s*[:\-–,]?\s*/i,
+      ""
+    )
+    .replace(
+      /\s+(?:ТЕЛ\.?|PHONE|TEL|FAX|ФАКС|ЕИК|EIK|БУЛСТАТ|BULSTAT|ДДС|ЗДДС|ИН\s+ПО\s+ДДС|BG\s*\d{8,11}|ФУ|ФП|УНП|КАСА|ДАТА|DATE|WWW\.|HTTP).*$/i,
+      ""
+    )
+    .replace(/^[\s,;:\-–]+|[\s,;:\-–]+$/g, "")
+    .trim();
+
+  return {
+    cleaned: working,
+    hasExplicitAddressLabel,
+    hasBranchContext,
+    hasHqContext,
+  };
+}
+
+function isDisqualifiedAddressLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length < 3) return true;
+  if (extractTrailingItemPrice(trimmed)) return true;
+
+  const cyr = toCyrillicMatchForm(trimmed);
+  const lat = toLatinMatchForm(trimmed);
+
+  // Reject product weights like "400 гр." / "500 г"
+  if (/\d+(?:[.,]\d+)?\s*(?:гр|г|кг|мл|л)\.?(?:\s|$)/i.test(trimmed)) {
+    return true;
+  }
+
+  const rejectRes: RegExp[] = [
+    /\bBG\s*\d{8,11}\b/i,
+    /^(?:ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ДДС\s*№|ДДС\s*N|VAT\s*№|VAT\s*NO|ФУ|ФП|ЗД|ДТ|УНП|НРА)\b/i,
+    /(?:ФИСКАЛЕН\s*БОН|СИСТЕМЕН\s*БОН|СЛУЖЕБЕН\s*БОН|КАСОВА\s*БЕЛЕЖКА|КАСОВ\s*БОН|ФАКТУРА|ОРИГИНАЛ|ДУБЛИКАТ)/,
+    /^(?:WELCOME|THANK\s*YOU|ДОБРЕ\s*ДОШЛИ|БЛАГОДАРИМ|МЕРСИ|ПРИЯТЕН\s*ДЕН)/i,
+    /(?:КАСА\s*№?|КАСИЕР|ОПЕРАТОР|БОН\s*№|ЧЕК\s*№|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ\s*№)/,
+    /^(?:TEL|PHONE|ТЕЛ|ФАКС|FAX|EMAIL|E-MAIL|WWW\.|HTTP|HTTPS|ДАТА|DATE|ЧАС|TIME)\b/i,
+    /^\d{1,2}[./-]\d{1,2}[./-](?:20\d{2}|\d{2})(?:\s|$)/,
+    /^\d+[\s\-/.:№#]*$/,
+    /[€$£]|(?:^|\s)(?:лв\.?|BGN|EUR)(?:\s|$)/i,
+  ];
+
+  return (
+    rejectRes.some((re) => re.test(trimmed)) ||
+    rejectRes.some((re) => re.test(cyr)) ||
+    rejectRes.some((re) => re.test(lat))
+  );
+}
+
+const STREET_INDICATOR_RE =
+  /(?:^|[\s,;:(])(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|местност|шосе|ул\s+|бул\s+|str\.?|st\.?|blvd\.?|boulevard|street|ave\.?|avenue|rd\.?|road|zh\.k\.?)(?:\s|$)/i;
+
+function hasStreetIndicator(line: string): boolean {
+  if (STREET_INDICATOR_RE.test(line)) return true;
+  if (/\b(?:бл\.|блок)\s*\d+/i.test(line)) return true;
+  if (
+    /\b\d{1,5}[a-zA-Z]?\s+[A-Za-z][A-Za-z\s.'-]{2,}\s+(?:St\.?|Str\.?|Street|Blvd\.?|Boulevard|Ave\.?|Avenue|Rd\.?|Road|Sq\.?|Lane|Dr\.?)\b/i.test(
+      line
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+interface ParsedCityLine {
+  city: string;
+  isVillage: boolean;
+  hasExplicitPrefix: boolean;
+}
+
+function parseStandaloneCityLine(line: string): ParsedCityLine | null {
+  if (!line || hasStreetIndicator(line)) return null;
+  const cleaned = line
+    .replace(/^(?:България|Bulgaria)\s*,?\s*/i, "")
+    .replace(/,?\s*(?:България|Bulgaria)$/i, "")
+    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .trim();
+  if (!cleaned || /\d{5,}/.test(cleaned)) return null;
+
+  // Match explicit "гр. <City>" or "с. <Village>" (optional 4-digit postal code)
+  const explicitMatch = cleaned.match(
+    /^(?:\d{4}\s+)?(гр\.|с\.)\s+([А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,}(?:\s+[А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,})?)(?:\s+\d{4})?$/i
+  );
+  if (explicitMatch) {
+    const prefix = explicitMatch[1].toLowerCase();
+    const rawName = explicitMatch[2].trim();
+    const formattedName = formatAddressCasing(rawName);
+    const isVillage = prefix === "с.";
+    // Guard against random 2-letter noise or fiscal words after гр.
+    const wordLower = formattedName.toLowerCase();
+    if (
+      /^(?:бон|ддс|еик|сума|общо|каса|тест|брой|бр)$/i.test(wordLower) ||
+      formattedName.length < 3
+    ) {
+      return null;
+    }
+    return {
+      city: isVillage ? `с. ${formattedName}` : formattedName,
+      isVillage,
+      hasExplicitPrefix: true,
+    };
+  }
+
+  // Match standalone known Bulgarian city (optionally with 4-digit postcode)
+  const strippedPost = cleaned.replace(/^\d{4}\s+|\s+\d{4}$/g, "").trim();
+  const formattedKnown = formatAddressCasing(strippedPost);
+  if (KNOWN_BG_CITIES.has(formattedKnown.toLowerCase())) {
+    return {
+      city: formattedKnown,
+      isVillage: false,
+      hasExplicitPrefix: false,
+    };
+  }
+
+  return null;
+}
+
+function splitSingleLineAddress(line: string): {
+  street?: string;
+  city?: ParsedCityLine;
+} | null {
+  // Pattern 1: "гр. Пловдив, бул. България 123" or "гр. Пловдив бул. България 123"
+  const cityFirstMatch = line.match(
+    /^(?:\d{4}\s+)?(гр\.|с\.)\s+([А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{1,}(?:\s+[А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{1,})?)\s*[,;]?\s+((?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|местност|шосе|str\.?|st\.?|blvd\.?|ave\.?).+)$/i
+  );
+  if (cityFirstMatch) {
+    const prefix = cityFirstMatch[1].toLowerCase();
+    const rawCity = formatAddressCasing(cityFirstMatch[2]);
+    const street = formatAddressCasing(cityFirstMatch[3]);
+    const isVillage = prefix === "с.";
+    return {
+      street,
+      city: {
+        city: isVillage ? `с. ${rawCity}` : rawCity,
+        isVillage,
+        hasExplicitPrefix: true,
+      },
+    };
+  }
+
+  // Pattern 2: "<street>, <city>" (comma-separated)
+  const lastComma = line.lastIndexOf(",");
+  if (lastComma > 3) {
+    const left = line.slice(0, lastComma).trim();
+    const right = line.slice(lastComma + 1).trim();
+    const parsedRightCity = parseStandaloneCityLine(right);
+    if (parsedRightCity && left.length >= 3) {
+      return {
+        street: formatAddressCasing(left),
+        city: parsedRightCity,
+      };
+    }
+    const parsedLeftCity = parseStandaloneCityLine(left);
+    if (parsedLeftCity && hasStreetIndicator(right)) {
+      return {
+        street: formatAddressCasing(right),
+        city: parsedLeftCity,
+      };
+    }
+  }
+
+  // Pattern 3: "<street> гр. <City>" (no comma)
+  const trailingExplicitCity = line.match(
+    /^(.{4,}?)\s+(гр\.|с\.)\s+([А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,}(?:\s+[А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,})?)(?:\s+\d{4})?$/i
+  );
+  if (trailingExplicitCity && hasStreetIndicator(trailingExplicitCity[1])) {
+    const prefix = trailingExplicitCity[2].toLowerCase();
+    const rawCity = formatAddressCasing(trailingExplicitCity[3]);
+    const isVillage = prefix === "с.";
+    return {
+      street: formatAddressCasing(trailingExplicitCity[1]),
+      city: {
+        city: isVillage ? `с. ${rawCity}` : rawCity,
+        isVillage,
+        hasExplicitPrefix: true,
+      },
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Extracts a reliable store/branch address from receipt header lines.
+ * Combines split city + street lines (e.g. "гр. Пловдив" + "бул. България 123" -> "бул. България 123, Пловдив")
+ * and avoids false positives on product weights ("400 гр.") or fiscal IDs.
+ */
+export function extractReceiptAddress(
+  lines: string[],
+  preferredCurrency: string = "€"
+): { address?: string; matchedRule?: string } {
+  if (!lines || lines.length === 0) return {};
+
+  // Determine header boundary before items/totals start
+  let headerEnd = Math.min(lines.length, 28);
+  for (let i = 2; i < Math.min(lines.length, 28); i++) {
+    const line = lines[i];
+    if (extractTrailingItemPrice(line, preferredCurrency)) {
+      headerEnd = i;
+      break;
+    }
+    const cyr = toCyrillicMatchForm(line);
+    if (
+      /^(?:ОБЩО|ОБЩА\s+СУМА|ЗА\s+ПЛАЩАНЕ|МЕЖДИННА\s+СУМА|В\s+БРОЙ|TOTAL|SUBTOTAL)\b/.test(
+        cyr
+      )
+    ) {
+      headerEnd = i;
+      break;
+    }
+  }
+
+  interface LineInfo {
+    index: number;
+    cleaned: string;
+    hasExplicitAddressLabel: boolean;
+    hasBranchContext: boolean;
+    hasHqContext: boolean;
+    disqualified: boolean;
+    cityOnly: ParsedCityLine | null;
+    isStreet: boolean;
+    singleLineSplit: { street?: string; city?: ParsedCityLine } | null;
+  }
+
+  const parsedHeader: LineInfo[] = [];
+  for (let i = 0; i < headerEnd; i++) {
+    const raw = lines[i];
+    const {
+      cleaned,
+      hasExplicitAddressLabel,
+      hasBranchContext,
+      hasHqContext,
+    } = stripAddressLineWrapper(raw);
+    const disqualified = !cleaned || isDisqualifiedAddressLine(cleaned);
+    const singleLineSplit = !disqualified ? splitSingleLineAddress(cleaned) : null;
+    const cityOnly =
+      !disqualified && !singleLineSplit ? parseStandaloneCityLine(cleaned) : null;
+    const isStreet =
+      !disqualified &&
+      !cityOnly &&
+      (hasStreetIndicator(cleaned) ||
+        (hasExplicitAddressLabel && /[а-яА-Яa-zA-Z]{3,}/.test(cleaned)));
+
+    parsedHeader.push({
+      index: i,
+      cleaned,
+      hasExplicitAddressLabel,
+      hasBranchContext,
+      hasHqContext,
+      disqualified,
+      cityOnly,
+      isStreet,
+      singleLineSplit,
+    });
+  }
+
+  interface AddressCandidate {
+    address: string;
+    score: number;
+    rule: string;
+  }
+
+  const candidates: AddressCandidate[] = [];
+  const usedCityIndices = new Set<number>();
+
+  const hasNearbyBranchContext = (idx: number): boolean => {
+    for (let j = Math.max(0, idx - 2); j <= idx; j++) {
+      if (parsedHeader[j]?.hasBranchContext || parsedHeader[j]?.hasExplicitAddressLabel) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const hasNearbyHqContext = (idx: number): boolean => {
+    if (idx > 4) return false;
+    for (let j = Math.max(0, idx - 1); j <= idx; j++) {
+      if (parsedHeader[j]?.hasHqContext) return true;
+    }
+    return false;
+  };
+
+  const scoreCandidate = (
+    idx: number,
+    hasStreet: boolean,
+    hasCity: boolean,
+    streetText: string,
+    explicitLabel: boolean
+  ): number => {
+    let score = 0;
+    if (hasStreet) score += 40;
+    if (hasStreet && /\d/.test(streetText)) score += 15;
+    if (hasCity) score += 25;
+    if (!hasStreet && hasCity) score = 20;
+    if (explicitLabel) score += 15;
+    if (hasNearbyBranchContext(idx)) score += 25;
+    if (hasNearbyHqContext(idx) && !hasNearbyBranchContext(idx)) score -= 20;
+    return score;
+  };
+
+  // Pass 1: Single-line full addresses & multi-line street+city combinations
+  for (let i = 0; i < parsedHeader.length; i++) {
+    const cur = parsedHeader[i];
+    if (cur.disqualified) continue;
+
+    if (cur.singleLineSplit?.street && cur.singleLineSplit?.city) {
+      const addr = `${cur.singleLineSplit.street}, ${cur.singleLineSplit.city.city}`;
+      candidates.push({
+        address: addr,
+        score: scoreCandidate(
+          i,
+          true,
+          true,
+          cur.singleLineSplit.street,
+          cur.hasExplicitAddressLabel
+        ),
+        rule: `Single-line street+city at line #${i + 1}`,
+      });
+      continue;
+    }
+
+    if (cur.isStreet) {
+      const formattedStreet = formatAddressCasing(cur.cleaned);
+      // Look for adjacent city line (check previous line first, then next line)
+      let pairedCity: ParsedCityLine | null = null;
+      let pairedIdx = -1;
+
+      if (i > 0 && parsedHeader[i - 1].cityOnly && !usedCityIndices.has(i - 1)) {
+        pairedCity = parsedHeader[i - 1].cityOnly;
+        pairedIdx = i - 1;
+      } else if (
+        i + 1 < parsedHeader.length &&
+        parsedHeader[i + 1].cityOnly &&
+        !usedCityIndices.has(i + 1)
+      ) {
+        pairedCity = parsedHeader[i + 1].cityOnly;
+        pairedIdx = i + 1;
+      }
+
+      if (pairedCity && pairedIdx >= 0) {
+        usedCityIndices.add(pairedIdx);
+        const addr = `${formattedStreet}, ${pairedCity.city}`;
+        candidates.push({
+          address: addr,
+          score: scoreCandidate(
+            Math.min(i, pairedIdx),
+            true,
+            true,
+            formattedStreet,
+            cur.hasExplicitAddressLabel
+          ),
+          rule: `Combined street line #${i + 1} + city line #${pairedIdx + 1}`,
+        });
+      } else {
+        candidates.push({
+          address: formattedStreet,
+          score: scoreCandidate(
+            i,
+            true,
+            false,
+            formattedStreet,
+            cur.hasExplicitAddressLabel
+          ),
+          rule: `Street line #${i + 1}`,
+        });
+      }
+    }
+  }
+
+  // Pass 2: Fallback city-only candidate ONLY when explicit "гр." / "с." was detected
+  for (let i = 0; i < parsedHeader.length; i++) {
+    const cur = parsedHeader[i];
+    if (cur.disqualified || usedCityIndices.has(i) || !cur.cityOnly) continue;
+    if (!cur.cityOnly.hasExplicitPrefix) continue;
+
+    const label = cur.cityOnly.isVillage
+      ? cur.cityOnly.city
+      : `гр. ${cur.cityOnly.city}`;
+    candidates.push({
+      address: label,
+      score: scoreCandidate(i, false, true, "", cur.hasExplicitAddressLabel),
+      rule: `Explicit city indicator at line #${i + 1}`,
+    });
+  }
+
+  if (candidates.length === 0) return {};
+
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+  if (!best || best.score < 20) return {};
+
+  const letterCount = (best.address.match(/[а-яА-Яa-zA-Z]/g) || []).length;
+  if (best.address.length < 5 || letterCount < 3) return {};
+
+  return {
+    address: best.address,
+    matchedRule: `${best.rule} (score=${best.score})`,
+  };
+}
+
+export function extractReceiptAddressFromText(rawText: string): string | undefined {
+  if (!rawText || !rawText.trim()) return undefined;
+  const lines = cleanLines(rawText);
+  const currency = extractCurrency(rawText);
+  return extractReceiptAddress(lines, currency).address;
+}
+
+/**
  * Main Deterministic Local Receipt Parser (Bulgarian-First + Euro-First)
  * Operates instantly on OCR text without requiring Gemini API calls.
  */
@@ -2054,6 +2724,7 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
   const merchantRes = extractMerchant(lines);
   const dateRes = extractDate(lines);
   const currency = extractCurrency(rawText);
+  const addressRes = extractReceiptAddress(lines, currency);
   const totalResult = extractTotal(lines, currency);
   const expectedItemsCount = extractExpectedItemsCount(lines);
   const extracted = extractItems(lines, totalResult.total, currency);
@@ -2151,6 +2822,8 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     currency,
     detectedMerchant: merchantRes.merchantName,
     merchantRule: merchantRes.matchedRule,
+    detectedAddress: addressRes.address || null,
+    addressRule: addressRes.matchedRule || null,
     ocrDetectedDate: dateRes.dateDetected ? dateRes.date : null,
     finalDate: dateRes.date,
     dateRule: dateRes.matchedRule,
@@ -2189,6 +2862,8 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     matchedRule: finalRule,
     merchantRule: merchantRes.matchedRule,
     dateRule: dateRes.matchedRule,
+    detectedAddress: addressRes.address,
+    addressRule: addressRes.matchedRule,
     warnings,
   };
 }

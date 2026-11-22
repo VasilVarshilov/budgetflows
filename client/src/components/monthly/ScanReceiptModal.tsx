@@ -47,6 +47,7 @@ import {
   toCyrillicMatchForm,
   toLatinMatchForm,
   isValidCalendarDate,
+  extractReceiptAddressFromText,
 } from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
 import {
@@ -1216,7 +1217,18 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           }
         : {}),
     }));
+    const prefilledOcrLocation = localParsed.detectedAddress
+      ? normalizeLocation({ address: localParsed.detectedAddress })
+      : undefined;
+    if (prefilledOcrLocation) {
+      addDebugLog(
+        "parsed_merchant",
+        `OCR detected address: "${prefilledOcrLocation.address}" (${localParsed.addressRule || "—"})`
+      );
+    }
+
     setMerchantName(localParsed.merchantName);
+    setLocation(prefilledOcrLocation);
     setAmount(localParsed.totalAmount > 0 ? localParsed.totalAmount.toFixed(2) : "");
     setDate(localParsed.date);
     setNotes(localParsed.notesFormatted);
@@ -1691,6 +1703,26 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
           if (gData.rawText) {
             setRawText(gData.rawText);
+          }
+
+          if (!prefilledOcrLocation) {
+            const aiRawAddress =
+              typeof gData.address === "string" ? gData.address.trim() : "";
+            const aiAddressCandidate =
+              (aiRawAddress
+                ? extractReceiptAddressFromText(aiRawAddress)
+                : undefined) ||
+              (typeof gData.rawText === "string"
+                ? extractReceiptAddressFromText(gData.rawText)
+                : undefined);
+            if (aiAddressCandidate) {
+              const nextAiLocation = normalizeLocation({
+                address: aiAddressCandidate,
+              });
+              if (nextAiLocation) {
+                setLocation((prev) => prev || nextAiLocation);
+              }
+            }
           }
 
           // Smart category suggestion from Gemini + BG dictionary
