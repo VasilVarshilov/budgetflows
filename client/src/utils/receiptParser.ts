@@ -1809,7 +1809,12 @@ export function extractItems(
 
           const nextPriceInfo = extractTrailingItemPrice(candidateLine, preferredCurrency);
           if (nextPriceInfo) {
-            const rawName = `${bufferedPrefixText ? bufferedPrefixText + " " : ""}${nextPriceInfo.cleanPrefix}`
+            const nextHasOwnName = /[а-яА-Яa-zA-Z]{2,}/.test(nextPriceInfo.cleanPrefix);
+            const rawName = (
+              nextHasOwnName
+                ? nextPriceInfo.cleanPrefix
+                : `${bufferedPrefixText ? bufferedPrefixText + " " : ""}${nextPriceInfo.cleanPrefix}`
+            )
               .replace(/[.\-_=~*:\s]+$/, "")
               .trim();
             const name = formatReadableItemName(rawName);
@@ -1856,7 +1861,7 @@ export function extractItems(
                 : null;
               const followPrefix = followTrailing ? followTrailing.cleanPrefix : "";
               if (followPrice && followPrice > 0 && followPrice < 50000) {
-                const rawName = `${bufferedPrefixText ? bufferedPrefixText + " " : ""}${candidateLine}${followPrefix ? " " + followPrefix : ""}`
+                const rawName = `${candidateLine}${followPrefix ? " " + followPrefix : ""}`
                   .replace(/[.\-_=~*:\s]+$/, "")
                   .trim();
                 const name = formatReadableItemName(rawName);
@@ -1899,7 +1904,7 @@ export function extractItems(
                     : null;
                   const thirdPrefix = thirdTrailing ? thirdTrailing.cleanPrefix : "";
                   if (thirdPrice && thirdPrice > 0 && thirdPrice < 50000) {
-                    const rawName = `${bufferedPrefixText ? bufferedPrefixText + " " : ""}${candidateLine} ${followingLine}${thirdPrefix ? " " + thirdPrefix : ""}`
+                    const rawName = `${candidateLine} ${followingLine}${thirdPrefix ? " " + thirdPrefix : ""}`
                       .replace(/[.\-_=~*:\s]+$/, "")
                       .trim();
                     const name = formatReadableItemName(rawName);
