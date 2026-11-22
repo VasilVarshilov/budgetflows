@@ -543,7 +543,7 @@ function isStrayFiscalOrAddressName(name: string): boolean {
   return (
     /\bBG\s*\d{8,11}\b/i.test(name) ||
     /(ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ДДС\s*№|УНП|ФИСКАЛЕН\s*БОН|КАСОВА\s*БЕЛЕЖКА)/.test(cyr) ||
-    /(?:^|\s)(?:УЛ\.|БУЛ\.|Ж\.К\.|ТЕЛ:|WWW\.|HTTP)/.test(cyr)
+    /(?:^|\s)(?:УЛ[.,]|БУЛ[.,]|Ж\.К[.,]|ТЕЛ:|WWW\.|HTTP)/.test(cyr)
   );
 }
 
@@ -570,11 +570,12 @@ function isReceiptHeaderLineForItems(line: string, preferredCurrency: string = "
     /(ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ДДС\s*№|ДДС\s*N|VAT\s*№|VAT\s*NO|ИН:|ИД\.?\s*№)/,
     /(?:^|\s)(?:ФУ|ФП|ЗД|ДТ|УНП|НРА|ТД)(?:$|[\s:№N#\-\d])/,
     /(КАСА\s*№?|КАСИЕР|ОПЕРАТОР|БОН\s*№|ЧЕК\s*№|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ\s*№|ОБ\.?\s*№|МАГАЗИН\s*№|ОБ\.?\s*МЯСТО)/,
-    /^\s*(?:ГР\.|УЛ\.|БУЛ\.|Ж\.К\.|ОБЛ\.|ОБЩ\.)(?:\s|$)/,
+    /^\s*(?:ГР[.,]|УЛ[.,]|БУЛ[.,]|Ж\.К[.,]|ОБЛ[.,]|ОБЩ[.,])(?:\s|$)/,
+    /^\s*[уy][лnп][.,]\s*[а-яА-Яa-zA-Z]/i,
     /^\s*(?:С\.|КВ\.|ПЛ\.)\s+(?:[А-Я][а-я]{2,}|[^а-яА-Я]*\d)/,
-    /(?:^|\s)(?:УЛ\.|БУЛ\.|Ж\.К\.|П\.К\.)(?:\s|$)/,
+    /(?:^|\s)(?:УЛ[.,]|БУЛ[.,]|Ж\.К[.,]|П\.К[.,])(?:\s|$)/,
     /(?:^|[^а-яА-Яa-zA-Z])(?:TEL|PHONE|ТЕЛ\.?\s*[:№]|ТЕЛ\.?\s*(?:\+?\d[\d\s\-()]{4,})|ТЕЛЕФОН|ФАКС|FAX|EMAIL|E-MAIL|WWW\.|HTTP|HTTPS)(?:$|[^а-яА-Яa-zA-Z])/i,
-    /^\s*(?:ДАТА|DATE|ЧАС|TIME)\s*[:=]/i,
+    /^\s*(?:ДАТА|DATE|ЧАС|TIME)(?:\s*[:=]|\s+\d)/i,
     /(?:^|\s)\d{1,2}\s*[./,-]\s*\d{1,2}\s*[./,-]\s*(?:20\d{2}|\d{2})(?:\s|$)/,
     /^\d{1,2}:\d{2}(?::\d{2})?(?:\s|$)/,
     /^\d+[\s\-/.:]*$/,
@@ -1209,6 +1210,7 @@ function isNonItemSummaryOrMetaLine(line: string): boolean {
     /(?:^|\s)(?:ЕИК|БУЛСТАТ|ДДС\s*№|ИН\s*ПО\s*ДДС|ФУ|ФП|УНП|КАСИЕР|ОПЕРАТОР|БОН\s*№)(?:$|[\s:№N#\-\d])/,
     /(?:^|\s)(?:ТЕЛ\.?\s*[:№]|ТЕЛ\.?\s*(?:\+?\d[\d\s\-()]{4,})|ТЕЛЕФОН|ФАКС|WWW\.|HTTP|БЛАГОДАРИМ|МЕРСИ|ДОБРЕ\s*ДОШЛИ|ФИСКАЛЕН\s*БОН|СЛУЖЕБЕН\s*БОН)(?:$|[\s:!.])/i,
     /\b(?:AID|AUTH|PAN|RRN|STAN|TID|MID)\b/i,
+    /^(?:ДАТА|DATE|ЧАС|TIME)(?=\s|:|=).*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/i,
     /^\d{1,2}[./,-]\d{1,2}[./,-]\d{2,4}/,
     /^\d{1,2}:\d{2}(?::\d{2})?/,
   ];
@@ -1503,9 +1505,9 @@ export function extractItems(
     "i"
   );
 
-  // Quantity x UnitPrice WITHOUT total on the same line (allows optional currency before/after unit price and trailing =)
+  // Quantity x UnitPrice WITHOUT total on the same line (allows optional currency, unit rate, trailing =, and optional VAT group letter)
   const qtyCalculationOnlyRegex = new RegExp(
-    `^[*#•\\s]*\\(?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:бр\\.?|кг\\.?|гр\\.?|г\\.?|л\\.?|мл\\.?|шт\\.?|оп\\.?|kg|g|l|ml|pcs)?\\s*[xхХX*×@]\\s*(?:EUR|BGN|USD|GBP|[$€£])?\\s*(\\d+[.,]\\d{2,3})${unitRateSuffix}\\s*\\)?\\s*=?\\s*$`,
+    `^[*#•\\s]*\\(?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:бр\\.?|кг\\.?|гр\\.?|г\\.?|л\\.?|мл\\.?|шт\\.?|оп\\.?|kg|g|l|ml|pcs)?\\s*[xхХX*×@]\\s*(?:EUR|BGN|USD|GBP|[$€£])?\\s*(\\d+[.,]\\d{2,3})${unitRateSuffix}\\s*\\)?\\s*=?\\s*(?:[([]?\\s*[*#]?\\s*[АБВГДЕабвгдеA-DSR685]\\s*[)\\]]?)?\\s*$`,
     "i"
   );
 
@@ -1690,11 +1692,11 @@ export function extractItems(
       }
     }
 
-    // 2. Standalone qty x unitPrice line ("4.000 x 0.15", "2 x 2.40" or "0.800 кг x 4.00/кг"):
+    // 2. Standalone qty x unitPrice line ("4.000 x 0.15", "2 x 2.40", "4.000 x 0.15 Б", or unconsumed "4.000 x 0.15  0.60"):
     //    First compute expectedTotal = rawQty * unitVal, then search nearby products
     //    (previous parsed item(s) and upcoming item(s)) prioritizing exact mathematical price match
     //    over physical proximity. Never alter a product's quantity unless price matches.
-    const qtyOnlyMatch = line.match(qtyCalculationOnlyRegex);
+    const qtyOnlyMatch = line.match(qtyCalculationOnlyRegex) || qtyLineMatch;
     if (qtyOnlyMatch) {
       const rawQty = parseFloat(qtyOnlyMatch[1].replace(",", "."));
       const unitVal = parsePrice(qtyOnlyMatch[2]);
@@ -1746,7 +1748,7 @@ export function extractItems(
           }
         }
 
-        // 2b. Evaluate upcoming product(s) in lookahead lines (supports wrapped 2-line names & skipped promo headers)
+        // 2b. Evaluate upcoming product(s) in lookahead lines (supports wrapped 2/3-line names & skipped promo headers)
         interface NextQtyCandidate {
           endIndex: number;
           consumedExtraIndices: number[];
@@ -1757,7 +1759,7 @@ export function extractItems(
         const upcomingCandidates: NextQtyCandidate[] = [];
         let bufferedPrefixText = pendingNameBuffer.map((b) => b.text).join(" ").trim();
         let lookaheadIdx = i + 1;
-        const maxLookahead = Math.min(lines.length, i + 6);
+        const maxLookahead = Math.min(lines.length, i + 8);
 
         while (lookaheadIdx < maxLookahead && upcomingCandidates.length < 2) {
           const candidateLine = lines[lookaheadIdx];
@@ -1805,7 +1807,7 @@ export function extractItems(
             continue;
           }
 
-          // Handle 2-line wrapped product name below standalone qty line
+          // Handle 2-line (or 3-line) wrapped product name + price below standalone qty line
           if (
             /[а-яА-Яa-zA-Z]{2,}/.test(candidateLine) &&
             !isReceiptHeaderLineForItems(candidateLine, preferredCurrency) &&
@@ -1815,7 +1817,9 @@ export function extractItems(
             if (
               !isTotalsOrPaymentBoundaryLine(followingLine) &&
               !isNonItemSummaryOrMetaLine(followingLine) &&
-              !extractPromoHeaderLabel(followingLine)
+              !extractPromoHeaderLabel(followingLine) &&
+              !qtyCalculationOnlyRegex.test(followingLine) &&
+              !qtyCalculationWithTotalRegex.test(followingLine)
             ) {
               const followTrailing = extractTrailingItemPrice(followingLine, preferredCurrency);
               const followStandalone = followingLine.match(standalonePriceLineRegex);
@@ -1846,6 +1850,51 @@ export function extractItems(
                 }
                 lookaheadIdx += 2;
                 continue;
+              }
+
+              // Check 3-line wrapped product name (line1 + line2 + standalone/trailing price on line3)
+              if (
+                lookaheadIdx + 2 < lines.length &&
+                /[а-яА-Яa-zA-Z0-9]{1,}/.test(followingLine) &&
+                extractDiscountAmount(followingLine, preferredCurrency) === 0
+              ) {
+                const thirdLine = lines[lookaheadIdx + 2];
+                if (
+                  !isTotalsOrPaymentBoundaryLine(thirdLine) &&
+                  !isNonItemSummaryOrMetaLine(thirdLine) &&
+                  !extractPromoHeaderLabel(thirdLine)
+                ) {
+                  const thirdTrailing = extractTrailingItemPrice(thirdLine, preferredCurrency);
+                  const thirdStandalone = thirdLine.match(standalonePriceLineRegex);
+                  const thirdPrice = thirdTrailing
+                    ? thirdTrailing.price
+                    : thirdStandalone
+                    ? parsePrice(thirdStandalone[1])
+                    : null;
+                  const thirdPrefix = thirdTrailing ? thirdTrailing.cleanPrefix : "";
+                  if (thirdPrice && thirdPrice > 0 && thirdPrice < 50000) {
+                    const rawName = `${bufferedPrefixText ? bufferedPrefixText + " " : ""}${candidateLine} ${followingLine}${thirdPrefix ? " " + thirdPrefix : ""}`
+                      .replace(/[.\-_=~*:\s]+$/, "")
+                      .trim();
+                    const name = formatReadableItemName(rawName);
+                    bufferedPrefixText = "";
+                    if (
+                      name.length >= 2 &&
+                      /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
+                      !isStrayFiscalOrAddressName(name)
+                    ) {
+                      upcomingCandidates.push({
+                        endIndex: lookaheadIdx + 2,
+                        consumedExtraIndices: [lookaheadIdx, lookaheadIdx + 1],
+                        name,
+                        price: thirdPrice,
+                        err: getQtyPriceMatchError(expectedTotal, thirdPrice),
+                      });
+                    }
+                    lookaheadIdx += 3;
+                    continue;
+                  }
+                }
               }
             }
           }
@@ -2388,27 +2437,27 @@ function normalizeAddressOcrPrefixes(raw: string): string {
     repaired
       .replace(/[#*_~|]+/g, " ")
       .replace(/\s+/g, " ")
-      // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (avoid digits before гр.)
+      // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (dot/comma/missing-space & Cyrillic/Latin lookalikes)
       .replace(
-        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)[гr][рp](?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z]{3,})/gi,
+        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)[гrт][рp](?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z]{3,})/gi,
         "$1гр. "
       )
       .replace(
-        /(^|[\s,;:(])[уy]л(?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        /(^|[\s,;:(])[уy][лnп](?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
         "$1ул. "
       )
       .replace(
-        /(^|[\s,;:(])[б6][уy]л(?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        /(^|[\s,;:(])[б6][уy]л(?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
         "$1бул. "
       )
       .replace(
-        /(^|[\s,;:(])ж\s*[.,]?\s*к(?:\s*\.\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        /(^|[\s,;:(])ж\s*[.,]?\s*к(?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
         "$1ж.к. "
       )
-      .replace(/(^|[\s,;:(])кв\s*\.\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1кв. ")
-      .replace(/(^|[\s,;:(])пл\s*\.\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1пл. ")
-      .replace(/(^|[\s,;:(])бл\s*\.\s*(?=\d)/gi, "$1бл. ")
-      .replace(/(^|[\s,;:(])с\s*\.\s*(?=[А-Яа-я]{3,})/gi, "$1с. ")
+      .replace(/(^|[\s,;:(])кв\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1кв. ")
+      .replace(/(^|[\s,;:(])пл\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1пл. ")
+      .replace(/(^|[\s,;:(])бл\s*[.,]\s*(?=\d)/gi, "$1бл. ")
+      .replace(/(^|[\s,;:(])с\s*[.,]\s*(?=[А-Яа-я]{3,})/gi, "$1с. ")
       .replace(/\s+/g, " ")
       .trim()
   );
@@ -2808,11 +2857,18 @@ export function extractReceiptAddress(
 ): { address?: string; matchedRule?: string } {
   if (!lines || lines.length === 0) return {};
 
-  // Determine header boundary before items/totals start
+  // Determine header boundary before genuine items/totals start (never cut off on fiscal/date/phone header lines)
   let headerEnd = Math.min(lines.length, 32);
   for (let i = 2; i < Math.min(lines.length, 32); i++) {
     const line = lines[i];
-    if (extractTrailingItemPrice(line, preferredCurrency)) {
+    const trailingPrice = extractTrailingItemPrice(line, preferredCurrency);
+    if (
+      trailingPrice &&
+      trailingPrice.cleanPrefix.length >= 2 &&
+      /[а-яА-Яa-zA-Z]{2,}/.test(trailingPrice.cleanPrefix) &&
+      !isDisqualifiedAddressLine(line) &&
+      !isReceiptHeaderLineForItems(line, preferredCurrency)
+    ) {
       headerEnd = i;
       break;
     }
@@ -2971,7 +3027,7 @@ export function extractReceiptAddress(
 
     if (cur.isStreet) {
       const formattedStreet = formatAddressCasing(cur.cleaned);
-      // Look for adjacent city line (check previous 1-2 lines first, then next 1-2 lines)
+      // Look for adjacent city line (check previous 1-3 lines first, then next 1-3 lines)
       let pairedCity: ParsedCityLine | null = null;
       let pairedIdx = -1;
 
@@ -3003,6 +3059,28 @@ export function extractReceiptAddress(
       ) {
         pairedCity = parsedHeader[i + 2].cityOnly;
         pairedIdx = i + 2;
+      } else if (
+        i > 2 &&
+        parsedHeader[i - 3].cityOnly &&
+        !usedCityIndices.has(i - 3) &&
+        !parsedHeader[i - 1].isStreet &&
+        !parsedHeader[i - 2].isStreet &&
+        !parsedHeader[i - 1].hasHqContext &&
+        !parsedHeader[i - 2].hasHqContext
+      ) {
+        pairedCity = parsedHeader[i - 3].cityOnly;
+        pairedIdx = i - 3;
+      } else if (
+        i + 3 < parsedHeader.length &&
+        parsedHeader[i + 3].cityOnly &&
+        !usedCityIndices.has(i + 3) &&
+        !parsedHeader[i + 1].isStreet &&
+        !parsedHeader[i + 2].isStreet &&
+        !parsedHeader[i + 1].hasHqContext &&
+        !parsedHeader[i + 2].hasHqContext
+      ) {
+        pairedCity = parsedHeader[i + 3].cityOnly;
+        pairedIdx = i + 3;
       }
 
       if (pairedCity && pairedIdx >= 0) {
@@ -3094,11 +3172,11 @@ export function reconcileReceiptItemQuantities<
 
   const lines = rawOcrText ? cleanLines(rawOcrText) : [];
   const standaloneQtyRegex =
-    /^[*#•\s]*\(?\s*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|шт\.?|оп\.?|pcs)?\s*[xхХX*×@]\s*(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d+[.,]\d{2,3})(?:\s*(?:€|EUR|лв\.?|BGN|USD|GBP)?(?:\s*\/\s*1?\s*(?:бр\.?|шт\.?|оп\.?|pcs))?)?\s*\)?\s*(?:=\s*(?:[$€£]?\s*\d+[.,]\d{2})?)?\s*(?:[([]?\s*[АБВГA-D*]\s*[)\]]?)?\s*$/i;
+    /^[*#•\s]*\(?\s*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|шт\.?|оп\.?|pcs)?\s*[xхХX*×@]\s*(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d+[.,]\d{2,3})(?:\s*(?:€|EUR|лв\.?|BGN|USD|GBP)?(?:\s*\/\s*1?\s*(?:бр\.?|шт\.?|оп\.?|pcs))?)?\s*\)?\s*(?:(?:=|\s)\s*(?:EUR|BGN|[$€£])?\s*\d+[.,]\d{2}\s*(?:лв\.?|BGN|EUR|USD|GBP|€|\$|£)?)?\s*(?:[([]?\s*[*#]?\s*[АБВГДЕабвгдеA-DSR685]\s*[)\]]?)?\s*$/i;
 
   const standaloneQtyRows: Array<{ qty: number; unitVal: number; expectedTotal: number; used: boolean }> = [];
   for (const line of lines) {
-    if (/(?:кг|гр|г|л|мл|kg|g|l|ml)\.?(?=$|[^а-яА-Яa-zA-Z])/i.test(line)) continue;
+    if (/(?:^|[^а-яА-Яa-zA-Z])(?:кг|гр|г|л|мл|kg|g|l|ml)\.?(?=$|[^а-яА-Яa-zA-Z])/i.test(line)) continue;
     const m = line.match(standaloneQtyRegex);
     if (!m) continue;
     const q = parseFloat(m[1].replace(",", "."));
@@ -3127,10 +3205,31 @@ export function reconcileReceiptItemQuantities<
     return Math.min(e1, e2);
   };
 
+  const tokenizeName = (n: string): string[] =>
+    toLatinMatchForm(n)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
+
+  const hasNameOverlap = (a: string, b: string): boolean => {
+    const tokA = tokenizeName(a);
+    const tokB = tokenizeName(b);
+    if (tokA.length === 0 || tokB.length === 0) return false;
+    let matches = 0;
+    for (const ta of tokA) {
+      if (tokB.some((tb) => tb === ta || tb.startsWith(ta) || ta.startsWith(tb))) {
+        matches++;
+      }
+    }
+    return matches >= Math.min(tokA.length, tokB.length, 2) && matches / Math.min(tokA.length, tokB.length) >= 0.5;
+  };
+
   const result = items.map((it) => ({ ...it }));
   const sameLength = localItems.length === result.length;
 
-  // Step 1: When local OCR and AI have identical item alignment, transfer verified multi-quantities
+  // Step 1: Transfer verified multi-quantities from local OCR to Gemini items
   // and reset any AI quantity that contradicts local OCR + standalone OCR qty*unitPrice math.
   if (sameLength) {
     for (let i = 0; i < result.length; i++) {
@@ -3166,6 +3265,19 @@ export function reconcileReceiptItemQuantities<
         }
       }
     }
+  } else if (localItems.length > 0) {
+    for (const lItem of localItems) {
+      if ((lItem.quantity || 1) <= 1) continue;
+      const lEff = lItem.finalPrice ?? lItem.price;
+      const matched = result.find((gItem) => {
+        if ((gItem.quantity || 1) !== 1) return false;
+        const gEff = gItem.finalPrice ?? gItem.price;
+        return Math.abs(gEff - lEff) <= 0.02 && hasNameOverlap(lItem.name, gItem.name);
+      });
+      if (matched) {
+        matched.quantity = lItem.quantity;
+      }
+    }
   }
 
   // Step 2: Enforce price-consistency for every standalone qty x unitPrice row in OCR,
@@ -3187,7 +3299,7 @@ export function reconcileReceiptItemQuantities<
       }
     }
 
-    // Check whether a matching item nearby already has row.qty (or needs it assigned)
+    // Check whether a matching item already has row.qty (or needs it assigned)
     const alreadyExactMatchIdx = result.findIndex(
       (it) => (it.quantity || 1) === row.qty && getItemCandidatePriceError(row.expectedTotal, it) !== null
     );
@@ -3223,7 +3335,7 @@ export function reconcileReceiptItemQuantities<
         return a.idx - b.idx;
       });
       const chosen = exactMatchCandidates[0];
-      if (anchorIdx < 0 || Math.abs(chosen.idx - anchorIdx) <= 4) {
+      if (anchorIdx < 0 || Math.abs(chosen.idx - anchorIdx) <= 4 || chosen.err <= 0.01) {
         result[chosen.idx].quantity = row.qty;
         row.used = true;
       }

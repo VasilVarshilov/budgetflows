@@ -24,6 +24,7 @@ export interface GeminiReceiptItem {
 
 export interface GeminiReceiptData {
   merchantName: string;
+  address?: string;
   date: string;
   totalAmount: number;
   expectedItemsCount: number | null;
@@ -72,6 +73,7 @@ export function buildBulgarianReceiptPrompt(ocrText?: string): string {
   return `Analyze this receipt (primarily Bulgarian supermarket receipts in Cyrillic/Latin: Lidl, Billa, Kaufland, Fantastico, T Market, Metro, or English receipts). Return ONLY a valid JSON object matching this exact schema:
 {
   "merchantName": "Clean Store/Brand Name (e.g. Kaufland, Lidl, Billa, Fantastico, T Market, Metro, OMV, Shell, Happy, Lilly, Sopharmacy)",
+  "address": "Store/branch street address and city printed on the receipt (e.g. 'гр. Пловдив, ул. Пещерско шосе №34'), or empty string",
   "date": "YYYY-MM-DD or empty string if unreadable",
   "totalAmount": 12.34,
   "expectedItemsCount": 17,
@@ -83,12 +85,14 @@ export function buildBulgarianReceiptPrompt(ocrText?: string): string {
   "notesFormatted": "2 x Coca Cola - €4.80\\n1 x Снакс с фъстъци - €2.04 (ориг. €3.06, -€1.02 Lidl Plus)"
 }
 Important rules for Bulgarian & international receipts (especially long 15-30 item supermarket receipts):
-- "merchantName": Extract the store/restaurant/company name. IGNORE EIK/BULSTAT (ЕИК, БУЛСТАТ), VAT numbers (BG...), fiscal device IDs (ФУ, ФП, УНП, КАСА), and street addresses (гр., ул., бул.).
+- "merchantName": Extract ONLY the store/restaurant/brand name. IGNORE EIK/BULSTAT (ЕИК, БУЛСТАТ), VAT numbers (BG...), fiscal device IDs (ФУ, ФП, УНП, КАСА), and street addresses (гр., ул., бул.).
+- "address": Extract the STORE/BRANCH physical street address and city printed on the receipt (e.g. "гр. Пловдив, ул. Пещерско шосе №34" or "бул. България 115А, Пловдив"). If city and street are on separate lines (e.g. "ЛИДЛ ПЛОВДИВ 155" / "гр. Пловдив" / "ул. Пещерско шосе №34"), combine them as "гр. Пловдив, ул. Пещерско шосе №34". If both a company HQ address (near ЕООД, ЕИК, СЕДАЛИЩЕ, с. Равно поле) and a store/branch address exist, ALWAYS pick the store/branch address. Return "" if no address is printed.
 - "date": Extract ONLY the transaction date printed on the receipt (e.g. 14.11.2026, 14/11/2026, 14-11-2026, 2026-11-14) and format strictly as YYYY-MM-DD. NEVER guess or substitute today's date if no date is visible — return "" when unreadable. Ignore receipt/fiscal numbers.
 - "totalAmount": MUST be the final amount paid in the receipt's primary currency (ОБЩО, ОБЩА СУМА, КРАЙНА СУМА, ЗА ПЛАЩАНЕ, СУМА ЗА ПЛАЩАНЕ, TOTAL, GRAND TOTAL). NEVER pick VAT (ДДС), discount (ОТСТЪПКА), subtotal (МЕЖДИННА СУМА), or change (РЕСТО).
 - "expectedItemsCount": Integer count if printed on receipt (e.g. "17 АРТИКУЛА", "ITEMS SOLD: 17"), otherwise null.
 - "currency": Bulgaria uses the Euro (€, EUR). Always return "€" for Bulgarian receipts (including dual-display receipts), or "$" / "£" only if explicitly printed in USD or GBP. Never return "лв." or "BGN", and never convert prices — extract the exact EUR printed values.
-- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item "price" matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola", "2 x 2.40  4.80", or when "2 x 1.20" appears right above/below "ПРЯСНО МЛЯКО 2.40"; default 1) and the final line price ("price").
+- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item "price" matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola" or "2 x 2.40  4.80"; default 1) and the final line price ("price").
+  * QUANTITY MATCHING SAFETY RULE: When a standalone calculation line like "4.000 x 0.15" appears between or above products, FIRST calculate qty * unitPrice (4.000 * 0.15 = 0.60) and assign "quantity": 4 ONLY to the matching product whose total price is 0.60 (e.g. "BIOSET КАНЕЛА МЛЯНА" 0.60), NEVER to an adjacent product with a different price (e.g. 2.04)!
   * DISCOUNTS (e.g. Lidl "#Lidl Plus промоция" / "ОТСТЪПКИ 1,02-" / "-1.02" / "ОТСТЪПКА"): NEVER output a discount line as a standalone item! Instead, attach it directly to the PRECEDING item: set "originalPrice" to the item's printed pre-discount price (e.g. 3.06), "discount" to the positive discount amount (e.g. 1.02), "finalPrice" and "price" BOTH to originalPrice - discount (e.g. 2.04), and "discountLabel" (e.g. "Lidl Plus" or "Отстъпка"). If an item has no discount, omit discount fields or leave discount=0.
   * Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
 - "notesFormatted": Multi-line list, one item per line strictly formatted as "<quantity> x <Item Name> - <currency><price>" (e.g. "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"). Never put all items on a single line.
@@ -471,6 +475,10 @@ export async function analyzeReceiptWithGemini(input: {
               typeof parsedData?.merchantName === "string"
                 ? parsedData.merchantName.trim()
                 : "",
+            address:
+              typeof parsedData?.address === "string"
+                ? parsedData.address.trim()
+                : "",
             date:
               typeof parsedData?.date === "string" ? parsedData.date.trim() : "",
             totalAmount: parseFloat(parseGeminiNum(parsedData?.totalAmount).toFixed(2)),
@@ -495,7 +503,7 @@ export async function analyzeReceiptWithGemini(input: {
           };
 
           console.log(
-            `[Gemini OCR] Gemini parsing completed | model=${modelName} | attempt=${attempt + 1} | durationMs=${Date.now() - reqStart} | merchant="${normalizedData.merchantName}" | date="${normalizedData.date}" | total=${normalizedData.totalAmount} | items=${normalizedItems.length} | category="${normalizedData.suggestedCategory}"`
+            `[Gemini OCR] Gemini parsing completed | model=${modelName} | attempt=${attempt + 1} | durationMs=${Date.now() - reqStart} | merchant="${normalizedData.merchantName}" | address="${normalizedData.address || ""}" | date="${normalizedData.date}" | total=${normalizedData.totalAmount} | items=${normalizedItems.length} | category="${normalizedData.suggestedCategory}"`
           );
 
           return {

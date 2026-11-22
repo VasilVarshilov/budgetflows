@@ -851,6 +851,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     selectedIndices: Set<number>;
   } | null>(null);
   const modifiedAfterSplitRef = useRef<boolean>(false);
+  const locationEditedByUserRef = useRef<boolean>(false);
 
   const clearAiStageTimers = useCallback(() => {
     if (aiStageTimersRef.current.length > 0) {
@@ -909,6 +910,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setReceiptCurrency("€");
     setNotes("");
     setMerchantName("");
+    locationEditedByUserRef.current = false;
     setLocation(undefined);
     setReceiptItems([]);
     setSelectedItemIndices(new Set());
@@ -1122,6 +1124,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setTipInputAmount("");
     setTipError(null);
     setSplitBillEnabled(false);
+    locationEditedByUserRef.current = false;
     setLocation(undefined);
     preSplitSnapshotRef.current = null;
     modifiedAfterSplitRef.current = false;
@@ -1714,22 +1717,46 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setRawText(gData.rawText);
           }
 
-          if (!prefilledOcrLocation) {
-            const aiRawAddress =
-              typeof gData.address === "string" ? gData.address.trim() : "";
-            const aiAddressCandidate =
-              (aiRawAddress
-                ? extractReceiptAddressFromText(aiRawAddress)
-                : undefined) ||
-              (typeof gData.rawText === "string"
-                ? extractReceiptAddressFromText(gData.rawText)
-                : undefined);
-            if (aiAddressCandidate) {
-              const nextAiLocation = normalizeLocation({
-                address: aiAddressCandidate,
-              });
-              if (nextAiLocation) {
-                setLocation((prev) => prev || nextAiLocation);
+          const aiRawAddress =
+            typeof gData.address === "string" ? gData.address.trim() : "";
+          const isValidDirectAiAddress = (rawAddr: string): boolean => {
+            if (!rawAddr || rawAddr.length < 5) return false;
+            const letters = rawAddr.match(/[а-яА-Яa-zA-Z]/g) || [];
+            if (letters.length < 3) return false;
+            if (/(?:ЕООД|ООД|ЕАД|ЕИК|БУЛСТАТ|BG\s*\d{8,11}|СЕДАЛИЩЕ|ЮРИДИЧЕСКИ\s+АДРЕС)/i.test(rawAddr)) {
+              return false;
+            }
+            return true;
+          };
+          const aiAddressCandidate =
+            (aiRawAddress
+              ? extractReceiptAddressFromText(aiRawAddress) ||
+                (isValidDirectAiAddress(aiRawAddress) ? aiRawAddress : undefined)
+              : undefined) ||
+            (typeof gData.rawText === "string"
+              ? extractReceiptAddressFromText(gData.rawText)
+              : undefined);
+
+          if (aiAddressCandidate && !locationEditedByUserRef.current) {
+            const nextAiLocation = normalizeLocation({
+              address: aiAddressCandidate,
+            });
+            if (nextAiLocation) {
+              const ocrHasStreet = Boolean(
+                prefilledOcrLocation?.address &&
+                  /(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|шосе|местност|str\.?|blvd\.?|\d)/i.test(
+                    prefilledOcrLocation.address
+                  )
+              );
+              const aiHasStreet = /(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|шосе|местност|str\.?|blvd\.?|\d)/i.test(
+                nextAiLocation.address
+              );
+              if (!prefilledOcrLocation || (!ocrHasStreet && aiHasStreet)) {
+                setLocation((prev) => (!prev || !ocrHasStreet ? nextAiLocation : prev));
+                addDebugLog(
+                  "parsed_merchant",
+                  `AI detected store address: "${nextAiLocation.address}"`
+                );
               }
             }
           }
@@ -3512,7 +3539,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs">
                     <LocationPickerField
                       value={location}
-                      onChange={setLocation}
+                      onChange={(nextLoc) => {
+                        locationEditedByUserRef.current = true;
+                        setLocation(nextLoc);
+                      }}
                       compact
                     />
                   </div>
