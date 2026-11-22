@@ -1,14 +1,11 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
-  PieChart,
   Filter,
   Calendar,
-  ChevronDown,
   CreditCard,
   Zap,
   Phone,
   Wifi,
-  Download,
   TrendingUp,
   PiggyBank,
   Scale,
@@ -17,7 +14,7 @@ import {
 import { MonthlyRecord, ExpenseItem, IncomeItem } from "@/types";
 import { getCategoryColor } from "@/utils/colors";
 import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
-import { ExportCenterModal } from "@/components/export/ExportCenterModal";
+import { ExportCenterPanel } from "@/components/export/ExportCenterModal";
 import { MonthToMonthComparison } from "@/components/common/MonthToMonthComparison";
 import {
   computeMonthToMonthComparison,
@@ -38,27 +35,6 @@ interface ChartSegment {
   percentage: number;
 }
 
-const MONTHS_BG = [
-  "Януари",
-  "Февруари",
-  "Март",
-  "Април",
-  "Май",
-  "Юни",
-  "Юли",
-  "Август",
-  "Септември",
-  "Октомври",
-  "Ноември",
-  "Декември",
-];
-
-// Generate years from 2024 up to current year + 1
-const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = Array.from({ length: 3 }, (_, i) =>
-  (CURRENT_YEAR - 1 + i).toString(),
-);
-
 export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
   monthlyData,
   globalSavings = [],
@@ -74,8 +50,13 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
     now.getFullYear().toString(),
   );
 
-  // Reporting & Export Center State
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const handleExportCenterPeriodChange = useCallback(
+    ({ month, year }: { month: string; year: string }) => {
+      setSelectedMonth(month);
+      setSelectedYear(year);
+    },
+    []
+  );
 
   const recordKey = `${selectedMonth} ${selectedYear}`;
   const record = monthlyData[recordKey];
@@ -263,59 +244,16 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Controls */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-wrap gap-4 items-center justify-between transition-colors">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-lg">
-            <PieChart className="w-5 h-5" />
-          </div>
-          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Месечен отчет</h2>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          {/* Month Selector */}
-          <div className="relative flex-1 sm:flex-none">
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[44px] py-2 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer text-xs sm:text-sm"
-            >
-              {MONTHS_BG.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Year Selector */}
-          <div className="relative flex-1 sm:flex-none">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[44px] py-2 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer text-xs sm:text-sm"
-            >
-              {YEARS.map((y) => (
-                <option key={y} value={y}>
-                  {y} г.
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Export Button */}
-          <button
-            onClick={() => setIsExportModalOpen(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[44px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-xs cursor-pointer"
-            title="Експорт на отчет в текстов файл"
-          >
-            <Download className="w-4 h-4" />
-            <span>Експорт</span>
-          </button>
-        </div>
-      </div>
+      {/* Unified Reporting & Export Center */}
+      <ExportCenterPanel
+        variant="inline"
+        monthlyData={monthlyData}
+        globalSavings={globalSavings}
+        initialPeriodType="month"
+        initialMonth={selectedMonth}
+        initialYear={selectedYear}
+        onPeriodChange={handleExportCenterPeriodChange}
+      />
 
       {/* Month-to-Month Comparison Section */}
       <MonthToMonthComparison comparisonData={comparisonData} />
@@ -536,16 +474,6 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
         </div>
       )}
 
-      {/* Reporting & Export Center Modal */}
-      <ExportCenterModal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        monthlyData={monthlyData}
-        globalSavings={globalSavings}
-        initialPeriodType="month"
-        initialMonth={selectedMonth}
-        initialYear={selectedYear}
-      />
     </div>
   );
 };

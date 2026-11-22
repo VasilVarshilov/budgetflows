@@ -31,6 +31,21 @@ import {
 } from "@/utils/categoryStorage";
 import { getCategoryColor } from "@/utils/colors";
 
+export interface ExportCenterPanelProps {
+  monthlyData: Record<string, MonthlyRecord>;
+  globalSavings: IncomeItem[];
+  initialPeriodType?: ExportPeriodType;
+  initialMonth?: string;
+  initialYear?: string;
+  variant?: "modal" | "inline";
+  onClose?: () => void;
+  onPeriodChange?: (period: {
+    periodType: ExportPeriodType;
+    month: string;
+    year: string;
+  }) => void;
+}
+
 interface ExportCenterModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -49,14 +64,15 @@ const YEARS = [
   (CURRENT_YEAR + 1).toString(),
 ];
 
-export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
-  isOpen,
-  onClose,
+export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
   monthlyData,
   globalSavings,
   initialPeriodType = "month",
   initialMonth,
   initialYear,
+  variant = "modal",
+  onClose,
+  onPeriodChange,
 }) => {
   const now = new Date();
   const currentMonthName = now.toLocaleDateString("bg-BG", { month: "long" });
@@ -92,13 +108,14 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
-  // Keep period aligned with host view whenever modal opens
+  // Notify host view (e.g. Reports tab analytics) when period changes
   useEffect(() => {
-    if (!isOpen) return;
-    setPeriodType(initialPeriodType);
-    if (initialMonth) setSelectedMonth(initialMonth);
-    if (initialYear) setSelectedYear(initialYear);
-  }, [isOpen, initialPeriodType, initialMonth, initialYear]);
+    onPeriodChange?.({
+      periodType,
+      month: selectedMonth,
+      year: selectedYear,
+    });
+  }, [periodType, selectedMonth, selectedYear, onPeriodChange]);
 
   // Available categories across stored categories & existing records
   const availableCategories = useMemo(() => {
@@ -160,8 +177,6 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
     statusFilter,
     recurringFilter,
   ]);
-
-  if (!isOpen) return null;
 
   const activeFiltersCount =
     (selectedCategories.length > 0 ? 1 : 0) +
@@ -226,35 +241,51 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
     }
   };
 
+  const isModal = variant === "modal";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
-              <Download className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white leading-tight">
-                Център за отчети и експорт
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Генериране на структурирани текстови, графични и Excel отчети
-              </p>
-            </div>
+    <div
+      className={
+        isModal
+          ? "bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+          : "bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 w-full flex flex-col overflow-hidden transition-colors"
+      }
+    >
+      {/* Header */}
+      <div className="px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-900">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs shrink-0">
+            <Download className="w-5 h-5" />
           </div>
+          <div className="min-w-0">
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-white leading-tight">
+              Център за отчети и експорт
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Генериране на структурирани текстови, графични и Excel отчети
+            </p>
+          </div>
+        </div>
+        {isModal && onClose && (
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shrink-0"
             aria-label="Затвори"
           >
             <X className="w-5 h-5" />
           </button>
-        </div>
+        )}
+      </div>
 
-        {/* Scrollable Content */}
-        <div className="p-6 space-y-5 overflow-y-auto flex-1">
+      {/* Content */}
+      <div
+        className={
+          isModal
+            ? "p-6 space-y-5 overflow-y-auto flex-1"
+            : "p-5 sm:p-6 space-y-5"
+        }
+      >
           {/* Step 1: Period & Filter Selection */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-2">
@@ -640,7 +671,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
         </div>
 
         {/* Footer Actions / Download Buttons */}
-        <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-4 sm:px-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-slate-500 dark:text-slate-400 hidden md:block">
             Формати: <strong className="text-slate-700 dark:text-slate-300">TXT</strong>,{" "}
             <strong className="text-slate-700 dark:text-slate-300">PNG</strong> и{" "}
@@ -648,20 +679,22 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-            >
-              Затвори
-            </button>
+            {isModal && onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Затвори
+              </button>
+            )}
 
             {/* Export TXT Button */}
             <button
               type="button"
               onClick={handleExportTxt}
               disabled={isExportingTxt}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[42px] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
               title="Свали отчет в текстов файл (TXT)"
             >
               {isExportingTxt ? (
@@ -677,7 +710,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
               type="button"
               onClick={handleExportPng}
               disabled={isExportingPng}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[42px] bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
               title="Генерирай графично изображение с диаграми (PNG)"
             >
               {isExportingPng ? (
@@ -693,7 +726,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
               type="button"
               onClick={handleExportExcel}
               disabled={isExportingExcel}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[42px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
               title="Експортирай филтрирания отчет в Excel работна книга (.xlsx) с 6 листа"
             >
               {isExportingExcel ? (
@@ -705,6 +738,51 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
             </button>
           </div>
         </div>
+    </div>
+  );
+};
+
+export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
+  isOpen,
+  onClose,
+  monthlyData,
+  globalSavings,
+  initialPeriodType = "month",
+  initialMonth,
+  initialYear,
+}) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Център за отчети и експорт"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl flex justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <ExportCenterPanel
+          monthlyData={monthlyData}
+          globalSavings={globalSavings}
+          initialPeriodType={initialPeriodType}
+          initialMonth={initialMonth}
+          initialYear={initialYear}
+          variant="modal"
+          onClose={onClose}
+        />
       </div>
     </div>
   );
