@@ -16,6 +16,7 @@ export interface GeminiReceiptItem {
   name: string;
   price: number;
   quantity: number;
+  unitPrice?: number;
   originalPrice?: number;
   discount?: number;
   finalPrice?: number;
@@ -31,6 +32,7 @@ export interface GeminiReceiptData {
   currency: string;
   suggestedCategory: string;
   items: GeminiReceiptItem[];
+  quantityLines?: string[];
   notesFormatted: string;
 }
 
@@ -80,8 +82,9 @@ export function buildBulgarianReceiptPrompt(ocrText?: string): string {
   "currency": "€",
   "suggestedCategory": "One of: храна, ресторант, гориво, кино, козметика, аптека, кола, дрехи, фризьор, домашни любимци, почистване, други",
   "items": [
-    { "name": "Readable Item Name", "price": 2.04, "quantity": 1, "originalPrice": 3.06, "discount": 1.02, "finalPrice": 2.04, "discountLabel": "Lidl Plus" }
+    { "name": "Readable Item Name", "price": 2.04, "quantity": 1, "unitPrice": 2.04, "originalPrice": 3.06, "discount": 1.02, "finalPrice": 2.04, "discountLabel": "Lidl Plus" }
   ],
+  "quantityLines": ["4.000 x 0.15", "3.000 x 0.79"],
   "notesFormatted": "2 x Coca Cola - €4.80\\n1 x Снакс с фъстъци - €2.04 (ориг. €3.06, -€1.02 Lidl Plus)"
 }
 Important rules for Bulgarian & international receipts (especially long 15-30 item supermarket receipts):
@@ -91,10 +94,11 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
 - "totalAmount": MUST be the final amount paid in the receipt's primary currency (ОБЩО, ОБЩА СУМА, КРАЙНА СУМА, ЗА ПЛАЩАНЕ, СУМА ЗА ПЛАЩАНЕ, TOTAL, GRAND TOTAL). NEVER pick VAT (ДДС), discount (ОТСТЪПКА), subtotal (МЕЖДИННА СУМА), or change (РЕСТО).
 - "expectedItemsCount": Integer count if printed on receipt (e.g. "17 АРТИКУЛА", "ITEMS SOLD: 17"), otherwise null.
 - "currency": Bulgaria uses the Euro (€, EUR). Always return "€" for Bulgarian receipts (including dual-display receipts), or "$" / "£" only if explicitly printed in USD or GBP. Never return "лв." or "BGN", and never convert prices — extract the exact EUR printed values.
-- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item "price" matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola" or "2 x 2.40  4.80"; default 1) and the final line price ("price").
-  * QUANTITY MATCHING SAFETY RULE: When a standalone calculation line like "4.000 x 0.15" appears between or above products, FIRST calculate qty * unitPrice (4.000 * 0.15 = 0.60) and assign "quantity": 4 ONLY to the matching product whose total price is 0.60 (e.g. "BIOSET КАНЕЛА МЛЯНА" 0.60), NEVER to an adjacent product with a different price (e.g. 2.04)!
+- "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item "price" matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola" or "2 x 2.40  4.80"; default 1), optional "unitPrice" when printed (e.g. 0.15 for "4.000 x 0.15"), and the final line price ("price").
+  * QUANTITY MATCHING SAFETY RULE: On Lidl and Bulgarian receipts, standalone calculation lines like "4.000 x 0.15" or "3.000 x 0.79" often appear directly BELOW the product they belong to (and directly ABOVE the next unrelated product!). NEVER assign a quantity by physical/next-line proximity. FIRST compute qty * unitPrice (e.g. 4.000 * 0.15 = 0.60, 3.000 * 0.79 = 2.37) and assign that "quantity" (and "unitPrice") ONLY to the nearby product whose line total mathematically equals qty * unitPrice (e.g. "BIOSET КАНЕЛА МЛЯНА" 0.60 gets quantity 4; "МОРКОВИ В МРЕЖА" 2.37 gets quantity 3). Leave unrelated adjacent items (e.g. "ТОАЛЕТНА ХАРТИЯ" 4.99) with "quantity": 1!
   * DISCOUNTS (e.g. Lidl "#Lidl Plus промоция" / "ОТСТЪПКИ 1,02-" / "-1.02" / "ОТСТЪПКА"): NEVER output a discount line as a standalone item! Instead, attach it directly to the PRECEDING item: set "originalPrice" to the item's printed pre-discount price (e.g. 3.06), "discount" to the positive discount amount (e.g. 1.02), "finalPrice" and "price" BOTH to originalPrice - discount (e.g. 2.04), and "discountLabel" (e.g. "Lidl Plus" or "Отстъпка"). If an item has no discount, omit discount fields or leave discount=0.
   * Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
+- "quantityLines": List EVERY standalone "qty x unitPrice" calculation row visible on the receipt in top-to-bottom order (e.g. ["4.000 x 0.15", "3.000 x 0.79"]), or [] if none.
 - "notesFormatted": Multi-line list, one item per line strictly formatted as "<quantity> x <Item Name> - <currency><price>" (e.g. "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"). Never put all items on a single line.
 - "suggestedCategory": Lidl/Kaufland/Billa/Fantastico/T Market/Metro -> "храна"; Shell/OMV/Lukoil/Eko/Rompetrol -> "гориво"; Happy/Raffy/KFC/McDonald's -> "ресторант"; Cinema City/Kino Arena -> "кино"; Lilly/DM -> "козметика"; Sopharmacy/Subra -> "аптека".
 - Raw OCR text hint (may contain Cyrillic/Latin OCR artifacts): ${ocrText ? JSON.stringify(ocrText.slice(0, 6000)) : "None"}
@@ -451,6 +455,7 @@ export async function analyzeReceiptWithGemini(input: {
                       ? rawPrice
                       : rawOrig;
 
+                  const rawUnitPrice = parseFloat(parseGeminiNum(it?.unitPrice).toFixed(3));
                   const item: GeminiReceiptItem = {
                     name: typeof it?.name === "string" ? it.name.trim() : "",
                     price: parseFloat((effectivePrice || 0).toFixed(2)),
@@ -458,6 +463,7 @@ export async function analyzeReceiptWithGemini(input: {
                       1,
                       Math.round(parseGeminiNum(it?.quantity) || 1)
                     ),
+                    ...(rawUnitPrice > 0 ? { unitPrice: rawUnitPrice } : {}),
                   };
                   if (hasDiscount && originalPrice !== undefined && finalPrice !== undefined) {
                     item.originalPrice = originalPrice;
@@ -468,6 +474,12 @@ export async function analyzeReceiptWithGemini(input: {
                   return item;
                 })
                 .filter((it: GeminiReceiptItem) => it.name.length > 0 && it.price >= 0 && (it.price > 0 || (it.originalPrice ?? 0) > 0))
+            : [];
+
+          const normalizedQuantityLines: string[] = Array.isArray(parsedData?.quantityLines)
+            ? parsedData.quantityLines
+                .map((q: unknown) => (typeof q === "string" ? q.trim() : ""))
+                .filter((q: string) => q.length > 0)
             : [];
 
           const normalizedData: GeminiReceiptData = {
@@ -496,6 +508,9 @@ export async function analyzeReceiptWithGemini(input: {
                 ? parsedData.suggestedCategory.trim()
                 : "",
             items: normalizedItems,
+            ...(normalizedQuantityLines.length > 0
+              ? { quantityLines: normalizedQuantityLines }
+              : {}),
             notesFormatted:
               typeof parsedData?.notesFormatted === "string"
                 ? parsedData.notesFormatted.trim()

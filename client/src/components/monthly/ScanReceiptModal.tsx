@@ -1551,7 +1551,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setExpectedItemsCount(resolvedExpectedCount);
 
           // Normalize Gemini items & compare against local OCR items to prevent truncation
-          const geminiNormalizedItems: ReceiptItemDetail[] = Array.isArray(gData.items)
+          type ReconcileItemInput = ReceiptItemDetail & { unitPrice?: number };
+          const geminiNormalizedItems: ReconcileItemInput[] = Array.isArray(gData.items)
             ? gData.items
                 .map((it: any) => {
                   const rawPrice =
@@ -1597,10 +1598,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     typeof it?.quantity === "number"
                       ? it.quantity
                       : parseFloat(String(it?.quantity || "").replace(",", "."));
-                  const res: ReceiptItemDetail = {
+                  const rawUnitPrice =
+                    typeof it?.unitPrice === "number"
+                      ? it.unitPrice
+                      : parseFloat(String(it?.unitPrice || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+                  const res: ReconcileItemInput = {
                     name: typeof it?.name === "string" ? it.name.trim() : "",
                     price: effectivePrice,
                     quantity: Number.isFinite(rawQty) && rawQty >= 1 ? Math.round(rawQty) : 1,
+                    ...(Number.isFinite(rawUnitPrice) && rawUnitPrice > 0
+                      ? { unitPrice: parseFloat(rawUnitPrice.toFixed(3)) }
+                      : {}),
                     ...(hasDiscount && origPrice !== undefined && finalPriceVal !== undefined
                       ? {
                           originalPrice: origPrice,
@@ -1612,7 +1620,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   };
                   return res;
                 })
-                .filter((it: ReceiptItemDetail) => it.name.length > 0 && it.price >= 0 && (it.price > 0 || (it.discount ?? 0) > 0))
+                .filter((it: ReconcileItemInput) => it.name.length > 0 && it.price >= 0 && (it.price > 0 || (it.discount ?? 0) > 0))
             : [];
 
           const bestChoice = chooseBestItemSet(
@@ -1621,11 +1629,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             finalTotal,
             resolvedExpectedCount
           );
-          const mergedGeminiItems =
+          const mergedGeminiItems: ReconcileItemInput[] =
             bestChoice.source === "gemini" && initialItems.length === bestChoice.items.length
-              ? bestChoice.items.map((gItem, idx) => {
+              ? (bestChoice.items as ReconcileItemInput[]).map((gItem, idx) => {
                   const localMatch = initialItems[idx];
-                  let merged = gItem;
+                  let merged: ReconcileItemInput = gItem;
                   if (
                     localMatch &&
                     (localMatch.quantity || 1) > 1 &&
@@ -1651,15 +1659,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   }
                   return merged;
                 })
-              : bestChoice.items;
-          const resolvedItems =
+              : (bestChoice.items as ReconcileItemInput[]);
+          const resolvedItems: ReceiptItemDetail[] = (
             bestChoice.source === "gemini"
               ? reconcileReceiptItemQuantities(
                   mergedGeminiItems,
                   gData.rawText || ocrRawText,
-                  localParsed.items
+                  localParsed.items,
+                  Array.isArray(gData.quantityLines) ? gData.quantityLines : []
                 )
-              : mergedGeminiItems;
+              : mergedGeminiItems
+          ).map(({ unitPrice: _unitPrice, ...rest }) => rest);
           const totalAttachedDisc = parseFloat(
             resolvedItems.reduce((s, it) => s + (it.discount || 0), 0).toFixed(2)
           );
