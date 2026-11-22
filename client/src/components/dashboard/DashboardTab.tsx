@@ -5,6 +5,8 @@ import {
   Plus,
   Download,
   Target,
+  SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { ExportCenterModal } from "@/components/export/ExportCenterModal";
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
@@ -36,9 +38,7 @@ import { DashboardCardContent, UpcomingDashboardItem } from "./DashboardCards";
 import {
   DashboardCardId,
   loadDashboardCardOrder,
-  loadLastDashboardCardId,
   saveDashboardCardOrder,
-  saveLastDashboardCardId,
 } from "./dashboardCardConfig";
 
 interface DashboardTabProps {
@@ -128,8 +128,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     return now.toISOString().split("T")[0];
   });
 
-  // Export Center Modal State
+  // Export Center Modal & Compact Filters Sheet State
   const [isExportCenterOpen, setIsExportCenterOpen] = useState(false);
+  const [isFiltersSheetOpen, setIsFiltersSheetOpen] = useState(false);
 
   // Savings Target % setting (for Automatic Savings Suggestions)
   const [savingsTargetPercent, setSavingsTargetPercent] = useState<number>(() => {
@@ -140,13 +141,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   const [electricityRevision, setElectricityRevision] = React.useState(0);
   const [savingsGoalsRevision, setSavingsGoalsRevision] = React.useState(0);
 
-  // Swipeable Card Carousel State (persisted per account)
+  // Swipeable Card Carousel State (always start on "overview" when entering Dashboard)
   const [cardOrder, setCardOrder] = useState<DashboardCardId[]>(() =>
     loadDashboardCardOrder()
   );
-  const [activeCardId, setActiveCardId] = useState<DashboardCardId>(() =>
-    loadLastDashboardCardId()
-  );
+  const [activeCardId, setActiveCardId] = useState<DashboardCardId>("overview");
   const [cardViewModes, setCardViewModes] = useState<
     Partial<Record<DashboardCardId, "summary" | "chart">>
   >({});
@@ -159,10 +158,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       setElectricityRevision((v) => v + 1);
       setSavingsGoalsRevision((v) => v + 1);
       setCardOrder(loadDashboardCardOrder());
-      setActiveCardId(loadLastDashboardCardId());
     };
     const handleAccountChanged = () => {
       handleRestored();
+      setActiveCardId("overview");
       setExpandedCardId(null);
     };
     const handleBudgetOrCatUpdate = () => {
@@ -192,9 +191,19 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     };
   }, []);
 
+  React.useEffect(() => {
+    if (!isFiltersSheetOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsFiltersSheetOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFiltersSheetOpen]);
+
   const handleSelectCard = (nextId: DashboardCardId) => {
     setActiveCardId(nextId);
-    saveLastDashboardCardId(nextId);
     setExpandedCardId((prev) => (prev && prev !== nextId ? null : prev));
   };
 
@@ -891,7 +900,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     Object.keys(monthlyData || {}).length === 0 && (globalSavings || []).length === 0;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-3.5 sm:space-y-4 animate-in fade-in duration-500">
       {/* Welcome / Empty-State Banner */}
       {isCompletelyEmpty && (
         <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-600 text-white p-5 sm:p-6 rounded-2xl shadow-md border border-indigo-400/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -940,146 +949,34 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
       )}
 
-      {/* Top Bar with Period Selector */}
-      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            <span>Финансово табло</span>
-            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 px-2.5 py-0.5 rounded-full">
-              {currentPeriodLabel}
-            </span>
+      {/* Compact Mobile-First Dashboard Header */}
+      <div className="flex items-center justify-between gap-2.5 px-0.5">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+            Финансово табло
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Обобщен преглед на паричните потоци, разходите и спестяванията
-          </p>
-        </div>
-
-        {/* Period Selector Controls */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full md:w-auto">
-          {/* Quick Period Buttons */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-row items-center rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200/60 dark:border-slate-700/60 w-full sm:w-auto gap-1">
-            <button
-              onClick={() => setPeriodType("current")}
-              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
-                periodType === "current"
-                  ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              Текущ месец
-            </button>
-            <button
-              onClick={() => setPeriodType("month")}
-              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
-                periodType === "month"
-                  ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              Конкретен месец
-            </button>
-            <button
-              onClick={() => setPeriodType("year")}
-              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
-                periodType === "year"
-                  ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              Цяла година
-            </button>
-            <button
-              onClick={() => setPeriodType("custom")}
-              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
-                periodType === "custom"
-                  ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              Период
-            </button>
-          </div>
-
-          {/* Conditional Dropdowns for Period */}
-          {periodType === "month" && (
-            <div className="flex items-center gap-1.5 w-full sm:w-auto animate-in fade-in duration-150">
-              <div className="relative flex-1 sm:flex-none">
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                >
-                  {MONTHS_BG.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-
-              <div className="relative flex-1 sm:flex-none">
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                >
-                  {YEARS.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            </div>
-          )}
-
-          {periodType === "year" && (
-            <div className="relative w-full sm:w-auto animate-in fade-in duration-150">
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 pl-3 pr-7 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-              >
-                {YEARS.map((y) => (
-                  <option key={y} value={y}>
-                    {y} г.
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
-          )}
-
-          {periodType === "custom" && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 w-full sm:w-auto animate-in fade-in duration-150">
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 px-3 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
-              <span className="text-slate-500 dark:text-slate-400 text-xs text-center hidden sm:inline">—</span>
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[38px] py-1.5 px-3 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
-            </div>
-          )}
-
-          {/* Export Button in Top Bar */}
           <button
-            onClick={() => setIsExportCenterOpen(true)}
-            className="flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 py-2 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs transition-colors shadow-2xs cursor-pointer w-full sm:w-auto"
-            title="Отвори център за отчети и експорт (TXT / PNG)"
+            type="button"
+            onClick={() => setIsFiltersSheetOpen(true)}
+            className="inline-flex items-center text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/70 dark:border-indigo-800/80 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer truncate max-w-[190px] sm:max-w-none"
+            title="Промени периода"
           >
-            <Download className="w-4 h-4" />
-            <span>Експорт на отчет</span>
+            {currentPeriodLabel}
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setIsFiltersSheetOpen(true)}
+          aria-label="Филтри и експорт"
+          aria-haspopup="dialog"
+          aria-expanded={isFiltersSheetOpen}
+          className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#16181d] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold border border-slate-200 dark:border-slate-800 rounded-xl text-xs transition-colors shadow-2xs cursor-pointer shrink-0 whitespace-nowrap"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span className="hidden sm:inline">Филтри и експорт</span>
+          <span className="sm:hidden">Филтри</span>
+        </button>
       </div>
 
       {/* Swipeable Card-Based Dashboard Carousel */}
@@ -1140,6 +1037,212 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           />
         )}
       />
+
+      {/* Filters & Export Bottom Sheet (mobile) / Modal Dialog (desktop) */}
+      {isFiltersSheetOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs sm:p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="dashboard-filters-title"
+          onClick={() => setIsFiltersSheetOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile Sheet Handle */}
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+              <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+            </div>
+
+            {/* Header */}
+            <div className="px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3
+                  id="dashboard-filters-title"
+                  className="text-base font-bold text-slate-900 dark:text-white"
+                >
+                  Филтри и експорт
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                  Активен период: {currentPeriodLabel}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFiltersSheetOpen(false)}
+                className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+                aria-label="Затвори"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body: Existing Period Filters + Export */}
+            <div className="p-5 space-y-5 overflow-y-auto">
+              <div className="space-y-2.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Период
+                </p>
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 p-1.5 border border-slate-200/60 dark:border-slate-700/60">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodType("current")}
+                    className={`min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
+                      periodType === "current"
+                        ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Текущ месец
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodType("month")}
+                    className={`min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
+                      periodType === "month"
+                        ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Конкретен месец
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodType("year")}
+                    className={`min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
+                      periodType === "year"
+                        ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Цяла година
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodType("custom")}
+                    className={`min-h-[40px] px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
+                      periodType === "custom"
+                        ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Период
+                  </button>
+                </div>
+
+                {periodType === "month" && (
+                  <div className="grid grid-cols-2 gap-2 pt-1 animate-in fade-in duration-150">
+                    <div className="relative">
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[42px] py-2 pl-3 pr-8 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      >
+                        {MONTHS_BG.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+
+                    <div className="relative">
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                        className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[42px] py-2 pl-3 pr-8 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      >
+                        {YEARS.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                  </div>
+                )}
+
+                {periodType === "year" && (
+                  <div className="relative pt-1 animate-in fade-in duration-150">
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(e.target.value)}
+                      className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[42px] py-2 pl-3 pr-8 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      {YEARS.map((y) => (
+                        <option key={y} value={y}>
+                          {y} г.
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                )}
+
+                {periodType === "custom" && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 animate-in fade-in duration-150">
+                    <label className="space-y-1">
+                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        От дата
+                      </span>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[42px] py-2 px-3 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        До дата
+                      </span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 min-h-[42px] py-2 px-3 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Отчети и експорт
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFiltersSheetOpen(false);
+                    setIsExportCenterOpen(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 min-h-[44px] px-4 py-2.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs transition-colors cursor-pointer"
+                  title="Отвори център за отчети и експорт (TXT / PNG)"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Експорт на отчет</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsFiltersSheetOpen(false)}
+                className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Готово
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reporting & Export Center Modal */}
       <ExportCenterModal

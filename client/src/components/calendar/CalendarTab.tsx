@@ -622,9 +622,10 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
       {/* Month Summary Strip + Filter Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs space-y-3">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3">
+          {/* Top-Left: Realized Income (Green) */}
           <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50">
-            <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1 flex-wrap">
               <CheckCircle2 className="w-3 h-3 shrink-0" />
               <span>Реализирани приходи</span>
               <span className="px-1.5 py-0.2 rounded-full bg-emerald-200/80 dark:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums">
@@ -637,8 +638,10 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                 : "€0.00"}
             </span>
           </div>
+
+          {/* Top-Right: Realized Expenses (Red) */}
           <div className="p-3 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/50">
-            <span className="text-[11px] font-semibold text-rose-800 dark:text-rose-300 flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-rose-800 dark:text-rose-300 flex items-center gap-1 flex-wrap">
               <CheckCircle2 className="w-3 h-3 shrink-0" />
               <span>Реализирани разходи</span>
               <span className="px-1.5 py-0.2 rounded-full bg-rose-200/80 dark:bg-rose-900/70 text-rose-900 dark:text-rose-200 text-[10px] font-extrabold tabular-nums">
@@ -651,8 +654,24 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                 : "€0.00"}
             </span>
           </div>
+
+          {/* Bottom-Left: Expected Income (Light Blue) */}
+          <div className="p-3 rounded-xl bg-sky-50/70 dark:bg-sky-950/25 border border-sky-200/80 dark:border-sky-800/60">
+            <span className="text-[11px] font-semibold text-sky-800 dark:text-sky-300 flex items-center gap-1 flex-wrap">
+              <Clock className="w-3 h-3 shrink-0" />
+              <span>Очаквани приходи</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-sky-200/80 dark:bg-sky-900/70 text-sky-900 dark:text-sky-200 text-[10px] font-extrabold tabular-nums">
+                ({currentMonthSummary.upcomingIncomesCount})
+              </span>
+            </span>
+            <span className="text-base font-extrabold text-sky-600 dark:text-sky-400 tabular-nums mt-0.5 block">
+              €{currentMonthSummary.upcomingIncomesTotal.toFixed(2)}
+            </span>
+          </div>
+
+          {/* Bottom-Right: Upcoming Expenses (Amber) */}
           <div className="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-950/35 border border-amber-300/80 dark:border-amber-800/70">
-            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1 flex-wrap">
               <Clock className="w-3 h-3 shrink-0" />
               <span>Предстоящи разходи</span>
               <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-[10px] font-extrabold tabular-nums">
@@ -661,18 +680,6 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
             </span>
             <span className="text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 block">
               €{currentMonthSummary.upcomingExpensesTotal.toFixed(2)}
-            </span>
-          </div>
-          <div className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/50">
-            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1">
-              <Clock className="w-3 h-3 shrink-0" />
-              <span>Очаквани приходи</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-[10px] font-extrabold tabular-nums">
-                ({currentMonthSummary.upcomingIncomesCount})
-              </span>
-            </span>
-            <span className="text-base font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 block">
-              €{currentMonthSummary.upcomingIncomesTotal.toFixed(2)}
             </span>
           </div>
         </div>

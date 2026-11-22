@@ -37,7 +37,6 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
   renderCard,
 }) => {
   const trackRef = useRef<HTMLDivElement | null>(null);
-  const pillsScrollRef = useRef<HTMLDivElement | null>(null);
   const [isReorderOpen, setIsReorderOpen] = useState(false);
   const [isDraggingMouse, setIsDraggingMouse] = useState(false);
 
@@ -135,22 +134,6 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
     observer.observe(track);
     return () => observer.disconnect();
   }, []);
-
-  // Scroll active quick-nav tab into view cleanly
-  useEffect(() => {
-    const container = pillsScrollRef.current;
-    if (!container) return;
-    const activeBtn = container.querySelector<HTMLElement>(
-      `[data-card-tab="${activeCardId}"]`
-    );
-    if (activeBtn) {
-      activeBtn.scrollIntoView({
-        behavior: prefersReducedMotion() ? "auto" : "smooth",
-        block: "nearest",
-        inline: "center",
-      });
-    }
-  }, [activeCardId]);
 
   // Handle native swipe & trackpad scroll settlement
   const handleTrackScroll = useCallback(() => {
@@ -340,53 +323,6 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
       aria-roledescription="carousel"
       aria-label="Секции на финансовото табло"
     >
-      {/* Top Section Strip: Quick Jump Tabs + Page Counter + Reorder Trigger */}
-      <div className="flex items-center justify-between gap-2">
-        <div
-          ref={pillsScrollRef}
-          className="flex items-center gap-1 overflow-x-auto py-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1 min-w-0"
-          role="tablist"
-          aria-label="Бърз избор на карта"
-        >
-          {cardOrder.map((cardId, idx) => {
-            const meta = DASHBOARD_CARDS_META[cardId];
-            const isSelected = idx === activeIndex;
-            return (
-              <button
-                key={cardId}
-                type="button"
-                role="tab"
-                data-card-tab={cardId}
-                aria-selected={isSelected}
-                onClick={() => scrollToIndex(idx)}
-                className={`min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  isSelected
-                    ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/70"
-                }`}
-              >
-                {meta.shortTitle}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="hidden sm:inline-block text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums px-1.5">
-            {activeIndex + 1} / {cardOrder.length}
-          </span>
-          <button
-            type="button"
-            onClick={() => setIsReorderOpen(true)}
-            className="min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-            title="Промени реда на картите"
-          >
-            <ArrowUpDown className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Подреди</span>
-          </button>
-        </div>
-      </div>
-
       {/* Carousel Viewport Wrapper with Flanking Desktop Arrows */}
       <div className="relative group">
         <div
@@ -408,8 +344,9 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
             return (
               <div
                 key={cardId}
-                role="tabpanel"
-                aria-label={meta.title}
+                role="group"
+                aria-roledescription="slide"
+                aria-label={`${idx + 1} от ${cardOrder.length}: ${meta.title}`}
                 aria-hidden={!isActive}
                 className={`w-full shrink-0 snap-center snap-always ${
                   !isActive ? "max-h-[540px] overflow-hidden" : ""
@@ -446,34 +383,39 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
           <ChevronLeft className="w-5 h-5" />
         </button>
 
-        {/* Pagination Dots */}
-        <div
-          className="flex items-center justify-center gap-1 sm:gap-1.5 flex-wrap"
-          role="navigation"
-          aria-label="Индикатори за карти"
-        >
-          {cardOrder.map((cardId, idx) => {
-            const isSelected = idx === activeIndex;
-            const meta = DASHBOARD_CARDS_META[cardId];
-            return (
-              <button
-                key={cardId}
-                type="button"
-                onClick={() => scrollToIndex(idx)}
-                aria-label={`Карта ${idx + 1}: ${meta.title}`}
-                aria-current={isSelected ? "page" : undefined}
-                className="min-h-[36px] min-w-[22px] sm:min-w-[24px] flex items-center justify-center cursor-pointer group/dot"
-              >
-                <span
-                  className={`block rounded-full transition-all duration-200 ${
-                    isSelected
-                      ? "w-5 h-2 bg-slate-900 dark:bg-white"
-                      : "w-2 h-2 bg-slate-300 dark:bg-slate-600 group-hover/dot:bg-slate-400 dark:group-hover/dot:bg-slate-500"
-                  }`}
-                />
-              </button>
-            );
-          })}
+        {/* Pagination Dots + Page Counter */}
+        <div className="flex flex-col items-center gap-1">
+          <div
+            className="flex items-center justify-center gap-1 sm:gap-1.5 flex-wrap"
+            role="navigation"
+            aria-label="Индикатори за карти"
+          >
+            {cardOrder.map((cardId, idx) => {
+              const isSelected = idx === activeIndex;
+              const meta = DASHBOARD_CARDS_META[cardId];
+              return (
+                <button
+                  key={cardId}
+                  type="button"
+                  onClick={() => scrollToIndex(idx)}
+                  aria-label={`Карта ${idx + 1}: ${meta.title}`}
+                  aria-current={isSelected ? "page" : undefined}
+                  className="min-h-[36px] min-w-[22px] sm:min-w-[24px] flex items-center justify-center cursor-pointer group/dot"
+                >
+                  <span
+                    className={`block rounded-full transition-all duration-200 ${
+                      isSelected
+                        ? "w-5 h-2 bg-slate-900 dark:bg-white"
+                        : "w-2 h-2 bg-slate-300 dark:bg-slate-600 group-hover/dot:bg-slate-400 dark:group-hover/dot:bg-slate-500"
+                    }`}
+                  />
+                </button>
+              );
+            })}
+          </div>
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 tabular-nums">
+            Карта {activeIndex + 1} от {cardOrder.length}
+          </span>
         </div>
 
         <button
@@ -484,6 +426,19 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
           className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-2xl bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-2xs"
         >
           <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Secondary Action: Reorder Cards Control (below cards & pagination) */}
+      <div className="flex items-center justify-center pt-0.5">
+        <button
+          type="button"
+          onClick={() => setIsReorderOpen(true)}
+          className="min-h-[38px] inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer whitespace-nowrap shadow-2xs"
+          title="Промени реда на картите"
+        >
+          <ArrowUpDown className="w-3.5 h-3.5" />
+          <span>Подреди</span>
         </button>
       </div>
 
