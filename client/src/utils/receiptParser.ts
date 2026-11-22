@@ -417,11 +417,13 @@ export function normalizeBulgarianOcrText(rawText: string): string {
       // Fix semicolon / middle-dot decimal typos in prices (e.g. "3;49" -> "3.49", "3·49" -> "3.49")
       .replace(/(^|[\s€$£-])(\d{1,5})[;·•](\d{2})(?=$|\s|[^\d])/g, "$1$2.$3")
       // Fix OCR spaces on either/both sides of decimal separators in prices (e.g. "4 . 80", "4. 80", "4 .80")
+      // and 3-decimal quantities before multiplication/units (e.g. "4 . 000 x 0.15" -> "4.000 x 0.15")
       // while protecting calendar dates like "14. 11. 2026" via negative lookbehind/lookahead
       .replace(
         /(^|[^\d./-])(\d{1,5})\s*([.,])\s*(\d{2})(?!\s*[./-]\s*\d)(?=$|\s|[^\d])/g,
         "$1$2$3$4"
       )
+      .replace(/(\d{1,3})\s*([.,])\s*(\d{3})(?=\s*(?:[xхХX*×@]|бр\.?|кг\.?|kg))/gi, "$1$2$3")
       // Fix missing decimal dot when trailing Bulgarian VAT letter or currency explicitly marks a price: "1 49 Б" or "400Г 1 49 Б" -> "400Г 1.49 Б"
       .replace(
         /(^|.*\s)(\d{1,3})\s(\d{2})(?=\s+(?:€|EUR|лв\.?|BGN|[АБВГA-D*])(?:\s|$|[.,|]))/gim,
@@ -1509,7 +1511,7 @@ export function extractItems(
 
   const getQtyPriceMatchError = (expectedTotal: number, itemPrice: number): number | null => {
     if (!Number.isFinite(expectedTotal) || expectedTotal <= 0 || itemPrice <= 0) return null;
-    const tol = Math.max(0.04, itemPrice * 0.03);
+    const tol = Math.max(0.02, itemPrice * 0.015);
     const directErr = Math.abs(expectedTotal - itemPrice);
     if (directErr <= tol) return directErr;
     const divErr = Math.abs(expectedTotal / 1.95583 - itemPrice);
@@ -1524,12 +1526,25 @@ export function extractItems(
     /^(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d{1,5}[.,]\d{2})\s*(?:лв\.?|BGN|EUR|USD|GBP|€|\$|£)?\s*(?:[([]?\s*[*#]?\s*[АБВГДЕабвгдеA-DSR685]\s*[)\]]?)?\s*[-.,|*_~/]*\s*$/i;
 
   const consumedLineIndices = new Set<number>();
+  const pendingLineQuantities = new Map<
+    number,
+    { qty: number; isDiscreteCount: boolean; unitLabel?: string }
+  >();
   let pendingNameBuffer: Array<{ index: number; text: string }> = [];
   let seenItemsStart = false;
   let pendingDiscountLabel: string | undefined;
   let lastItemEligibleForDiscount = false;
 
-  const pushExtractedItem = (item: ExtractedReceiptItem) => {
+  const pushExtractedItem = (item: ExtractedReceiptItem, sourceLineIdx?: number) => {
+    if (sourceLineIdx !== undefined && pendingLineQuantities.has(sourceLineIdx)) {
+      const pq = pendingLineQuantities.get(sourceLineIdx)!;
+      pendingLineQuantities.delete(sourceLineIdx);
+      if (pq.isDiscreteCount && item.quantity === 1) {
+        item.quantity = pq.qty;
+      } else if (!pq.isDiscreteCount && pq.unitLabel && !item.name.includes(pq.unitLabel)) {
+        item.name = `${item.name} (${pq.unitLabel})`;
+      }
+    }
     items.push(item);
     seenItemsStart = true;
     lastItemEligibleForDiscount = true;
@@ -1676,8 +1691,9 @@ export function extractItems(
     }
 
     // 2. Standalone qty x unitPrice line ("4.000 x 0.15", "2 x 2.40" or "0.800 кг x 4.00/кг"):
-    //    Evaluate BOTH previous parsed item and upcoming product line(s) using price consistency
-    //    (quantity * unitPrice ≈ itemPrice) rather than assuming it always belongs to the previous item.
+    //    First compute expectedTotal = rawQty * unitVal, then search nearby products
+    //    (previous parsed item(s) and upcoming item(s)) prioritizing exact mathematical price match
+    //    over physical proximity. Never alter a product's quantity unless price matches.
     const qtyOnlyMatch = line.match(qtyCalculationOnlyRegex);
     if (qtyOnlyMatch) {
       const rawQty = parseFloat(qtyOnlyMatch[1].replace(",", "."));
@@ -1693,18 +1709,44 @@ export function extractItems(
       if (unitVal && rawQty > 0) {
         const expectedTotal = rawQty * unitVal;
 
-        // 2a. Check eligibility & price error against IMMEDIATELY PREVIOUS parsed item
-        let prevErr: number | null = null;
-        const prevItem = items.length > 0 ? items[items.length - 1] : null;
-        const prevAdjacent =
-          consumedLineIndices.has(i - 1) ||
-          (i >= 2 && /^\d{8,14}$/.test(lines[i - 1].trim()) && consumedLineIndices.has(i - 2));
-        if (prevItem && pendingNameBuffer.length === 0 && prevAdjacent && prevItem.quantity === 1) {
-          const prevCheckPrice = prevItem.originalPrice ?? prevItem.price;
-          prevErr = getQtyPriceMatchError(expectedTotal, prevCheckPrice);
+        // 2a. Evaluate immediately preceding parsed item(s) within 1-2 positions
+        interface MatchedCandidate {
+          kind: "prev" | "next";
+          err: number;
+          distance: number;
+          prevItemIndex?: number;
+          endIndex?: number;
+          consumedExtraIndices?: number[];
+          nextName?: string;
+          nextPrice?: number;
+        }
+        const matchedCandidates: MatchedCandidate[] = [];
+
+        if (items.length > 0 && pendingNameBuffer.length === 0) {
+          const prevAdjacent =
+            consumedLineIndices.has(i - 1) ||
+            (i >= 2 && /^\d{8,14}$/.test(lines[i - 1].trim()) && consumedLineIndices.has(i - 2));
+          if (prevAdjacent) {
+            for (let backOffset = 0; backOffset < 2 && items.length - 1 - backOffset >= 0; backOffset++) {
+              const prevIdx = items.length - 1 - backOffset;
+              const prevItem = items[prevIdx];
+              if (prevItem.quantity === 1) {
+                const prevCheckPrice = prevItem.originalPrice ?? prevItem.price;
+                const err = getQtyPriceMatchError(expectedTotal, prevCheckPrice);
+                if (err !== null) {
+                  matchedCandidates.push({
+                    kind: "prev",
+                    err,
+                    distance: backOffset + 1,
+                    prevItemIndex: prevIdx,
+                  });
+                }
+              }
+            }
+          }
         }
 
-        // 2b. Check eligibility & price error against UPCOMING item (single-line or 2-line wrapped)
+        // 2b. Evaluate upcoming product(s) in lookahead lines (supports wrapped 2-line names & skipped promo headers)
         interface NextQtyCandidate {
           endIndex: number;
           consumedExtraIndices: number[];
@@ -1712,12 +1754,19 @@ export function extractItems(
           price: number;
           err: number | null;
         }
-        let nextCandidate: NextQtyCandidate | null = null;
-        const bufferedPrefixText = pendingNameBuffer.map((b) => b.text).join(" ").trim();
+        const upcomingCandidates: NextQtyCandidate[] = [];
+        let bufferedPrefixText = pendingNameBuffer.map((b) => b.text).join(" ").trim();
+        let lookaheadIdx = i + 1;
+        const maxLookahead = Math.min(lines.length, i + 6);
 
-        for (let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
-          const candidateLine = lines[j];
-          if (/^\d{8,14}$/.test(candidateLine.trim()) || isSeparatorOrHeaderNoise(candidateLine)) {
+        while (lookaheadIdx < maxLookahead && upcomingCandidates.length < 2) {
+          const candidateLine = lines[lookaheadIdx];
+          if (
+            /^\d{8,14}$/.test(candidateLine.trim()) ||
+            isSeparatorOrHeaderNoise(candidateLine) ||
+            extractPromoHeaderLabel(candidateLine)
+          ) {
+            lookaheadIdx++;
             continue;
           }
           if (
@@ -1736,6 +1785,7 @@ export function extractItems(
               .replace(/[.\-_=~*:\s]+$/, "")
               .trim();
             const name = formatReadableItemName(rawName);
+            bufferedPrefixText = "";
             if (
               nextPriceInfo.price > 0 &&
               nextPriceInfo.price < 50000 &&
@@ -1743,27 +1793,29 @@ export function extractItems(
               /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
               !isStrayFiscalOrAddressName(name)
             ) {
-              nextCandidate = {
-                endIndex: j,
+              upcomingCandidates.push({
+                endIndex: lookaheadIdx,
                 consumedExtraIndices: [],
                 name,
                 price: nextPriceInfo.price,
                 err: getQtyPriceMatchError(expectedTotal, nextPriceInfo.price),
-              };
+              });
             }
-            break;
+            lookaheadIdx++;
+            continue;
           }
 
-          // Handle 2-line wrapped product name right below standalone qty line
+          // Handle 2-line wrapped product name below standalone qty line
           if (
             /[а-яА-Яa-zA-Z]{2,}/.test(candidateLine) &&
             !isReceiptHeaderLineForItems(candidateLine, preferredCurrency) &&
-            j + 1 < lines.length
+            lookaheadIdx + 1 < lines.length
           ) {
-            const followingLine = lines[j + 1];
+            const followingLine = lines[lookaheadIdx + 1];
             if (
               !isTotalsOrPaymentBoundaryLine(followingLine) &&
-              !isNonItemSummaryOrMetaLine(followingLine)
+              !isNonItemSummaryOrMetaLine(followingLine) &&
+              !extractPromoHeaderLabel(followingLine)
             ) {
               const followTrailing = extractTrailingItemPrice(followingLine, preferredCurrency);
               const followStandalone = followingLine.match(standalonePriceLineRegex);
@@ -1778,82 +1830,112 @@ export function extractItems(
                   .replace(/[.\-_=~*:\s]+$/, "")
                   .trim();
                 const name = formatReadableItemName(rawName);
+                bufferedPrefixText = "";
                 if (
                   name.length >= 2 &&
                   /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
                   !isStrayFiscalOrAddressName(name)
                 ) {
-                  nextCandidate = {
-                    endIndex: j + 1,
-                    consumedExtraIndices: [j],
+                  upcomingCandidates.push({
+                    endIndex: lookaheadIdx + 1,
+                    consumedExtraIndices: [lookaheadIdx],
                     name,
                     price: followPrice,
                     err: getQtyPriceMatchError(expectedTotal, followPrice),
-                  };
+                  });
                 }
+                lookaheadIdx += 2;
+                continue;
               }
             }
           }
           break;
         }
 
-        const prevMatches = prevErr !== null;
-        const nextMatches = nextCandidate !== null && nextCandidate.err !== null;
-
-        let assignTo: "prev" | "next" | "none" = "none";
-        if (nextMatches && (!prevMatches || nextCandidate!.err! + 0.001 < prevErr!)) {
-          assignTo = "next";
-        } else if (prevMatches && (!nextMatches || prevErr! + 0.001 < nextCandidate!.err!)) {
-          assignTo = "prev";
-        } else if (prevMatches && nextMatches) {
-          // Exact price-error tie: check if upcoming item has its own trailing qty line right below it
-          const afterNextIdx = nextCandidate!.endIndex + 1;
-          const afterNextMatch =
-            afterNextIdx < lines.length ? lines[afterNextIdx].match(qtyCalculationOnlyRegex) : null;
-          let nextHasOwnTrailingQty = false;
-          if (afterNextMatch) {
-            const afterQty = parseFloat(afterNextMatch[1].replace(",", "."));
-            const afterUnit = parsePrice(afterNextMatch[2]);
-            if (afterUnit && afterQty > 0 && getQtyPriceMatchError(afterQty * afterUnit, nextCandidate!.price) !== null) {
-              nextHasOwnTrailingQty = true;
-            }
+        // Collect all upcoming candidates whose price matches expectedTotal so exact price matches beat proximity
+        for (let uIdx = 0; uIdx < upcomingCandidates.length; uIdx++) {
+          const uc = upcomingCandidates[uIdx];
+          if (uc.err !== null && (uIdx === 0 || uc.err <= 0.01)) {
+            matchedCandidates.push({
+              kind: "next",
+              err: uc.err,
+              distance: uIdx + 1,
+              endIndex: uc.endIndex,
+              consumedExtraIndices: uc.consumedExtraIndices,
+              nextName: uc.name,
+              nextPrice: uc.price,
+            });
           }
-          assignTo = nextHasOwnTrailingQty ? "prev" : "next";
         }
 
-        if (assignTo === "next" && nextCandidate) {
-          flushPendingName();
-          let displayName = nextCandidate.name;
-          if (isWeightOrVolume) {
-            const unitLabelMatch = line.match(
-              /^[*#•\s]*\(?(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|мл|kg|l|g|ml))(?=$|[^а-яА-Яa-zA-Z])/i
-            );
-            if (unitLabelMatch && !displayName.includes(unitLabelMatch[1].trim())) {
-              displayName = `${displayName} (${unitLabelMatch[1].trim()})`;
+        // Rank matched candidates: smallest price error ALWAYS beats physical proximity
+        matchedCandidates.sort((a, b) => {
+          const errDiff = a.err - b.err;
+          if (Math.abs(errDiff) > 0.005) return errDiff;
+          if (a.distance !== b.distance) return a.distance - b.distance;
+          // Tie at equal distance & equal price error: check if immediate next item has its own trailing qty row
+          if (a.kind !== b.kind) {
+            const nextCand = a.kind === "next" ? a : b;
+            const afterNextIdx = (nextCand.endIndex ?? i + 1) + 1;
+            const afterNextMatch =
+              afterNextIdx < lines.length ? lines[afterNextIdx].match(qtyCalculationOnlyRegex) : null;
+            if (afterNextMatch && nextCand.nextPrice) {
+              const afterQty = parseFloat(afterNextMatch[1].replace(",", "."));
+              const afterUnit = parsePrice(afterNextMatch[2]);
+              if (afterUnit && afterQty > 0 && getQtyPriceMatchError(afterQty * afterUnit, nextCand.nextPrice) !== null) {
+                return a.kind === "prev" ? -1 : 1;
+              }
             }
+            return a.kind === "next" ? -1 : 1;
           }
-          pushExtractedItem({
-            name: displayName,
-            price: nextCandidate.price,
-            quantity: isDiscreteCount ? rawQty : 1,
-          });
-          consumedLineIndices.add(i);
-          for (const extraIdx of nextCandidate.consumedExtraIndices) {
-            consumedLineIndices.add(extraIdx);
+          return 0;
+        });
+
+        const winner = matchedCandidates[0];
+        if (winner && winner.kind === "next" && winner.endIndex !== undefined && winner.nextName && winner.nextPrice !== undefined) {
+          const unitLabelMatch = isWeightOrVolume
+            ? line.match(/^[*#•\s]*\(?(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|мл|kg|l|g|ml))(?=$|[^а-яА-Яa-zA-Z])/i)
+            : null;
+          const unitLabel = unitLabelMatch ? unitLabelMatch[1].trim() : undefined;
+
+          if (winner.distance === 1) {
+            flushPendingName();
+            let displayName = winner.nextName;
+            if (unitLabel && !displayName.includes(unitLabel)) {
+              displayName = `${displayName} (${unitLabel})`;
+            }
+            pushExtractedItem({
+              name: displayName,
+              price: winner.nextPrice,
+              quantity: isDiscreteCount ? rawQty : 1,
+            });
+            consumedLineIndices.add(i);
+            for (const extraIdx of winner.consumedExtraIndices || []) {
+              consumedLineIndices.add(extraIdx);
+            }
+            consumedLineIndices.add(winner.endIndex);
+            continue;
+          } else {
+            pendingLineQuantities.set(winner.endIndex, {
+              qty: rawQty,
+              isDiscreteCount,
+              unitLabel,
+            });
+            consumedLineIndices.add(i);
+            continue;
           }
-          consumedLineIndices.add(nextCandidate.endIndex);
-          continue;
         }
 
-        if (assignTo === "prev" && prevItem) {
-          if (isDiscreteCount && prevItem.quantity === 1) {
-            prevItem.quantity = rawQty;
+        if (winner && winner.kind === "prev" && winner.prevItemIndex !== undefined) {
+          const targetPrev = items[winner.prevItemIndex];
+          if (isDiscreteCount && targetPrev.quantity === 1) {
+            targetPrev.quantity = rawQty;
           } else if (isWeightOrVolume) {
             const unitLabelMatch = line.match(
               /^[*#•\s]*\(?(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|мл|kg|l|g|ml))(?=$|[^а-яА-Яa-zA-Z])/i
             );
-            if (unitLabelMatch && !prevItem.name.includes(unitLabelMatch[1].trim())) {
-              prevItem.name = `${prevItem.name} (${unitLabelMatch[1].trim()})`;
+            if (unitLabelMatch && !targetPrev.name.includes(unitLabelMatch[1].trim())) {
+              targetPrev.name = `${targetPrev.name} (${unitLabelMatch[1].trim()})`;
             }
           }
           consumedLineIndices.add(i);
@@ -1888,7 +1970,7 @@ export function extractItems(
           name,
           price,
           quantity: quantity >= 1 && quantity <= 999 ? quantity : 1,
-        });
+        }, i);
         consumedLineIndices.add(i);
         continue;
       }
@@ -1956,7 +2038,7 @@ export function extractItems(
               const qRaw = parseFloat(spaceQtyUnitMatch[2].replace(",", "."));
               const unitStr = (spaceQtyUnitMatch[3] || "").toLowerCase();
               const uVal = parsePrice(spaceQtyUnitMatch[4]);
-              if (qRaw > 0 && uVal && Math.abs(qRaw * uVal - linePrice) <= 0.04) {
+              if (qRaw > 0 && uVal && Math.abs(qRaw * uVal - linePrice) <= Math.max(0.02, linePrice * 0.015)) {
                 const isWeight = unitStr.includes("кг") || unitStr.includes("kg") || !Number.isInteger(qRaw);
                 if (!isWeight && Number.isInteger(qRaw) && qRaw >= 1 && qRaw <= 999) {
                   quantity = qRaw;
@@ -2044,7 +2126,7 @@ export function extractItems(
 
       const parsedItem = parseItemFromChunk(priceInfo.cleanPrefix, priceInfo.price, true);
       if (parsedItem) {
-        pushExtractedItem(parsedItem);
+        pushExtractedItem(parsedItem, i);
         consumedLineIndices.add(i);
       } else {
         pendingNameBuffer = [];
@@ -3012,7 +3094,7 @@ export function reconcileReceiptItemQuantities<
 
   const lines = rawOcrText ? cleanLines(rawOcrText) : [];
   const standaloneQtyRegex =
-    /^[*#•\s]*\(?\s*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|шт\.?|оп\.?|pcs)?\s*[xхХX*×@]\s*(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d+[.,]\d{2,3})(?:\s*(?:€|EUR|лв\.?|BGN|USD|GBP)?(?:\s*\/\s*1?\s*(?:бр\.?|шт\.?|оп\.?|pcs))?)?\s*\)?\s*=?\s*$/i;
+    /^[*#•\s]*\(?\s*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|шт\.?|оп\.?|pcs)?\s*[xхХX*×@]\s*(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d+[.,]\d{2,3})(?:\s*(?:€|EUR|лв\.?|BGN|USD|GBP)?(?:\s*\/\s*1?\s*(?:бр\.?|шт\.?|оп\.?|pcs))?)?\s*\)?\s*(?:=\s*(?:[$€£]?\s*\d+[.,]\d{2})?)?\s*(?:[([]?\s*[АБВГA-D*]\s*[)\]]?)?\s*$/i;
 
   const standaloneQtyRows: Array<{ qty: number; unitVal: number; expectedTotal: number; used: boolean }> = [];
   for (const line of lines) {
@@ -3026,73 +3108,123 @@ export function reconcileReceiptItemQuantities<
     }
   }
 
-  const priceMatches = (expected: number, actual: number): boolean => {
-    if (actual <= 0) return false;
-    const tol = Math.max(0.04, actual * 0.03);
-    return (
-      Math.abs(expected - actual) <= tol ||
-      Math.abs(expected / 1.95583 - actual) <= tol ||
-      Math.abs(expected * 1.95583 - actual) <= tol
-    );
+  const getPriceError = (expected: number, actual: number): number | null => {
+    if (actual <= 0 || expected <= 0) return null;
+    const tol = Math.max(0.02, actual * 0.015);
+    const direct = Math.abs(expected - actual);
+    const div = Math.abs(expected / 1.95583 - actual);
+    const mul = Math.abs(expected * 1.95583 - actual);
+    const best = Math.min(direct, div, mul);
+    return best <= tol ? best : null;
+  };
+
+  const getItemCandidatePriceError = (expected: number, it: T): number | null => {
+    const e1 = getPriceError(expected, it.originalPrice ?? it.price);
+    const e2 =
+      it.originalPrice !== undefined && it.price > 0 ? getPriceError(expected, it.price) : null;
+    if (e1 === null) return e2;
+    if (e2 === null) return e1;
+    return Math.min(e1, e2);
   };
 
   const result = items.map((it) => ({ ...it }));
   const sameLength = localItems.length === result.length;
 
   // Step 1: When local OCR and AI have identical item alignment, transfer verified multi-quantities
-  // and correct AI quantities that contradict local OCR + standalone OCR qty*unitPrice math.
+  // and reset any AI quantity that contradicts local OCR + standalone OCR qty*unitPrice math.
   if (sameLength) {
     for (let i = 0; i < result.length; i++) {
       const gItem = result[i];
       const lItem = localItems[i];
       const gEff = gItem.finalPrice ?? gItem.price;
-      const gOrig = gItem.originalPrice ?? gItem.price;
       const lEff = lItem.finalPrice ?? lItem.price;
-      if (Math.abs(gEff - lEff) > 0.03) continue;
 
-      if ((lItem.quantity || 1) > 1 && (gItem.quantity || 1) === 1) {
-        gItem.quantity = lItem.quantity;
+      if (Math.abs(gEff - lEff) <= 0.03) {
+        if ((lItem.quantity || 1) > 1 && (gItem.quantity || 1) === 1) {
+          gItem.quantity = lItem.quantity;
+        } else if ((gItem.quantity || 1) > 1 && (lItem.quantity || 1) === 1) {
+          const matchingRow = standaloneQtyRows.some(
+            (row) => row.qty === gItem.quantity && getItemCandidatePriceError(row.expectedTotal, gItem) !== null
+          );
+          const contradictingRow = standaloneQtyRows.some(
+            (row) => row.qty === gItem.quantity && getItemCandidatePriceError(row.expectedTotal, gItem) === null
+          );
+          if (!matchingRow && contradictingRow) {
+            gItem.quantity = 1;
+          }
+        }
       } else if ((gItem.quantity || 1) > 1 && (lItem.quantity || 1) === 1) {
-        const contradictingRow = standaloneQtyRows.find(
-          (row) => row.qty === gItem.quantity && !priceMatches(row.expectedTotal, gOrig)
+        // Even if Gemini discounted/adjusted the price (e.g. 2.04 -> 0.64), still validate against standalone qty rows
+        const matchingRow = standaloneQtyRows.some(
+          (row) => row.qty === gItem.quantity && getItemCandidatePriceError(row.expectedTotal, gItem) !== null
         );
-        if (contradictingRow) {
+        const contradictingRow = standaloneQtyRows.some(
+          (row) => row.qty === gItem.quantity && getItemCandidatePriceError(row.expectedTotal, gItem) === null
+        );
+        if (!matchingRow && contradictingRow) {
           gItem.quantity = 1;
         }
       }
     }
   }
 
-  // Step 2: Price-consistency check against standalone qty x unitPrice rows even when lengths differ
+  // Step 2: Enforce price-consistency for every standalone qty x unitPrice row in OCR,
+  // prioritizing exact price match over proximity and never leaving a contradicting quantity attached.
   for (const row of standaloneQtyRows) {
-    const alreadyConsistent = result.some((it) => {
-      const checkPrice = it.originalPrice ?? it.price;
-      return (it.quantity || 1) === row.qty && priceMatches(row.expectedTotal, checkPrice);
-    });
-    if (alreadyConsistent) {
+    // 2a. Reset any item holding row.qty whose price does NOT match row.expectedTotal (unless explained by another row)
+    const wrongIndices: number[] = [];
+    for (let i = 0; i < result.length; i++) {
+      if ((result[i].quantity || 1) !== row.qty) continue;
+      const matchesThisRow = getItemCandidatePriceError(row.expectedTotal, result[i]) !== null;
+      const matchesAnotherRow = standaloneQtyRows.some(
+        (other) =>
+          other !== row &&
+          other.qty === row.qty &&
+          getItemCandidatePriceError(other.expectedTotal, result[i]) !== null
+      );
+      if (!matchesThisRow && !matchesAnotherRow) {
+        wrongIndices.push(i);
+      }
+    }
+
+    // Check whether a matching item nearby already has row.qty (or needs it assigned)
+    const alreadyExactMatchIdx = result.findIndex(
+      (it) => (it.quantity || 1) === row.qty && getItemCandidatePriceError(row.expectedTotal, it) !== null
+    );
+
+    // Build all candidate items with quantity === 1 that match row.expectedTotal
+    const exactMatchCandidates: Array<{ idx: number; err: number }> = [];
+    for (let i = 0; i < result.length; i++) {
+      if ((result[i].quantity || 1) !== 1) continue;
+      const err = getItemCandidatePriceError(row.expectedTotal, result[i]);
+      if (err !== null) {
+        exactMatchCandidates.push({ idx: i, err });
+      }
+    }
+
+    for (const wrongIdx of wrongIndices) {
+      // Safety rule: never keep quantity when quantity * unitPrice does not match item total
+      result[wrongIdx].quantity = 1;
+    }
+
+    if (alreadyExactMatchIdx !== -1) {
       row.used = true;
       continue;
     }
 
-    const wrongIndices: number[] = [];
-    const matchIndices: number[] = [];
-    for (let i = 0; i < result.length; i++) {
-      const checkPrice = result[i].originalPrice ?? result[i].price;
-      if ((result[i].quantity || 1) === row.qty && !priceMatches(row.expectedTotal, checkPrice)) {
-        wrongIndices.push(i);
-      } else if ((result[i].quantity || 1) === 1 && priceMatches(row.expectedTotal, checkPrice)) {
-        matchIndices.push(i);
-      }
-    }
-
-    if (wrongIndices.length > 0 && matchIndices.length > 0) {
-      // Pick the matching item closest to the wrongly-tagged item
-      const wrongIdx = wrongIndices[0];
-      matchIndices.sort((a, b) => Math.abs(a - wrongIdx) - Math.abs(b - wrongIdx));
-      const targetIdx = matchIndices[0];
-      if (Math.abs(targetIdx - wrongIdx) <= 2) {
-        result[wrongIdx].quantity = 1;
-        result[targetIdx].quantity = row.qty;
+    if (exactMatchCandidates.length > 0) {
+      const anchorIdx = wrongIndices.length > 0 ? wrongIndices[0] : -1;
+      exactMatchCandidates.sort((a, b) => {
+        const errDiff = a.err - b.err;
+        if (Math.abs(errDiff) > 0.005) return errDiff;
+        if (anchorIdx >= 0) {
+          return Math.abs(a.idx - anchorIdx) - Math.abs(b.idx - anchorIdx);
+        }
+        return a.idx - b.idx;
+      });
+      const chosen = exactMatchCandidates[0];
+      if (anchorIdx < 0 || Math.abs(chosen.idx - anchorIdx) <= 4) {
+        result[chosen.idx].quantity = row.qty;
         row.used = true;
       }
     }
