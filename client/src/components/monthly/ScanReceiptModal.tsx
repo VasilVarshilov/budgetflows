@@ -48,6 +48,7 @@ import {
   toLatinMatchForm,
   isValidCalendarDate,
   extractReceiptAddressFromText,
+  reconcileReceiptItemQuantities,
 } from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
 import {
@@ -1617,7 +1618,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             finalTotal,
             resolvedExpectedCount
           );
-          const resolvedItems =
+          const mergedGeminiItems =
             bestChoice.source === "gemini" && initialItems.length === bestChoice.items.length
               ? bestChoice.items.map((gItem, idx) => {
                   const localMatch = initialItems[idx];
@@ -1648,6 +1649,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   return merged;
                 })
               : bestChoice.items;
+          const resolvedItems =
+            bestChoice.source === "gemini"
+              ? reconcileReceiptItemQuantities(
+                  mergedGeminiItems,
+                  gData.rawText || ocrRawText,
+                  localParsed.items
+                )
+              : mergedGeminiItems;
           const totalAttachedDisc = parseFloat(
             resolvedItems.reduce((s, it) => s + (it.discount || 0), 0).toFixed(2)
           );

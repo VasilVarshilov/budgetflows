@@ -1501,11 +1501,23 @@ export function extractItems(
     "i"
   );
 
-  // Quantity x UnitPrice WITHOUT total on the same line
+  // Quantity x UnitPrice WITHOUT total on the same line (allows optional currency before/after unit price and trailing =)
   const qtyCalculationOnlyRegex = new RegExp(
-    `^[*#•\\s]*\\(?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:бр\\.?|кг\\.?|гр\\.?|г\\.?|л\\.?|мл\\.?|шт\\.?|оп\\.?|kg|g|l|ml|pcs)?\\s*[xхХX*×@]\\s*(\\d+[.,]\\d{2,3})${unitRateSuffix}\\s*\\)?\\s*$`,
+    `^[*#•\\s]*\\(?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:бр\\.?|кг\\.?|гр\\.?|г\\.?|л\\.?|мл\\.?|шт\\.?|оп\\.?|kg|g|l|ml|pcs)?\\s*[xхХX*×@]\\s*(?:EUR|BGN|USD|GBP|[$€£])?\\s*(\\d+[.,]\\d{2,3})${unitRateSuffix}\\s*\\)?\\s*=?\\s*$`,
     "i"
   );
+
+  const getQtyPriceMatchError = (expectedTotal: number, itemPrice: number): number | null => {
+    if (!Number.isFinite(expectedTotal) || expectedTotal <= 0 || itemPrice <= 0) return null;
+    const tol = Math.max(0.04, itemPrice * 0.03);
+    const directErr = Math.abs(expectedTotal - itemPrice);
+    if (directErr <= tol) return directErr;
+    const divErr = Math.abs(expectedTotal / 1.95583 - itemPrice);
+    if (divErr <= tol) return divErr;
+    const mulErr = Math.abs(expectedTotal * 1.95583 - itemPrice);
+    if (mulErr <= tol) return mulErr;
+    return null;
+  };
 
   // Standalone price line (when OCR wrapped a price onto the line below the product name)
   const standalonePriceLineRegex =
@@ -1663,9 +1675,9 @@ export function extractItems(
       }
     }
 
-    // 2. Standalone qty x unitPrice line ("2 x 2.40" or "0.800 кг x 4.00/кг"):
-    //    Check PREVIOUS parsed item first (LIDL/BILLA prints detail line BELOW item total!),
-    //    otherwise attach to NEXT priced line ("2 x 2.40" ABOVE item line).
+    // 2. Standalone qty x unitPrice line ("4.000 x 0.15", "2 x 2.40" or "0.800 кг x 4.00/кг"):
+    //    Evaluate BOTH previous parsed item and upcoming product line(s) using price consistency
+    //    (quantity * unitPrice ≈ itemPrice) rather than assuming it always belongs to the previous item.
     const qtyOnlyMatch = line.match(qtyCalculationOnlyRegex);
     if (qtyOnlyMatch) {
       const rawQty = parseFloat(qtyOnlyMatch[1].replace(",", "."));
@@ -1678,16 +1690,162 @@ export function extractItems(
         rawQty >= 1 &&
         rawQty <= 999;
 
-      // 2a. Does this detail line explain the IMMEDIATELY PREVIOUS parsed item?
-      if (
-        unitVal &&
-        items.length > 0 &&
-        pendingNameBuffer.length === 0 &&
-        consumedLineIndices.has(i - 1)
-      ) {
-        const prevItem = items[items.length - 1];
+      if (unitVal && rawQty > 0) {
         const expectedTotal = rawQty * unitVal;
-        if (Math.abs(expectedTotal - prevItem.price) <= Math.max(0.04, prevItem.price * 0.02)) {
+
+        // 2a. Check eligibility & price error against IMMEDIATELY PREVIOUS parsed item
+        let prevErr: number | null = null;
+        const prevItem = items.length > 0 ? items[items.length - 1] : null;
+        const prevAdjacent =
+          consumedLineIndices.has(i - 1) ||
+          (i >= 2 && /^\d{8,14}$/.test(lines[i - 1].trim()) && consumedLineIndices.has(i - 2));
+        if (prevItem && pendingNameBuffer.length === 0 && prevAdjacent && prevItem.quantity === 1) {
+          const prevCheckPrice = prevItem.originalPrice ?? prevItem.price;
+          prevErr = getQtyPriceMatchError(expectedTotal, prevCheckPrice);
+        }
+
+        // 2b. Check eligibility & price error against UPCOMING item (single-line or 2-line wrapped)
+        interface NextQtyCandidate {
+          endIndex: number;
+          consumedExtraIndices: number[];
+          name: string;
+          price: number;
+          err: number | null;
+        }
+        let nextCandidate: NextQtyCandidate | null = null;
+        const bufferedPrefixText = pendingNameBuffer.map((b) => b.text).join(" ").trim();
+
+        for (let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
+          const candidateLine = lines[j];
+          if (/^\d{8,14}$/.test(candidateLine.trim()) || isSeparatorOrHeaderNoise(candidateLine)) {
+            continue;
+          }
+          if (
+            isTotalsOrPaymentBoundaryLine(candidateLine) ||
+            isNonItemSummaryOrMetaLine(candidateLine) ||
+            extractDiscountAmount(candidateLine, preferredCurrency) > 0 ||
+            qtyCalculationOnlyRegex.test(candidateLine) ||
+            qtyCalculationWithTotalRegex.test(candidateLine)
+          ) {
+            break;
+          }
+
+          const nextPriceInfo = extractTrailingItemPrice(candidateLine, preferredCurrency);
+          if (nextPriceInfo) {
+            const rawName = `${bufferedPrefixText ? bufferedPrefixText + " " : ""}${nextPriceInfo.cleanPrefix}`
+              .replace(/[.\-_=~*:\s]+$/, "")
+              .trim();
+            const name = formatReadableItemName(rawName);
+            if (
+              nextPriceInfo.price > 0 &&
+              nextPriceInfo.price < 50000 &&
+              name.length >= 2 &&
+              /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
+              !isStrayFiscalOrAddressName(name)
+            ) {
+              nextCandidate = {
+                endIndex: j,
+                consumedExtraIndices: [],
+                name,
+                price: nextPriceInfo.price,
+                err: getQtyPriceMatchError(expectedTotal, nextPriceInfo.price),
+              };
+            }
+            break;
+          }
+
+          // Handle 2-line wrapped product name right below standalone qty line
+          if (
+            /[а-яА-Яa-zA-Z]{2,}/.test(candidateLine) &&
+            !isReceiptHeaderLineForItems(candidateLine, preferredCurrency) &&
+            j + 1 < lines.length
+          ) {
+            const followingLine = lines[j + 1];
+            if (
+              !isTotalsOrPaymentBoundaryLine(followingLine) &&
+              !isNonItemSummaryOrMetaLine(followingLine)
+            ) {
+              const followTrailing = extractTrailingItemPrice(followingLine, preferredCurrency);
+              const followStandalone = followingLine.match(standalonePriceLineRegex);
+              const followPrice = followTrailing
+                ? followTrailing.price
+                : followStandalone
+                ? parsePrice(followStandalone[1])
+                : null;
+              const followPrefix = followTrailing ? followTrailing.cleanPrefix : "";
+              if (followPrice && followPrice > 0 && followPrice < 50000) {
+                const rawName = `${bufferedPrefixText ? bufferedPrefixText + " " : ""}${candidateLine}${followPrefix ? " " + followPrefix : ""}`
+                  .replace(/[.\-_=~*:\s]+$/, "")
+                  .trim();
+                const name = formatReadableItemName(rawName);
+                if (
+                  name.length >= 2 &&
+                  /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
+                  !isStrayFiscalOrAddressName(name)
+                ) {
+                  nextCandidate = {
+                    endIndex: j + 1,
+                    consumedExtraIndices: [j],
+                    name,
+                    price: followPrice,
+                    err: getQtyPriceMatchError(expectedTotal, followPrice),
+                  };
+                }
+              }
+            }
+          }
+          break;
+        }
+
+        const prevMatches = prevErr !== null;
+        const nextMatches = nextCandidate !== null && nextCandidate.err !== null;
+
+        let assignTo: "prev" | "next" | "none" = "none";
+        if (nextMatches && (!prevMatches || nextCandidate!.err! + 0.001 < prevErr!)) {
+          assignTo = "next";
+        } else if (prevMatches && (!nextMatches || prevErr! + 0.001 < nextCandidate!.err!)) {
+          assignTo = "prev";
+        } else if (prevMatches && nextMatches) {
+          // Exact price-error tie: check if upcoming item has its own trailing qty line right below it
+          const afterNextIdx = nextCandidate!.endIndex + 1;
+          const afterNextMatch =
+            afterNextIdx < lines.length ? lines[afterNextIdx].match(qtyCalculationOnlyRegex) : null;
+          let nextHasOwnTrailingQty = false;
+          if (afterNextMatch) {
+            const afterQty = parseFloat(afterNextMatch[1].replace(",", "."));
+            const afterUnit = parsePrice(afterNextMatch[2]);
+            if (afterUnit && afterQty > 0 && getQtyPriceMatchError(afterQty * afterUnit, nextCandidate!.price) !== null) {
+              nextHasOwnTrailingQty = true;
+            }
+          }
+          assignTo = nextHasOwnTrailingQty ? "prev" : "next";
+        }
+
+        if (assignTo === "next" && nextCandidate) {
+          flushPendingName();
+          let displayName = nextCandidate.name;
+          if (isWeightOrVolume) {
+            const unitLabelMatch = line.match(
+              /^[*#•\s]*\(?(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|мл|kg|l|g|ml))(?=$|[^а-яА-Яa-zA-Z])/i
+            );
+            if (unitLabelMatch && !displayName.includes(unitLabelMatch[1].trim())) {
+              displayName = `${displayName} (${unitLabelMatch[1].trim()})`;
+            }
+          }
+          pushExtractedItem({
+            name: displayName,
+            price: nextCandidate.price,
+            quantity: isDiscreteCount ? rawQty : 1,
+          });
+          consumedLineIndices.add(i);
+          for (const extraIdx of nextCandidate.consumedExtraIndices) {
+            consumedLineIndices.add(extraIdx);
+          }
+          consumedLineIndices.add(nextCandidate.endIndex);
+          continue;
+        }
+
+        if (assignTo === "prev" && prevItem) {
           if (isDiscreteCount && prevItem.quantity === 1) {
             prevItem.quantity = rawQty;
           } else if (isWeightOrVolume) {
@@ -1701,34 +1859,10 @@ export function extractItems(
           consumedLineIndices.add(i);
           continue;
         }
-      }
 
-      // 2b. Otherwise attach to NEXT line (e.g. "2 x 2.40" \n "COCA COLA 2L 4.80" or "ХЛЯБ \n 2 x 1.29 \n 2.58 Б")
-      if (i + 1 < lines.length) {
-        const nextLine = lines[i + 1];
-        const nextPriceInfo = extractTrailingItemPrice(nextLine, preferredCurrency);
-        if (nextPriceInfo && !isTotalsOrPaymentBoundaryLine(nextLine) && !isNonItemSummaryOrMetaLine(nextLine)) {
-          const bufferedPrefix = flushPendingName();
-          const rawName = `${bufferedPrefix ? bufferedPrefix + " " : ""}${nextPriceInfo.cleanPrefix}`
-            .replace(/[.\-_=~*:\s]+$/, "")
-            .trim();
-          const name = formatReadableItemName(rawName);
-          if (
-            nextPriceInfo.price > 0 &&
-            name.length >= 2 &&
-            /[а-яА-Яa-zA-Z]{2,}/.test(name) &&
-            !isStrayFiscalOrAddressName(name)
-          ) {
-            pushExtractedItem({
-              name,
-              price: nextPriceInfo.price,
-              quantity: isDiscreteCount ? rawQty : 1,
-            });
-            consumedLineIndices.add(i);
-            consumedLineIndices.add(i + 1);
-            continue;
-          }
-        }
+        // Price consistency did not match either nearby product -> ignore stray calc line without misassigning quantity
+        consumedLineIndices.add(i);
+        continue;
       }
     }
 
@@ -2279,34 +2413,109 @@ function stripAddressLineWrapper(line: string): {
   hasExplicitAddressLabel: boolean;
   hasBranchContext: boolean;
   hasHqContext: boolean;
+  hasTaxIdContext: boolean;
+  branchCityHint?: string;
 } {
   let working = normalizeAddressOcrPrefixes(line);
   const cyr = toCyrillicMatchForm(working);
+  const lat = toLatinMatchForm(working);
+
+  const isLegalAddressLabel =
+    /(?:ЮРИДИЧЕСКИ|НА\s+УПРАВЛЕНИЕ|ДАНЪЧЕН|ПО\s+РЕГИСТРАЦИЯ|СЕДАЛИЩЕ(?:\s+И\s+АДРЕС)?|HEADQUARTERS|REGISTERED\s+OFFICE)\s*(?:АДРЕС)?/i.test(
+      cyr
+    ) ||
+    /(?:HEADQUARTERS|REGISTERED\s+OFFICE|LEGAL\s+ADDRESS)/i.test(lat);
 
   const hasExplicitAddressLabel =
-    /(?:^|\s)(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?))?|ADDRESS|ADDR\.?)\s*[:\-–]?/i.test(
+    !isLegalAddressLabel &&
+    (/(?:^|\s)(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|ADDRESS|ADDR\.?)\s*[:\-–]?/i.test(
       working
     ) ||
-    /(?:^|\s)АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?))?\s*[:\-–]?/.test(cyr);
+      /(?:^|\s)АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?\s*[:\-–]?/.test(
+        cyr
+      ));
 
-  const hasBranchContext =
-    /(?:^|\s)(?:ТЪРГОВСКИ\s+ОБЕКТ|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#)?\s*\d*|ФИЛИАЛ|БЕНЗИНОСТАНЦИЯ|АПТЕКА|РЕСТОРАНТ|АДРЕС\s+НА\s+ОБЕКТ)/i.test(
+  const hasLegalEntityForm =
+    /(?:^|[^А-ЯA-Z])(?:ЕООД|ООД|ЕАД|АД|КД|СД|И\s+КО(?:\s+КД)?|ЕНД\s+КО(?:\s+КД)?|EOOD|OOD|EAD|AD|KD|LTD|LLC|GMBH)(?:$|[^А-ЯA-Z])/i.test(
       cyr
-    );
+    ) ||
+    /(?:^|[^A-Z])(?:EOOD|OOD|EAD|KD|LTD|LLC|GMBH|& CO)(?:$|[^A-Z])/i.test(lat);
+
+  const hasTaxIdContext =
+    /(?:ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ЗДДС|ДДС\s*(?:№|N)|VAT\s*(?:№|NO)|BG\s*\d{8,11})/i.test(
+      cyr
+    ) ||
+    /(?:EIK|BULSTAT|VAT|BG\s*\d{8,11})/i.test(lat);
 
   const hasHqContext =
-    /(?:ЕООД|ООД|ЕАД|АД|КД|СД|СЕДАЛИЩЕ|ЮРИДИЧЕСКИ\s+АДРЕС|ЦЕНТРАЛЕН\s+ОФИС)/i.test(
+    isLegalAddressLabel ||
+    hasLegalEntityForm ||
+    hasTaxIdContext ||
+    /(?:СЕДАЛИЩЕ|АДРЕС\s+НА\s+УПРАВЛЕНИЕ|ЮРИДИЧЕСКИ\s+АДРЕС|ДАНЪЧЕН\s+АДРЕС|ЦЕНТРАЛЕН\s+ОФИС|ЦЕНТРАЛА|УПРАВИТЕЛ|СЪДЕБНА\s+РЕГИСТРАЦИЯ)/i.test(
       cyr
     );
+
+  // Detect store/branch identifier lines (e.g. "ТЪРГОВСКИ ОБЕКТ", "ОБ. 155", "LIDL ПЛОВДИВ 155", "LIDL PLOVDIV 155")
+  const hasExplicitBranchKeyword =
+    /(?:^|\s)(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|Т\.?\s*О\.?\s*(?:№|N|#|:)?\s*\d+|ОБЕКТ\s*(?:№|N|#|:)?\s*\d+|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#|:)?\s*\d*|ФИЛИАЛ(?:\s*(?:№|N|#|:)?\s*\d+)?|КЛОН(?:\s*(?:№|N|#|:)?\s*\d+)?|СУПЕРМАРКЕТ|ХИПЕРМАРКЕТ|БЕНЗИНОСТАНЦИЯ|АПТЕКА|РЕСТОРАНТ|МЯСТО\s+НА\s+(?:ИЗВЪРШВАНЕ|ТЪРГОВИЯ|ДЕЙНОСТ)|АДРЕС\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?)|BRANCH\s*(?:#|NO|№)?\s*\d+|STORE\s*(?:#|NO|№)?\s*\d+)/i.test(
+      cyr
+    );
+
+  const hasStoreBrandToken =
+    /(?:LIDL|ЛИДЛ|KAUFLAND|КАУФЛАНД|BILLA|БИЛЛА|FANTASTICO|ФАНТАСТИКО|METRO|МЕТРО|T[\s-]*MARKET|Т[\s-]*МАРКЕТ|CBA|ЦБА|LILLY|ЛИЛИ|SOPHARMA|СОФАРМАСИ|OMV|SHELL|ШЕЛ|LUKOIL|ЛУКОЙЛ|EKO|ЕКО|HAPPY|ХЕПИ)/i.test(
+      working
+    ) ||
+    /(?:LIDL|KAUFLAND|BILLA|FANTASTICO|METRO|T[\s-]*MARKET)/i.test(lat);
+
+  let matchedBranchCity: string | undefined;
+  const wordsAndPairs = working
+    .replace(/[,:;()№#]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  const toCityTitleCase = (rawCity: string) =>
+    rawCity
+      .split(/\s+/)
+      .map((part) =>
+        part
+          .split("-")
+          .map((seg) => (seg ? seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase() : seg))
+          .join("-")
+      )
+      .join(" ");
+
+  for (let w = 0; w < wordsAndPairs.length; w++) {
+    const one = wordsAndPairs[w].toLowerCase();
+    if (KNOWN_BG_CITIES.has(one)) {
+      matchedBranchCity = toCityTitleCase(one);
+      break;
+    }
+    if (w + 1 < wordsAndPairs.length) {
+      const two = `${one} ${wordsAndPairs[w + 1].toLowerCase()}`;
+      if (KNOWN_BG_CITIES.has(two)) {
+        matchedBranchCity = toCityTitleCase(two);
+        break;
+      }
+    }
+  }
+
+  const hasBranchCodeNumber = /\b\d{1,4}\b/.test(working);
+  const isStoreBrandWithBranch =
+    hasStoreBrandToken &&
+    !hasHqContext &&
+    (hasBranchCodeNumber || Boolean(matchedBranchCity));
+
+  const hasBranchContext =
+    !isLegalAddressLabel &&
+    (hasExplicitBranchKeyword || isStoreBrandWithBranch || hasExplicitAddressLabel);
 
   // Strip leading object/store/address label prefixes
   working = working
     .replace(
-      /^(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|ADDRESS|ADDR\.?)\s*[:\-–]?\s*/i,
+      /^(?:ЮРИДИЧЕСКИ\s+АДРЕС|АДРЕС\s+НА\s+УПРАВЛЕНИЕ|ДАНЪЧЕН\s+АДРЕС|СЕДАЛИЩЕ(?:\s+И\s+АДРЕС)?|АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|ADDRESS|ADDR\.?)\s*[:\-–]?\s*/i,
       ""
     )
     .replace(
-      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#)?\s*\d*|ФИЛИАЛ\s*(?:№|N|#)?\s*\d*|БЕНЗИНОСТАНЦИЯ\s*(?:№|N|#)?\s*\d*)\s*[:\-–,]?\s*/i,
+      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|ОБЕКТ\s*(?:№|N|#|:)?\s*\d*|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#|:)?\s*\d*|ФИЛИАЛ\s*(?:№|N|#)?\s*\d*|КЛОН\s*(?:№|N|#)?\s*\d*|БЕНЗИНОСТАНЦИЯ\s*(?:№|N|#)?\s*\d*)\s*[:\-–,]?\s*/i,
       ""
     )
     .replace(
@@ -2321,6 +2530,8 @@ function stripAddressLineWrapper(line: string): {
     hasExplicitAddressLabel,
     hasBranchContext,
     hasHqContext,
+    hasTaxIdContext,
+    branchCityHint: hasBranchContext ? matchedBranchCity : undefined,
   };
 }
 
@@ -2357,7 +2568,7 @@ function isDisqualifiedAddressLine(line: string): boolean {
 }
 
 const STREET_INDICATOR_RE =
-  /(?:^|[\s,;:(])(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|местност|шосе|ул\s+|бул\s+|str\.?|st\.?|blvd\.?|boulevard|street|ave\.?|avenue|rd\.?|road|zh\.k\.?)(?:\s|$)/i;
+  /(?:^|[\s,;:(])(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|местност|шосе|улица|булевард|квартал|площад|ул\s+|бул\s+|str\.?|st\.?|blvd\.?|boulevard|street|ave\.?|avenue|rd\.?|road|zh\.k\.?|ul\.?|bul\.?|ulitsa|bulevard|shose|shosse|chaussee)(?:\s|$)/i;
 
 function hasStreetIndicator(line: string): boolean {
   if (STREET_INDICATOR_RE.test(line)) return true;
@@ -2448,7 +2659,7 @@ function splitSingleLineAddress(line: string): {
     };
   }
 
-  // Pattern 2: "<street>, <city>" (comma-separated)
+  // Pattern 2: "<street>, <city>" or "<city>, <street>" (comma-separated, checking lastComma then firstComma)
   const lastComma = line.lastIndexOf(",");
   if (lastComma > 3) {
     const left = line.slice(0, lastComma).trim();
@@ -2460,6 +2671,19 @@ function splitSingleLineAddress(line: string): {
         city: parsedRightCity,
       };
     }
+    const parsedLeftCity = parseStandaloneCityLine(left);
+    if (parsedLeftCity && hasStreetIndicator(right)) {
+      return {
+        street: formatAddressCasing(right),
+        city: parsedLeftCity,
+      };
+    }
+  }
+
+  const firstComma = line.indexOf(",");
+  if (firstComma > 2 && firstComma !== lastComma) {
+    const left = line.slice(0, firstComma).trim();
+    const right = line.slice(firstComma + 1).trim();
     const parsedLeftCity = parseStandaloneCityLine(left);
     if (parsedLeftCity && hasStreetIndicator(right)) {
       return {
@@ -2492,7 +2716,8 @@ function splitSingleLineAddress(line: string): {
 
 /**
  * Extracts a reliable store/branch address from receipt header lines.
- * Combines split city + street lines (e.g. "гр. Пловдив" + "бул. България 123" -> "бул. България 123, Пловдив")
+ * Combines split city + street lines (e.g. "гр. Пловдив" + "бул. България 123" -> "бул. България 123, Пловдив"),
+ * prioritizes actual store/branch location over company HQ/legal entity/VAT registration addresses,
  * and avoids false positives on product weights ("400 гр.") or fiscal IDs.
  */
 export function extractReceiptAddress(
@@ -2502,8 +2727,8 @@ export function extractReceiptAddress(
   if (!lines || lines.length === 0) return {};
 
   // Determine header boundary before items/totals start
-  let headerEnd = Math.min(lines.length, 28);
-  for (let i = 2; i < Math.min(lines.length, 28); i++) {
+  let headerEnd = Math.min(lines.length, 32);
+  for (let i = 2; i < Math.min(lines.length, 32); i++) {
     const line = lines[i];
     if (extractTrailingItemPrice(line, preferredCurrency)) {
       headerEnd = i;
@@ -2526,6 +2751,8 @@ export function extractReceiptAddress(
     hasExplicitAddressLabel: boolean;
     hasBranchContext: boolean;
     hasHqContext: boolean;
+    hasTaxIdContext: boolean;
+    branchCityHint?: string;
     disqualified: boolean;
     cityOnly: ParsedCityLine | null;
     isStreet: boolean;
@@ -2540,6 +2767,8 @@ export function extractReceiptAddress(
       hasExplicitAddressLabel,
       hasBranchContext,
       hasHqContext,
+      hasTaxIdContext,
+      branchCityHint,
     } = stripAddressLineWrapper(raw);
     const disqualified = !cleaned || isDisqualifiedAddressLine(cleaned);
     const singleLineSplit = !disqualified ? splitSingleLineAddress(cleaned) : null;
@@ -2557,12 +2786,17 @@ export function extractReceiptAddress(
       hasExplicitAddressLabel,
       hasBranchContext,
       hasHqContext,
+      hasTaxIdContext,
+      branchCityHint,
       disqualified,
       cityOnly,
       isStreet,
       singleLineSplit,
     });
   }
+
+  // Locate tax registration line (ЕИК / БУЛСТАТ / ИН по ДДС / BG...) to distinguish HQ section above vs Store section below
+  const firstTaxIdIdx = parsedHeader.findIndex((p) => p.hasTaxIdContext);
 
   interface AddressCandidate {
     address: string;
@@ -2574,7 +2808,8 @@ export function extractReceiptAddress(
   const usedCityIndices = new Set<number>();
 
   const hasNearbyBranchContext = (idx: number): boolean => {
-    for (let j = Math.max(0, idx - 2); j <= idx; j++) {
+    for (let j = idx; j >= Math.max(0, idx - 3); j--) {
+      if (parsedHeader[j]?.hasHqContext && j < idx) break;
       if (parsedHeader[j]?.hasBranchContext || parsedHeader[j]?.hasExplicitAddressLabel) {
         return true;
       }
@@ -2582,10 +2817,27 @@ export function extractReceiptAddress(
     return false;
   };
 
+  const getNearbyBranchCityHint = (idx: number): string | undefined => {
+    for (let j = idx; j >= Math.max(0, idx - 3); j--) {
+      if (parsedHeader[j]?.hasHqContext && j < idx) break;
+      if (parsedHeader[j]?.branchCityHint) {
+        return parsedHeader[j].branchCityHint;
+      }
+    }
+    return undefined;
+  };
+
   const hasNearbyHqContext = (idx: number): boolean => {
-    if (idx > 4) return false;
-    for (let j = Math.max(0, idx - 1); j <= idx; j++) {
+    if (parsedHeader[idx]?.hasHqContext) return true;
+    // Check 1-3 lines above (stopping if a branch header separates them)
+    for (let j = idx - 1; j >= Math.max(0, idx - 3); j--) {
+      if (parsedHeader[j]?.hasBranchContext && !parsedHeader[j]?.hasHqContext) break;
       if (parsedHeader[j]?.hasHqContext) return true;
+    }
+    // Check 1-2 lines below for tax/EIK/BG VAT section immediately following HQ address
+    for (let j = idx + 1; j <= Math.min(parsedHeader.length - 1, idx + 2); j++) {
+      if (parsedHeader[j]?.hasBranchContext && !parsedHeader[j]?.hasHqContext) break;
+      if (parsedHeader[j]?.hasTaxIdContext) return true;
     }
     return false;
   };
@@ -2597,14 +2849,20 @@ export function extractReceiptAddress(
     streetText: string,
     explicitLabel: boolean
   ): number => {
+    const branchNear = hasNearbyBranchContext(idx);
+    const hqNear = hasNearbyHqContext(idx);
+    const isPostTaxStoreSection =
+      firstTaxIdIdx >= 0 && idx > firstTaxIdIdx && !parsedHeader[idx]?.hasHqContext;
+
     let score = 0;
     if (hasStreet) score += 40;
     if (hasStreet && /\d/.test(streetText)) score += 15;
     if (hasCity) score += 25;
     if (!hasStreet && hasCity) score = 20;
     if (explicitLabel) score += 15;
-    if (hasNearbyBranchContext(idx)) score += 25;
-    if (hasNearbyHqContext(idx) && !hasNearbyBranchContext(idx)) score -= 20;
+    if (branchNear) score += 35;
+    if (isPostTaxStoreSection && !hqNear) score += 15;
+    if (hqNear && !branchNear) score -= 45;
     return score;
   };
 
@@ -2631,7 +2889,7 @@ export function extractReceiptAddress(
 
     if (cur.isStreet) {
       const formattedStreet = formatAddressCasing(cur.cleaned);
-      // Look for adjacent city line (check previous line first, then next line)
+      // Look for adjacent city line (check previous 1-2 lines first, then next 1-2 lines)
       let pairedCity: ParsedCityLine | null = null;
       let pairedIdx = -1;
 
@@ -2645,6 +2903,24 @@ export function extractReceiptAddress(
       ) {
         pairedCity = parsedHeader[i + 1].cityOnly;
         pairedIdx = i + 1;
+      } else if (
+        i > 1 &&
+        parsedHeader[i - 2].cityOnly &&
+        !usedCityIndices.has(i - 2) &&
+        !parsedHeader[i - 1].isStreet &&
+        !parsedHeader[i - 1].hasHqContext
+      ) {
+        pairedCity = parsedHeader[i - 2].cityOnly;
+        pairedIdx = i - 2;
+      } else if (
+        i + 2 < parsedHeader.length &&
+        parsedHeader[i + 2].cityOnly &&
+        !usedCityIndices.has(i + 2) &&
+        !parsedHeader[i + 1].isStreet &&
+        !parsedHeader[i + 1].hasHqContext
+      ) {
+        pairedCity = parsedHeader[i + 2].cityOnly;
+        pairedIdx = i + 2;
       }
 
       if (pairedCity && pairedIdx >= 0) {
@@ -2662,16 +2938,20 @@ export function extractReceiptAddress(
           rule: `Combined street line #${i + 1} + city line #${pairedIdx + 1}`,
         });
       } else {
+        const branchCity = getNearbyBranchCityHint(i);
+        const addr = branchCity ? `${formattedStreet}, ${branchCity}` : formattedStreet;
         candidates.push({
-          address: formattedStreet,
+          address: addr,
           score: scoreCandidate(
             i,
             true,
-            false,
+            Boolean(branchCity),
             formattedStreet,
             cur.hasExplicitAddressLabel
           ),
-          rule: `Street line #${i + 1}`,
+          rule: branchCity
+            ? `Street line #${i + 1} + branch header city (${branchCity})`
+            : `Street line #${i + 1}`,
         });
       }
     }
@@ -2713,6 +2993,112 @@ export function extractReceiptAddressFromText(rawText: string): string | undefin
   const lines = cleanLines(rawText);
   const currency = extractCurrency(rawText);
   return extractReceiptAddress(lines, currency).address;
+}
+
+/**
+ * Validates and reconciles item quantities (e.g. from Gemini AI output) against
+ * standalone "qty x unitPrice" lines in OCR text using price consistency:
+ * prevents mis-associating a standalone "4.000 x 0.15" row with an unrelated item (€2.04)
+ * when the next/nearby item (€0.60) mathematically matches 4 * 0.15 = 0.60.
+ */
+export function reconcileReceiptItemQuantities<
+  T extends { name: string; price: number; quantity?: number; originalPrice?: number; finalPrice?: number }
+>(
+  items: T[],
+  rawOcrText: string,
+  localItems: ExtractedReceiptItem[] = []
+): T[] {
+  if (!items || items.length === 0) return items;
+
+  const lines = rawOcrText ? cleanLines(rawOcrText) : [];
+  const standaloneQtyRegex =
+    /^[*#•\s]*\(?\s*(\d+(?:[.,]\d+)?)\s*(?:бр\.?|шт\.?|оп\.?|pcs)?\s*[xхХX*×@]\s*(?:EUR|BGN|USD|GBP|[$€£])?\s*(\d+[.,]\d{2,3})(?:\s*(?:€|EUR|лв\.?|BGN|USD|GBP)?(?:\s*\/\s*1?\s*(?:бр\.?|шт\.?|оп\.?|pcs))?)?\s*\)?\s*=?\s*$/i;
+
+  const standaloneQtyRows: Array<{ qty: number; unitVal: number; expectedTotal: number; used: boolean }> = [];
+  for (const line of lines) {
+    if (/(?:кг|гр|г|л|мл|kg|g|l|ml)\.?(?=$|[^а-яА-Яa-zA-Z])/i.test(line)) continue;
+    const m = line.match(standaloneQtyRegex);
+    if (!m) continue;
+    const q = parseFloat(m[1].replace(",", "."));
+    const u = parsePrice(m[2]);
+    if (u && Number.isInteger(q) && q >= 2 && q <= 999) {
+      standaloneQtyRows.push({ qty: q, unitVal: u, expectedTotal: q * u, used: false });
+    }
+  }
+
+  const priceMatches = (expected: number, actual: number): boolean => {
+    if (actual <= 0) return false;
+    const tol = Math.max(0.04, actual * 0.03);
+    return (
+      Math.abs(expected - actual) <= tol ||
+      Math.abs(expected / 1.95583 - actual) <= tol ||
+      Math.abs(expected * 1.95583 - actual) <= tol
+    );
+  };
+
+  const result = items.map((it) => ({ ...it }));
+  const sameLength = localItems.length === result.length;
+
+  // Step 1: When local OCR and AI have identical item alignment, transfer verified multi-quantities
+  // and correct AI quantities that contradict local OCR + standalone OCR qty*unitPrice math.
+  if (sameLength) {
+    for (let i = 0; i < result.length; i++) {
+      const gItem = result[i];
+      const lItem = localItems[i];
+      const gEff = gItem.finalPrice ?? gItem.price;
+      const gOrig = gItem.originalPrice ?? gItem.price;
+      const lEff = lItem.finalPrice ?? lItem.price;
+      if (Math.abs(gEff - lEff) > 0.03) continue;
+
+      if ((lItem.quantity || 1) > 1 && (gItem.quantity || 1) === 1) {
+        gItem.quantity = lItem.quantity;
+      } else if ((gItem.quantity || 1) > 1 && (lItem.quantity || 1) === 1) {
+        const contradictingRow = standaloneQtyRows.find(
+          (row) => row.qty === gItem.quantity && !priceMatches(row.expectedTotal, gOrig)
+        );
+        if (contradictingRow) {
+          gItem.quantity = 1;
+        }
+      }
+    }
+  }
+
+  // Step 2: Price-consistency check against standalone qty x unitPrice rows even when lengths differ
+  for (const row of standaloneQtyRows) {
+    const alreadyConsistent = result.some((it) => {
+      const checkPrice = it.originalPrice ?? it.price;
+      return (it.quantity || 1) === row.qty && priceMatches(row.expectedTotal, checkPrice);
+    });
+    if (alreadyConsistent) {
+      row.used = true;
+      continue;
+    }
+
+    const wrongIndices: number[] = [];
+    const matchIndices: number[] = [];
+    for (let i = 0; i < result.length; i++) {
+      const checkPrice = result[i].originalPrice ?? result[i].price;
+      if ((result[i].quantity || 1) === row.qty && !priceMatches(row.expectedTotal, checkPrice)) {
+        wrongIndices.push(i);
+      } else if ((result[i].quantity || 1) === 1 && priceMatches(row.expectedTotal, checkPrice)) {
+        matchIndices.push(i);
+      }
+    }
+
+    if (wrongIndices.length > 0 && matchIndices.length > 0) {
+      // Pick the matching item closest to the wrongly-tagged item
+      const wrongIdx = wrongIndices[0];
+      matchIndices.sort((a, b) => Math.abs(a - wrongIdx) - Math.abs(b - wrongIdx));
+      const targetIdx = matchIndices[0];
+      if (Math.abs(targetIdx - wrongIdx) <= 2) {
+        result[wrongIdx].quantity = 1;
+        result[targetIdx].quantity = row.qty;
+        row.used = true;
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
