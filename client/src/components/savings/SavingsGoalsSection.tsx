@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Archive,
   ArchiveRestore,
   ArrowDownLeft,
   ArrowUpRight,
@@ -15,7 +14,6 @@ import {
 import { IncomeItem, MonthlyRecord, SavingsGoal } from "@/types";
 import {
   allocateToSavingsGoal,
-  archiveSavingsGoal,
   computeSavingsAllocationSummary,
   createSavingsGoal,
   deleteSavingsGoalPermanently,
@@ -28,6 +26,11 @@ import {
   withdrawFromSavingsGoal,
 } from "@/utils/savingsGoalsStorage";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/utils/formatting";
+import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
+import { userStorage } from "@/utils/userStorage";
+import { SavingsGoalCardsCarousel } from "./SavingsGoalCardsCarousel";
+
+const STORAGE_BASE_SAVINGS_GOAL_CARD_ORDER = "SavingsGoalCardOrder";
 
 interface SavingsGoalsSectionProps {
   savingsData: IncomeItem[];
@@ -63,14 +66,36 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   const [fundAmount, setFundAmount] = useState("");
   const [fundError, setFundError] = useState<string | null>(null);
 
+  // Delete Confirmation State (regular goals only)
+  const [deleteGoalTarget, setDeleteGoalTarget] = useState<SavingsGoal | null>(null);
+
+  // Swipeable goal card carousel state & persisted order
+  const [cardOrderIds, setCardOrderIds] = useState<string[]>(() => {
+    const raw = userStorage.getJSON<unknown>(STORAGE_BASE_SAVINGS_GOAL_CARD_ORDER, []);
+    return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+  });
+  const [activeGoalId, setActiveGoalId] = useState<string>("");
+
   useEffect(() => {
     const syncGoals = () => {
       setGoals(loadSavingsGoals());
+      const rawOrder = userStorage.getJSON<unknown>(STORAGE_BASE_SAVINGS_GOAL_CARD_ORDER, []);
+      setCardOrderIds(
+        Array.isArray(rawOrder) ? rawOrder.filter((v): v is string => typeof v === "string") : []
+      );
+    };
+    const handleAccountChanged = () => {
+      syncGoals();
+      setActiveGoalId("");
     };
     window.addEventListener(SAVINGS_GOALS_UPDATED_EVENT, syncGoals);
+    window.addEventListener("homebudget:data-restored", syncGoals);
+    window.addEventListener("budgetflows:account-changed", handleAccountChanged);
     window.addEventListener("storage", syncGoals);
     return () => {
       window.removeEventListener(SAVINGS_GOALS_UPDATED_EVENT, syncGoals);
+      window.removeEventListener("homebudget:data-restored", syncGoals);
+      window.removeEventListener("budgetflows:account-changed", handleAccountChanged);
       window.removeEventListener("storage", syncGoals);
     };
   }, []);
@@ -85,10 +110,78 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
     [summary.activeGoals]
   );
 
+  const orderedRegularGoals = useMemo(() => {
+    const byId = new Map(regularActiveGoals.map((g) => [g.id, g]));
+    const seen = new Set<string>();
+    const ordered: SavingsGoal[] = [];
+
+    for (const id of cardOrderIds) {
+      const goal = byId.get(id);
+      if (goal && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(goal);
+      }
+    }
+
+    for (const goal of regularActiveGoals) {
+      if (!seen.has(goal.id)) {
+        seen.add(goal.id);
+        ordered.push(goal);
+      }
+    }
+
+    return ordered;
+  }, [regularActiveGoals, cardOrderIds]);
+
+  const resolvedActiveGoalId = useMemo(() => {
+    if (
+      activeGoalId &&
+      orderedRegularGoals.some((g) => g.id === activeGoalId)
+    ) {
+      return activeGoalId;
+    }
+    return orderedRegularGoals[0]?.id || "";
+  }, [activeGoalId, orderedRegularGoals]);
+
+  const handleChangeGoalOrder = (nextIds: string[]) => {
+    const unique = Array.from(new Set(nextIds));
+    setCardOrderIds(unique);
+    userStorage.setJSON(STORAGE_BASE_SAVINGS_GOAL_CARD_ORDER, unique);
+  };
+
+  const handleResetGoalOrder = () => {
+    setCardOrderIds([]);
+    userStorage.setJSON(STORAGE_BASE_SAVINGS_GOAL_CARD_ORDER, []);
+  };
+
   const persistGoals = (next: SavingsGoal[]) => {
     const saved = saveSavingsGoals(next);
     setGoals(saved);
     onTriggerSync?.();
+  };
+
+  const handleConfirmDeleteGoal = () => {
+    if (!deleteGoalTarget || deleteGoalTarget.isEmergencyFund) {
+      setDeleteGoalTarget(null);
+      return;
+    }
+    const deletedId = deleteGoalTarget.id;
+    const prevIdx = orderedRegularGoals.findIndex((g) => g.id === deletedId);
+    persistGoals(deleteSavingsGoalPermanently(goals, deletedId));
+
+    const nextOrder = cardOrderIds.filter((oid) => oid !== deletedId);
+    if (nextOrder.length !== cardOrderIds.length) {
+      setCardOrderIds(nextOrder);
+      userStorage.setJSON(STORAGE_BASE_SAVINGS_GOAL_CARD_ORDER, nextOrder);
+    }
+
+    if (resolvedActiveGoalId === deletedId) {
+      const remaining = orderedRegularGoals.filter((g) => g.id !== deletedId);
+      const fallbackIdx = Math.max(0, Math.min(prevIdx, remaining.length - 1));
+      setActiveGoalId(remaining[fallbackIdx]?.id || "");
+    }
+
+    setDeleteGoalTarget(null);
   };
 
   const openCreateGoalModal = (presetEmergency = false) => {
@@ -131,7 +224,6 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         name: goalName,
         targetAmount: parsedTarget,
         description: goalDescription,
-        isEmergencyFund: goalIsEmergency,
       });
       if (!res.ok) {
         setGoalFormError(res.error || "Невалидни данни.");
@@ -157,6 +249,10 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
       return;
     }
     persistGoals(res.goals);
+    const createdGoal = res.goals[res.goals.length - 1];
+    if (createdGoal && !createdGoal.isEmergencyFund) {
+      setActiveGoalId(createdGoal.id);
+    }
     setIsGoalModalOpen(false);
   };
 
@@ -272,7 +368,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               className="inline-flex items-center gap-1 px-3 py-2 min-h-[40px] bg-blue-600 hover:bg-blue-700 disabled:opacity-45 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <ArrowDownLeft className="w-3.5 h-3.5" />
-              <span>Разпредели</span>
+              <span>Добави</span>
             </button>
             <button
               type="button"
@@ -281,23 +377,16 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               className="inline-flex items-center gap-1 px-3 py-2 min-h-[40px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-45 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>Освободи</span>
+              <span>Извади</span>
             </button>
             <button
               type="button"
               onClick={() => openEditGoalModal(ef)}
               className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               title="Редактирай Авариен фонд"
+              aria-label="Редактирай Авариен фонд"
             >
               <Pencil className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => persistGoals(archiveSavingsGoal(goals, ef.id))}
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Архивирай (освобождава сумата обратно към неразпределени)"
-            >
-              <Archive className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -430,116 +519,165 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         </div>
       )}
 
-      {/* Dedicated Emergency Fund Jar */}
-      {renderEmergencyCard()}
+      {/* Dedicated Fixed Emergency Fund Section (Always Visible Above Goals) */}
+      <div className="space-y-2.5">
+        <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          <span>Авариен фонд</span>
+        </h4>
+        {renderEmergencyCard()}
+      </div>
 
-      {/* Custom Goal Jars Grid */}
-      {regularActiveGoals.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {regularActiveGoals.map((goal) => {
-            const pct = getGoalProgressPercent(goal);
-            const remaining = Math.max(0, goal.targetAmount - goal.allocatedAmount);
-            return (
-              <div
-                key={goal.id}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs flex flex-col justify-between gap-3"
-              >
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">
-                        {goal.name}
-                      </h4>
-                      {goal.description && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
-                          {goal.description}
-                        </p>
-                      )}
+      {/* Regular Savings Goals Swipe Cards Section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Target className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Цели за спестяване</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
+              · {orderedRegularGoals.length}
+            </span>
+          </h4>
+        </div>
+
+        {orderedRegularGoals.length > 0 ? (
+          <SavingsGoalCardsCarousel
+            goals={orderedRegularGoals}
+            activeGoalId={resolvedActiveGoalId}
+            onSelectGoal={setActiveGoalId}
+            onChangeOrder={handleChangeGoalOrder}
+            onResetOrder={handleResetGoalOrder}
+            renderCard={(goal) => {
+              const pct = getGoalProgressPercent(goal);
+              const remaining = Math.max(0, goal.targetAmount - goal.allocatedAmount);
+              return (
+                <div className="bg-white dark:bg-[#16181d] border border-slate-200/90 dark:border-slate-800/90 rounded-3xl p-5 sm:p-6 shadow-2xs flex flex-col justify-between gap-4">
+                  {/* Card Top: Icon, Title, Description, Edit & Delete */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                        <Target className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4
+                            className="font-bold text-slate-900 dark:text-white text-base sm:text-lg leading-snug truncate"
+                            title={goal.name}
+                          >
+                            {goal.name}
+                          </h4>
+                          <span className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                            {pct.toFixed(1)}%
+                          </span>
+                        </div>
+                        {goal.description && (
+                          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
+                            {goal.description}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">
-                      {pct.toFixed(1)}%
-                    </span>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEditGoalModal(goal)}
+                        className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Редактирай целта"
+                        aria-label="Редактирай целта"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteGoalTarget(goal)}
+                        className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                        title="Изтрий целта"
+                        aria-label="Изтрий целта"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-300"
-                      style={{ width: `${Math.min(100, pct)}%` }}
-                    />
+                  {/* Progress Bar */}
+                  <div className="space-y-2">
+                    <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(100, pct)}%` }}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5 pt-1 text-xs tabular-nums">
+                      <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/70">
+                        <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
+                          Заделени
+                        </span>
+                        <span className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base mt-0.5 block">
+                          €{goal.allocatedAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/70">
+                        <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
+                          Цел
+                        </span>
+                        <span className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base mt-0.5 block">
+                          €{goal.targetAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 text-right">
+                        <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
+                          Остават
+                        </span>
+                        <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-sm sm:text-base mt-0.5 block">
+                          €{remaining.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1 pt-1 text-[11px] tabular-nums">
-                    <div>
-                      <span className="text-slate-500 dark:text-slate-400 block">Заделени</span>
-                      <span className="font-bold text-slate-900 dark:text-white">
-                        €{goal.allocatedAmount.toFixed(2)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 dark:text-slate-400 block">Цел</span>
-                      <span className="font-bold text-slate-900 dark:text-white">
-                        €{goal.targetAmount.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-slate-500 dark:text-slate-400 block">Остават</span>
-                      <span className="font-bold text-slate-700 dark:text-slate-200">
-                        €{remaining.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center gap-1.5">
+                  {/* Card Actions: Add / Withdraw */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <button
                       type="button"
                       onClick={() => openFundModal(goal, "allocate")}
                       disabled={summary.unallocatedSavings <= 0}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer"
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer"
                     >
-                      <ArrowDownLeft className="w-3.5 h-3.5" />
+                      <ArrowDownLeft className="w-4 h-4" />
                       <span>Добави</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => openFundModal(goal, "withdraw")}
                       disabled={goal.allocatedAmount <= 0}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-45 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer"
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-45 text-slate-700 dark:text-slate-200 rounded-xl text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer"
                     >
-                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      <ArrowUpRight className="w-4 h-4" />
                       <span>Извади</span>
                     </button>
                   </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => openEditGoalModal(goal)}
-                      className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      title="Редактирай целта"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => persistGoals(archiveSavingsGoal(goals, goal.id))}
-                      className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      title="Архивирай (освобождава сумата)"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-          Все още нямате създадени цели за спестяване (напр. „Ваканция“, „Нов автомобил“, „Техника“).
-        </div>
-      )}
+              );
+            }}
+          />
+        ) : (
+          <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400 space-y-3">
+            <p>
+              Все още нямате създадени цели за спестяване (напр. „Ваканция“, „Нов автомобил“, „Техника“).
+            </p>
+            <button
+              type="button"
+              onClick={() => openCreateGoalModal(false)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Създай първа цел</span>
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Archived Goals Drawer */}
       {showArchived && summary.archivedGoals.length > 0 && (
@@ -567,14 +705,16 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                     <ArchiveRestore className="w-3.5 h-3.5" />
                     <span>Възстанови</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => persistGoals(deleteSavingsGoalPermanently(goals, ag.id))}
-                    className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
-                    title="Изтрий завинаги"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {!ag.isEmergencyFund && (
+                    <button
+                      type="button"
+                      onClick={() => persistGoals(deleteSavingsGoalPermanently(goals, ag.id))}
+                      className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+                      title="Изтрий завинаги"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -588,7 +728,13 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                {editingGoalId ? "Редактирай цел" : "Нова цел за спестяване"}
+                {editingGoalId
+                  ? goalIsEmergency
+                    ? "Редактирай Авариен фонд"
+                    : "Редактирай цел"
+                  : goalIsEmergency
+                  ? "Създай Авариен фонд"
+                  : "Нова цел за спестяване"}
               </h3>
               <button
                 type="button"
@@ -600,19 +746,21 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             </div>
 
             <form onSubmit={handleSaveGoalModal} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Име на целта
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={goalName}
-                  onChange={(e) => setGoalName(e.target.value)}
-                  placeholder="напр. Ваканция, Нов автомобил, Авариен фонд"
-                  className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+              {!goalIsEmergency && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Име на целта
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={goalName}
+                    onChange={(e) => setGoalName(e.target.value)}
+                    placeholder="напр. Ваканция, Нов автомобил, Техника"
+                    className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -662,19 +810,6 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                 />
               </div>
 
-              {(!summary.emergencyFundGoal ||
-                summary.emergencyFundGoal.id === editingGoalId) && (
-                <label className="flex items-center gap-2.5 pt-1 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={goalIsEmergency}
-                    onChange={(e) => setGoalIsEmergency(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>Отбележи като специален „Авариен фонд“ (изчислява покритие в месеци)</span>
-                </label>
-              )}
-
               {goalFormError && (
                 <p className="text-xs font-medium text-red-600 dark:text-red-400">
                   {goalFormError}
@@ -708,8 +843,8 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
                 {fundModal.mode === "allocate"
-                  ? `Разпредели към „${fundModal.goal.name}“`
-                  : `Освободи от „${fundModal.goal.name}“`}
+                  ? `Добави към „${fundModal.goal.name}“`
+                  : `Извади от „${fundModal.goal.name}“`}
               </h3>
               <button
                 type="button"
@@ -833,6 +968,17 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
           </div>
         </div>
       )}
+      {/* Delete Goal Confirmation Dialog */}
+      <ConfirmDeleteDialog
+        isOpen={Boolean(deleteGoalTarget)}
+        title="Потвърждение"
+        message="Сигурни ли сте, че искате да изтриете тази цел?"
+        detailLabel={deleteGoalTarget ? deleteGoalTarget.name : undefined}
+        cancelLabel="Отказ"
+        confirmLabel="Изтрий"
+        onCancel={() => setDeleteGoalTarget(null)}
+        onConfirm={handleConfirmDeleteGoal}
+      />
     </section>
   );
 };
