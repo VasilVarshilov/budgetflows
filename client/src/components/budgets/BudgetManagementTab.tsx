@@ -47,6 +47,10 @@ import {
   sanitizeDecimalInput,
   parseDecimalInput,
 } from "@/utils/formatting";
+import { userStorage } from "@/utils/userStorage";
+import { BudgetCardsCarousel } from "./BudgetCardsCarousel";
+
+const STORAGE_BASE_BUDGET_CARD_ORDER = "BudgetCardOrder";
 
 interface BudgetManagementTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -114,25 +118,43 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
   // Delete confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Swipeable budget card carousel state & persisted order
+  const [cardOrderIds, setCardOrderIds] = useState<string[]>(() => {
+    const raw = userStorage.getJSON<unknown>(STORAGE_BASE_BUDGET_CARD_ORDER, []);
+    return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+  });
+  const [activeBudgetId, setActiveBudgetId] = useState<string>("");
+
   // Load budgets and categories on mount
   const refreshBudgets = () => {
     const loaded = loadBudgets();
     setTotalMonthlyBudget(loaded.totalMonthlyBudget);
     setCategoryBudgets(loaded.categoryBudgets);
     setAvailableCategories(loadStoredCategories());
+    const rawOrder = userStorage.getJSON<unknown>(STORAGE_BASE_BUDGET_CARD_ORDER, []);
+    setCardOrderIds(
+      Array.isArray(rawOrder) ? rawOrder.filter((v): v is string => typeof v === "string") : []
+    );
   };
 
   useEffect(() => {
     refreshBudgets();
     const handleSync = () => refreshBudgets();
+    const handleAccountChanged = () => {
+      refreshBudgets();
+      setActiveBudgetId("");
+      setExpandedCategoryIds({});
+    };
     window.addEventListener("homebudget:budgets-updated", handleSync);
     window.addEventListener("homebudget:categories-updated", handleSync);
     window.addEventListener("homebudget:data-restored", handleSync);
+    window.addEventListener("budgetflows:account-changed", handleAccountChanged);
     window.addEventListener("storage", handleSync);
     return () => {
       window.removeEventListener("homebudget:budgets-updated", handleSync);
       window.removeEventListener("homebudget:categories-updated", handleSync);
       window.removeEventListener("homebudget:data-restored", handleSync);
+      window.removeEventListener("budgetflows:account-changed", handleAccountChanged);
       window.removeEventListener("storage", handleSync);
     };
   }, []);
@@ -158,6 +180,53 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       categoryBudgets
     );
   }, [currentRecord, totalMonthlyBudget, categoryBudgets]);
+
+  // Ordered budget statuses for swipeable cards (newly added budgets appear automatically)
+  const orderedStatuses = useMemo(() => {
+    const statusById = new Map(
+      budgetCalc.categoryStatuses.map((s) => [s.budget.id, s])
+    );
+    const seen = new Set<string>();
+    const ordered: BudgetStatus[] = [];
+
+    for (const id of cardOrderIds) {
+      const status = statusById.get(id);
+      if (status && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(status);
+      }
+    }
+
+    for (const status of budgetCalc.categoryStatuses) {
+      if (!seen.has(status.budget.id)) {
+        seen.add(status.budget.id);
+        ordered.push(status);
+      }
+    }
+
+    return ordered;
+  }, [budgetCalc.categoryStatuses, cardOrderIds]);
+
+  const resolvedActiveBudgetId = useMemo(() => {
+    if (
+      activeBudgetId &&
+      orderedStatuses.some((s) => s.budget.id === activeBudgetId)
+    ) {
+      return activeBudgetId;
+    }
+    return orderedStatuses[0]?.budget.id || "";
+  }, [activeBudgetId, orderedStatuses]);
+
+  const handleChangeBudgetOrder = (nextIds: string[]) => {
+    const unique = Array.from(new Set(nextIds));
+    setCardOrderIds(unique);
+    userStorage.setJSON(STORAGE_BASE_BUDGET_CARD_ORDER, unique);
+  };
+
+  const handleResetBudgetOrder = () => {
+    setCardOrderIds([]);
+    userStorage.setJSON(STORAGE_BASE_BUDGET_CARD_ORDER, []);
+  };
 
   // Handle Save Total Monthly Budget
   const handleSaveTotalBudget = () => {
@@ -269,6 +338,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
         monthlyLimit: limit,
       });
       setCategoryBudgets(updated);
+      const createdBudget = updated[updated.length - 1];
+      if (createdBudget) {
+        setActiveBudgetId(createdBudget.id);
+      }
     }
 
     setIsModalOpen(false);
@@ -276,8 +349,19 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
   // Handle Delete
   const handleDelete = (id: string) => {
+    const prevIdx = orderedStatuses.findIndex((s) => s.budget.id === id);
     const updated = deleteCategoryBudget(id);
     setCategoryBudgets(updated);
+    const nextOrder = cardOrderIds.filter((oid) => oid !== id);
+    if (nextOrder.length !== cardOrderIds.length) {
+      setCardOrderIds(nextOrder);
+      userStorage.setJSON(STORAGE_BASE_BUDGET_CARD_ORDER, nextOrder);
+    }
+    if (resolvedActiveBudgetId === id) {
+      const remainingOrdered = orderedStatuses.filter((s) => s.budget.id !== id);
+      const fallbackIdx = Math.max(0, Math.min(prevIdx, remainingOrdered.length - 1));
+      setActiveBudgetId(remainingOrdered[fallbackIdx]?.budget.id || "");
+    }
     setDeleteConfirmId(null);
   };
 
@@ -581,7 +665,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
           </div>
         </div>
 
-        {budgetCalc.categoryStatuses.length === 0 ? (
+        {orderedStatuses.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-500 dark:text-slate-400">
             <HelpCircle className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -598,8 +682,13 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {budgetCalc.categoryStatuses.map((item) => {
+          <BudgetCardsCarousel
+            items={orderedStatuses}
+            activeBudgetId={resolvedActiveBudgetId}
+            onSelectBudget={setActiveBudgetId}
+            onChangeOrder={handleChangeBudgetOrder}
+            onResetOrder={handleResetBudgetOrder}
+            renderCard={(item) => {
               const IconComponent =
                 AVAILABLE_ICONS_MAP[item.iconName] || Target;
 
@@ -617,13 +706,17 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   ? "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
                   : "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800";
 
+              const linkedCats = resolveCategoriesForBudget(
+                item.budget,
+                availableCategories
+              );
+
               return (
                 <div
-                  key={item.budget.id}
-                  className={`bg-white dark:bg-slate-900 rounded-2xl border p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between ${
+                  className={`bg-white dark:bg-[#16181d] rounded-3xl border p-5 sm:p-6 shadow-2xs transition-colors flex flex-col justify-between ${
                     item.isExceeded
                       ? "border-rose-300 dark:border-rose-800 ring-1 ring-rose-200/50 dark:ring-rose-900/40"
-                      : "border-slate-200/80 dark:border-slate-800"
+                      : "border-slate-200/90 dark:border-slate-800/90"
                   }`}
                 >
                   <div>
@@ -631,88 +724,83 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <div className="flex items-start justify-between gap-2.5">
                       <div className="flex items-start gap-3 min-w-0 flex-1">
                         <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.colorClass)}`}
+                          className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.colorClass)}`}
                         >
                           <IconComponent className="w-5 h-5" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <h4
-                            className="font-bold text-slate-900 dark:text-white text-sm leading-snug line-clamp-2 break-words"
+                            className="font-bold text-slate-900 dark:text-white text-base sm:text-lg leading-snug line-clamp-2 break-words"
                             title={item.budget.categoryName}
                           >
                             {item.budget.categoryName}
                           </h4>
-                          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium tabular-nums block mt-0.5">
+                          <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-semibold tabular-nums block mt-0.5">
                             Лимит: €{item.limit.toFixed(2)}
                           </span>
-                          {(() => {
-                            const linkedCats = resolveCategoriesForBudget(
-                              item.budget,
-                              availableCategories
-                            );
-                            if (linkedCats.length === 0) return null;
-                            return (
-                              <div className="flex flex-wrap gap-1 mt-1.5">
-                                {linkedCats.map((cat) => {
-                                  const CatIcon = AVAILABLE_ICONS_MAP[cat.iconName] || Target;
-                                  return (
-                                    <span
-                                      key={cat.id}
-                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${getCategoryBadgeClasses(
-                                        cat.colorClass
-                                      )}`}
-                                    >
-                                      <CatIcon className="w-3 h-3 shrink-0" />
-                                      <span className="truncate max-w-[110px]">{cat.name}</span>
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })()}
+                          {linkedCats.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {linkedCats.map((cat) => {
+                                const CatIcon = AVAILABLE_ICONS_MAP[cat.iconName] || Target;
+                                return (
+                                  <span
+                                    key={cat.id}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${getCategoryBadgeClasses(
+                                      cat.colorClass
+                                    )}`}
+                                  >
+                                    <CatIcon className="w-3 h-3 shrink-0" />
+                                    <span className="truncate max-w-[130px]">{cat.name}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
                         <button
+                          type="button"
                           onClick={() => handleOpenEditModal(item.budget)}
-                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                          className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center p-2 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                           title="Редактирай бюджет"
                           aria-label="Редактирай бюджет"
                         >
-                          <Pencil className="w-3.5 h-3.5" />
+                          <Pencil className="w-4 h-4" />
                         </button>
                         <button
+                          type="button"
                           onClick={() => setDeleteConfirmId(item.budget.id)}
-                          className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 sm:p-1.5 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                          className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center p-2 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
                           title="Изтрий бюджет"
                           aria-label="Изтрий бюджет"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
 
                     {/* Spent & Remaining Row */}
-                    <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-slate-50 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <span className="text-slate-600 dark:text-slate-300 block text-[11px] font-medium">
+                    <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
+                      <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
+                        <span className="text-slate-600 dark:text-slate-300 block text-xs font-medium">
                           Изразходвано
                         </span>
-                        <span className="font-bold text-slate-900 dark:text-white text-sm">
+                        <span className="font-extrabold text-slate-900 dark:text-white text-lg tabular-nums mt-0.5 block">
                           €{item.spent.toFixed(2)}
                         </span>
                       </div>
 
                       <div
-                        className={`p-2.5 rounded-xl border ${
+                        className={`p-3.5 rounded-2xl border ${
                           item.isExceeded
                             ? "bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-900/60"
-                            : "bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700"
+                            : "bg-slate-50 dark:bg-slate-800/80 border-slate-200/80 dark:border-slate-700/80"
                         }`}
                       >
                         <span
-                          className={`block text-[11px] font-medium ${
+                          className={`block text-xs font-medium ${
                             item.isExceeded
                               ? "text-rose-700 dark:text-rose-300 font-bold"
                               : "text-slate-600 dark:text-slate-300"
@@ -721,7 +809,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           {item.isExceeded ? "Превишен с" : "Оставащ бюджет"}
                         </span>
                         <span
-                          className={`font-bold text-sm ${
+                          className={`font-extrabold text-lg tabular-nums mt-0.5 block ${
                             item.isExceeded
                               ? "text-rose-700 dark:text-rose-300"
                               : "text-emerald-700 dark:text-emerald-300"
@@ -734,19 +822,19 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="mt-4 space-y-1.5">
+                    <div className="mt-5 space-y-2">
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-500 dark:text-slate-400 font-medium text-[11px]">
+                        <span className="text-slate-500 dark:text-slate-400 font-medium">
                           Усвояване
                         </span>
                         <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-bold border ${badgeColor}`}
+                          className={`text-xs px-2.5 py-0.5 rounded-full font-bold border tabular-nums ${badgeColor}`}
                         >
                           {item.percentage}%
                         </span>
                       </div>
 
-                      <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200/60 dark:border-slate-700 p-0.5">
+                      <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200/60 dark:border-slate-700 p-0.5">
                         <div
                           className={`h-full rounded-full transition-all duration-300 ${barColor}`}
                           style={{
@@ -759,7 +847,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
                   {/* Warning message if exceeded */}
                   {item.isExceeded && (
-                    <div className="mt-3.5 pt-2.5 border-t border-rose-100 dark:border-rose-900/60 flex items-start gap-1.5 text-xs text-rose-700 dark:text-rose-300 font-semibold">
+                    <div className="mt-4 pt-3 border-t border-rose-100 dark:border-rose-900/60 flex items-start gap-1.5 text-xs text-rose-700 dark:text-rose-300 font-semibold">
                       <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400 mt-0.5" />
                       <span className="min-w-0 flex-1 break-words tabular-nums">
                         {item.budget.categoryName} budget exceeded by €
@@ -770,31 +858,31 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
                   {/* Healthy state hint */}
                   {!item.isExceeded && item.status === "green" && (
-                    <div className="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400 dark:text-slate-400">
-                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
+                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                        <CheckCircle2 className="w-4 h-4" />
                         Бюджетът е в норма
                       </span>
-                      <span>Остават €{item.remaining.toFixed(2)}</span>
+                      <span className="tabular-nums">Остават €{item.remaining.toFixed(2)}</span>
                     </div>
                   )}
 
                   {!item.isExceeded && item.status === "yellow" && (
-                    <div className="mt-3.5 pt-2.5 border-t border-amber-100 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 font-medium">
-                      <span className="flex items-center gap-1">
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    <div className="mt-4 pt-3 border-t border-amber-100 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 font-medium">
+                      <span className="flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-500" />
                         Близо до лимита
                       </span>
-                      <span>Остават €{item.remaining.toFixed(2)}</span>
+                      <span className="tabular-nums">Остават €{item.remaining.toFixed(2)}</span>
                     </div>
                   )}
 
                   {/* Category Breakdown & Expansion (Show Details / Hide Details) */}
-                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
                     <button
                       type="button"
                       onClick={() => toggleCategoryExpand(item.budget.id)}
-                      className="w-full flex items-center justify-between text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 py-1 transition-colors cursor-pointer group"
+                      className="w-full min-h-[40px] flex items-center justify-between text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 py-1.5 transition-colors cursor-pointer group"
                     >
                       <span className="flex items-center gap-1.5">
                         <Receipt className="w-3.5 h-3.5 text-indigo-500" />
@@ -841,7 +929,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                   <span className="font-bold text-slate-800 dark:text-slate-100 truncate">
                                     {title}
                                   </span>
-                                  <span className="font-extrabold text-slate-900 dark:text-white shrink-0">
+                                  <span className="font-extrabold text-slate-900 dark:text-white shrink-0 tabular-nums">
                                     €{exp.amount.toFixed(2)}
                                   </span>
                                 </div>
@@ -872,7 +960,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                     {exp.receiptItems!.slice(0, 3).map((sub, sIdx) => (
                                       <div key={sIdx} className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
                                         <span className="truncate max-w-[140px]">• {sub.quantity && sub.quantity >= 1 ? `${sub.quantity} x ` : ""}{sub.name}</span>
-                                        <span>€{sub.price.toFixed(2)}</span>
+                                        <span className="tabular-nums">€{sub.price.toFixed(2)}</span>
                                       </div>
                                     ))}
                                     {exp.receiptItems!.length > 3 && (
@@ -891,8 +979,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   </div>
                 </div>
               );
-            })}
-          </div>
+            }}
+          />
         )}
       </div>
 
