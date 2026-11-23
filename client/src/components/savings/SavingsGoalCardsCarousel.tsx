@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { SavingsGoal } from "@/types";
 import { getGoalProgressPercent } from "@/utils/savingsGoalsStorage";
+import { translateGoalName, useI18n } from "@/i18n";
 
 interface SavingsGoalCardsCarouselProps {
   goals: SavingsGoal[];
@@ -36,6 +37,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
   onResetOrder,
   renderCard,
 }) => {
+  const { t, language } = useI18n();
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [isReorderOpen, setIsReorderOpen] = useState(false);
   const [isDraggingMouse, setIsDraggingMouse] = useState(false);
@@ -331,7 +333,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
       onKeyDown={handleCarouselKeyDown}
       tabIndex={-1}
       aria-roledescription="carousel"
-      aria-label="Цели за спестяване"
+      aria-label={t("savings.carousel.ariaLabel")}
     >
       {/* Horizontal Snap Track */}
       <div className="relative group">
@@ -354,12 +356,21 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
           {goals.map((goal, idx) => {
             const isActive = idx === activeIndex;
             const isNear = Math.abs(idx - activeIndex) <= 1;
+            const goalDisplayName = translateGoalName(
+              goal.name,
+              Boolean(goal.isEmergencyFund),
+              language
+            );
             return (
               <div
                 key={goal.id}
                 role="group"
                 aria-roledescription="slide"
-                aria-label={`${idx + 1} от ${goals.length}: ${goal.name}`}
+                aria-label={t("savings.carousel.slideAria", {
+                  index: idx + 1,
+                  total: goals.length,
+                  name: goalDisplayName,
+                })}
                 aria-hidden={!isActive}
                 className={`w-full shrink-0 snap-center snap-always ${
                   !isActive ? "max-h-[420px] overflow-hidden" : ""
@@ -378,7 +389,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
           type="button"
           onClick={() => canGoPrev && scrollToIndex(activeIndex - 1)}
           disabled={!canGoPrev}
-          aria-label="Предишна цел"
+          aria-label={t("savings.carousel.prevGoalAria")}
           className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-2xl bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-2xs"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -389,16 +400,24 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
           <div
             className="flex items-center justify-center gap-1 sm:gap-1.5 flex-wrap"
             role="navigation"
-            aria-label="Индикатори за цели"
+            aria-label={t("savings.carousel.indicatorsAria")}
           >
             {goals.map((goal, idx) => {
               const isSelected = idx === activeIndex;
+              const goalDisplayName = translateGoalName(
+                goal.name,
+                Boolean(goal.isEmergencyFund),
+                language
+              );
               return (
                 <button
                   key={goal.id}
                   type="button"
                   onClick={() => scrollToIndex(idx)}
-                  aria-label={`Цел ${idx + 1}: ${goal.name}`}
+                  aria-label={t("savings.carousel.dotAria", {
+                    index: idx + 1,
+                    name: goalDisplayName,
+                  })}
                   aria-current={isSelected ? "page" : undefined}
                   className="min-h-[36px] min-w-[22px] sm:min-w-[24px] flex items-center justify-center cursor-pointer group/dot"
                 >
@@ -422,7 +441,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
           type="button"
           onClick={() => canGoNext && scrollToIndex(activeIndex + 1)}
           disabled={!canGoNext}
-          aria-label="Следваща цел"
+          aria-label={t("savings.carousel.nextGoalAria")}
           className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-2xl bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-2xs"
         >
           <ChevronRight className="w-5 h-5" />
@@ -436,10 +455,10 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
             type="button"
             onClick={() => setIsReorderOpen(true)}
             className="min-h-[38px] inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer whitespace-nowrap shadow-2xs"
-            title="Промени реда на целите за спестяване"
+            title={t("savings.carousel.reorderTooltip")}
           >
             <ArrowUpDown className="w-3.5 h-3.5" />
-            <span>Подреди</span>
+            <span>{t("savings.carousel.reorderBtn")}</span>
           </button>
         </div>
       )}
@@ -467,17 +486,17 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
                   id="reorder-goals-title"
                   className="text-base font-bold text-slate-900 dark:text-white"
                 >
-                  Подреди целите
+                  {t("savings.carousel.reorderModalTitle")}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Изберете реда на картите за спестяване
+                  {t("savings.carousel.reorderModalSubtitle")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsReorderOpen(false)}
                 className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                aria-label="Затвори"
+                aria-label={t("common.close")}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -488,6 +507,11 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
                 const isFirst = idx === 0;
                 const isLast = idx === goals.length - 1;
                 const pct = getGoalProgressPercent(goal);
+                const goalDisplayName = translateGoalName(
+                  goal.name,
+                  Boolean(goal.isEmergencyFund),
+                  language
+                );
                 return (
                   <div
                     key={goal.id}
@@ -502,7 +526,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
                       </span>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                          {goal.name}
+                          {goalDisplayName}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums truncate">
                           €{goal.allocatedAmount.toFixed(2)} / €{goal.targetAmount.toFixed(2)} · {pct.toFixed(1)}%
@@ -515,7 +539,9 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
                         type="button"
                         disabled={isFirst}
                         onClick={() => moveGoalInOrder(idx, -1)}
-                        aria-label={`Премести ${goal.name} нагоре`}
+                        aria-label={t("savings.carousel.moveUpAria", {
+                          name: goalDisplayName,
+                        })}
                         className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
                       >
                         <ArrowUp className="w-4 h-4" />
@@ -524,7 +550,9 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
                         type="button"
                         disabled={isLast}
                         onClick={() => moveGoalInOrder(idx, 1)}
-                        aria-label={`Премести ${goal.name} надолу`}
+                        aria-label={t("savings.carousel.moveDownAria", {
+                          name: goalDisplayName,
+                        })}
                         className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
                       >
                         <ArrowDown className="w-4 h-4" />
@@ -542,7 +570,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
                 className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>По подразбиране</span>
+                <span>{t("savings.carousel.restoreDefaultBtn")}</span>
               </button>
               <button
                 type="button"
@@ -550,7 +578,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
                 className="min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Готово</span>
+                <span>{t("common.done")}</span>
               </button>
             </div>
           </div>

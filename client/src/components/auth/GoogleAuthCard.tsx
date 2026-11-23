@@ -33,8 +33,10 @@ import {
   isOriginMismatchError,
 } from "@/utils/googleAuth";
 import { getFirebaseConfig } from "@/utils/firebaseConfig";
-import { APP_NAME, APP_TAGLINE, BrandMark } from "@/components/brand/BrandLogo";
+import { APP_NAME, BrandMark } from "@/components/brand/BrandLogo";
 import { dispatchManualBackupNotification } from "@/utils/notificationsEngine";
+import { useI18n } from "@/i18n";
+import { getIntlLocale } from "@/i18n/helpers";
 
 interface GoogleAuthCardProps {
   onOpenRestoreModal: () => void;
@@ -43,6 +45,7 @@ interface GoogleAuthCardProps {
 export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
   onOpenRestoreModal,
 }) => {
+  const { t, language } = useI18n();
   const {
     user,
     storedProfile,
@@ -105,10 +108,10 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
   const displayUser = user || storedProfile;
 
   const formatIsoDate = (isoStr?: string | null) => {
-    if (!isoStr) return "Все още няма";
+    if (!isoStr) return t("backup.neverYet");
     try {
       const d = new Date(isoStr);
-      return d.toLocaleString("bg-BG", {
+      return d.toLocaleString(getIntlLocale(language), {
         dateStyle: "short",
         timeStyle: "short",
       });
@@ -128,7 +131,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       await loginWithGoogle();
       setFeedback({
         type: "success",
-        text: "Успешно свързване с вашия Google акаунт и Google Drive!",
+        text: t("backup.googleCard.loginSuccess"),
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
@@ -156,7 +159,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       await switchGoogleAccount();
       setFeedback({
         type: "success",
-        text: "Профилът бе сменен успешно! Заредени са изолираните данни за избрания акаунт.",
+        text: t("backup.googleCard.switchSuccess"),
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
@@ -183,7 +186,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       await reconnectGoogleDrive();
       setFeedback({
         type: "success",
-        text: "Достъпът до Google Drive бе успешно подновен за текущата сесия.",
+        text: t("backup.googleCard.reconnectSuccess"),
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
@@ -204,13 +207,13 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       await logoutGoogle();
       setFeedback({
         type: "success",
-        text: "Успешно излязохте от профила.",
+        text: t("backup.googleCard.logoutSuccess"),
       });
       setTimeout(() => setFeedback(null), 3000);
     } catch (e: any) {
       setFeedback({
         type: "error",
-        text: e?.message || "Грешка при изход.",
+        text: e?.message || t("backup.googleCard.logoutErr"),
       });
     }
   };
@@ -222,13 +225,13 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       setShowDisconnectModal(false);
       setFeedback({
         type: "success",
-        text: "Google Drive бе успешно разкачен. Синхронизацията в активната сесия е изключена, а локалните ви данни остават непокътнати.",
+        text: t("backup.googleCard.disconnectSuccess"),
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
       setFeedback({
         type: "error",
-        text: e?.message || "Грешка при прекъсване на връзката.",
+        text: e?.message || t("backup.googleCard.disconnectErr"),
       });
     } finally {
       setIsDisconnecting(false);
@@ -250,7 +253,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     } catch (e: any) {
       setFeedback({
         type: "error",
-        text: e?.message || "Грешка при архивиране в Google Drive.",
+        text: e?.message || t("backup.googleCard.backupErr"),
       });
     } finally {
       setIsBackingUp(false);
@@ -264,7 +267,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       if (res.success) {
         setFeedback({
           type: "success",
-          text: "Cloud backup successfully deleted.",
+          text: t("backup.googleCard.deleteSuccess"),
         });
         setShowDeleteModal(false);
       } else {
@@ -277,12 +280,15 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
     } catch (e: any) {
       setFeedback({
         type: "error",
-        text: e?.message || "Грешка при изтриване на архива от Google Drive.",
+        text: e?.message || t("backup.googleCard.deleteErr"),
       });
     } finally {
       setIsDeleting(false);
     }
   };
+
+  const currentHost =
+    typeof window !== "undefined" ? window.location.hostname : "vasilvarshilov.github.io";
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-6">
@@ -295,35 +301,36 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                Облачен архив (Google Drive Cloud Backup)
+                {t("backup.googleCard.cardTitle")}
               </h2>
               {isAuthenticated && isRestoringDriveSession && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Възстановяване на Drive...</span>
+                  <span>{t("backup.googleCard.restoringDriveBadge")}</span>
                 </span>
               )}
               {isAuthenticated && !isRestoringDriveSession && hasDriveAccessToken && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   <ShieldCheck className="w-3 h-3" />
-                  <span>Drive Connected ✅</span>
+                  <span>{t("backup.googleCard.driveConnectedBadge")}</span>
                 </span>
               )}
               {isAuthenticated && !isRestoringDriveSession && !hasDriveAccessToken && driveSessionStatus === "standby" && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   <CheckCircle2 className="w-3 h-3" />
-                  <span>Синхронизирано</span>
+                  <span>{t("backup.googleCard.syncedBadge")}</span>
                 </span>
               )}
               {isAuthenticated && !isRestoringDriveSession && !hasDriveAccessToken && driveSessionStatus === "needs_reauth" && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                   <KeyRound className="w-3 h-3" />
-                  <span>Изисква подновяване</span>
+                  <span>{t("backup.googleCard.needsReauthBadge")}</span>
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Синхронизация в защитена папка <code>appDataFolder</code> без замърсяване на основния ви Drive
+              {t("backup.googleCard.subtitlePrefix")} <code>appDataFolder</code>{" "}
+              {t("backup.googleCard.subtitleSuffix")}
             </p>
           </div>
         </div>
@@ -333,28 +340,28 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
           {!isOnline && (
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
               <WifiOff className="w-3.5 h-3.5" />
-              <span>Офлайн режим</span>
+              <span>{t("backup.googleCard.offlineBadge")}</span>
             </span>
           )}
 
           {isOnline && syncStatus === "syncing" && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 animate-pulse">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>⏳ Синхронизиране...</span>
+              <span>{t("backup.googleCard.syncingBadge")}</span>
             </span>
           )}
 
           {isOnline && syncStatus === "synced" && (
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>✅ Синхронизирано</span>
+              <span>{t("backup.googleCard.syncedStatusBadge")}</span>
             </span>
           )}
 
           {isOnline && syncStatus === "failed" && (
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
               <AlertCircle className="w-3.5 h-3.5" />
-              <span>❌ Грешка</span>
+              <span>{t("backup.googleCard.errorBadge")}</span>
             </span>
           )}
         </div>
@@ -385,39 +392,44 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-slate-900 dark:text-white text-sm">
-                Как да оправите грешката с неоторизирания домейн във Firebase:
+                {t("backup.googleCard.unauthGuide.title")}
               </p>
               <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
-                За защита от фишинг Firebase изисква всеки домейн, на който се ползва вход с Google, да бъде предварително вписан в списъка с позволени домейни.
+                {t("backup.googleCard.unauthGuide.desc")}
               </p>
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-amber-200 dark:border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="truncate">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">Домейн за добавяне:</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">
+                {t("backup.googleCard.unauthGuide.domainToAdd")}
+              </span>
               <code className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm select-all">
-                {typeof window !== "undefined" ? window.location.hostname : "vasilvarshilov.github.io"}
+                {currentHost}
               </code>
             </div>
             <button
               type="button"
               onClick={() => {
-                const domain = typeof window !== "undefined" ? window.location.hostname : "vasilvarshilov.github.io";
-                navigator.clipboard?.writeText(domain);
+                navigator.clipboard?.writeText(currentHost);
                 setCopiedDomain(true);
                 setTimeout(() => setCopiedDomain(false), 2500);
               }}
               className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-colors cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5" />
-              <span>{copiedDomain ? "Копирано!" : "Копирай домейна"}</span>
+              <span>
+                {copiedDomain
+                  ? t("header.copiedShort")
+                  : t("backup.googleCard.unauthGuide.copyDomain")}
+              </span>
             </button>
           </div>
 
           <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
             <li>
-              Отворете{" "}
+              {t("backup.googleCard.unauthGuide.step1Before")}{" "}
               <a
                 href="https://console.firebase.google.com/"
                 target="_blank"
@@ -427,23 +439,19 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 <span>Firebase Console</span>
                 <ExternalLink className="w-3 h-3" />
               </a>{" "}
-              и изберете проекта си (напр. <code>budget-force-365</code>).
+              {t("backup.googleCard.unauthGuide.step1After", {
+                project: "budget-force-365",
+              })}
             </li>
+            <li>{t("backup.googleCard.unauthGuide.step2")}</li>
+            <li>{t("backup.googleCard.unauthGuide.step3")}</li>
+            <li>{t("backup.googleCard.unauthGuide.step4")}</li>
             <li>
-              В лявото меню отворете <strong>Build &gt; Authentication</strong>.
-            </li>
-            <li>
-              Изберете таб <strong>Settings (Настройки)</strong> най-горе.
-            </li>
-            <li>
-              Превъртете надолу до раздела <strong>Authorized domains (Оторизирани домейни)</strong>.
-            </li>
-            <li>
-              Натиснете <strong>Add domain</strong>, поставете <code>{typeof window !== "undefined" ? window.location.hostname : "vasilvarshilov.github.io"}</code> и натиснете <strong>Add</strong>.
+              {t("backup.googleCard.unauthGuide.step5", { domain: currentHost })}
             </li>
           </ol>
           <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
-            💡 След като запазите домейна във Firebase, <strong>не се налага да правите нов билд</strong> — презаредете страницата в телефона/браузъра си и входът с Google ще сработи веднага!
+            {t("backup.googleCard.unauthGuide.tip")}
           </div>
         </div>
       )}
@@ -455,17 +463,17 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-slate-900 dark:text-white text-sm">
-                Грешка 403 (access_denied): OAuth приложението е в режим „Testing“
+                {t("backup.googleCard.accessDeniedGuide.title")}
               </p>
               <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
-                Google блокира останалите Google акаунти, защото OAuth Consent Screen в Google Cloud е все още в статус <strong>Testing</strong> (разрешен само за ръчно добавени тестови имейли).
+                {t("backup.googleCard.accessDeniedGuide.desc")}
               </p>
             </div>
           </div>
 
           <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
             <li>
-              Отворете{" "}
+              {t("backup.googleCard.accessDeniedGuide.step1Prefix")}{" "}
               <a
                 href="https://console.cloud.google.com/auth/audience"
                 target="_blank"
@@ -477,12 +485,8 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               </a>
               .
             </li>
-            <li>
-              Под <strong>Publishing status</strong> натиснете <strong>Publish app</strong> (преминаване в режим <strong>In production</strong>), за да може всеки Google акаунт да влиза.
-            </li>
-            <li>
-              Като алтернатива при тестване: в секция <strong>Test users</strong> натиснете <strong>Add users</strong> и добавете имейлите на желаните потребители (до 100 акаунта).
-            </li>
+            <li>{t("backup.googleCard.accessDeniedGuide.step2")}</li>
+            <li>{t("backup.googleCard.accessDeniedGuide.step3")}</li>
           </ol>
         </div>
       )}
@@ -494,17 +498,19 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-slate-900 dark:text-white text-sm">
-                API ключът на Firebase блокира заявките от текущия адрес (HTTP Referrer Blocked)
+                {t("backup.googleCard.refererGuide.title")}
               </p>
               <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
-                API ключът в Google Cloud има активирано ограничение по уеб адрес (<strong>Website restrictions</strong>), в което липсва текущият адрес.
+                {t("backup.googleCard.refererGuide.desc")}
               </p>
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-amber-200 dark:border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="truncate">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">Шаблон за добавяне в Website restrictions:</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">
+                {t("backup.googleCard.refererGuide.patternLabel")}
+              </span>
               <code className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm select-all">
                 {typeof window !== "undefined" ? `${window.location.origin}/*` : "https://vasilvarshilov.github.io/*"}
               </code>
@@ -520,13 +526,17 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-colors cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5" />
-              <span>{copiedOrigin ? "Копирано!" : "Копирай адреса"}</span>
+              <span>
+                {copiedOrigin
+                  ? t("header.copiedShort")
+                  : t("backup.googleCard.refererGuide.copyOrigin")}
+              </span>
             </button>
           </div>
 
           <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
             <li>
-              Отворете{" "}
+              {t("backup.googleCard.refererGuide.step1Prefix")}{" "}
               <a
                 href="https://console.cloud.google.com/apis/credentials"
                 target="_blank"
@@ -538,8 +548,8 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               </a>
               .
             </li>
-            <li>Отворете вашия <strong>Browser key (auto created by Firebase)</strong> / Web API Key.</li>
-            <li>Под <strong>Website restrictions</strong> добавете горния адрес и <code>https://*.firebaseapp.com/*</code>, след което натиснете <strong>Save</strong>.</li>
+            <li>{t("backup.googleCard.refererGuide.step2")}</li>
+            <li>{t("backup.googleCard.refererGuide.step3")}</li>
           </ol>
         </div>
       )}
@@ -551,10 +561,10 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-slate-900 dark:text-white text-sm">
-                Грешка 400 (origin_mismatch): Несъответствие на JavaScript Origin в OAuth Client
+                {t("backup.googleCard.originGuide.title")}
               </p>
               <p className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
-                Google OAuth изисква точният произход (без път след домейна) да е добавен в <strong>Authorized JavaScript origins</strong> на вашия OAuth 2.0 Client ID.
+                {t("backup.googleCard.originGuide.desc")}
               </p>
             </div>
           </div>
@@ -585,7 +595,11 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-colors cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5" />
-              <span>{copiedJsOrigin ? "Копирано!" : "Копирай origin"}</span>
+              <span>
+                {copiedJsOrigin
+                  ? t("header.copiedShort")
+                  : t("backup.googleCard.originGuide.copyOriginBtn")}
+              </span>
             </button>
           </div>
         </div>
@@ -594,7 +608,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
       {lastSyncError && (
         <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-          <span>Последна грешка при синхронизация: {lastSyncError}</span>
+          <span>{t("backup.googleCard.lastSyncErrPrefix", { error: lastSyncError })}</span>
         </div>
       )}
 
@@ -609,17 +623,17 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                   {APP_NAME}
                 </div>
                 <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {APP_TAGLINE}
+                  {t("brand.tagline")}
                 </div>
               </div>
             </div>
             <h3 className="font-bold text-slate-800 dark:text-white text-sm sm:text-base">
-              Влезте с Google, за да синхронизирате архива си с Google Drive
+              {t("backup.googleCard.unauthCardTitle")}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-lg leading-relaxed">
-              Вашите данни се съхраняват локално и в личния ви Google Drive в изолираната папка{" "}
-              <code className="text-indigo-600 dark:text-indigo-400 font-mono">appDataFolder</code>.
-              Докато Drive сесията е активна, промените се качват при всяка редакция; след презареждане браузърът изисква 1 клик за нов Drive достъп.
+              {t("backup.googleCard.unauthCardDesc1")}{" "}
+              <code className="text-indigo-600 dark:text-indigo-400 font-mono">appDataFolder</code>{" "}
+              {t("backup.googleCard.unauthCardDesc2")}
             </p>
           </div>
 
@@ -653,7 +667,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 <path fill="none" d="M0 0h48v48H0z" />
               </svg>
             )}
-            <span>Вход с Google (Sign in with Google)</span>
+            <span>{t("backup.signInBtn")}</span>
           </button>
         </div>
       ) : (
@@ -665,7 +679,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               {displayUser?.photoURL ? (
                 <img
                   src={displayUser.photoURL}
-                  alt={displayUser.displayName || "Google User"}
+                  alt={displayUser.displayName || t("backup.googleCard.googleUserFallback")}
                   className="w-12 h-12 rounded-full border-2 border-indigo-500/30 object-cover shadow-xs"
                 />
               ) : (
@@ -676,14 +690,14 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                    {displayUser?.displayName || "Потребител на Google"}
+                    {displayUser?.displayName || t("backup.googleCard.googleUserFallback")}
                   </h3>
                   <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold px-2 py-0.5 rounded-full border border-indigo-200/50">
                     Google Drive
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {displayUser?.email || "Няма имейл"}
+                  {displayUser?.email || t("backup.googleCard.noEmail")}
                 </p>
               </div>
             </div>
@@ -694,21 +708,21 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 type="button"
                 onClick={handleSwitchAccount}
                 disabled={isLoggingIn || isSwitchingAccount}
-                title="Превключване към друг Google акаунт (изолираните локални и облачни данни се сменят автоматично)"
+                title={t("backup.googleCard.switchTitle")}
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:text-indigo-800 dark:hover:text-indigo-200 bg-indigo-50 hover:bg-indigo-100/80 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800/80 rounded-xl transition-all cursor-pointer disabled:opacity-50"
               >
                 <Users className="w-3.5 h-3.5" />
-                <span>Смени акаунта</span>
+                <span>{t("backup.googleCard.switchBtn")}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setShowDisconnectModal(true)}
-                title="Прекъсва връзката с Google Drive, изчиства токените и деактивира синхронизацията в активната сесия"
+                title={t("backup.googleCard.disconnectTitle")}
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300 hover:text-amber-800 dark:hover:text-amber-200 bg-amber-50 hover:bg-amber-100/80 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-800/80 rounded-xl transition-all cursor-pointer"
               >
                 <Unlink className="w-3.5 h-3.5" />
-                <span>Прекъсни връзката</span>
+                <span>{t("backup.googleCard.disconnectBtn")}</span>
               </button>
 
               <button
@@ -717,7 +731,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-white dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span>Изход (Sign out)</span>
+                <span>{t("backup.googleCard.signOutBtn")}</span>
               </button>
             </div>
           </div>
@@ -727,9 +741,11 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <div className="p-3.5 rounded-xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 flex items-center gap-2.5 text-xs text-blue-900 dark:text-blue-200">
               <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
               <div>
-                <span className="font-bold block">Автоматично възстановяване на Google Drive сесията...</span>
+                <span className="font-bold block">
+                  {t("backup.googleCard.restoringSessionTitle")}
+                </span>
                 <span className="text-[11px] text-blue-700/90 dark:text-blue-300">
-                  Проверка на достъпа и сравнение на локалната и облачната версия без загуба на данни.
+                  {t("backup.googleCard.restoringSessionDesc")}
                 </span>
               </div>
             </div>
@@ -741,9 +757,11 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <div className="flex items-start gap-2.5 text-emerald-950 dark:text-emerald-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold block">Профилът е възстановен • Данните са в синхрон</span>
+                  <span className="font-bold block">
+                    {t("backup.googleCard.standbyTitle")}
+                  </span>
                   <span className="text-[11px] text-emerald-800/90 dark:text-emerald-300">
-                    Поради сигурността на браузърите Drive достъпът не се пази след затваряне, но всички текущи записи вече са синхронизирани. При нова редакция можете да синхронизирате с 1 клик.
+                    {t("backup.googleCard.standbyDesc")}
                   </span>
                 </div>
               </div>
@@ -754,7 +772,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-emerald-100/60 dark:hover:bg-slate-700 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 {isLoggingIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                <span>Свържи Drive за тази сесия</span>
+                <span>{t("backup.googleCard.connectSessionBtn")}</span>
               </button>
             </div>
           )}
@@ -765,9 +783,11 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <div className="flex items-start gap-2.5 text-amber-950 dark:text-amber-200">
                 <KeyRound className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold block">Има несинхронизирани промени за Google Drive</span>
+                  <span className="font-bold block">
+                    {t("backup.googleCard.needsReauthTitle")}
+                  </span>
                   <span className="text-[11px] text-amber-900/90 dark:text-amber-300">
-                    Браузърите блокират фоново подновяване на OAuth токени след презареждане/затваряне. Натиснете бутона за 1-клик разрешение и незабавно качване — локалните ви данни са запазени.
+                    {t("backup.googleCard.needsReauthDesc")}
                   </span>
                 </div>
               </div>
@@ -778,7 +798,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 {isLoggingIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                <span>Поднови Drive достъпа</span>
+                <span>{t("backup.googleCard.renewAccessBtn")}</span>
               </button>
             </div>
           )}
@@ -791,13 +811,13 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 <div>
                   <div className="font-bold text-slate-900 dark:text-white text-sm">
                     {syncConflict.reason === "fresh_device"
-                      ? "Наличен е облачен архив в Google Drive за това ново устройство"
+                      ? t("backup.googleCard.conflictFreshTitle")
                       : syncConflict.reason === "cloud_newer"
-                      ? "В Google Drive има по-нова версия на данните"
-                      : "Открити са промени както локално, така и в Google Drive"}
+                      ? t("backup.googleCard.conflictCloudNewerTitle")
+                      : t("backup.googleCard.conflictDivergedTitle")}
                   </div>
                   <p className="text-amber-900/90 dark:text-amber-200 mt-0.5 leading-relaxed">
-                    Локалните ви разходи не са презаписани. Изберете как да синхронизирате двете версии:
+                    {t("backup.googleCard.conflictDesc")}
                   </p>
                 </div>
               </div>
@@ -825,7 +845,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {isResolvingConflict ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
-                    <span>Използвай локалните данни (Use Local Data)</span>
+                    <span>{t("backup.useLocalBtn")}</span>
                   </button>
                 )}
 
@@ -846,7 +866,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                   >
                     <DownloadCloud className="w-3.5 h-3.5" />
-                    <span>Възстанови облачния архив (Merge)</span>
+                    <span>{t("backup.restoreMergeBtn")}</span>
                   </button>
                 )}
 
@@ -855,7 +875,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                   onClick={onOpenRestoreModal}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 font-semibold text-xs transition-colors cursor-pointer"
                 >
-                  <span>Преглед и избор (Merge / Replace)</span>
+                  <span>{t("backup.previewOptionsBtn")}</span>
                 </button>
               </div>
             </div>
@@ -868,10 +888,10 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               <div>
                 <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                  <span>Синхронизация в активната сесия</span>
+                  <span>{t("backup.sessionAutoSyncTitle")}</span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                  Качва автоматично докато Drive е активен в таба. След презареждане браузърът изисква 1 клик за сигурен токен.
+                  {t("backup.sessionAutoSyncDesc")}
                 </p>
               </div>
 
@@ -890,31 +910,31 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
                 <Cloud className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span>Наличност (Backup Exists)</span>
+                <span>{t("backup.backupExistsLabel")}</span>
               </div>
               <div className="mt-1 flex items-center gap-1.5">
                 {isLoadingCloudInfo ? (
                   <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Проверка в Drive...</span>
+                    <span>{t("backup.checkingDrive")}</span>
                   </span>
                 ) : cloudBackupInfo && (hasDriveAccessToken || cloudBackupInfo.id) ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span>
                       {hasDriveAccessToken
-                        ? "Наличен в appDataFolder"
-                        : "Наличен в Drive (последна проверка)"}
+                        ? t("backup.availableInAppData")
+                        : t("backup.availableLastCheck")}
                     </span>
                   </span>
                 ) : lastSyncTime || cloudUpdatedAt ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
                     <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span>Изисква проверка с Drive</span>
+                    <span>{t("backup.needsDriveCheck")}</span>
                   </span>
                 ) : (
                   <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    Няма създаден архив
+                    {t("backup.noArchiveCreated")}
                   </span>
                 )}
               </div>
@@ -924,7 +944,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                <span>Размер (File Size)</span>
+                <span>{t("backup.fileSizeLabel")}</span>
               </div>
               <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
                 {isLoadingCloudInfo ? (
@@ -932,7 +952,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 ) : cloudBackupInfo?.size ? (
                   <span>{cloudBackupInfo.size}</span>
                 ) : cloudBackupInfo ? (
-                  <span>JSON файл</span>
+                  <span>{t("backup.jsonFileFallback")}</span>
                 ) : (
                   <span className="text-slate-500 dark:text-slate-400">-</span>
                 )}
@@ -943,7 +963,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Последна синхронизация (Last Sync)</span>
+                <span>{t("backup.lastSyncLabel")}</span>
               </div>
               <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
                 {formatIsoDate(lastSyncTime)}
@@ -954,7 +974,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span>Локална версия (Local Version)</span>
+                <span>{t("backup.localVersionLabel")}</span>
               </div>
               <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
                 {formatIsoDate(localUpdatedAt)}
@@ -965,7 +985,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
                 <Cloud className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-                <span>Облачна версия (Cloud Version)</span>
+                <span>{t("backup.cloudVersionLabel")}</span>
               </div>
               <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium truncate">
                 {formatIsoDate(cloudUpdatedAt)}
@@ -986,7 +1006,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               ) : (
                 <UploadCloud className="w-4 h-4" />
               )}
-              <span>Архивирай сега (Backup Now)</span>
+              <span>{t("backup.backupNowBtn")}</span>
             </button>
 
             <button
@@ -996,14 +1016,14 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               className="w-full sm:w-auto flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-100 rounded-xl font-semibold text-sm border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
             >
               <DownloadCloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>Възстанови от Drive (Restore From Drive)</span>
+              <span>{t("backup.restoreFromDriveBtn")}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowDeleteModal(true)}
               disabled={!isOnline || !cloudBackupInfo || isDeleting}
-              title="Окончателно изтрива архивния файл от Google Drive (appDataFolder), без да засяга локалните данни"
+              title={t("backup.googleCard.deleteTitle")}
               className="w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 disabled:opacity-40 text-rose-700 dark:text-rose-300 rounded-xl font-semibold text-sm border border-rose-200 dark:border-rose-900/80 shadow-xs transition-all cursor-pointer"
             >
               {isDeleting ? (
@@ -1011,17 +1031,17 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
               ) : (
                 <Trash2 className="w-4 h-4 text-rose-600 dark:text-rose-400" />
               )}
-              <span>Изтрий облачния архив</span>
+              <span>{t("backup.deleteCloudBtn")}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowClearLocalModal(true)}
-              title="Изтрива локално съхранените данни само за текущия профил на това устройство"
+              title={t("backup.googleCard.clearLocalTitle")}
               className="w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-semibold text-xs border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
             >
               <Eraser className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-              <span>Изчисти устройството</span>
+              <span>{t("backup.clearLocalBtn")}</span>
             </button>
           </div>
         </div>
@@ -1038,7 +1058,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 dark:text-white text-base sm:text-lg">
-                    Изтриване на облачен архив (Delete Cloud Backup)
+                    {t("backup.deleteModal.title")}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Google Drive • <code>appDataFolder</code>
@@ -1056,38 +1076,44 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Сигурни ли сте, че искате да изтриете облачния архивен файл на{" "}
-              <strong className="text-slate-800 dark:text-slate-100">{APP_NAME}</strong>{" "}
-              от вашия Google Drive (<code>appDataFolder</code>)?
+              {t("backup.deleteModal.question", { appName: APP_NAME })}
             </p>
 
             {/* Safety Guarantee Callout */}
             <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
               <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div className="leading-relaxed">
-                <strong>Вашите локални данни в приложението ще останат непокътнати.</strong>{" "}
-                Това действие изтрива единствено файла с копие в Google Drive.
+                <strong>{t("backup.deleteModal.safetyBold")}</strong>{" "}
+                {t("backup.deleteModal.safetySub")}
               </div>
             </div>
 
             {/* Backup metadata summary */}
             <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs space-y-2">
               <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Наличност (Backup Exists):</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  {t("backup.backupExistsLabel")}:
+                </span>
                 <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                  {cloudBackupInfo ? "Наличен в Google Drive" : "Няма"}
+                  {cloudBackupInfo
+                    ? t("backup.googleCard.deleteModalAvailable")
+                    : t("backup.googleCard.deleteModalMissing")}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Последна дата (Last Backup):</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  {t("backup.deleteModal.lastBackupLabel")}
+                </span>
                 <span className="font-bold text-slate-800 dark:text-white">
                   {formatIsoDate(cloudBackupInfo?.modifiedTime || lastSyncTime)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Размер на файла (File Size):</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  {t("backup.fileSizeLabel")}:
+                </span>
                 <span className="font-bold text-slate-800 dark:text-white">
-                  {cloudBackupInfo?.size || "JSON файл"}
+                  {cloudBackupInfo?.size || t("backup.jsonFileFallback")}
                 </span>
               </div>
             </div>
@@ -1100,7 +1126,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 disabled={isDeleting}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
               >
-                Отказ (Cancel)
+                {t("common.cancel")}
               </button>
 
               <button
@@ -1112,12 +1138,12 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 {isDeleting ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Изтриване...</span>
+                    <span>{t("backup.deleteModal.deleting")}</span>
                   </>
                 ) : (
                   <>
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Изтрий облачния архив (Delete Cloud Backup)</span>
+                    <span>{t("backup.deleteModal.confirmBtn")}</span>
                   </>
                 )}
               </button>
@@ -1137,10 +1163,10 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 dark:text-white text-base sm:text-lg">
-                    Прекъсване на връзката с Google Drive
+                    {t("backup.disconnectModal.title")}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Disconnect Google Drive
+                    Google Drive
                   </p>
                 </div>
               </div>
@@ -1155,15 +1181,15 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Сигурни ли сте, че искате да прекъснете връзката с Google Drive?
+              {t("backup.disconnectModal.question")}
             </p>
 
             <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5 list-disc list-inside bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/80">
-              <li>Ще излезете от профила си в Google.</li>
-              <li>Запазените OAuth токени ще бъдат изтрити.</li>
-              <li>Синхронизацията в активната сесия ще бъде изключена.</li>
+              <li>{t("backup.disconnectModal.bullet1")}</li>
+              <li>{t("backup.disconnectModal.bullet2")}</li>
+              <li>{t("backup.disconnectModal.bullet3")}</li>
               <li className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                Всички ваши локални приходи, разходи, спестявания и бюджети остават непокътнати.
+                {t("backup.disconnectModal.bullet4")}
               </li>
             </ul>
 
@@ -1174,7 +1200,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 disabled={isDisconnecting}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
               >
-                Отказ (Cancel)
+                {t("common.cancel")}
               </button>
 
               <button
@@ -1186,12 +1212,12 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 {isDisconnecting ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Разкачване...</span>
+                    <span>{t("backup.disconnectModal.disconnecting")}</span>
                   </>
                 ) : (
                   <>
                     <Unlink className="w-3.5 h-3.5" />
-                    <span>Прекъсни връзката (Disconnect)</span>
+                    <span>{t("backup.disconnectModal.confirmBtn")}</span>
                   </>
                 )}
               </button>
@@ -1211,10 +1237,11 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                    Изчистване на локалните данни
+                    {t("backup.clearLocalModal.title")}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Профил: {displayUser?.email || "Текущ профил"}
+                    {t("backup.clearLocalModal.profilePrefix")}{" "}
+                    {displayUser?.email || t("backup.clearLocalModal.currentProfile")}
                   </p>
                 </div>
               </div>
@@ -1228,7 +1255,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Това действие ще изтрие локално съхранените приходи, разходи, спестявания и настройки на <strong>това устройство</strong> само за текущия профил. Архивът ви в Google Drive остава запазен.
+              {t("backup.clearLocalModal.description")}
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -1237,7 +1264,7 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 onClick={() => setShowClearLocalModal(false)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
               >
-                Отказ
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -1246,14 +1273,14 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                   setShowClearLocalModal(false);
                   setFeedback({
                     type: "success",
-                    text: "Локалните данни за този акаунт бяха изчистени от устройството.",
+                    text: t("backup.clearLocalModal.successToast"),
                   });
                   setTimeout(() => setFeedback(null), 4000);
                 }}
                 className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer"
               >
                 <Eraser className="w-3.5 h-3.5" />
-                <span>Изчисти локалните данни</span>
+                <span>{t("backup.clearLocalModal.confirmBtn")}</span>
               </button>
             </div>
           </div>

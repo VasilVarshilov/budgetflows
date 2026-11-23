@@ -19,6 +19,13 @@ import {
 } from "lucide-react";
 import { ExpenseCategory, BudgetConfig } from "@/types";
 import { sanitizeDecimalInput } from "@/utils/formatting";
+import {
+  formatLocalizedMonthYear,
+  pluralizeUnit,
+  translateBudgetName,
+  translateCategoryName,
+  useI18n,
+} from "@/i18n";
 
 export type ExpenseSortOption = "newest" | "oldest" | "highest" | "lowest";
 export type ExpenseStatusFilter = "all" | "completed" | "planned";
@@ -65,18 +72,18 @@ interface ExpenseFilterToolbarProps {
   onToggleFullWidthMode?: () => void;
 }
 
-const SORT_LABELS: Record<ExpenseSortOption, string> = {
-  newest: "Най-нови първо",
-  oldest: "Най-стари първо",
-  highest: "Най-висока сума (€)",
-  lowest: "Най-ниска сума (€)",
+const SORT_LABEL_KEYS: Record<ExpenseSortOption, string> = {
+  newest: "expenses.filters.sortDateDesc",
+  oldest: "expenses.filters.sortDateAsc",
+  highest: "expenses.filters.sortHighestEur",
+  lowest: "expenses.filters.sortLowestEur",
 };
 
-const SORT_SHORT_LABELS: Record<ExpenseSortOption, string> = {
-  newest: "Най-нови",
-  oldest: "Най-стари",
-  highest: "Най-висока сума",
-  lowest: "Най-ниска сума",
+const SORT_SHORT_LABEL_KEYS: Record<ExpenseSortOption, string> = {
+  newest: "expenses.filters.sortNewestShort",
+  oldest: "expenses.filters.sortOldestShort",
+  highest: "expenses.filters.sortAmountDesc",
+  lowest: "expenses.filters.sortAmountAsc",
 };
 
 const formatCompactDate = (isoDate: string): string => {
@@ -111,6 +118,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
   isFullWidthMode = false,
   onToggleFullWidthMode,
 }) => {
+  const { language, t } = useI18n();
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState<ExpenseFiltersState>(filters);
 
@@ -211,12 +219,12 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
 
   const selectedBudgetName = useMemo(() => {
     if (!filters.budgetCategoryId || filters.budgetCategoryId === "all") return "";
-    if (filters.budgetCategoryId === "none") return "Без бюджет";
-    return (
-      budgetCategories.find((b) => b.id === filters.budgetCategoryId)?.categoryName ||
-      filters.budgetCategoryId
-    );
-  }, [filters.budgetCategoryId, budgetCategories]);
+    if (filters.budgetCategoryId === "none") return t("expenses.filters.noBudgetChip");
+    const found = budgetCategories.find((b) => b.id === filters.budgetCategoryId)?.categoryName;
+    return found
+      ? translateBudgetName(found, language)
+      : translateBudgetName(filters.budgetCategoryId, language);
+  }, [filters.budgetCategoryId, budgetCategories, language, t]);
 
   return (
     <>
@@ -229,8 +237,8 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
               type="text"
               value={filters.searchTerm}
               onChange={(e) => updateLiveFilter("searchTerm", e.target.value)}
-              placeholder="Търси по бележка, категория или сума (€)..."
-              aria-label="Търси разходи"
+              placeholder={t("expenses.filters.searchToolbarPlaceholder")}
+              aria-label={t("expenses.filters.searchAria")}
               className="w-full pl-9 pr-9 py-2 min-h-[44px] sm:min-h-[40px] bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
             />
             {filters.searchTerm && (
@@ -238,8 +246,8 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="button"
                 onClick={() => updateLiveFilter("searchTerm", "")}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
-                title="Изчисти търсенето"
-                aria-label="Изчисти търсенето"
+                title={t("expenses.filters.clearSearch")}
+                aria-label={t("expenses.filters.clearSearch")}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -254,11 +262,11 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 shadow-xs"
                 : "bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
             }`}
-            aria-label="Отвори филтри"
+            aria-label={t("expenses.filters.openFiltersAria")}
             aria-expanded={isFilterModalOpen}
           >
             <SlidersHorizontal className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <span>Филтри</span>
+            <span>{t("expenses.filters.filtersBtn")}</span>
             {activeFiltersCount > 0 && (
               <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-bold tabular-nums">
                 {activeFiltersCount}
@@ -275,9 +283,13 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="button"
                 onClick={() => updateLiveFilter("statusFilter", "all")}
                 className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="Премахни филтър за статус"
+                title={t("expenses.filters.removeStatusChipTitle")}
               >
-                <span>{filters.statusFilter === "planned" ? "Предстоящи" : "Изпълнени"}</span>
+                <span>
+                  {filters.statusFilter === "planned"
+                    ? t("expenses.filters.statusUpcoming")
+                    : t("expenses.filters.statusCompleted")}
+                </span>
                 <X className="w-3 h-3 opacity-75" />
               </button>
             )}
@@ -287,9 +299,9 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="button"
                 onClick={() => updateLiveFilter("sortBy", "newest")}
                 className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="Върни сортиране по подразбиране"
+                title={t("expenses.filters.resetSortTitle")}
               >
-                <span>{SORT_SHORT_LABELS[filters.sortBy]}</span>
+                <span>{t(SORT_SHORT_LABEL_KEYS[filters.sortBy])}</span>
                 <X className="w-3 h-3 opacity-75" />
               </button>
             )}
@@ -306,14 +318,14 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                   })
                 }
                 className="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-2.5 py-1 rounded-lg border border-blue-200/80 dark:border-blue-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="Премахни филтър за период"
+                title={t("expenses.filters.removePeriodTitle")}
               >
                 <span>
                   {filters.monthFilter === "all"
-                    ? "Всички месеци"
+                    ? t("expenses.filters.allMonthsChip")
                     : filters.monthFilter === "custom"
                     ? `${formatCompactDate(filters.startDate)} – ${formatCompactDate(filters.endDate)}`
-                    : filters.monthFilter}
+                    : formatLocalizedMonthYear(filters.monthFilter, language)}
                 </span>
                 <X className="w-3 h-3 opacity-75" />
               </button>
@@ -324,9 +336,9 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="button"
                 onClick={() => updateLiveFilter("categoryId", "all")}
                 className="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 px-2.5 py-1 rounded-lg border border-indigo-200/80 dark:border-indigo-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="Премахни филтър за категория"
+                title={t("expenses.filters.removeCategoryTitle")}
               >
-                <span>{filters.categoryId}</span>
+                <span>{translateCategoryName(filters.categoryId, language)}</span>
                 <X className="w-3 h-3 opacity-75" />
               </button>
             )}
@@ -336,9 +348,11 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="button"
                 onClick={() => updateLiveFilter("budgetCategoryId", "all")}
                 className="inline-flex items-center gap-1 max-w-[210px] sm:max-w-[260px] bg-violet-50 dark:bg-violet-950/60 hover:bg-violet-100 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 px-2.5 py-1 rounded-lg border border-violet-200/80 dark:border-violet-800 text-[11px] font-semibold transition-colors cursor-pointer shrink-0"
-                title={`Премахни филтър за бюджет: ${selectedBudgetName}`}
+                title={t("expenses.filters.removeBudgetTitle", { name: selectedBudgetName })}
               >
-                <span className="truncate">Бюджет: {selectedBudgetName}</span>
+                <span className="truncate">
+                  {t("expenses.filters.budgetChipPrefix", { name: selectedBudgetName })}
+                </span>
                 <X className="w-3 h-3 opacity-75 shrink-0" />
               </button>
             )}
@@ -350,13 +364,13 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                   onChangeFilters({ ...filters, minAmount: "", maxAmount: "" })
                 }
                 className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-lg border border-emerald-200/80 dark:border-emerald-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 tabular-nums"
-                title="Премахни филтър за сума"
+                title={t("expenses.filters.removeAmountTitle")}
               >
                 <span>
                   {filters.minAmount === "" && filters.maxAmount !== ""
-                    ? `до €${filters.maxAmount}`
+                    ? t("expenses.filters.amountUnder", { amount: filters.maxAmount })
                     : filters.minAmount !== "" && filters.maxAmount === ""
-                    ? `над €${filters.minAmount}`
+                    ? t("expenses.filters.amountOver", { amount: filters.minAmount })
                     : `€${filters.minAmount} – €${filters.maxAmount}`}
                 </span>
                 <X className="w-3 h-3 opacity-75" />
@@ -368,9 +382,9 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 type="button"
                 onClick={() => updateLiveFilter("includeFixed", false)}
                 className="inline-flex items-center gap-1 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 px-2.5 py-1 rounded-lg border border-purple-200/80 dark:border-purple-800 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="Изключи повтарящи се разходи"
+                title={t("expenses.filters.excludeFixedTitle")}
               >
-                <span>+ Повтарящи се</span>
+                <span>{t("expenses.filters.plusFixedChip")}</span>
                 <X className="w-3 h-3 opacity-75" />
               </button>
             )}
@@ -381,7 +395,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 onClick={handleResetAll}
                 className="px-2 py-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer whitespace-nowrap"
               >
-                Изчисти
+                {t("common.clear")}
               </button>
             )}
           </div>
@@ -390,7 +404,13 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
         {/* Compact Single-Line Summary Bar */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
           <span className="font-semibold text-slate-700 dark:text-slate-200">
-            {totalResultsCount} {totalResultsCount === 1 ? "разход" : "разхода"}
+            {totalResultsCount}{" "}
+            {pluralizeUnit(
+              totalResultsCount,
+              "common.expensesSingular",
+              "common.expensesPlural",
+              language
+            )}
           </span>
           <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
             •
@@ -399,7 +419,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             <strong className="text-slate-900 dark:text-white font-bold">
               €{totalFilteredSum.toFixed(2)}
             </strong>{" "}
-            реализирани разходи
+            {t("expenses.filters.summaryRealized")}
           </span>
           {totalFilteredPlannedSum > 0 && (
             <>
@@ -407,7 +427,9 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 •
               </span>
               <span className="text-amber-700 dark:text-amber-300 font-semibold">
-                €{totalFilteredPlannedSum.toFixed(2)} предстоящи
+                {t("expenses.filters.summaryPlanned", {
+                  amount: totalFilteredPlannedSum.toFixed(2),
+                })}
               </span>
             </>
           )}
@@ -440,7 +462,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                     id="expense-filter-modal-title"
                     className="text-base font-bold text-slate-900 dark:text-white"
                   >
-                    Филтри и сортиране
+                    {t("expenses.filters.modalTitle")}
                   </h2>
                   {draftFiltersCount > 0 && (
                     <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold tabular-nums">
@@ -453,7 +475,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                   type="button"
                   onClick={handleCloseModal}
                   className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                  aria-label="Затвори филтрите"
+                  aria-label={t("expenses.filters.closeFiltersAria")}
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -465,7 +487,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Статус</span>
+                    <span>{t("expenses.filters.statusLabel")}</span>
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     <button
@@ -477,7 +499,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                           : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
                       }`}
                     >
-                      Всички
+                      {t("expenses.filters.statusAll")}
                     </button>
                     <button
                       type="button"
@@ -489,7 +511,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       }`}
                     >
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Изпълнени</span>
+                      <span>{t("expenses.filters.statusCompleted")}</span>
                     </button>
                     <button
                       type="button"
@@ -501,7 +523,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       }`}
                     >
                       <Clock className="w-3.5 h-3.5 shrink-0" />
-                      <span>Предстоящи</span>
+                      <span>{t("expenses.filters.statusUpcoming")}</span>
                     </button>
                   </div>
                 </div>
@@ -510,10 +532,10 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Сортиране</span>
+                    <span>{t("expenses.filters.sortSectionLabel")}</span>
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {(Object.keys(SORT_LABELS) as ExpenseSortOption[]).map((option) => {
+                    {(Object.keys(SORT_LABEL_KEYS) as ExpenseSortOption[]).map((option) => {
                       const active = draftFilters.sortBy === option;
                       return (
                         <button
@@ -526,7 +548,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                               : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
                           }`}
                         >
-                          <span className="truncate">{SORT_LABELS[option]}</span>
+                          <span className="truncate">{t(SORT_LABEL_KEYS[option])}</span>
                           {active && <Check className="w-3.5 h-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />}
                         </button>
                       );
@@ -541,7 +563,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                     className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5"
                   >
                     <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Период / Месец</span>
+                    <span>{t("expenses.filters.periodSectionLabel")}</span>
                   </label>
 
                   <select
@@ -550,13 +572,17 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                     onChange={(e) => updateDraftFilter("monthFilter", e.target.value)}
                     className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    <option value="current">Текущ месец ({currentMonth})</option>
-                    <option value="all">Всички месеци (Цяла история и бъдещи)</option>
-                    <option value="custom">Персонализиран диапазон от-до</option>
-                    <optgroup label="Конкретен месец:">
+                    <option value="current">
+                      {t("expenses.filters.currentMonthOption", {
+                        month: formatLocalizedMonthYear(currentMonth, language),
+                      })}
+                    </option>
+                    <option value="all">{t("expenses.filters.allMonthsHistoryOption")}</option>
+                    <option value="custom">{t("expenses.filters.customRangeOption")}</option>
+                    <optgroup label={t("expenses.filters.specificMonthGroup")}>
                       {availableMonths.map((m) => (
                         <option key={m} value={m}>
-                          {m}
+                          {formatLocalizedMonthYear(m, language)}
                         </option>
                       ))}
                     </optgroup>
@@ -569,21 +595,21 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       onClick={() => handleSetDraftDatePreset(7)}
                       className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
                     >
-                      Последните 7 дни
+                      {t("expenses.filters.last7Days")}
                     </button>
                     <button
                       type="button"
                       onClick={() => handleSetDraftDatePreset(30)}
                       className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
                     >
-                      Последните 30 дни
+                      {t("expenses.filters.last30Days")}
                     </button>
                     <button
                       type="button"
                       onClick={() => handleSetDraftDatePreset(90)}
                       className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
                     >
-                      3 месеца
+                      {t("expenses.filters.last3Months")}
                     </button>
                     <button
                       type="button"
@@ -594,7 +620,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                           : "bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
                       }`}
                     >
-                      Всички месеци
+                      {t("expenses.filters.allMonthsChip")}
                     </button>
                   </div>
 
@@ -603,7 +629,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       <div>
                         <label className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-200 flex items-center gap-1 mb-1">
                           <CalendarRange className="w-3 h-3" />
-                          <span>От дата</span>
+                          <span>{t("expenses.filters.fromDateLabel")}</span>
                         </label>
                         <input
                           type="date"
@@ -615,7 +641,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       <div>
                         <label className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-200 flex items-center gap-1 mb-1">
                           <CalendarRange className="w-3 h-3" />
-                          <span>До дата</span>
+                          <span>{t("expenses.filters.toDateLabel")}</span>
                         </label>
                         <input
                           type="date"
@@ -636,7 +662,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5"
                     >
                       <Tag className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>Категория</span>
+                      <span>{t("common.category")}</span>
                     </label>
                     <select
                       id="expense-filter-category-select"
@@ -644,10 +670,10 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       onChange={(e) => updateDraftFilter("categoryId", e.target.value)}
                       className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     >
-                      <option value="all">Всички категории</option>
+                      <option value="all">{t("expenses.filters.allCategories")}</option>
                       {categories.map((c) => (
                         <option key={c.id} value={c.name}>
-                          {c.name}
+                          {translateCategoryName(c.name, language)}
                         </option>
                       ))}
                     </select>
@@ -659,7 +685,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5"
                     >
                       <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>Бюджет</span>
+                      <span>{t("expenses.filters.budgetLabel")}</span>
                     </label>
                     <select
                       id="expense-filter-budget-select"
@@ -667,11 +693,14 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                       onChange={(e) => updateDraftFilter("budgetCategoryId", e.target.value)}
                       className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     >
-                      <option value="all">Всички бюджети</option>
-                      <option value="none">Без бюджетна категория</option>
+                      <option value="all">{t("expenses.filters.allBudgets")}</option>
+                      <option value="none">{t("expenses.filters.noBudgetOption")}</option>
                       {budgetCategories.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.categoryName} (€{b.monthlyLimit})
+                          {t("expenses.filters.budgetOptionLimit", {
+                            name: translateBudgetName(b.categoryName, language),
+                            limit: b.monthlyLimit,
+                          })}
                         </option>
                       ))}
                     </select>
@@ -682,7 +711,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 <div className="space-y-2.5">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Banknote className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Диапазон на сумата (€)</span>
+                    <span>{t("expenses.filters.amountRangeLabel")}</span>
                   </label>
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
@@ -693,8 +722,8 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                         onChange={(e) =>
                           updateDraftFilter("minAmount", sanitizeDecimalInput(e.target.value))
                         }
-                        placeholder="Мин. € (напр. 10)"
-                        aria-label="Минимална сума в евро"
+                        placeholder={t("expenses.filters.minAmountPlaceholder")}
+                        aria-label={t("expenses.filters.minAmountAria")}
                         className="w-full px-3 py-2 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 font-medium tabular-nums"
                       />
                     </div>
@@ -706,8 +735,8 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                         onChange={(e) =>
                           updateDraftFilter("maxAmount", sanitizeDecimalInput(e.target.value))
                         }
-                        placeholder="Макс. € (без лимит)"
-                        aria-label="Максимална сума в евро"
+                        placeholder={t("expenses.filters.maxAmountPlaceholder")}
+                        aria-label={t("expenses.filters.maxAmountAria")}
                         className="w-full px-3 py-2 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 font-medium tabular-nums"
                       />
                     </div>
@@ -722,7 +751,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                           : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
                       }`}
                     >
-                      до €20
+                      {t("expenses.filters.amountUnder", { amount: 20 })}
                     </button>
                     <button
                       type="button"
@@ -744,7 +773,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                           : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700"
                       }`}
                     >
-                      над €100
+                      {t("expenses.filters.amountOver", { amount: 100 })}
                     </button>
                   </div>
                 </div>
@@ -753,7 +782,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 <div className="space-y-2.5 pt-1 border-t border-slate-100 dark:border-slate-800">
                   <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700 cursor-pointer min-h-[48px]">
                     <span className="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200">
-                      Включи повтарящи се разходи
+                      {t("expenses.filters.includeFixedToggle")}
                     </span>
                     <input
                       type="checkbox"
@@ -777,12 +806,14 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                         )}
                         <span>
                           {isFullWidthMode
-                            ? "Стандартен разделен изглед"
-                            : "Разшири списъка на цял екран"}
+                            ? t("expenses.filters.standardSplitView")
+                            : t("expenses.filters.expandFullWidth")}
                         </span>
                       </span>
                       <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
-                        {isFullWidthMode ? "Активен" : "Превключи"}
+                        {isFullWidthMode
+                          ? t("expenses.filters.activeTag")
+                          : t("expenses.filters.switchTag")}
                       </span>
                     </button>
                   )}
@@ -798,7 +829,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                   className="min-h-[44px] px-3.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Изчисти</span>
+                  <span>{t("common.clear")}</span>
                 </button>
 
                 <div className="flex items-center gap-2 ml-auto">
@@ -807,14 +838,15 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                     onClick={handleCloseModal}
                     className="min-h-[44px] px-4 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                   >
-                    Отказ
+                    {t("common.cancel")}
                   </button>
                   <button
                     type="button"
                     onClick={handleApplyFilters}
                     className="min-h-[44px] px-5 rounded-xl text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] shadow-sm transition-all cursor-pointer whitespace-nowrap"
                   >
-                    Приложи{draftFiltersCount > 0 ? ` (${draftFiltersCount})` : ""}
+                    {t("expenses.filters.applyBtn")}
+                    {draftFiltersCount > 0 ? ` (${draftFiltersCount})` : ""}
                   </button>
                 </div>
               </div>

@@ -21,6 +21,8 @@ import { BackupData } from "@/types";
 import { DriveFileInfo } from "@/utils/googleDriveBackup";
 import { gatherApplicationData } from "@/utils/backupRestore";
 import { dispatchManualBackupNotification } from "@/utils/notificationsEngine";
+import { useI18n } from "@/i18n";
+import { getIntlLocale } from "@/i18n/helpers";
 
 interface DriveRestoreModalProps {
   isOpen: boolean;
@@ -33,6 +35,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { t, language } = useI18n();
   const {
     user,
     localUpdatedAt,
@@ -72,11 +75,11 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
           setBackup(res.backup);
           setFileInfo(res.fileInfo);
         } else {
-          setError("Не бе намерен валиден архив в Google Drive.");
+          setError(t("backup.driveRestoreModal.noValidBackupErr"));
         }
       })
       .catch((err) => {
-        setError(err?.message || "Грешка при сваляне на архива.");
+        setError(err?.message || t("backup.driveRestoreModal.downloadErr"));
       })
       .finally(() => {
         setIsLoading(false);
@@ -100,17 +103,17 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
         setError(res.message);
       }
     } catch (e: any) {
-      setError(e?.message || "Грешка при прилагане на данните.");
+      setError(e?.message || t("backup.driveRestoreModal.applyErr"));
     } finally {
       setIsRestoring(false);
     }
   };
 
   const formatIsoDate = (isoStr?: string) => {
-    if (!isoStr) return "Няма информация";
+    if (!isoStr) return t("backup.noInfo");
     try {
       const d = new Date(isoStr);
-      return d.toLocaleString("bg-BG", {
+      return d.toLocaleString(getIntlLocale(language), {
         dateStyle: "medium",
         timeStyle: "short",
       });
@@ -130,10 +133,14 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white text-base sm:text-lg">
-                Възстановяване от Google Drive (Restore From Drive)
+                {t("backup.driveRestoreModal.title")}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Профил: <strong className="text-slate-700 dark:text-slate-200">{user?.email || "Текущ Google профил"}</strong> · Google Drive <code>appDataFolder</code>
+                {t("backup.driveRestoreModal.profileLabel")}{" "}
+                <strong className="text-slate-700 dark:text-slate-200">
+                  {user?.email || t("backup.driveRestoreModal.currentGoogleProfile")}
+                </strong>{" "}
+                · Google Drive <code>appDataFolder</code>
               </p>
             </div>
           </div>
@@ -152,7 +159,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
             <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-500 dark:text-slate-400">
               <Loader2 className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-spin" />
               <p className="text-sm font-medium">
-                Търсене и сваляне на архив от Google Drive...
+                {t("backup.driveRestoreModal.searchingDownloading")}
               </p>
             </div>
           )}
@@ -170,13 +177,13 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
               <div className="bg-emerald-50/70 dark:bg-emerald-950/30 p-4 rounded-xl border border-emerald-200 dark:border-emerald-800/80 space-y-2">
                 <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-bold text-xs uppercase tracking-wider">
                   <FileCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>Намерен е съхранен архив (Backup Found)</span>
+                  <span>{t("backup.driveRestoreModal.backupFoundBadge")}</span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
                   <div>
                     <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
-                      Облачна версия (Drive)
+                      {t("backup.driveRestoreModal.cloudVersionLabel")}
                     </div>
                     <div className="font-bold text-slate-900 dark:text-white">
                       {formatIsoDate(fileInfo.modifiedTime || backup.dataUpdatedAt || backup.exportDate)}
@@ -185,7 +192,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
 
                   <div>
                     <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
-                      Локална версия (Device)
+                      {t("backup.driveRestoreModal.localVersionLabel")}
                     </div>
                     <div className="font-bold text-slate-900 dark:text-white">
                       {formatIsoDate(localUpdatedAt || undefined)}
@@ -194,16 +201,16 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
 
                   <div>
                     <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
-                      Размер на файла
+                      {t("backup.driveRestoreModal.fileSizeLabel")}
                     </div>
                     <div className="font-bold text-slate-900 dark:text-white">
-                      {fileInfo.size || "JSON файл"}
+                      {fileInfo.size || t("backup.jsonFileFallback")}
                     </div>
                   </div>
 
                   <div>
                     <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
-                      Версия на схемата
+                      {t("backup.driveRestoreModal.schemaVersionLabel")}
                     </div>
                     <div className="font-bold text-slate-900 dark:text-white">
                       v{backup.version || "1.0"}
@@ -215,22 +222,22 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
               {/* Records Comparison Breakdown */}
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
-                  Сравнение: Текущи данни в браузъра vs Google Drive
+                  {t("backup.driveRestoreModal.comparisonHeading")}
                 </h4>
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-xs">
                   <table className="w-full text-left divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-semibold">
                       <tr>
-                        <th className="py-2.5 px-3">Модул / Категория</th>
-                        <th className="py-2.5 px-3 text-center">Текущо локално</th>
-                        <th className="py-2.5 px-3 text-center">В Google Drive</th>
+                        <th className="py-2.5 px-3">{t("backup.previewModal.colModule")}</th>
+                        <th className="py-2.5 px-3 text-center">{t("backup.driveRestoreModal.colLocal")}</th>
+                        <th className="py-2.5 px-3 text-center">{t("backup.driveRestoreModal.colDrive")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200">
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>Доходи (Income)</span>
+                          <span>{t("backup.driveRestoreModal.rowIncome")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.incomeCount ?? 0}
@@ -243,7 +250,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                          <span>Разходи (Expenses)</span>
+                          <span>{t("backup.driveRestoreModal.rowExpenses")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.expensesCount ?? 0}
@@ -256,7 +263,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <PiggyBank className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                          <span>Спестявания (Savings)</span>
+                          <span>{t("backup.driveRestoreModal.rowSavings")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.savingsCount ?? 0}
@@ -269,7 +276,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Zap className="w-3.5 h-3.5 text-amber-500" />
-                          <span>Сметки за ток (Electricity History)</span>
+                          <span>{t("backup.driveRestoreModal.rowElectricity")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.electricityCount ?? 0}
@@ -282,7 +289,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                          <span>Обхванати месеци</span>
+                          <span>{t("backup.previewModal.rowMonths")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.monthsCovered.length ?? 0}
@@ -295,7 +302,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Sliders className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                          <span>Категории & Бюджети</span>
+                          <span>{t("backup.previewModal.rowCategoriesBudgets")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {(currentSnapshot?.summary.categoriesCount ?? 0) +
@@ -313,7 +320,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
               {/* Restore Options: Merge vs Replace */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Изберете метод на възстановяване:
+                  {t("backup.driveRestoreModal.chooseMethodHeading")}
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -337,16 +344,15 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                           className="text-indigo-600 focus:ring-indigo-500"
                         />
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
-                          Обединяване (Merge)
+                          {t("backup.driveRestoreModal.mergeTitle")}
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
-                        Препоръчително
+                        {t("backup.previewModal.recommendedBadge")}
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-300 mt-2">
-                      Запазва всички текущи локални записи и добавя липсващите
-                      елементи от Google Drive без дублиране.
+                      {t("backup.driveRestoreModal.mergeDesc")}
                     </p>
                   </label>
 
@@ -370,16 +376,15 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                           className="text-rose-600 focus:ring-rose-500"
                         />
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
-                          Пълна замяна (Replace)
+                          {t("backup.driveRestoreModal.replaceTitle")}
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 px-2 py-0.5 rounded-full">
-                        Презаписване
+                        {t("backup.previewModal.overwriteBadge")}
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-300 mt-2">
-                      Замества изцяло локалната база данни в браузъра с данните
-                      от Google Drive архива.
+                      {t("backup.driveRestoreModal.replaceDesc")}
                     </p>
                   </label>
                 </div>
@@ -392,11 +397,10 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                     <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                     <div>
                       <div className="font-bold text-sm">
-                        Внимание: Пълната замяна ще презапише текущите локални данни!
+                        {t("backup.driveRestoreModal.warningTitle")}
                       </div>
                       <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
-                        Системата автоматично ще създаде аварийна резервна копие
-                        в localStorage преди замяната.
+                        {t("backup.driveRestoreModal.warningDesc")}
                       </p>
                     </div>
                   </div>
@@ -408,10 +412,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                       onChange={(e) => setConfirmReplaceChecked(e.target.checked)}
                       className="rounded text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer"
                     />
-                    <span>
-                      Потвърждавам, че желая да заменя локалните данни с тези от
-                      Google Drive.
-                    </span>
+                    <span>{t("backup.driveRestoreModal.confirmCheckbox")}</span>
                   </label>
                 </div>
               )}
@@ -427,7 +428,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
             disabled={isRestoring}
             className="px-4 py-2.5 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white text-sm font-semibold rounded-xl hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            Отказ (Cancel)
+            {t("common.cancel")}
           </button>
 
           {!isLoading && backup && (
@@ -449,17 +450,17 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
               {isRestoring ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Прилагане...</span>
+                  <span>{t("backup.driveRestoreModal.applyingBtn")}</span>
                 </>
               ) : importMode === "replace" ? (
                 <>
                   <AlertTriangle className="w-4 h-4" />
-                  <span>Замени данните (Confirm Replace)</span>
+                  <span>{t("backup.driveRestoreModal.confirmReplaceBtn")}</span>
                 </>
               ) : (
                 <>
                   <RefreshCw className="w-4 h-4" />
-                  <span>Обедини данните (Confirm Merge)</span>
+                  <span>{t("backup.driveRestoreModal.confirmMergeBtn")}</span>
                 </>
               )}
             </button>

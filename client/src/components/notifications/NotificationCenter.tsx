@@ -28,6 +28,12 @@ import {
   getUnreadNotificationsCount,
 } from "@/utils/notificationsEngine";
 import { LocationCard } from "@/components/common/LocationCard";
+import {
+  formatLocalizedDate,
+  formatLocalizedDateTime,
+  localizeNotification,
+  useI18n,
+} from "@/i18n";
 
 interface NotificationCenterProps {
   store: NotificationsStoreState;
@@ -48,19 +54,26 @@ interface NotificationCenterProps {
 
 type CenterTab = "active" | "history";
 
-function formatShortDateTimeBg(iso: string): string {
-  const ts = Date.parse(iso);
-  if (!Number.isFinite(ts)) return "";
-  return new Date(ts).toLocaleString("bg-BG", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatNotificationDueDate(
+  raw: string,
+  lang: "bg" | "en"
+): string {
+  const isoOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+  if (isoOnly) {
+    const dt = new Date(Number(isoOnly[1]), Number(isoOnly[2]) - 1, Number(isoOnly[3]), 12, 0, 0);
+    return formatLocalizedDate(dt, lang);
+  }
+  const ts = Date.parse(raw);
+  if (Number.isFinite(ts)) {
+    return formatLocalizedDate(new Date(ts), lang);
+  }
+  return formatBgDateFromIsoOrKey(raw);
 }
 
-function getNotificationMeta(n: AppNotification): {
+function getNotificationMeta(
+  n: AppNotification,
+  t: (key: string, params?: Record<string, string | number>) => string
+): {
   typeLabel: string;
   datePrefix: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -69,8 +82,8 @@ function getNotificationMeta(n: AppNotification): {
 } {
   if (n.status === "resolved") {
     return {
-      typeLabel: "Изпълнена операция",
-      datePrefix: "Обновено",
+      typeLabel: t("notifications.meta.resolvedType"),
+      datePrefix: t("notifications.meta.resolvedDatePrefix"),
       icon: CheckCircle2,
       iconBoxClass:
         "bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300",
@@ -81,8 +94,8 @@ function getNotificationMeta(n: AppNotification): {
   switch (n.type) {
     case "overdue_expense":
       return {
-        typeLabel: "Просрочен разход",
-        datePrefix: "Падеж",
+        typeLabel: t("notifications.meta.overdueExpense"),
+        datePrefix: t("notifications.meta.dueDatePrefix"),
         icon: AlertTriangle,
         iconBoxClass:
           "bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400",
@@ -90,8 +103,8 @@ function getNotificationMeta(n: AppNotification): {
       };
     case "overdue_income":
       return {
-        typeLabel: "Закъснял приход",
-        datePrefix: "Очакван на",
+        typeLabel: t("notifications.meta.overdueIncome"),
+        datePrefix: t("notifications.meta.expectedOnPrefix"),
         icon: AlertTriangle,
         iconBoxClass:
           "bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400",
@@ -99,8 +112,8 @@ function getNotificationMeta(n: AppNotification): {
       };
     case "upcoming_expense":
       return {
-        typeLabel: "Предстоящ разход",
-        datePrefix: "Падеж",
+        typeLabel: t("notifications.meta.upcomingExpense"),
+        datePrefix: t("notifications.meta.dueDatePrefix"),
         icon: Clock,
         iconBoxClass:
           "bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300",
@@ -108,8 +121,8 @@ function getNotificationMeta(n: AppNotification): {
       };
     case "upcoming_income":
       return {
-        typeLabel: "Очакван приход",
-        datePrefix: "Дата",
+        typeLabel: t("notifications.meta.upcomingIncome"),
+        datePrefix: t("notifications.meta.datePrefix"),
         icon: ArrowDownLeft,
         iconBoxClass:
           "bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300",
@@ -117,8 +130,8 @@ function getNotificationMeta(n: AppNotification): {
       };
     case "goal_milestone":
       return {
-        typeLabel: "Цел за спестяване",
-        datePrefix: "Постигнато",
+        typeLabel: t("notifications.meta.goalMilestone"),
+        datePrefix: t("notifications.meta.achievedPrefix"),
         icon: Target,
         iconBoxClass:
           "bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300",
@@ -126,8 +139,8 @@ function getNotificationMeta(n: AppNotification): {
       };
     case "recurring_generated":
       return {
-        typeLabel: "Повтаряща се операция",
-        datePrefix: "Дата",
+        typeLabel: t("notifications.meta.recurringGenerated"),
+        datePrefix: t("notifications.meta.datePrefix"),
         icon: Repeat,
         iconBoxClass:
           "bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300",
@@ -135,8 +148,8 @@ function getNotificationMeta(n: AppNotification): {
       };
     case "backup_success":
       return {
-        typeLabel: "Успешен архив",
-        datePrefix: "Синхронизирано",
+        typeLabel: t("notifications.meta.backupSuccess"),
+        datePrefix: t("notifications.meta.syncedPrefix"),
         icon: Cloud,
         iconBoxClass:
           "bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300",
@@ -156,6 +169,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   onCompleteTransaction,
   defaultOpen = false,
 }) => {
+  const { t, language } = useI18n();
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [activeTab, setActiveTab] = useState<CenterTab>("active");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -221,11 +235,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white whitespace-nowrap">
-            Известия
+            {t("notifications.title")}
           </h3>
           {unreadCount > 0 && (
             <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 tabular-nums whitespace-nowrap">
-              · {unreadCount} нови
+              {t("notifications.unreadBadge", { count: unreadCount })}
             </span>
           )}
         </div>
@@ -238,7 +252,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               className="min-h-[32px] inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors whitespace-nowrap cursor-pointer"
             >
               <CheckCheck className="w-3.5 h-3.5" />
-              <span>Всички прочетени</span>
+              <span>{t("notifications.markAllRead")}</span>
             </button>
           )}
           {store.notifications.length > 0 && (
@@ -248,13 +262,13 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               className="min-h-[32px] inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors whitespace-nowrap cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Изчисти</span>
+              <span>{t("notifications.clearShort")}</span>
             </button>
           )}
           <button
             type="button"
             onClick={() => setIsOpen(false)}
-            aria-label="Затвори известията"
+            aria-label={t("notifications.closeAria")}
             className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -262,7 +276,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         </div>
       </div>
 
-      {/* Compact Segmented Switch: Активни | История */}
+      {/* Compact Segmented Switch: Active | History */}
       <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
         <button
           type="button"
@@ -273,7 +287,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
-          Активни ({activeItems.length})
+          {t("notifications.tabs.active")} ({activeItems.length})
         </button>
         <button
           type="button"
@@ -284,7 +298,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
           }`}
         >
-          История ({historyItems.length})
+          {t("notifications.tabs.history")} ({historyItems.length})
         </button>
       </div>
     </div>
@@ -299,8 +313,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
           </div>
           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
             {activeTab === "active"
-              ? "Нямате нови известия."
-              : "Нямате известия в историята."}
+              ? t("notifications.emptyActive")
+              : t("notifications.emptyHistory")}
           </p>
         </div>
       );
@@ -309,7 +323,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     return (
       <div className="p-3 space-y-2.5">
         {displayedItems.map((n) => {
-          const meta = getNotificationMeta(n);
+          const meta = getNotificationMeta(n, t);
+          const localized = localizeNotification(n, language);
           const IconComp = meta.icon;
           const isUnread = n.status === "unread";
           const isResolved = n.status === "resolved";
@@ -325,10 +340,12 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             Boolean(n.target?.monthKey && n.target?.recordId && n.target?.recordListType);
           const calendarDate = n.target?.dateKey || n.dueDateKey;
           const displayDateValue = n.dueDateKey
-            ? formatBgDateFromIsoOrKey(n.dueDateKey)
-            : formatShortDateTimeBg(n.updatedAt || n.createdAt);
+            ? formatNotificationDueDate(n.dueDateKey, language)
+            : formatLocalizedDateTime(n.updatedAt || n.createdAt, language);
           const displayDescription =
-            isResolved && n.resolvedNote ? n.resolvedNote : n.message;
+            isResolved && localized.resolvedNote
+              ? localized.resolvedNote
+              : localized.message;
 
           return (
             <div
@@ -362,7 +379,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                       className={`text-[11px] font-bold tracking-tight truncate ${meta.labelClass}`}
                     >
                       {meta.typeLabel}
-                      {isUnread ? " · Ново" : ""}
+                      {isUnread ? t("notifications.newTag") : ""}
                     </span>
                     <button
                       type="button"
@@ -380,7 +397,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                           ? "hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
                           : "cursor-default"
                       }`}
-                      title={calendarDate ? "Отвори датата в Календар" : undefined}
+                      title={
+                        calendarDate
+                          ? t("notifications.actions.openDateInCalendar")
+                          : undefined
+                      }
                     >
                       {calendarDate && <CalendarDays className="w-3 h-3 shrink-0" />}
                       <span>
@@ -391,7 +412,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
                   {/* Primary Title + Amount */}
                   <p className="text-sm sm:text-[15px] font-bold text-slate-900 dark:text-white leading-snug mt-0.5 tabular-nums">
-                    {n.title}
+                    {localized.title}
                   </p>
 
                   {/* Reason / Description */}
@@ -416,7 +437,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                   className="min-h-[34px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <ExternalLink className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>Отвори</span>
+                  <span>{t("notifications.actions.open")}</span>
                 </button>
 
                 {canQuickComplete &&
@@ -435,7 +456,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                       className="min-h-[34px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       <Check className="w-3.5 h-3.5" />
-                      <span>Изпълнено</span>
+                      <span>{t("notifications.completedAction")}</span>
                     </button>
                   )}
 
@@ -446,7 +467,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                     className="min-h-[34px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <CheckCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    <span>Прочетено</span>
+                    <span>{t("notifications.markRead")}</span>
                   </button>
                 )}
 
@@ -456,7 +477,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                   className="min-h-[34px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ml-auto"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  <span>Изтрий</span>
+                  <span>{t("common.delete")}</span>
                 </button>
               </div>
             </div>
@@ -473,7 +494,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             className="fixed inset-0 z-[100] md:hidden flex flex-col justify-end"
             role="dialog"
             aria-modal="true"
-            aria-label="Център за известия"
+            aria-label={t("notifications.centerAria")}
           >
             <div
               onClick={() => setIsOpen(false)}
@@ -499,14 +520,14 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         onClick={handleToggleOpen}
         aria-label={
           unreadCount > 0
-            ? `Известия (${unreadCount} непрочетени)`
-            : "Известия"
+            ? t("notifications.unreadCountAria", { count: unreadCount })
+            : t("notifications.title")
         }
         aria-expanded={isOpen}
         title={
           unreadCount > 0
-            ? `Известия (${unreadCount} непрочетени)`
-            : "Център за известия"
+            ? t("notifications.unreadCountAria", { count: unreadCount })
+            : t("notifications.centerAria")
         }
         className={`relative min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full border transition-colors cursor-pointer ${
           isOpen
@@ -526,7 +547,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       {isOpen && (
         <div
           role="dialog"
-          aria-label="Център за известия"
+          aria-label={t("notifications.centerAria")}
           className="hidden md:flex flex-col absolute right-0 top-full mt-2 w-[430px] max-w-[calc(100vw-2rem)] max-h-[min(78vh,600px)] bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden z-[60] animate-in fade-in slide-in-from-top-2 duration-150"
         >
           {renderHeader(false)}

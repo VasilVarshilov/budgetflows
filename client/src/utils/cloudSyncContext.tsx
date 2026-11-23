@@ -47,6 +47,7 @@ import {
   STORAGE_BASE_DISMISSED_RESTORE_PROMPT,
 } from "./userStorage";
 import { BackupData } from "@/types";
+import { t } from "@/i18n/helpers";
 
 export type SyncStatus = "idle" | "syncing" | "synced" | "failed" | "offline";
 
@@ -665,7 +666,7 @@ export const CloudSyncProvider: React.FC<{
           }
         } else if (authUidRef.current === expectedUid) {
           setSyncStatus("failed");
-          setLastSyncError(errMsg || "Грешка при синхронизация с Google Drive.");
+          setLastSyncError(errMsg || t("syncErrors.syncErrorGeneric"));
         }
         console.warn("Could not evaluate Drive sync state:", e);
         return null;
@@ -923,9 +924,7 @@ export const CloudSyncProvider: React.FC<{
       if (!token || !activeUser || !expectedUid) {
         if (!isAutomatic) {
           setSyncStatus("failed");
-          setLastSyncError(
-            "Няма активна Google сесия или изтекъл токен. Моля, подновете достъпа."
-          );
+          setLastSyncError(t("syncErrors.noActiveSessionRenew"));
         } else if (expectedUid && expectedUid !== "guest") {
           // Keep pending sync queued so reconnect uploads it automatically
           persistPendingSyncFlag(expectedUid, true);
@@ -933,8 +932,7 @@ export const CloudSyncProvider: React.FC<{
         }
         return {
           success: false,
-          message:
-            "Няма активна сесия за Google Drive. Натиснете вход/поднови достъпа.",
+          message: t("syncErrors.noActiveSessionLogin"),
         };
       }
 
@@ -942,8 +940,7 @@ export const CloudSyncProvider: React.FC<{
       if (isAutomatic && userStorage.isEmpty(expectedUid) && cloudBackupInfo) {
         return {
           success: false,
-          message:
-            "Качването в тази сесия е отложено, докато не възстановите наличния облачен архив.",
+          message: t("syncErrors.uploadDeferredEmpty"),
         };
       }
 
@@ -957,8 +954,7 @@ export const CloudSyncProvider: React.FC<{
         persistPendingSyncFlag(expectedUid, true);
         return {
           success: false,
-          message:
-            "Автоматичното качване е спряно до избор на действие при конфликт на версиите.",
+          message: t("syncErrors.autoUploadPausedConflict"),
         };
       }
 
@@ -967,8 +963,7 @@ export const CloudSyncProvider: React.FC<{
         setSyncStatus("offline");
         return {
           success: false,
-          message:
-            "Няма интернет връзка. Промените ще се синхронизират автоматично при връщане онлайн.",
+          message: t("syncErrors.offlineQueued"),
         };
       }
 
@@ -976,7 +971,7 @@ export const CloudSyncProvider: React.FC<{
         persistPendingSyncFlag(expectedUid, true);
         return {
           success: false,
-          message: "В момента се извършва синхронизация.",
+          message: t("syncErrors.syncInFlight"),
         };
       }
 
@@ -996,7 +991,7 @@ export const CloudSyncProvider: React.FC<{
         if (authUidRef.current !== expectedUid) {
           return {
             success: false,
-            message: "Профилът бе сменен по време на синхронизацията.",
+            message: t("syncErrors.accountSwitchedMidSync"),
           };
         }
 
@@ -1054,11 +1049,11 @@ export const CloudSyncProvider: React.FC<{
         return {
           success: true,
           message:
-            result.message || "Архивът бе записан успешно в Google Drive.",
+            result.message || t("syncErrors.driveSavedSuccess"),
         };
       } catch (err: any) {
         console.error("Backup to Google Drive failed:", err);
-        const errMsg = err?.message || "Неуспешен запис в Google Drive.";
+        const errMsg = err?.message || t("syncErrors.driveSaveFailed");
         const isAuthError =
           errMsg.includes("Сесията с Google изтече") ||
           errMsg.includes("401") ||
@@ -1109,7 +1104,7 @@ export const CloudSyncProvider: React.FC<{
                   success: true,
                   message:
                     retryResult.message ||
-                    "Архивът бе записан успешно в Google Drive.",
+                    t("syncErrors.driveSavedSuccess"),
                 };
               }
             } catch (retryErr: any) {
@@ -1285,7 +1280,7 @@ export const CloudSyncProvider: React.FC<{
           fileInfo: null,
           error:
             formatFirebaseAuthError(authErr) ||
-            "Няма активна Google сесия. Влезте с Google профила си.",
+            t("syncErrors.signInPrompt"),
         };
       }
     }
@@ -1295,7 +1290,7 @@ export const CloudSyncProvider: React.FC<{
         backup: null,
         rawText: null,
         fileInfo: null,
-        error: "Няма активна Google сесия.",
+        error: t("syncErrors.noActiveSession"),
       };
     }
 
@@ -1308,7 +1303,7 @@ export const CloudSyncProvider: React.FC<{
           backup: null,
           rawText: null,
           fileInfo: null,
-          error: "Профилът бе сменен по време на заявката.",
+          error: t("syncErrors.accountSwitchedMidReq"),
         };
       }
 
@@ -1317,8 +1312,7 @@ export const CloudSyncProvider: React.FC<{
           backup: null,
           rawText: null,
           fileInfo: null,
-          error:
-            "В Google Drive не бе намерен съхранен архив (budgetflows-backup.json).",
+          error: t("syncErrors.backupNotFoundDrive"),
         };
       }
 
@@ -1328,7 +1322,7 @@ export const CloudSyncProvider: React.FC<{
           backup: null,
           rawText: null,
           fileInfo: null,
-          error: "Профилът бе сменен по време на свалянето.",
+          error: t("syncErrors.accountSwitchedMidDownload"),
         };
       }
 
@@ -1340,7 +1334,7 @@ export const CloudSyncProvider: React.FC<{
           fileInfo,
           error:
             validation.errorMessage ||
-            "Архивният файл е повреден или невалиден.",
+            t("syncErrors.corruptBackup"),
         };
       }
 
@@ -1354,7 +1348,7 @@ export const CloudSyncProvider: React.FC<{
           backup: null,
           rawText: null,
           fileInfo,
-          error: ownership.reason || "Архивът принадлежи на друг акаунт.",
+          error: ownership.reason || t("syncErrors.otherAccountBackup"),
         };
       }
 
@@ -1374,7 +1368,7 @@ export const CloudSyncProvider: React.FC<{
         backup: null,
         rawText: null,
         fileInfo: null,
-        error: errMsg || "Грешка при сваляне на архива от Google Drive.",
+        error: errMsg || t("syncErrors.downloadFailed"),
       };
     }
   }, []);
@@ -1396,7 +1390,7 @@ export const CloudSyncProvider: React.FC<{
         if (!ownership.allowed) {
           return {
             success: false,
-            message: ownership.reason || "Архивът принадлежи на друг акаунт.",
+            message: ownership.reason || t("syncErrors.otherAccountBackup"),
           };
         }
 
@@ -1483,13 +1477,13 @@ export const CloudSyncProvider: React.FC<{
 
         return {
           success: true,
-          message: res.message || "Данните бяха успешно възстановени.",
+          message: res.message || t("syncErrors.restoreSuccess"),
         };
       } catch (err: any) {
         return {
           success: false,
           message:
-            err?.message || "Възникна грешка при възстановяване на данните.",
+            err?.message || t("syncErrors.restoreError"),
         };
       }
     },
@@ -1514,8 +1508,7 @@ export const CloudSyncProvider: React.FC<{
       if (!syncConflict?.cloudBackup) {
         return {
           success: false,
-          message:
-            "Облачният архив не е зареден. Използвайте бутона 'Възстанови от Drive'.",
+          message: t("syncErrors.cloudNotLoaded"),
         };
       }
       return restoreCloudBackup(
@@ -1676,7 +1669,7 @@ export const CloudSyncProvider: React.FC<{
           success: false,
           message:
             formatFirebaseAuthError(authErr) ||
-            "Няма активна Google сесия. Влезте с Google профила си.",
+            t("syncErrors.signInPrompt"),
         };
       }
     }
@@ -1684,7 +1677,7 @@ export const CloudSyncProvider: React.FC<{
     if (!token || !activeUser) {
       return {
         success: false,
-        message: "Няма активна сесия. Влезте с Google профила си.",
+        message: t("syncErrors.signInPrompt"),
       };
     }
 
@@ -1696,7 +1689,7 @@ export const CloudSyncProvider: React.FC<{
       if (authUidRef.current !== expectedUid) {
         return {
           success: false,
-          message: "Профилът бе сменен по време на операцията.",
+          message: t("syncErrors.accountSwitchedMidOp"),
         };
       }
 
@@ -1705,8 +1698,7 @@ export const CloudSyncProvider: React.FC<{
         setSyncStatus("idle");
         return {
           success: false,
-          message:
-            "В Google Drive не бе намерен съхранен архив (budgetflows-backup.json).",
+          message: t("syncErrors.backupNotFoundDrive"),
         };
       }
 
@@ -1724,12 +1716,12 @@ export const CloudSyncProvider: React.FC<{
 
       return {
         success: true,
-        message: "Облачният архив бе изтрит успешно от Google Drive.",
+        message: t("syncErrors.cloudDeletedSuccess"),
       };
     } catch (err: any) {
       console.error("Delete cloud backup failed:", err);
       const errMsg =
-        err?.message || "Грешка при изтриване на архива от Google Drive.";
+        err?.message || t("syncErrors.deleteCloudError");
       if (errMsg.includes("Сесията с Google изтече") || errMsg.includes("401")) {
         clearStoredOAuthToken();
         setHasDriveAccessToken(false);

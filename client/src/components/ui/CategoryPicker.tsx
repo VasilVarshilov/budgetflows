@@ -28,6 +28,7 @@ import {
   getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
+import { translateCategoryName, translateColorLabel, useI18n } from "@/i18n";
 
 interface CategoryPickerProps {
   categories?: ExpenseCategory[];
@@ -46,6 +47,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   onCategoriesChanged,
   mode = "expense",
 }) => {
+  const { t, language } = useI18n();
   const isIncomeMode = mode === "income";
 
   // Category list loaded from storage
@@ -107,12 +109,23 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
     [isIncomeMode]
   );
 
+  const getCategoryDisplayName = (cat: ExpenseCategory): string =>
+    !cat.isCustom && predefinedIds.has(cat.id)
+      ? translateCategoryName(cat.name, language)
+      : cat.name;
+
   // Filtered categories separated into Custom vs Predefined
   const filteredCategories = useMemo(() => {
-    return categories.filter((c) =>
-      c.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [categories, searchTerm]);
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return categories;
+    return categories.filter((c) => {
+      if (c.name.toLowerCase().includes(q)) return true;
+      if (!c.isCustom && predefinedIds.has(c.id)) {
+        return translateCategoryName(c.name, language).toLowerCase().includes(q);
+      }
+      return false;
+    });
+  }, [categories, searchTerm, predefinedIds, language]);
 
   const { customCategories, predefinedCategories } = useMemo(() => {
     const custom: ExpenseCategory[] = [];
@@ -315,10 +328,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-800 dark:text-white">
-                Избор на категория
+                {t("categories.pickerTitle")}
               </h3>
               <p className="text-xs text-slate-400 dark:text-slate-400">
-                {categories.length} активни категории
+                {t("categories.activeCount", { count: categories.length })}
               </p>
             </div>
           </div>
@@ -328,7 +341,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               type="button"
               onClick={onClose}
               className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
-              aria-label="Затвори"
+              aria-label={t("common.close")}
             >
               <X className="w-5 h-5" />
             </button>
@@ -341,7 +354,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             <Search className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Търсене на категория..."
+              placeholder={t("categories.searchPlaceholder")}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-400 text-slate-800 dark:text-white"
@@ -368,7 +381,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Нова категория</span>
+              <span>{t("categories.newCategoryBtn")}</span>
             </button>
           )}
         </div>
@@ -378,7 +391,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           ref={scrollContainerRef}
           className="overflow-y-auto p-4 bg-slate-50/40 dark:bg-slate-950/40 space-y-4 flex-1"
         >
-          {/* Prominent Нова категория Trigger Card */}
+          {/* Prominent New Category Trigger Card */}
           {!isAddingNew && (
             <button
               type="button"
@@ -396,15 +409,15 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 </div>
                 <div>
                   <span className="text-sm font-bold text-indigo-900 dark:text-indigo-200 block">
-                    Нова категория
+                    {t("categories.newCategoryBtn")}
                   </span>
                   <span className="text-xs text-indigo-700/80 dark:text-indigo-300/80">
-                    Създайте персонализирана категория с икона и цвят
+                    {t("categories.newDesc")}
                   </span>
                 </div>
               </div>
               <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 shrink-0">
-                Създай
+                {t("categories.createBtnShort")}
               </span>
             </button>
           )}
@@ -419,10 +432,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-slate-800 dark:text-white">
-                      Нова категория
+                      {t("categories.newCategoryBtn")}
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      AI автоматично ще избере най-подходяща икона и цвят
+                      {t("categories.aiAutoHint")}
                     </p>
                   </div>
                 </div>
@@ -437,20 +450,24 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               {/* Name Input */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Име на категорията
+                  {t("categories.nameLabel")}
                 </label>
                 <input
                   type="text"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
-                  placeholder="Напр. Настолни игри, Дронове, Фотография, Хоби..."
+                  placeholder={t("categories.namePlaceholder")}
                   className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400"
                   autoFocus
                   onKeyDown={(e) => e.key === "Enter" && handleCreateNew()}
                 />
                 {duplicateCategoryMatch && (
                   <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-200">
-                    <span>Категория „{duplicateCategoryMatch.name}“ вече съществува.</span>
+                    <span>
+                      {t("categories.duplicateExists", {
+                        name: getCategoryDisplayName(duplicateCategoryMatch),
+                      })}
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
@@ -459,7 +476,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                       }}
                       className="px-2.5 py-1 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 shrink-0 cursor-pointer"
                     >
-                      Избери я
+                      {t("categories.pickDuplicate")}
                     </button>
                   </div>
                 )}
@@ -482,23 +499,23 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                        {newCategoryName.trim() || "Примерна категория"}
+                        {newCategoryName.trim() || t("categories.exampleCategory")}
                       </span>
                       {!customIcon && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-100/80 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
                           <Sparkles className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
-                          AI икона ({activeNewIcon})
+                          {t("categories.aiIconBadge", { icon: activeNewIcon })}
                         </span>
                       )}
                       {customIcon && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">
                           <Check className="w-2.5 h-2.5" />
-                          Избрана ръчно
+                          {t("categories.manualPickedBadge")}
                         </span>
                       )}
                     </div>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                      Иконата ще се визуализира в отчетите и графиките
+                      {t("categories.iconReportNote")}
                     </span>
                   </div>
                 </div>
@@ -509,7 +526,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                     onClick={() => setShowIconSelector((prev) => !prev)}
                     className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded-lg text-xs font-semibold shadow-sm transition-colors"
                   >
-                    {showIconSelector ? "Скрий икони" : "Смени иконка"}
+                    {showIconSelector
+                      ? t("categories.hideIcons")
+                      : t("categories.changeIcon")}
                   </button>
                   {(customIcon || customColor) && (
                     <button
@@ -519,7 +538,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         setCustomColor(null);
                       }}
                       className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-colors"
-                      title="Върни AI предложението"
+                      title={t("categories.resetAiHint")}
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                     </button>
@@ -533,7 +552,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   {/* Color Selector */}
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                      Избор на цвят:
+                      {t("categories.colorSelectLabel")}
                     </label>
                     <div className="flex flex-wrap gap-1.5">
                       {COLOR_OPTIONS.map((col) => {
@@ -548,7 +567,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                                 ? "ring-2 ring-offset-2 dark:ring-offset-slate-800 ring-indigo-600 dark:ring-indigo-400 scale-110 shadow-sm"
                                 : "hover:scale-105 opacity-85 hover:opacity-100"
                             }`}
-                            title={col.label}
+                            title={translateColorLabel(col.id, language)}
                           >
                             {isSelected && <Check className="w-3 h-3 text-white" />}
                           </button>
@@ -561,11 +580,11 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        Избор на икона ({availableIconKeys.length}):
+                        {t("categories.iconSelectLabel", { count: availableIconKeys.length })}
                       </label>
                       <input
                         type="text"
-                        placeholder="Търси икона..."
+                        placeholder={t("categories.searchIconPlaceholder")}
                         value={iconSearchTerm}
                         onChange={(e) => setIconSearchTerm(e.target.value)}
                         className="px-2 py-0.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-md w-28 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -603,7 +622,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   onClick={() => setIsAddingNew(false)}
                   className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                 >
-                  Отказ
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -611,7 +630,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   disabled={!newCategoryName.trim() || Boolean(duplicateCategoryMatch)}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
                 >
-                  Запази категорията
+                  {t("categories.saveCategory")}
                 </button>
               </div>
             </div>
@@ -622,7 +641,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             <div className="space-y-2.5">
               <div className="flex items-center justify-between px-0.5">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
-                  Потребителски категории ({customCategories.length})
+                  {t("categories.customSection")} ({customCategories.length})
                 </h4>
               </div>
               <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 gap-2.5">
@@ -678,8 +697,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                                 : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700/80"
                             }
                           `}
-                          title="Действия с категорията"
-                          aria-label={`Опции за категория ${category.name}`}
+                          title={t("categories.actionsTooltip")}
+                          aria-label={t("categories.optionsAria", { name: category.name })}
                           aria-haspopup="menu"
                           aria-expanded={isMenuOpen}
                         >
@@ -693,14 +712,14 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                           setOpenMenu(null);
                           onSelect(category);
                         }}
-                        aria-label={`Избери категория ${category.name}`}
+                        aria-label={t("categories.selectAria", { name: category.name })}
                         className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
                       >
                         <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
                           {category.name}
                         </span>
                         <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-300 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                          Потребителска
+                          {t("categories.customBadge")}
                         </span>
                       </button>
                     </div>
@@ -715,13 +734,14 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             <div className="space-y-2.5">
               <div className="flex items-center justify-between px-0.5">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Предефинирани категории ({predefinedCategories.length})
+                  {t("categories.defaultSection")} ({predefinedCategories.length})
                 </h4>
               </div>
               <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 gap-2.5">
                 {predefinedCategories.map((category) => {
                   const IconComp = AVAILABLE_ICONS_MAP[category.iconName] || AVAILABLE_ICONS_MAP.Tag;
                   const isMenuOpen = openMenu?.category.id === category.id;
+                  const displayName = translateCategoryName(category.name, language);
 
                   return (
                     <div
@@ -771,8 +791,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                                 : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700/80"
                             }
                           `}
-                          title="Действия с категорията"
-                          aria-label={`Опции за категория ${category.name}`}
+                          title={t("categories.actionsTooltip")}
+                          aria-label={t("categories.optionsAria", { name: displayName })}
                           aria-haspopup="menu"
                           aria-expanded={isMenuOpen}
                         >
@@ -786,11 +806,11 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                           setOpenMenu(null);
                           onSelect(category);
                         }}
-                        aria-label={`Избери категория ${category.name}`}
+                        aria-label={t("categories.selectAria", { name: displayName })}
                         className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
                       >
                         <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
-                          {category.name}
+                          {displayName}
                         </span>
                       </button>
                     </div>
@@ -804,10 +824,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             <div className="text-center py-12 bg-white dark:bg-slate-800/80 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
               <Search className="w-10 h-10 mx-auto mb-2 opacity-40 text-slate-400" />
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Няма намерени категории за &quot;{searchTerm}&quot;
+                {t("categories.noSearchMatches", { query: searchTerm })}
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Можете да създадете нова категория с това име чрез бутона &quot;Нова&quot;.
+                {t("categories.noSearchSub")}
               </p>
               <button
                 type="button"
@@ -819,7 +839,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Създай категория &quot;{searchTerm}&quot;
+                {t("categories.createEmptyCta", { query: searchTerm })}
               </button>
             </div>
           )}
@@ -827,8 +847,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
         {/* Footer */}
         <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 px-4">
-          <span>Кликнете върху категория за избор</span>
-          <span className="hidden sm:inline">Всички създадени категории се запазват автоматично</span>
+          <span>{t("categories.clickToSelectHint")}</span>
+          <span className="hidden sm:inline">{t("categories.autoSaveHint")}</span>
         </div>
       </div>
 
@@ -842,7 +862,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   <Pencil className="w-4 h-4" />
                 </div>
                 <h4 className="font-bold text-slate-800 dark:text-white text-sm">
-                  Редактиране на категория
+                  {t("categories.editTitle")}
                 </h4>
               </div>
               <button
@@ -856,7 +876,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             {/* Name */}
             <div>
               <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Име на категорията
+                {t("categories.nameLabel")}
               </label>
               <input
                 type="text"
@@ -882,10 +902,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 </div>
                 <div>
                   <span className="text-xs font-bold text-slate-800 dark:text-white block">
-                    {editName || "Име"}
+                    {editName || t("categories.sampleName")}
                   </span>
                   <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Икона: {editIcon}
+                    {t("categories.iconPrefix", { icon: editIcon })}
                   </span>
                 </div>
               </div>
@@ -894,7 +914,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 onClick={() => setShowEditIconSelector((prev) => !prev)}
                 className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-colors"
               >
-                {showEditIconSelector ? "Скрий икони" : "Смени иконка/цвят"}
+                {showEditIconSelector
+                  ? t("categories.hideIcons")
+                  : t("categories.changeIconColor")}
               </button>
             </div>
 
@@ -904,7 +926,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 {/* Colors */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    Цвят:
+                    {t("categories.colorLabel")}
                   </label>
                   <div className="flex flex-wrap gap-1.5">
                     {COLOR_OPTIONS.map((col) => {
@@ -914,6 +936,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                           key={col.id}
                           type="button"
                           onClick={() => setEditColor(col.colorClass)}
+                          title={translateColorLabel(col.id, language)}
                           className={`w-5 h-5 rounded-full ${col.previewBg} flex items-center justify-center transition-all ${
                             isSelected ? "ring-2 ring-offset-2 ring-indigo-600 scale-110" : "opacity-80"
                           }`}
@@ -928,7 +951,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 {/* Icons */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    Икона:
+                    {t("categories.iconLabel")}
                   </label>
                   <div className="grid grid-cols-7 gap-1.5 max-h-28 overflow-y-auto p-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
                     {Object.keys(AVAILABLE_ICONS_MAP).map((iconKey) => {
@@ -962,7 +985,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 onClick={() => setEditingCategory(null)}
                 className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
               >
-                Отказ
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -970,7 +993,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 disabled={!editName.trim()}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-sm active:scale-95"
               >
-                Запази промените
+                {t("common.saveChanges")}
               </button>
             </div>
           </div>
@@ -982,7 +1005,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         <div
           ref={menuRef}
           role="menu"
-          aria-label={`Действия за ${openMenu.category.name}`}
+          aria-label={t("categories.actionsFor", {
+            name: getCategoryDisplayName(openMenu.category),
+          })}
           style={{ top: openMenu.top, left: openMenu.left }}
           className="fixed z-[70] w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 animate-in fade-in zoom-in-95 duration-150"
         >
@@ -993,7 +1018,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             className="w-full min-h-[44px] px-3.5 py-2 flex items-center gap-2.5 text-left text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-100 hover:bg-indigo-50 dark:hover:bg-indigo-950/70 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors cursor-pointer"
           >
             <Pencil className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
-            <span>Редактирай</span>
+            <span>{t("common.edit")}</span>
           </button>
           <div className="my-1 border-t border-slate-100 dark:border-slate-700/80" />
           <button
@@ -1003,7 +1028,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             className="w-full min-h-[44px] px-3.5 py-2 flex items-center gap-2.5 text-left text-xs sm:text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors cursor-pointer"
           >
             <Trash2 className="w-4 h-4 shrink-0" />
-            <span>Изтрий</span>
+            <span>{t("common.delete")}</span>
           </button>
         </div>
       )}
@@ -1013,8 +1038,13 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         isOpen={Boolean(categoryToDelete)}
         onCancel={() => setCategoryToDelete(null)}
         onConfirm={handleConfirmDelete}
+        title={t("categories.deleteConfirmTitle")}
         detailLabel={
-          categoryToDelete ? `Категория: ${categoryToDelete.name}` : undefined
+          categoryToDelete
+            ? `${t("categories.deleteDetailPrefix")} ${getCategoryDisplayName(
+                categoryToDelete
+              )}`
+            : undefined
         }
       />
     </div>

@@ -40,6 +40,12 @@ import {
   loadDashboardCardOrder,
   saveDashboardCardOrder,
 } from "./dashboardCardConfig";
+import {
+  useI18n,
+  translateMonthName,
+  formatShortMonthIndex,
+  formatLocalizedMonthYear,
+} from "@/i18n";
 
 interface DashboardTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -108,6 +114,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   onTriggerSync,
   onToggleRecordCompletion,
 }) => {
+  const { t, language } = useI18n();
   const now = new Date();
   const currentMonthName = now.toLocaleDateString("bg-BG", { month: "long" });
   const capitalizedCurrentMonth =
@@ -633,8 +640,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         { monthName: string; income: number; expenses: number }
       > = {};
 
-      MONTHS_BG.forEach((m, idx) => {
-        monthMap[idx] = { monthName: MONTHS_SHORT[idx], income: 0, expenses: 0 };
+      MONTHS_BG.forEach((_, idx) => {
+        monthMap[idx] = {
+          monthName: formatShortMonthIndex(idx, language),
+          income: 0,
+          expenses: 0,
+        };
       });
 
       const seenIncomeIds = new Set<string>();
@@ -691,10 +702,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
     // For single month views: compare Income, Fixed, Variable, and Net
     return [
-      { name: "Приходи", value: totalIncome, fill: "#10b981" },
-      { name: "Повтарящи се", value: totalFixed, fill: "#3b82f6" },
-      { name: "Допълнителни", value: totalVariable, fill: "#f59e0b" },
-      { name: "Общо разходи", value: totalExpenses, fill: "#ef4444" },
+      { name: t("dashboard.overview.incomeSeries"), value: totalIncome, fill: "#10b981" },
+      { name: t("dashboard.spending.fixedBar"), value: totalFixed, fill: "#3b82f6" },
+      { name: t("dashboard.spending.additionalBar"), value: totalVariable, fill: "#f59e0b" },
+      { name: t("dashboard.spending.totalExpensesBar"), value: totalExpenses, fill: "#ef4444" },
     ];
   }, [
     periodType,
@@ -705,6 +716,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     totalFixed,
     totalVariable,
     totalExpenses,
+    language,
+    t,
   ]);
 
   // 5. Chart 3 Data: Monthly Trend (Expenses over time)
@@ -712,7 +725,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     const trend = Array(12)
       .fill(0)
       .map((_, i) => ({
-        month: MONTHS_SHORT[i],
+        month: formatShortMonthIndex(i, language),
         expenses: 0,
         income: 0,
       }));
@@ -769,7 +782,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     });
 
     return trend;
-  }, [monthlyData, periodType, selectedYear, now]);
+  }, [monthlyData, periodType, selectedYear, now, language]);
 
   // 6. Chart 4 Data: Savings Trend (Cumulative balance over 12 months)
   const savingsTrendData = useMemo(() => {
@@ -789,24 +802,30 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         }, 0);
 
         return {
-          month: MONTHS_SHORT[month],
+          month: formatShortMonthIndex(month, language),
           balance: parseFloat(balance.toFixed(2)),
         };
       });
 
     return data;
-  }, [globalSavings, periodType, selectedYear, now]);
+  }, [globalSavings, periodType, selectedYear, now, language]);
 
   // Period label for title
   const currentPeriodLabel = useMemo(() => {
     if (periodType === "current") {
-      return `${capitalizedCurrentMonth} ${now.getFullYear()}`;
+      return formatLocalizedMonthYear(
+        `${capitalizedCurrentMonth} ${now.getFullYear()}`,
+        language
+      );
     }
     if (periodType === "month") {
-      return `${selectedMonth} ${selectedYear}`;
+      return formatLocalizedMonthYear(
+        `${selectedMonth} ${selectedYear}`,
+        language
+      );
     }
     if (periodType === "year") {
-      return `${selectedYear} година`;
+      return `${selectedYear} ${t("common.yearFullSuffix")}`;
     }
     return `${customStartDate} — ${customEndDate}`;
   }, [
@@ -817,6 +836,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     selectedYear,
     customStartDate,
     customEndDate,
+    language,
+    t,
   ]);
 
   // Budget calculations for the active period
@@ -878,8 +899,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
   // AI Financial Analysis for top recommendations
   const aiAnalysis = useMemo(() => {
-    return generateLocalFinancialAnalysis(monthlyData, globalSavings);
-  }, [monthlyData, globalSavings, budgetsRevision]);
+    return generateLocalFinancialAnalysis(monthlyData, globalSavings, language);
+  }, [monthlyData, globalSavings, budgetsRevision, language]);
 
   // Read-only Electricity History & Savings Goals summary for Dashboard cards
   const electricityHistory = useMemo(() => {
@@ -908,13 +929,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             <BrandMark size={52} variant="appIcon" className="rounded-full shadow-md shrink-0 ring-2 ring-white/20" />
             <div className="space-y-0.5">
               <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                Добре дошли в {APP_NAME}
+                {t("dashboard.welcomeTitle", { appName: APP_NAME })}
               </h2>
               <p className="text-xs sm:text-sm font-semibold text-indigo-100">
-                {APP_TAGLINE}
+                {t("brand.tagline") || APP_TAGLINE}
               </p>
               <p className="text-xs text-indigo-100/90 pt-0.5">
-                Започнете като добавите първия си разход, приход или месечен бюджет.
+                {t("dashboard.welcomeDesc")}
               </p>
             </div>
           </div>
@@ -926,7 +947,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 className="min-h-[38px] px-3.5 py-2 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-bold shadow-xs transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Добави разход</span>
+                <span>{t("dashboard.addExpense")}</span>
               </button>
               <button
                 type="button"
@@ -934,7 +955,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 className="min-h-[38px] px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 <ArrowDownLeft className="w-3.5 h-3.5" />
-                <span>Добави приход</span>
+                <span>{t("dashboard.addIncome")}</span>
               </button>
               <button
                 type="button"
@@ -942,7 +963,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 className="min-h-[38px] px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Target className="w-3.5 h-3.5" />
-                <span>Настрой бюджет</span>
+                <span>{t("dashboard.configureBudget")}</span>
               </button>
             </div>
           )}
@@ -953,13 +974,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       <div className="flex items-center justify-between gap-2.5 px-0.5">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-            Финансово табло
+            {t("dashboard.title")}
           </h2>
           <button
             type="button"
             onClick={() => setIsFiltersSheetOpen(true)}
             className="inline-flex items-center text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/70 dark:border-indigo-800/80 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer truncate max-w-[190px] sm:max-w-none"
-            title="Промени периода"
+            title={t("dashboard.changePeriodTitle")}
           >
             {currentPeriodLabel}
           </button>
@@ -968,14 +989,14 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         <button
           type="button"
           onClick={() => setIsFiltersSheetOpen(true)}
-          aria-label="Филтри и експорт"
+          aria-label={t("dashboard.filtersAndExport")}
           aria-haspopup="dialog"
           aria-expanded={isFiltersSheetOpen}
           className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#16181d] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold border border-slate-200 dark:border-slate-800 rounded-xl text-xs transition-colors shadow-2xs cursor-pointer shrink-0 whitespace-nowrap"
         >
           <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-          <span className="hidden sm:inline">Филтри и експорт</span>
-          <span className="sm:hidden">Филтри</span>
+          <span className="hidden sm:inline">{t("dashboard.filtersAndExport")}</span>
+          <span className="sm:hidden">{t("dashboard.filtersShort")}</span>
         </button>
       </div>
 
@@ -1063,17 +1084,17 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   id="dashboard-filters-title"
                   className="text-base font-bold text-slate-900 dark:text-white"
                 >
-                  Филтри и експорт
+                  {t("dashboard.filtersAndExport")}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                  Активен период: {currentPeriodLabel}
+                  {t("dashboard.activePeriod")} {currentPeriodLabel}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsFiltersSheetOpen(false)}
                 className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
-                aria-label="Затвори"
+                aria-label={t("common.close")}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1083,7 +1104,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             <div className="p-5 space-y-5 overflow-y-auto">
               <div className="space-y-2.5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Период
+                  {t("dashboard.periodLabel")}
                 </p>
                 <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 p-1.5 border border-slate-200/60 dark:border-slate-700/60">
                   <button
@@ -1095,7 +1116,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                     }`}
                   >
-                    Текущ месец
+                    {t("dashboard.periodCurrent")}
                   </button>
                   <button
                     type="button"
@@ -1106,7 +1127,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                     }`}
                   >
-                    Конкретен месец
+                    {t("dashboard.periodMonth")}
                   </button>
                   <button
                     type="button"
@@ -1117,7 +1138,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                     }`}
                   >
-                    Цяла година
+                    {t("dashboard.periodYear")}
                   </button>
                   <button
                     type="button"
@@ -1128,7 +1149,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                     }`}
                   >
-                    Период
+                    {t("dashboard.periodCustom")}
                   </button>
                 </div>
 
@@ -1142,7 +1163,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                       >
                         {MONTHS_BG.map((m) => (
                           <option key={m} value={m}>
-                            {m}
+                            {translateMonthName(m, language)}
                           </option>
                         ))}
                       </select>
@@ -1175,7 +1196,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     >
                       {YEARS.map((y) => (
                         <option key={y} value={y}>
-                          {y} г.
+                          {y} {t("common.yearSuffix")}
                         </option>
                       ))}
                     </select>
@@ -1187,7 +1208,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 animate-in fade-in duration-150">
                     <label className="space-y-1">
                       <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        От дата
+                        {t("dashboard.fromDate")}
                       </span>
                       <input
                         type="date"
@@ -1198,7 +1219,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     </label>
                     <label className="space-y-1">
                       <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        До дата
+                        {t("dashboard.toDate")}
                       </span>
                       <input
                         type="date"
@@ -1213,7 +1234,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Отчети и експорт
+                  {t("dashboard.reportsAndExport")}
                 </p>
                 <button
                   type="button"
@@ -1222,10 +1243,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     setIsExportCenterOpen(true);
                   }}
                   className="w-full flex items-center justify-center gap-2 min-h-[44px] px-4 py-2.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs transition-colors cursor-pointer"
-                  title="Отвори център за отчети и експорт (TXT / PNG)"
+                  title={t("dashboard.exportReportTooltip")}
                 >
                   <Download className="w-4 h-4" />
-                  <span>Експорт на отчет</span>
+                  <span>{t("dashboard.exportReportBtn")}</span>
                 </button>
               </div>
             </div>
@@ -1237,7 +1258,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 onClick={() => setIsFiltersSheetOpen(false)}
                 className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 transition-opacity cursor-pointer"
               >
-                Готово
+                {t("common.done")}
               </button>
             </div>
           </div>

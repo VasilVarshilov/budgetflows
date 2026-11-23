@@ -13,6 +13,7 @@ import {
   prepareCategoryChartData,
   getReadableTextColor,
 } from "@/utils/colors";
+import { translateCategoryName, useI18n } from "@/i18n";
 
 interface CategoryDistributionChartProps {
   items: CategoryChartInput[];
@@ -32,8 +33,12 @@ interface ChartTooltipProps {
 }
 
 const CategoryChartTooltip: React.FC<ChartTooltipProps> = ({ active, payload }) => {
+  const { t, language } = useI18n();
   if (!active || !payload || payload.length === 0) return null;
   const seg = payload[0].payload;
+  const segDisplayName = seg.isOthersGroup
+    ? t("charts.otherGroup")
+    : translateCategoryName(seg.name, language);
   return (
     <div className="bg-slate-900 text-white px-3 py-2.5 rounded-xl shadow-lg border border-slate-700/80 text-xs max-w-[230px] z-50">
       <div className="flex items-center justify-between gap-3 font-bold">
@@ -42,7 +47,7 @@ const CategoryChartTooltip: React.FC<ChartTooltipProps> = ({ active, payload }) 
             className="w-2.5 h-2.5 rounded-full shrink-0"
             style={{ backgroundColor: seg.color }}
           />
-          <span className="truncate">{seg.name}</span>
+          <span className="truncate">{segDisplayName}</span>
         </span>
         <span className="tabular-nums shrink-0">{seg.percentage.toFixed(1)}%</span>
       </div>
@@ -53,7 +58,7 @@ const CategoryChartTooltip: React.FC<ChartTooltipProps> = ({ active, payload }) 
         <div className="mt-2 pt-1.5 border-t border-slate-700 space-y-0.5 text-[11px] text-slate-300">
           {seg.groupedItems.slice(0, 5).map((sub) => (
             <div key={sub.name} className="flex items-center justify-between gap-2">
-              <span className="truncate">{sub.name}</span>
+              <span className="truncate">{translateCategoryName(sub.name, language)}</span>
               <span className="tabular-nums shrink-0">
                 {sub.percentage.toFixed(1)}% · €{sub.value.toFixed(2)}
               </span>
@@ -61,7 +66,7 @@ const CategoryChartTooltip: React.FC<ChartTooltipProps> = ({ active, payload }) 
           ))}
           {seg.groupedItems.length > 5 && (
             <div className="text-[10px] text-slate-400">
-              + още {seg.groupedItems.length - 5} категории
+              {t("charts.moreCategories", { count: seg.groupedItems.length - 5 })}
             </div>
           )}
         </div>
@@ -179,7 +184,8 @@ function computeDonutLabels(
   innerRadius: number,
   outerRadius: number,
   paddingAngle: number,
-  isMobile: boolean
+  isMobile: boolean,
+  getDisplayName: (seg: CategoryChartSegment) => string
 ): ComputedDonutLabels {
   if (segments.length === 0 || chartWidth <= 0 || chartHeight <= 0) {
     return { inside: [], outside: [] };
@@ -234,9 +240,10 @@ function computeDonutLabels(
 
     if (segment.percentage >= minInsidePct) {
       const maxChars = isMobile ? 11 : 14;
+      const localizedName = getDisplayName(segment);
       const candidateNames = [
-        truncateLabel(segment.name, maxChars),
-        truncateLabel(segment.name, 9),
+        truncateLabel(localizedName, maxChars),
+        truncateLabel(localizedName, 9),
       ];
 
       // Try midpoint first, then subtle offsets along wide sectors so horizontal labels avoid 3/9 o'clock pinch
@@ -359,7 +366,7 @@ function computeDonutLabels(
         p1: item.p1,
         x2,
         y2,
-        displayName: truncateLabel(item.segment.name, maxCharsOutside),
+        displayName: truncateLabel(getDisplayName(item.segment), maxCharsOutside),
         pctText: formatChartPct(item.segment.percentage),
         textAnchor: side === "right" ? "start" : "end",
       });
@@ -375,14 +382,20 @@ function computeDonutLabels(
 
 export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps> = ({
   items,
-  totalLabel = "Общо",
-  emptyTitle = "Няма разходи за този период",
+  totalLabel,
+  emptyTitle,
   emptyActionLabel,
   onEmptyAction,
   compact = false,
   groupThresholdPercent = 3,
   horizontalBarThresholdCount = 6,
 }) => {
+  const { t, language } = useI18n();
+  const resolvedTotalLabel = totalLabel ?? t("charts.totalLabel");
+  const resolvedEmptyTitle = emptyTitle ?? t("charts.emptyDefault");
+  const formatSegmentName = (seg: CategoryChartSegment): string =>
+    seg.isOthersGroup ? t("charts.otherGroup") : translateCategoryName(seg.name, language);
+
   const prepared = useMemo(
     () =>
       prepareCategoryChartData(items, {
@@ -460,7 +473,11 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
         innerRadius,
         outerRadius,
         paddingAngle,
-        isMobileDonut
+        isMobileDonut,
+        (seg) =>
+          seg.isOthersGroup
+            ? t("charts.otherGroup")
+            : translateCategoryName(seg.name, language)
       ),
     [
       prepared.segments,
@@ -470,6 +487,8 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
       outerRadius,
       paddingAngle,
       isMobileDonut,
+      language,
+      t,
     ]
   );
 
@@ -482,7 +501,7 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
         } flex flex-col items-center justify-center text-center p-6 text-slate-500 dark:text-slate-400`}
       >
         <Info className="w-8 h-8 opacity-40 mb-2" />
-        <p className="text-sm font-medium">{emptyTitle}</p>
+        <p className="text-sm font-medium">{resolvedEmptyTitle}</p>
         {emptyActionLabel && onEmptyAction && (
           <button
             type="button"
@@ -513,16 +532,20 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
         <span className="text-slate-500 dark:text-slate-400 font-medium">
           {prepared.preferHorizontalBars
-            ? `${prepared.rawCount} категории · Ранжирани ленти`
-            : `${prepared.rawCount} ${prepared.rawCount === 1 ? "категория" : "категории"}`}
-          {prepared.hasGroupedSmallCategories && " · Под 3% в „Други“"}
+            ? t("charts.rankedBarsMeta", { count: prepared.rawCount })
+            : `${prepared.rawCount} ${
+                prepared.rawCount === 1
+                  ? t("charts.categorySingular")
+                  : t("charts.categoryPlural")
+              }`}
+          {prepared.hasGroupedSmallCategories && t("charts.otherNote")}
         </span>
 
         {prepared.segments.length > 1 && (
           <div
             className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200/80 dark:border-slate-700/80"
             role="group"
-            aria-label="Режим на визуализация"
+            aria-label={t("charts.viewModeAria")}
           >
             <button
               type="button"
@@ -532,10 +555,10 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
                   : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
-              title="Хоризонтални ранжирани ленти"
+              title={t("charts.barViewTitle")}
             >
               <BarChart3 className="w-3 h-3" />
-              <span>Ленти</span>
+              <span>{t("charts.barView")}</span>
             </button>
             <button
               type="button"
@@ -545,10 +568,10 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
                   : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
-              title="Кръгова диаграма"
+              title={t("charts.donutViewTitle")}
             >
               <PieChartIcon className="w-3 h-3" />
-              <span>Кръгова</span>
+              <span>{t("charts.donutView")}</span>
             </button>
           </div>
         )}
@@ -575,7 +598,7 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
                       style={{ backgroundColor: seg.color }}
                     />
                     <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                      {seg.name}
+                      {formatSegmentName(seg)}
                     </span>
                     {seg.groupedItems && seg.groupedItems.length > 0 && (
                       <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">
@@ -777,7 +800,7 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
                   isMobileDonut ? "text-[9px]" : "text-[10px]"
                 } font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400`}
               >
-                {totalLabel}
+                {resolvedTotalLabel}
               </span>
               <span
                 className={`${
@@ -817,7 +840,7 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
                         style={{ backgroundColor: seg.color }}
                       />
                       <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">
-                        {seg.name}
+                        {formatSegmentName(seg)}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 tabular-nums">
@@ -854,8 +877,10 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
             className="font-medium hover:text-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer"
           >
             {showGroupedDetails
-              ? "Скрий състава на „Други“"
-              : `„Други“ обединява ${othersSegment.groupedItems.length} категории под 3% — виж детайли`}
+              ? t("charts.hideOtherDetails")
+              : t("charts.otherSummaryToggle", {
+                  count: othersSegment.groupedItems.length,
+                })}
           </button>
           {showGroupedDetails && (
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -868,7 +893,7 @@ export const CategoryDistributionChart: React.FC<CategoryDistributionChartProps>
                     className="w-2 h-2 rounded-full shrink-0"
                     style={{ backgroundColor: sub.color }}
                   />
-                  <span>{sub.name}</span>
+                  <span>{translateCategoryName(sub.name, language)}</span>
                   <span className="text-slate-400 dark:text-slate-500">·</span>
                   <span className="font-semibold">{sub.percentage.toFixed(1)}%</span>
                 </span>

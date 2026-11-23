@@ -1,6 +1,7 @@
 import React from "react";
 import { Sparkles, ArrowRight } from "lucide-react";
 import { FullAnalysisResult } from "@/utils/aiAnalysisEngine";
+import { useI18n } from "@/i18n";
 
 interface AiRecommendationsSectionProps {
   aiAnalysis: FullAnalysisResult;
@@ -11,6 +12,8 @@ export const AiRecommendationsSection: React.FC<AiRecommendationsSectionProps> =
   aiAnalysis,
   onNavigateTab,
 }) => {
+  const { t } = useI18n();
+
   return (
     <div className="bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-white dark:from-slate-900 dark:via-indigo-950/30 dark:to-slate-900 rounded-2xl border border-indigo-100/90 dark:border-indigo-900/50 p-5 shadow-xs transition-colors">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-indigo-100/70 dark:border-indigo-900/40">
@@ -21,14 +24,14 @@ export const AiRecommendationsSection: React.FC<AiRecommendationsSectionProps> =
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                Топ AI Препоръки & Инсайти
+                {t("dashboard.aiRecs.title")}
               </h3>
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                Здравен индекс: {aiAnalysis.healthScore.score}/100
+                {t("dashboard.aiRecs.healthBadge", { score: aiAnalysis.healthScore.score })}
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Автоматично открити възможности за намаляване на разходи и по-бързо спестяване
+              {t("dashboard.aiRecs.subtitle")}
             </p>
           </div>
         </div>
@@ -37,7 +40,9 @@ export const AiRecommendationsSection: React.FC<AiRecommendationsSectionProps> =
           onClick={() => onNavigateTab?.("ai-analysis")}
           className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 border border-indigo-200/80 dark:border-indigo-800/80 px-3 py-1.5 rounded-xl shadow-2xs transition-all cursor-pointer self-start sm:self-auto"
         >
-          <span>Виж всички инсайти ({aiAnalysis.insights.length})</span>
+          <span>
+            {t("dashboard.aiRecs.seeAllInsights", { count: aiAnalysis.insights.length })}
+          </span>
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -61,12 +66,12 @@ export const AiRecommendationsSection: React.FC<AiRecommendationsSectionProps> =
                   }`}
                 >
                   {rec.category === "spending"
-                    ? "Разходи"
+                    ? t("dashboard.aiRecs.catSpending")
                     : rec.category === "savings"
-                    ? "Спестявания"
+                    ? t("dashboard.aiRecs.catSavings")
                     : rec.category === "electricity"
-                    ? "Електроенергия"
-                    : "Бюджет"}
+                    ? t("dashboard.aiRecs.catElectricity")
+                    : t("dashboard.aiRecs.catBudget")}
                 </span>
 
                 {rec.impact && (

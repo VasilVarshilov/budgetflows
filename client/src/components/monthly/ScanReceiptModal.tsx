@@ -57,6 +57,8 @@ import {
   mergeAdjacentSplitReceiptItems,
 } from "@/utils/expenseFormatter";
 import { loadBudgets, findMatchingBudgetCategoryId } from "@/utils/budgetStorage";
+import { useI18n } from "@/i18n";
+import { translateBudgetName, translateCategoryName } from "@/i18n/helpers";
 
 export interface OCRReceiptResult {
   merchantName: string;
@@ -760,6 +762,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   categories,
   onExpenseCreated,
 }) => {
+  const { language, t } = useI18n();
   const [step, setStep] = useState<"upload" | "preview" | "scanning" | "review">("upload");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageMeta, setImageMeta] = useState<{
@@ -770,7 +773,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   } | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [scanStatusMessage, setScanStatusMessage] = useState("Инициализиране на OCR скенера...");
+  const [scanStatusMessage, setScanStatusMessage] = useState(() => t("ocr.initScannerStatus"));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Review Form State
@@ -810,7 +813,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [detectedDiscount, setDetectedDiscount] = useState<number>(0);
   const [expectedItemsCount, setExpectedItemsCount] = useState<number | null>(null);
   const [confirmMismatchOverride, setConfirmMismatchOverride] = useState<boolean>(false);
-  const [aiSourceBadge, setAiSourceBadge] = useState<string>("OCR анализ");
+  const [aiSourceBadge, setAiSourceBadge] = useState<string>(() => t("ocr.ocrAnalysisBadge"));
   const [aiUnavailable, setAiUnavailable] = useState<boolean>(false);
   const [aiFallbackReason, setAiFallbackReason] = useState<string | null>(null);
   const [aiSucceeded, setAiSucceeded] = useState<boolean>(false);
@@ -932,7 +935,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDetectedDiscount(0);
     setExpectedItemsCount(null);
     setConfirmMismatchOverride(false);
-    setAiSourceBadge("OCR анализ");
+    setAiSourceBadge(t("ocr.ocrAnalysisBadge"));
     setAiUnavailable(false);
     setAiFallbackReason(null);
     setAiSucceeded(false);
@@ -948,16 +951,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setTipError(null);
     setScanElapsedSeconds(0);
     onClose();
-  }, [abortActiveAiRequest, imageMeta, onClose]);
+  }, [abortActiveAiRequest, imageMeta, onClose, t]);
 
   // Cancel scanning cleanly so in-flight requests never hijack the UI
   const handleCancelScan = useCallback(() => {
     scanRunIdRef.current += 1;
     abortActiveAiRequest();
     setErrorMessage(null);
-    setScanStatusMessage("Инициализиране на OCR скенера...");
+    setScanStatusMessage(t("ocr.initScannerStatus"));
     setStep("upload");
-  }, [abortActiveAiRequest]);
+  }, [abortActiveAiRequest, t]);
 
   // Elapsed timer while scanning
   useEffect(() => {
@@ -990,21 +993,21 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
   // Skip directly to manual review
   const handleSkipToManual = useCallback(
-    (reason = "Ръчно попълване от потребителя") => {
+    (reason = "Manual entry by user") => {
       scanRunIdRef.current += 1;
       abortActiveAiRequest();
       addDebugLog("parsed_total", "Прескачане към ръчно въвеждане: " + reason);
-      setMerchantName((prev) => prev || "Касова бележка");
+      setMerchantName((prev) => prev || t("ocr.receiptDefaultName"));
       setDate((prev) => prev || new Date().toISOString().split("T")[0]);
       setConfidence("low");
       setAiUnavailable(false);
       setAiFallbackReason(null);
       setAiSucceeded(false);
-      setAiSourceBadge("Ръчно въвеждане");
-      setProcessingWarning("Ръчен режим: попълнете сумата, търговеца и артикулите по-долу.");
+      setAiSourceBadge(t("ocr.manualModeBadge"));
+      setProcessingWarning(t("ocr.manualModeWarning"));
       setStep("review");
     },
-    [abortActiveAiRequest, addDebugLog]
+    [abortActiveAiRequest, addDebugLog, t]
   );
 
   // Apply item selection changes: recalculate amount and regenerate notes with ONLY selected items
@@ -1048,7 +1051,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     const isImageMime = file.type.startsWith("image/");
     const isImageExtension = /\.(jpe?g|png|webp|heic|heif|bmp|gif|avif)$/i.test(file.name);
     if (!isImageMime && !isImageExtension) {
-      const err = "Моля, изберете валиден графичен файл (JPG, PNG, WEBP, HEIC).";
+      const err = t("ocr.invalidFileErr");
       setErrorMessage(err);
       addDebugLog("error", err, { fileType: file.type, fileName: file.name });
       return;
@@ -1085,15 +1088,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       if (cleanName && cleanName.length > 2 && !cleanName.startsWith("IMG_")) {
         setMerchantName(cleanName);
       } else {
-        setMerchantName("Касова бележка");
+        setMerchantName(t("ocr.receiptDefaultName"));
       }
 
       setStep("preview");
     } catch (prepErr: any) {
       const failedPrepStage = prepErr?.stage || "IMAGE_LOAD";
       addDebugLog("error", `Провал на етап ${failedPrepStage}: ${prepErr.message}`);
-      setProcessingWarning("Изображението не можа да бъде обработено автоматично. Моля, въведете данните ръчно.");
-      setMerchantName("Касова бележка");
+      setProcessingWarning(t("ocr.imagePrepWarning"));
+      setMerchantName(t("ocr.receiptDefaultName"));
       setStep("review");
     }
   };
@@ -1128,7 +1131,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setLocation(undefined);
     preSplitSnapshotRef.current = null;
     modifiedAfterSplitRef.current = false;
-    setScanStatusMessage("1/3 Подготовка на оригиналното изображение за OCR (bul+eng)...");
+    setScanStatusMessage(t("ocr.preparingImageStatus"));
     let ocrRawText = "";
     let ocrConfidence = 0;
     try {
@@ -1137,7 +1140,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         prepared.ocrSource,
         (percent, status) => {
           if (scanRunIdRef.current === runId) {
-            setScanStatusMessage(`2/3 OCR разпознаване (${percent}%): ${status}`);
+            setScanStatusMessage(t("ocr.ocrProgressStatus", { percent, status }));
           }
         },
         45000 // 45s timeout allows cold-downloading bul.traineddata.gz + eng.traineddata.gz reliably
@@ -1231,7 +1234,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       );
     }
 
-    setMerchantName(localParsed.merchantName);
+    setMerchantName(
+      localParsed.merchantName === "Касова бележка"
+        ? t("ocr.receiptDefaultName")
+        : localParsed.merchantName
+    );
     setLocation(prefilledOcrLocation);
     setAmount(localParsed.totalAmount > 0 ? localParsed.totalAmount.toFixed(2) : "");
     setDate(localParsed.date);
@@ -1247,7 +1254,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setDetectedTotal(localParsed.totalAmount);
     setDetectedDiscount(localParsed.discountTotal || 0);
     setDetectedItemsCount(initialItems.length);
-    setAiSourceBadge("OCR анализ");
+    setAiSourceBadge(t("ocr.ocrAnalysisBadge"));
 
     const baseCat = matchCategory(
       {
@@ -1264,22 +1271,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
     // 4. Gemini AI Enrichment (Prioritized for accuracy - waits patiently while AI processes)
     const CLIENT_AI_TIMEOUT_MS = 105000; // 105s client ceiling (> server primary 45s + fallback 30s + retries)
-    setScanStatusMessage("Анализиране с AI...");
+    setScanStatusMessage(t("ocr.aiAnalyzingStatus"));
     clearAiStageTimers();
     aiStageTimersRef.current = [
       setTimeout(() => {
         if (scanRunIdRef.current === runId) {
-          setScanStatusMessage("Анализиране с AI... (изчакване на по-точния AI резултат)");
+          setScanStatusMessage(t("ocr.aiWaitingAccuracyStatus"));
         }
       }, 6000),
       setTimeout(() => {
         if (scanRunIdRef.current === runId) {
-          setScanStatusMessage("Анализиране с AI... (обработка на детайлите от бележката)");
+          setScanStatusMessage(t("ocr.aiProcessingDetailsStatus"));
         }
       }, 18000),
       setTimeout(() => {
         if (scanRunIdRef.current === runId) {
-          setScanStatusMessage("Анализиране с AI... (продължаваща обработка за максимална точност)");
+          setScanStatusMessage(t("ocr.aiContinuingStatus"));
         }
       }, 42000),
     ];
@@ -1304,7 +1311,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         httpStatus === 504 ||
         httpStatus === 524
       ) {
-        return "AI анализът надвиши допустимото време за изчакване.";
+        return t("ocr.aiTimeoutErr");
       }
       if (
         errorCode === "WORKER_EXCEPTION" ||
@@ -1312,9 +1319,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         errorCode === "INVALID_JSON" ||
         (typeof httpStatus === "number" && httpStatus >= 500)
       ) {
-        return "Възникна временен сървърен проблем при AI анализа.";
+        return t("ocr.aiServerErr");
       }
-      return "AI анализът временно не е наличен.";
+      return t("ocr.ocrFallbackReasonDefault");
     };
 
     let currentStage: OcrPipelineStage = "REQUEST_CREATION";
@@ -1340,9 +1347,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       });
       if (scanRunIdRef.current !== runId) return;
       setAiUnavailable(true);
-      setAiFallbackReason("AI анализът временно не е наличен.");
+      setAiFallbackReason(t("ocr.ocrFallbackReasonDefault"));
       setAiSucceeded(false);
-      setAiSourceBadge("Локален OCR (Fallback)");
+      setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
       abortControllerRef.current = null;
       setStep("review");
       return;
@@ -1387,7 +1394,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setAiUnavailable(true);
           setAiFallbackReason(getFriendlyAiErrorMessage("CLIENT_TIMEOUT", null, true));
           setAiSucceeded(false);
-          setAiSourceBadge("Локален OCR (Fallback)");
+          setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
           break;
         }
 
@@ -1794,7 +1801,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               setAiSucceeded(true);
               setAiUnavailable(false);
               setAiFallbackReason(null);
-              setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : "AI + OCR анализ");
+              setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : t("ocr.aiOcrAnalysisBadge"));
               break;
             } else {
               const serverStage: OcrPipelineStage =
@@ -1832,7 +1839,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 overallDeadlineMs - Date.now() > 8000
               ) {
                 abortControllerRef.current = null;
-                setScanStatusMessage("Анализиране с AI... (повторен опит за максимална точност)");
+                setScanStatusMessage(t("ocr.aiRetryStatus"));
                 await sleepClient(1200);
                 continue;
               }
@@ -1846,7 +1853,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 )
               );
               setAiSucceeded(false);
-              setAiSourceBadge("Локален OCR (Fallback)");
+              setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
               break;
             }
           } else {
@@ -1869,7 +1876,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               overallDeadlineMs - Date.now() > 8000
             ) {
               abortControllerRef.current = null;
-              setScanStatusMessage("Анализиране с AI... (повторен опит за максимална точност)");
+              setScanStatusMessage(t("ocr.aiRetryStatus"));
               await sleepClient(1200);
               continue;
             }
@@ -1877,7 +1884,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setAiUnavailable(true);
             setAiFallbackReason(getFriendlyAiErrorMessage(null, response.status, false));
             setAiSucceeded(false);
-            setAiSourceBadge("Локален OCR (Fallback)");
+            setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
             break;
           }
         } catch (gErr: any) {
@@ -1928,7 +1935,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             overallDeadlineMs - Date.now() > 8000
           ) {
             abortControllerRef.current = null;
-            setScanStatusMessage("Анализиране с AI... (повторен опит за максимална точност)");
+            setScanStatusMessage(t("ocr.aiRetryStatus"));
             await sleepClient(1200);
             continue;
           }
@@ -1936,7 +1943,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           setAiUnavailable(true);
           setAiFallbackReason(
             isOffline
-              ? "Няма интернет връзка. AI анализът временно не е наличен."
+              ? t("ocr.offlineAiErr")
               : getFriendlyAiErrorMessage(
                   didClientTimeout || isAbort ? "CLIENT_TIMEOUT" : "NETWORK_ERROR",
                   null,
@@ -1944,7 +1951,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 )
           );
           setAiSucceeded(false);
-          setAiSourceBadge("Локален OCR (Fallback)");
+          setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
           break;
         }
       }
@@ -2158,7 +2165,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const handleSaveTip = () => {
     const parsedTip = parseFloat(tipInputAmount.replace(",", "."));
     if (isNaN(parsedTip) || parsedTip <= 0) {
-      setTipError("Моля, въведете валидна сума за бакшиш (по-голяма от 0).");
+      setTipError(t("ocr.tipInvalidError"));
       return;
     }
 
@@ -2200,11 +2207,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     const parsedQty = Math.max(1, Math.round(parseFloat(newItemQuantity.replace(",", ".")) || 1));
     const parsedPrice = parseFloat(newItemPrice.replace(",", "."));
     if (!cleanName) {
-      setErrorMessage("Моля, въведете име на артикула.");
+      setErrorMessage(t("ocr.errEmptyItemName"));
       return;
     }
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
-      setErrorMessage("Моля, въведете валидна цена, по-голяма от 0.");
+      setErrorMessage(t("ocr.errInvalidItemPrice"));
       return;
     }
 
@@ -2238,11 +2245,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     const parsedQty = Math.max(1, Math.round(parseFloat(editItemQuantity.replace(",", ".")) || 1));
     const parsedPrice = parseFloat(editItemPrice.replace(",", "."));
     if (!cleanName) {
-      setErrorMessage("Моля, въведете име на артикула.");
+      setErrorMessage(t("ocr.errEmptyItemName"));
       return;
     }
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
-      setErrorMessage("Моля, въведете валидна цена, по-голяма от 0.");
+      setErrorMessage(t("ocr.errInvalidItemPrice"));
       return;
     }
 
@@ -2334,6 +2341,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const isMerchantDetected =
     cleanMerchantStr.length >= 2 &&
     cleanMerchantStr !== "Касова бележка" &&
+    cleanMerchantStr !== "Receipt" &&
     cleanMerchantStr !== "Неизвестен търговец";
   const isDateDetected = Boolean(ocrDetectedDate || dateEditedByUser || (!dateFallbackReason && date));
   const isTotalDetected = liveAmountNum > 0 || detectedTotal > 0;
@@ -2344,19 +2352,26 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     dataWarnings.push(processingWarning);
   }
   if (!isTotalDetected) {
-    dataWarnings.push("Не е открита обща сума на бележката. Моля, въведете сумата ръчно.");
+    dataWarnings.push(t("ocr.errMissingTotalWarn"));
   }
   if (!isDateDetected) {
-    dataWarnings.push("Не е открита дата на бележката — временно е зададена днешната дата.");
+    dataWarnings.push(t("ocr.errMissingDateWarn"));
   }
   if (!isMerchantDetected) {
-    dataWarnings.push("Не е разпознат търговец — моля, въведете името на обекта.");
+    dataWarnings.push(t("ocr.errMissingMerchantWarn"));
   }
   if (!isItemsDetected) {
-    dataWarnings.push("Не са разпознати артикули от бележката. Можете да ги добавите ръчно по-долу.");
+    dataWarnings.push(t("ocr.errMissingItemsWarn"));
   }
-  if (hasFullReceiptMismatch && liveValidation.warningMessage) {
-    dataWarnings.push(liveValidation.warningMessage);
+  if (hasFullReceiptMismatch) {
+    dataWarnings.push(
+      `${t("ocr.mismatchTitle")} ${t("ocr.mismatchDetails", {
+        receiptTotal: formatDisplayPrice(receiptTotalDisplay),
+        itemsTotal: formatDisplayPrice(itemsFullSum),
+        diff: formatDisplayPrice(liveValidation.difference),
+        pct: liveValidation.differencePercent.toFixed(1),
+      })}`
+    );
   }
   const hasAllKeyFields =
     isMerchantDetected &&
@@ -2369,20 +2384,18 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   // Save confirmed expense
   const handleSaveExpense = () => {
     if (receiptItems.length > 0 && selectedItemIndices.size === 0) {
-      setErrorMessage("Моля, изберете поне един артикул от бележката.");
+      setErrorMessage(t("ocr.errSelectOneItem"));
       return;
     }
 
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setErrorMessage("Моля, въведете валидна сума, по-голяма от 0.");
+      setErrorMessage(t("ocr.errInvalidTotal"));
       return;
     }
 
     if (hasFullReceiptMismatch && !confirmMismatchOverride) {
-      setErrorMessage(
-        "Possible missing receipt items detected. Проверете или коригирайте артикулите/сумата, или потвърдете записа с отметката."
-      );
+      setErrorMessage(t("ocr.errMismatchOverride"));
       return;
     }
 
@@ -2498,15 +2511,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                  Сканиране на касова бележка
+                  {t("ocr.modalTitle")}
                 </h3>
                 <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   <Sparkles className="w-2.5 h-2.5" />
-                  OCR-First Engine
+                  {t("ocr.engineBadge")}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Директно OCR извличане на сума, търговец, дата и артикули
+                {t("ocr.modalSubtitle")}
               </p>
             </div>
           </div>
@@ -2515,7 +2528,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             <button
               onClick={handleClose}
               className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
-              title="Затвори"
+              title={t("common.close")}
             >
               <X className="w-5 h-5" />
             </button>
@@ -2573,9 +2586,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     <Camera className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <span className="block font-bold text-sm sm:text-base text-white">Снимай с камера</span>
+                    <span className="block font-bold text-sm sm:text-base text-white">{t("ocr.cameraTitle")}</span>
                     <span className="block text-xs text-indigo-100 font-medium">
-                      Директна снимка от телефон
+                      {t("ocr.cameraSubtitle")}
                     </span>
                   </div>
                 </button>
@@ -2589,9 +2602,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     <Upload className="w-6 h-6" />
                   </div>
                   <div>
-                    <span className="block font-bold text-sm sm:text-base text-slate-900 dark:text-white">Избери файл / Галерия</span>
+                    <span className="block font-bold text-sm sm:text-base text-slate-900 dark:text-white">{t("ocr.galleryTitle")}</span>
                     <span className="block text-xs text-slate-600 dark:text-slate-300 font-medium">
-                      JPG, PNG, WEBP снимка
+                      {t("ocr.gallerySubtitle")}
                     </span>
                   </div>
                 </button>
@@ -2613,14 +2626,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <Receipt className="w-8 h-8" />
                 </div>
                 <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mb-1.5">
-                  Плъзнете касовата бележка тук
+                  {t("ocr.dragTitle")}
                 </h4>
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 max-w-sm mx-auto mb-4">
-                  или натиснете за избор на снимка
+                  {t("ocr.dragSubtitle")}
                 </p>
                 <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-950/80 px-3.5 py-1.5 rounded-full border border-emerald-300 dark:border-emerald-800">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  Работи самостоятелно дори при отказ или натоварване на Gemini
+                  {t("ocr.offlineGuarantee")}
                 </div>
               </div>
             </div>
@@ -2633,10 +2646,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 <div>
                   <h4 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
                     <Receipt className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                    Преглед на касовата бележка
+                    {t("ocr.previewTitle")}
                   </h4>
                   <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-                    Уверете се, че сумата и текстът се четат ясно
+                    {t("ocr.previewSubtitle")}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2644,19 +2657,19 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     type="button"
                     onClick={() => setIsZoomed((prev) => !prev)}
                     className="p-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                    title={isZoomed ? "Стандартен изглед" : "Увеличи снимката"}
+                    title={isZoomed ? t("ocr.zoomOutTitle") : t("ocr.zoomInTitle")}
                   >
                     {isZoomed ? <ZoomOut className="w-3.5 h-3.5" /> : <ZoomIn className="w-3.5 h-3.5" />}
-                    <span className="hidden sm:inline">{isZoomed ? "Смали" : "Увеличи"}</span>
+                    <span className="hidden sm:inline">{isZoomed ? t("ocr.zoomOut") : t("ocr.zoomIn")}</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className="p-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                    title="Избери друга снимка"
+                    title={t("ocr.changePhotoTitle")}
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Смени</span>
+                    <span className="hidden sm:inline">{t("ocr.changePhoto")}</span>
                   </button>
                 </div>
               </div>
@@ -2710,14 +2723,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               <div className="space-y-2 max-w-md">
                 <div className="flex items-center justify-center gap-2 text-indigo-600 dark:text-indigo-400">
                   <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span className="font-bold text-base sm:text-lg">Разчитане на бележката...</span>
+                  <span className="font-bold text-base sm:text-lg">{t("ocr.scanningTitle")}</span>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
                   {scanStatusMessage}
                 </p>
                 <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 pt-1">
                   <Clock className="w-3.5 h-3.5" />
-                  <span>Време: {scanElapsedSeconds}s</span>
+                  <span>{t("ocr.timeElapsed", { seconds: scanElapsedSeconds })}</span>
                 </div>
               </div>
 
@@ -2725,10 +2738,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
                 <button
                   type="button"
-                  onClick={() => handleSkipToManual("Потребителят прескочи сканирането")}
+                  onClick={() => handleSkipToManual("User skipped scanning")}
                   className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-2xs active:scale-95"
                 >
-                  <span>Въведи данните ръчно</span>
+                  <span>{t("ocr.enterManuallyBtn")}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
                 <button
@@ -2736,7 +2749,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   onClick={handleCancelScan}
                   className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                 >
-                  Отказ
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>
@@ -2751,11 +2764,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="flex items-center gap-2.5">
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span className="font-bold">
-                      ✅ Бележката е успешно разчетена.
+                      {t("ocr.successBanner")}
                     </span>
                   </div>
                   <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 font-bold rounded-full text-[11px] text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                    Източник: {aiSourceBadge}
+                    {t("ocr.sourceLabel")} {aiSourceBadge}
                   </span>
                 </div>
               ) : (
@@ -2763,9 +2776,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <div className="space-y-1 flex-1">
                     <div className="flex items-center justify-between flex-wrap gap-1.5">
-                      <span className="font-bold">Изисква се проверка на липсващи данни:</span>
+                      <span className="font-bold">{t("ocr.warningBannerTitle")}</span>
                       <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 font-semibold rounded-full text-[10px] text-amber-800 dark:text-amber-200">
-                        Източник: {aiSourceBadge}
+                        {t("ocr.sourceLabel")} {aiSourceBadge}
                       </span>
                     </div>
                     <ul className="list-disc list-inside space-y-0.5 text-xs">
@@ -2783,9 +2796,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <div>
-                      <strong className="font-bold">AI Analysis Success</strong>
+                      <strong className="font-bold">{t("ocr.aiSuccessTitle")}</strong>
                       <span className="ml-1.5 text-emerald-800 dark:text-emerald-300">
-                        Бележката е обработена и подобрена чрез AI за максимална точност.
+                        {t("ocr.aiSuccessDesc")}
                       </span>
                     </div>
                   </div>
@@ -2800,14 +2813,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <strong className="text-slate-900 dark:text-white">Fallback to OCR</strong>
+                      <strong className="text-slate-900 dark:text-white">{t("ocr.ocrFallbackTitle")}</strong>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
-                        Локален OCR
+                        {t("ocr.ocrFallbackBadge")}
                       </span>
                     </div>
                     <div>
-                      <strong className="text-slate-900 dark:text-white">OCR анализът е завършен успешно.</strong>{" "}
-                      <span>{aiFallbackReason || "AI анализът временно не е наличен."} Данните са извлечени чрез локално разпознаване.</span>
+                      <strong className="text-slate-900 dark:text-white">{t("ocr.ocrFallbackDone")}</strong>{" "}
+                      <span>{aiFallbackReason || t("ocr.ocrFallbackReasonDefault")} {t("ocr.ocrFallbackLocalNote")}</span>
                     </div>
                   </div>
                 </div>
@@ -2818,10 +2831,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 <div className="flex items-center justify-between flex-wrap gap-1.5">
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    Качество на разчитането
+                    {t("ocr.qualityHeader")}
                   </span>
                   <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300">
-                    Източник: {aiSourceBadge}
+                    {t("ocr.sourceLabel")} {aiSourceBadge}
                     {ocrLanguageInfo ? ` (${ocrLanguageInfo.used})` : ""}
                   </span>
                 </div>
@@ -2837,9 +2850,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   >
                     <span className="text-sm shrink-0">{isMerchantDetected ? "✅" : "⚠️"}</span>
                     <div className="min-w-0">
-                      <span className="text-[10px] uppercase font-bold block opacity-75">Търговец</span>
+                      <span className="text-[10px] uppercase font-bold block opacity-75">{t("ocr.merchantTitle")}</span>
                       <span className="font-bold truncate block">
-                        {isMerchantDetected ? merchantName : "Неразпознат"}
+                        {isMerchantDetected ? merchantName : t("ocr.merchantUnknown")}
                       </span>
                     </div>
                   </div>
@@ -2853,9 +2866,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   >
                     <span className="text-sm shrink-0">{isDateDetected ? "✅" : "⚠️"}</span>
                     <div className="min-w-0">
-                      <span className="text-[10px] uppercase font-bold block opacity-75">Дата</span>
+                      <span className="text-[10px] uppercase font-bold block opacity-75">{t("ocr.dateTitle")}</span>
                       <span className="font-bold truncate block">
-                        {date || "Липсва"}
+                        {date || t("ocr.dateMissing")}
                       </span>
                     </div>
                   </div>
@@ -2869,9 +2882,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   >
                     <span className="text-sm shrink-0">{isTotalDetected ? "✅" : "⚠️"}</span>
                     <div className="min-w-0">
-                      <span className="text-[10px] uppercase font-bold block opacity-75">Обща сума</span>
+                      <span className="text-[10px] uppercase font-bold block opacity-75">{t("ocr.totalTitle")}</span>
                       <span className="font-bold truncate block">
-                        {isTotalDetected ? formatDisplayPrice(receiptTotalDisplay) : "Неоткрита"}
+                        {isTotalDetected ? formatDisplayPrice(receiptTotalDisplay) : t("ocr.totalMissing")}
                       </span>
                     </div>
                   </div>
@@ -2885,9 +2898,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   >
                     <span className="text-sm shrink-0">{isItemsDetected ? "✅" : "⚠️"}</span>
                     <div className="min-w-0">
-                      <span className="text-[10px] uppercase font-bold block opacity-75">Артикули</span>
+                      <span className="text-[10px] uppercase font-bold block opacity-75">{t("ocr.itemsTitle")}</span>
                       <span className="font-bold truncate block">
-                        {isItemsDetected ? `${receiptItems.length} разпознати` : "0 артикула"}
+                        {isItemsDetected ? t("ocr.itemsRecognized", { count: receiptItems.length }) : t("ocr.itemsZero")}
                       </span>
                     </div>
                   </div>
@@ -2897,7 +2910,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
                   <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                      Detected Items
+                      {t("ocr.meterDetectedItems")}
                     </span>
                     <span className="font-bold text-slate-900 dark:text-white">
                       {receiptItems.length}
@@ -2906,7 +2919,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   </div>
                   <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                      Receipt Total
+                      {t("ocr.meterReceiptTotal")}
                     </span>
                     <span className="font-bold text-slate-900 dark:text-white">
                       {formatDisplayPrice(receiptTotalDisplay)}
@@ -2914,7 +2927,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   </div>
                   <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                      Items Total
+                      {t("ocr.meterItemsTotal")}
                     </span>
                     <span className="font-bold text-slate-900 dark:text-white">
                       {formatDisplayPrice(itemsFullSum)}
@@ -2928,7 +2941,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     }`}
                   >
                     <span className="text-[10px] block font-semibold opacity-80">
-                      Difference
+                      {t("ocr.meterDifference")}
                     </span>
                     <span className="font-extrabold">
                       {formatDisplayPrice(liveValidation.difference)} (
@@ -2950,13 +2963,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         className="w-full h-auto object-cover max-h-56"
                       />
                       <div className="absolute bottom-2 left-2 right-2 bg-black/60 backdrop-blur-xs text-white text-[11px] px-2.5 py-1 rounded-lg flex items-center justify-between">
-                        <span className="truncate">{merchantName || "Бележка"}</span>
+                        <span className="truncate">{merchantName || t("ocr.receiptDefaultName")}</span>
                         <button
                           type="button"
                           onClick={() => setStep("upload")}
                           className="text-indigo-300 hover:text-white font-semibold underline ml-1"
                         >
-                          Смени
+                          {t("ocr.changePhoto")}
                         </button>
                       </div>
                     </div>
@@ -2972,7 +2985,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       >
                         <span className="flex items-center gap-1.5">
                           <FileText className="w-3.5 h-3.5 text-indigo-500" />
-                          Суров OCR текст
+                          {t("ocr.rawOcrText")}
                         </span>
                         {showRawText ? (
                           <ChevronUp className="w-3.5 h-3.5" />
@@ -2995,11 +3008,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
                     <div className="flex items-center justify-between flex-wrap gap-1.5">
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-                        Крайна сума за запис ({receiptCurrency || "€"}) *
+                        {t("ocr.finalAmountLabel", { currency: receiptCurrency || "€" })}
                       </label>
                       {receiptItems.length > 0 && (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                          {selectedItemIndices.size} от {receiptItems.length} артикула
+                          {t("ocr.selectedOfTotalItems", {
+                            selected: selectedItemIndices.size,
+                            total: receiptItems.length,
+                          })}
                         </span>
                       )}
                     </div>
@@ -3021,12 +3037,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     <div className="flex items-center justify-between flex-wrap gap-1 text-[11px] text-slate-600 dark:text-slate-300 font-medium">
                       <span>
                         {receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length
-                          ? "Сумата е преизчислена автоматично според избраните артикули"
-                          : "Точно разпозната крайна сума (ОБЩО / ЗА ПЛАЩАНЕ / TOTAL)"}
+                          ? t("ocr.recalculatedHint")
+                          : t("ocr.detectedTotalHint")}
                       </span>
                       {receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length && (
                         <span className="text-slate-500 dark:text-slate-400 font-semibold">
-                          Общо по бележка: {formatDisplayPrice(receiptTotalDisplay)}
+                          {t("ocr.receiptTotalNote", { total: formatDisplayPrice(receiptTotalDisplay) })}
                         </span>
                       )}
                     </div>
@@ -3038,10 +3054,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       <div>
                         <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
                           <ListChecks className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                          <span>Артикули от бележката ({receiptItems.length})</span>
+                          <span>{t("ocr.receiptItemsHeader", { count: receiptItems.length })}</span>
                         </h4>
                         <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
-                          Избирайте, редактирайте или добавете липсващ артикул ръчно
+                          {t("ocr.receiptItemsSub")}
                         </p>
                       </div>
                       <div className="flex items-center flex-wrap gap-1.5 shrink-0">
@@ -3054,7 +3070,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           className="min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>+ Добави артикул ръчно</span>
+                          <span>{t("ocr.addManualItemBtn")}</span>
                         </button>
                         {receiptItems.length > 0 && (
                           <>
@@ -3065,7 +3081,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                               className="min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1 cursor-pointer"
                             >
                               <CheckSquare className="w-3.5 h-3.5" />
-                              <span>Всички</span>
+                              <span>{t("ocr.selectAllBtn")}</span>
                             </button>
                             <button
                               type="button"
@@ -3074,14 +3090,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                               className="min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1 cursor-pointer"
                             >
                               <Square className="w-3.5 h-3.5" />
-                              <span>Изчисти</span>
+                              <span>{t("ocr.clearAllBtn")}</span>
                             </button>
                           </>
                         )}
                       </div>
                     </div>
 
-                    {/* Item-List Operations: Раздели сметката + Добави бакшиш */}
+                    {/* Item-List Operations: Split Bill + Add Tip */}
                     <div className="space-y-2 pb-2 border-b border-slate-200 dark:border-slate-800">
                       {receiptItems.length > 0 && (
                         <button
@@ -3092,7 +3108,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           className="inline-flex items-center justify-between gap-4 px-3.5 py-2 rounded-xl bg-slate-50/90 dark:bg-slate-800/75 border border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer select-none min-h-[40px]"
                         >
                           <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                            Раздели сметката
+                            {t("ocr.splitBillLabel")}
                           </span>
                           <span
                             aria-hidden="true"
@@ -3118,7 +3134,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           className="min-h-[38px] w-full sm:w-auto px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 transition-colors flex items-center justify-center sm:justify-start gap-2 cursor-pointer shadow-2xs active:scale-[0.99]"
                         >
                           <span aria-hidden="true">💰</span>
-                          <span>Добави бакшиш</span>
+                          <span>{t("ocr.addTipLabel")}</span>
                           {existingTipItem && (
                             <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-200/80 dark:bg-amber-800/80 text-amber-950 dark:text-amber-100 tabular-nums">
                               {formatDisplayPrice(existingTipItem.finalPrice ?? existingTipItem.price)}
@@ -3132,7 +3148,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     {showAddItemForm && (
                       <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2.5">
                         <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">
-                          Нов артикул (ръчно добавяне)
+                          {t("ocr.newItemHeader")}
                         </span>
                         <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                           <div className="sm:col-span-6">
@@ -3146,7 +3162,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                   handleAddManualItem();
                                 }
                               }}
-                              placeholder="Име на артикул (напр. Мляко Верея)"
+                              placeholder={t("ocr.newItemNamePlaceholder")}
                               className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
                               autoFocus
                             />
@@ -3164,7 +3180,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                   handleAddManualItem();
                                 }
                               }}
-                              placeholder="К-во"
+                              placeholder={t("ocr.qtyPlaceholder")}
                               className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
                             />
                           </div>
@@ -3181,7 +3197,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                   handleAddManualItem();
                                 }
                               }}
-                              placeholder={`Цена (${receiptCurrency || "€"})`}
+                              placeholder={t("ocr.pricePlaceholder", { currency: receiptCurrency || "€" })}
                               className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
                             />
                           </div>
@@ -3192,7 +3208,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             onClick={() => setShowAddItemForm(false)}
                             className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           >
-                            Отказ
+                            {t("common.cancel")}
                           </button>
                           <button
                             type="button"
@@ -3200,7 +3216,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             className="px-3.5 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>Добави</span>
+                            <span>{t("common.add")}</span>
                           </button>
                         </div>
                       </div>
@@ -3209,7 +3225,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     {/* Items Checklist + Step 5 Inline Editing */}
                     {receiptItems.length === 0 ? (
                       <div className="py-4 px-3 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center text-xs text-slate-600 dark:text-slate-300">
-                        Няма автоматично разпознати артикули. Натиснете <strong>„+ Добави артикул ръчно“</strong>, за да добавите позиции.
+                        {t("ocr.noItemsAutoHint")}
                       </div>
                     ) : (
                       <div className="space-y-1.5 max-h-72 overflow-y-auto pr-0.5">
@@ -3234,7 +3250,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                         handleSaveEditItem(idx);
                                       }
                                     }}
-                                    placeholder="Име на артикул"
+                                    placeholder={t("ocr.editItemNamePlaceholder")}
                                     className="sm:col-span-6 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                                     autoFocus
                                   />
@@ -3250,7 +3266,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                         handleSaveEditItem(idx);
                                       }
                                     }}
-                                    placeholder="К-во"
+                                    placeholder={t("ocr.qtyPlaceholder")}
                                     className="sm:col-span-3 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                                   />
                                   <input
@@ -3265,7 +3281,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                         handleSaveEditItem(idx);
                                       }
                                     }}
-                                    placeholder="Цена"
+                                    placeholder={t("ocr.editPricePlaceholder")}
                                     className="sm:col-span-3 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
                                   />
                                 </div>
@@ -3275,7 +3291,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                     onClick={() => setEditingItemIndex(null)}
                                     className="px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                                   >
-                                    Отказ
+                                    {t("common.cancel")}
                                   </button>
                                   <button
                                     type="button"
@@ -3283,7 +3299,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                     className="px-3 py-1 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                                   >
                                     <Save className="w-3 h-3" />
-                                    <span>Запази</span>
+                                    <span>{t("common.save")}</span>
                                   </button>
                                 </div>
                               </div>
@@ -3315,7 +3331,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                     {isTipReceiptItem(item) ? (
                                       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-xs font-bold">
                                         <span aria-hidden="true">💰</span>
-                                        <span>{item.name}</span>
+                                        <span>{language === "bg" ? item.name : t("expenses.tipLabel").replace(/:$/, "")}</span>
                                       </span>
                                     ) : (
                                       <>
@@ -3330,10 +3346,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                         {formatDisplayPrice(item.originalPrice)}
                                       </span>
                                       <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                                        -{formatDisplayPrice(item.discount)} {item.discountLabel || "Отстъпка"}
+                                        -{formatDisplayPrice(item.discount)} {item.discountLabel || t("ocr.discountWord")}
                                       </span>
                                       <span className="text-slate-600 dark:text-slate-300 font-medium">
-                                        Final: {formatDisplayPrice(item.finalPrice ?? item.price)}
+                                        {t("ocr.finalItemPrice", { price: formatDisplayPrice(item.finalPrice ?? item.price) })}
                                       </span>
                                     </div>
                                   )}
@@ -3360,7 +3376,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                   type="button"
                                   onClick={() => handleStartEditItem(idx)}
                                   className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
-                                  title="Редактирай артикул"
+                                  title={t("ocr.editItemTooltip")}
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
@@ -3368,7 +3384,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                                   type="button"
                                   onClick={() => handleDeleteItem(idx)}
                                   className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 hover:bg-rose-100/70 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
-                                  title="Премахни артикул"
+                                  title={t("ocr.removeItemTooltip")}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -3384,28 +3400,33 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2 text-xs">
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                           <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                            {expectedItemsCount ? `Артикули (очаквани ${expectedItemsCount})` : "Избрани артикули"}
+                            {expectedItemsCount
+                              ? t("ocr.expectedItemsCountLabel", { count: expectedItemsCount })
+                              : t("ocr.selectedItemsLabel")}
                           </span>
                           <span className="font-bold text-slate-900 dark:text-white">
-                            {selectedItemIndices.size} от {receiptItems.length}
+                            {t("ocr.selectedOfTotalItems", {
+                              selected: selectedItemIndices.size,
+                              total: receiptItems.length,
+                            })}
                           </span>
                         </div>
                         <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800">
                           <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-semibold">
-                            {isPartialSelection ? "Selected Total" : "Items Total"}
+                            {isPartialSelection ? t("ocr.selectedTotalLabel") : t("ocr.itemsTotalLabel")}
                           </span>
                           <span className="font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
                             {formatDisplayPrice(isPartialSelection ? selectedItemsSum : itemsFullSum)}
                           </span>
                           {!isPartialSelection && attachedDiscountSum > 0 && (
                             <span className="block text-[10px] font-semibold text-emerald-700/90 dark:text-emerald-300/90 tabular-nums">
-                              Отстъпки: -{formatDisplayPrice(attachedDiscountSum)}
+                              {t("ocr.discountsPrefix")} -{formatDisplayPrice(attachedDiscountSum)}
                             </span>
                           )}
                         </div>
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                           <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                            Receipt Total
+                            {t("ocr.meterReceiptTotal")}
                           </span>
                           <span className="font-bold text-slate-900 dark:text-white">
                             {formatDisplayPrice(receiptTotalDisplay)}
@@ -3420,11 +3441,21 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                           <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
                           <div className="space-y-1">
                             <span className="font-bold block">
-                              Possible missing receipt items.
+                              {t("ocr.mismatchTitle")}
                             </span>
                             <p className="text-[11px] leading-relaxed">
-                              Receipt Total: <strong>{formatDisplayPrice(receiptTotalDisplay)}</strong> | Items Total: <strong>{formatDisplayPrice(itemsFullSum)}</strong> | Разлика: <strong>{formatDisplayPrice(liveValidation.difference)} ({liveValidation.differencePercent.toFixed(1)}%)</strong>
-                              {expectedItemsCount ? ` | Артикули: ${receiptItems.length} от ${expectedItemsCount}` : ""}
+                              {t("ocr.mismatchDetails", {
+                                receiptTotal: formatDisplayPrice(receiptTotalDisplay),
+                                itemsTotal: formatDisplayPrice(itemsFullSum),
+                                diff: formatDisplayPrice(liveValidation.difference),
+                                pct: liveValidation.differencePercent.toFixed(1),
+                              })}
+                              {expectedItemsCount
+                                ? t("ocr.mismatchItemsCount", {
+                                    detected: receiptItems.length,
+                                    expected: expectedItemsCount,
+                                  })
+                                : ""}
                             </p>
                           </div>
                         </div>
@@ -3436,7 +3467,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             className="w-4 h-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500 cursor-pointer"
                           />
                           <span>
-                            Потвърждавам записа въпреки разликата (&gt;5%) между сумата на артикулите и общата сума
+                            {t("ocr.mismatchConfirmLabel")}
                           </span>
                         </label>
                       </div>
@@ -3445,7 +3476,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     {receiptItems.length > 0 && selectedItemIndices.size === 0 && (
                       <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-2">
                         <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <span>Изберете поне един артикул, за да запазите разхода.</span>
+                        <span>{t("ocr.selectOneItemWarning")}</span>
                       </div>
                     )}
                   </div>
@@ -3454,11 +3485,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-                        Категория *
+                        {t("ocr.categoryStarLabel")}
                       </label>
                       <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
                         <Sparkles className="w-2.5 h-2.5" />
-                        Предложена категория
+                        {t("ocr.suggestedCategoryBadge")}
                       </span>
                     </div>
 
@@ -3475,10 +3506,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         </div>
                         <div>
                           <span className="block font-bold text-sm text-slate-900 dark:text-white">
-                            {selectedCategory?.name || "Изберете категория"}
+                            {selectedCategory
+                              ? translateCategoryName(selectedCategory.name, language)
+                              : t("ocr.chooseCategoryFallback")}
                           </span>
                           <span className="text-[11px] text-slate-600 dark:text-slate-300">
-                            Кликнете за ръчна смяна
+                            {t("ocr.clickToChangeCategory")}
                           </span>
                         </div>
                       </div>
@@ -3490,10 +3523,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-                        Бюджетна категория (Budget Category)
+                        {t("ocr.budgetCategoryLabel")}
                       </label>
                       <span className="text-[10px] text-slate-600 dark:text-slate-300 font-medium">
-                        Причислете разхода към месечен бюджет
+                        {t("ocr.budgetCategoryHint")}
                       </span>
                     </div>
 
@@ -3502,10 +3535,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       onChange={(e) => setSelectedBudgetCategoryId(e.target.value)}
                       className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     >
-                      <option value="">Без бюджетна категория (No Budget Category)</option>
+                      <option value="">{t("ocr.noBudgetCategoryOption")}</option>
                       {budgetCategories.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(2)})
+                          {t("ocr.budgetLimitFormat", {
+                            name: translateBudgetName(b.categoryName, language),
+                            limit: b.monthlyLimit.toFixed(2),
+                          })}
                         </option>
                       ))}
                     </select>
@@ -3515,7 +3551,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1">
-                        Дата на покупката
+                        {t("ocr.purchaseDateLabel")}
                       </label>
                       <div className="relative">
                         <Calendar className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -3533,13 +3569,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1">
-                        Търговец / Обект
+                        {t("ocr.merchantFieldLabel")}
                       </label>
                       <input
                         type="text"
                         value={merchantName}
                         onChange={(e) => setMerchantName(e.target.value)}
-                        placeholder="Напр. Lidl, Shell, Ресторант"
+                        placeholder={t("ocr.merchantFieldPlaceholder")}
                         className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-slate-500 dark:placeholder:text-slate-400"
                       />
                     </div>
@@ -3560,7 +3596,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   {/* Notes & Items List (Auto-expanding without internal scrollbar) */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1.5">
-                      Бележка / Артикули от бележката
+                      {t("ocr.notesAndItemsLabel")}
                     </label>
                     <textarea
                       ref={notesTextareaRef}
@@ -3592,7 +3628,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 onClick={handleClose}
                 className="px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
               >
-                Отказ
+                {t("common.cancel")}
               </button>
             </div>
           )}
@@ -3605,23 +3641,23 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors border border-slate-300 dark:border-slate-700 cursor-pointer shadow-2xs"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
-                <span>Смени снимка</span>
+                <span>{t("ocr.changePhotoLong")}</span>
               </button>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => handleSkipToManual("Прескачане от преглед")}
+                  onClick={() => handleSkipToManual("Skipped from preview")}
                   className="px-3.5 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors border border-slate-300 dark:border-slate-700 cursor-pointer"
                 >
-                  Въведи ръчно
+                  {t("ocr.manualBtnShort")}
                 </button>
                 <button
                   type="button"
                   onClick={handleProceedFromPreview}
                   className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md active:scale-95 cursor-pointer"
                 >
-                  <span>Продължи</span>
+                  <span>{t("common.continueBtn")}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
@@ -3631,14 +3667,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           {step === "scanning" && (
             <div className="w-full flex justify-between items-center">
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Разчитане на касовата бележка...
+                {t("ocr.scanningTitle")}
               </span>
               <button
                 type="button"
-                onClick={() => handleSkipToManual("Прекъсване от потребителя")}
+                onClick={() => handleSkipToManual("Interrupted by user")}
                 className="px-3.5 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-xl transition-colors"
               >
-                Прескочи и въведи ръчно
+                {t("ocr.skipAndManualBtn")}
               </button>
             </div>
           )}
@@ -3651,7 +3687,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 className="flex items-center gap-1.5 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span>Нова снимка</span>
+                <span>{t("ocr.newPhotoBtn")}</span>
               </button>
 
               <div className="flex items-center gap-2">
@@ -3660,7 +3696,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   onClick={handleClose}
                   className="px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                 >
-                  Отказ
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -3674,7 +3710,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-md active:scale-95 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  <span>Добави към разходите</span>
+                  <span>{t("ocr.addToExpensesBtn")}</span>
                 </button>
               </div>
             </div>
@@ -3701,13 +3737,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2"
               >
                 <span aria-hidden="true">💰</span>
-                <span>Въведете бакшиш</span>
+                <span>{t("ocr.tipModalTitle")}</span>
               </h4>
               <button
                 type="button"
                 onClick={() => setShowTipModal(false)}
                 className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
-                aria-label="Затвори"
+                aria-label={t("common.close")}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -3715,7 +3751,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Сума ({receiptCurrency || "€"})
+                {t("ocr.tipAmountLabel", { currency: receiptCurrency || "€" })}
               </label>
               <div className="relative">
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-600 dark:text-slate-300">
@@ -3758,14 +3794,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 onClick={() => setShowTipModal(false)}
                 className="min-h-[42px] px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
               >
-                Отказ
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
                 onClick={handleSaveTip}
                 className="min-h-[42px] px-5 py-2 text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors shadow-sm cursor-pointer active:scale-95"
               >
-                Добави
+                {t("common.add")}
               </button>
             </div>
           </div>

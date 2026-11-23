@@ -4,10 +4,7 @@ import { RepeatFrequency } from "@/types";
 import {
   REPEAT_OPTIONS,
   RecurrenceScheduleConfig,
-  WEEKDAY_NAMES_BG,
-  WEEKDAY_SHORT_NAMES_BG,
   WEEKDAY_ORDER_MON_FIRST,
-  MONTH_NAMES_FULL_BG,
   MONTHLY_DAY_PRESETS,
   clampDayOfMonth,
   clampMonthOfYear,
@@ -15,6 +12,11 @@ import {
   daysInMonth,
   extractScheduleDefaultsFromDate,
 } from "@/utils/recurrenceEngine";
+import {
+  formatFullMonthIndex,
+  translateWeekday,
+  useI18n,
+} from "@/i18n";
 
 interface CompletionSwitchProps {
   checked: boolean;
@@ -90,6 +92,7 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
   disabled = false,
   completedHint,
 }) => {
+  const { t, language } = useI18n();
   const defaults = extractScheduleDefaultsFromDate(anchorDate);
   const effectiveDayOfMonth = clampDayOfMonth(schedule?.dayOfMonth ?? defaults.dayOfMonth);
   const effectiveMonthOfYear = clampMonthOfYear(schedule?.monthOfYear ?? defaults.monthOfYear);
@@ -149,10 +152,10 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
 
   const monthlyHintPrefix =
     repeat === "quarterly"
-      ? "На всеки 3 месеца"
+      ? t("recurrence.every3Months")
       : repeat === "semiannual"
-      ? "На всеки 6 месеца"
-      : "Всеки месец";
+      ? t("recurrence.every6Months")
+      : t("recurrence.everyMonth");
 
   return (
     <div className="rounded-xl bg-slate-50/90 dark:bg-slate-800/75 border border-slate-200/80 dark:border-slate-700/80 divide-y divide-slate-200/80 dark:divide-slate-700/70 overflow-hidden">
@@ -163,13 +166,13 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
               <Repeat className="w-4 h-4" />
             </span>
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
-              Повторение
+              {t("recurrence.repeatLabel")}
             </span>
           </div>
 
           <div className="relative flex items-center shrink-0">
             <select
-              aria-label="Повторение"
+              aria-label={t("recurrence.repeatLabel")}
               disabled={disabled}
               value={repeat}
               onChange={(e) => handleRepeatSelect(e.target.value as RepeatFrequency)}
@@ -181,7 +184,7 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                   value={opt.value}
                   className="bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                 >
-                  {opt.labelBg}
+                  {t(`recurrence.${opt.value}`)}
                 </option>
               ))}
             </select>
@@ -201,19 +204,22 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                   </span>
                   <div className="min-w-0">
                     <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 block leading-tight">
-                      Ден от месеца
+                      {t("recurrence.dayOfMonth")}
                     </span>
                     <span className="text-[11px] text-indigo-700 dark:text-indigo-300 block leading-tight mt-0.5">
-                      {monthlyHintPrefix} на {effectiveDayOfMonth}-о число
+                      {t("recurrence.monthlyDesc", {
+                        prefix: monthlyHintPrefix,
+                        day: effectiveDayOfMonth,
+                      })}
                       {effectiveDayOfMonth >= 29
-                        ? " (при по-кратък месец — последният ден)"
+                        ? t("recurrence.shortMonthHint")
                         : ""}
                     </span>
                   </div>
                 </div>
 
                 <select
-                  aria-label="Ден от месеца"
+                  aria-label={t("recurrence.dayOfMonth")}
                   disabled={disabled}
                   value={effectiveDayOfMonth}
                   onChange={(e) =>
@@ -226,7 +232,7 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                 >
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((dayNum) => (
                     <option key={dayNum} value={dayNum}>
-                      {dayNum}-о число
+                      {t("recurrence.dayOrdinal", { day: dayNum })}
                     </option>
                   ))}
                 </select>
@@ -268,11 +274,13 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                 </span>
                 <div className="min-w-0">
                   <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 block leading-tight">
-                    Ден от седмицата
+                    {t("recurrence.dayOfWeek")}
                   </span>
                   <span className="text-[11px] text-indigo-700 dark:text-indigo-300 block leading-tight mt-0.5">
-                    {repeat === "biweekly" ? "На всеки 2 седмици в " : "Всяка седмица в "}
-                    {WEEKDAY_NAMES_BG[effectiveDayOfWeek]}
+                    {repeat === "biweekly"
+                      ? t("recurrence.every2Weeks")
+                      : t("recurrence.everyWeek")}
+                    {translateWeekday(effectiveDayOfWeek, false, language)}
                   </span>
                 </div>
               </div>
@@ -280,13 +288,15 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
               <div className="grid grid-cols-7 gap-1">
                 {WEEKDAY_ORDER_MON_FIRST.map((dow) => {
                   const active = effectiveDayOfWeek === dow;
+                  const fullDay = translateWeekday(dow, false, language);
+                  const shortDay = translateWeekday(dow, true, language);
                   return (
                     <button
                       key={dow}
                       type="button"
                       disabled={disabled}
-                      title={WEEKDAY_NAMES_BG[dow]}
-                      aria-label={WEEKDAY_NAMES_BG[dow]}
+                      title={fullDay}
+                      aria-label={fullDay}
                       onClick={() =>
                         onScheduleChange?.({
                           ...schedule,
@@ -299,7 +309,7 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                           : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
                       }`}
                     >
-                      {WEEKDAY_SHORT_NAMES_BG[dow]}
+                      {shortDay}
                     </button>
                   );
                 })}
@@ -315,11 +325,16 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                 </span>
                 <div className="min-w-0">
                   <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 block leading-tight">
-                    Годишна дата
+                    {t("recurrence.yearlyDate")}
                   </span>
                   <span className="text-[11px] text-indigo-700 dark:text-indigo-300 block leading-tight mt-0.5">
-                    Всяка година на {clampedYearlyDay}{" "}
-                    {MONTH_NAMES_FULL_BG[effectiveMonthOfYear].toLowerCase()}
+                    {t("recurrence.yearlyDesc", {
+                      day: clampedYearlyDay,
+                      month:
+                        language === "bg"
+                          ? formatFullMonthIndex(effectiveMonthOfYear, language).toLowerCase()
+                          : formatFullMonthIndex(effectiveMonthOfYear, language),
+                    })}
                   </span>
                 </div>
               </div>
@@ -327,10 +342,10 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    Ден
+                    {t("recurrence.yearlyDayLabel")}
                   </label>
                   <select
-                    aria-label="Ден от месеца за годишно повторение"
+                    aria-label={t("recurrence.yearlyDayAria")}
                     disabled={disabled}
                     value={clampedYearlyDay}
                     onChange={(e) =>
@@ -354,10 +369,10 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
 
                 <div>
                   <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    Месец
+                    {t("recurrence.yearlyMonthLabel")}
                   </label>
                   <select
-                    aria-label="Месец за годишно повторение"
+                    aria-label={t("recurrence.yearlyMonthAria")}
                     disabled={disabled}
                     value={effectiveMonthOfYear}
                     onChange={(e) => {
@@ -371,11 +386,14 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                     }}
                     className="w-full px-2.5 py-1.5 min-h-[38px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    {MONTH_NAMES_FULL_BG.map((monthName, idx) => (
-                      <option key={monthName} value={idx}>
-                        {monthName}
-                      </option>
-                    ))}
+                    {Array.from({ length: 12 }, (_, idx) => {
+                      const monthLabel = formatFullMonthIndex(idx, language);
+                      return (
+                        <option key={idx} value={idx}>
+                          {monthLabel}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>
@@ -391,13 +409,13 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
           </span>
           <div className="min-w-0">
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100 block leading-tight">
-              Изпълнено
+              {t("recurrence.completed")}
             </span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 block leading-tight mt-0.5">
               {completedHint ||
                 (completed
-                  ? "Включва се в суми, отчети и баланс"
-                  : "Предстоящ запис — изключен от отчетите")}
+                  ? t("recurrence.includedInTotalsHint")
+                  : t("recurrence.excludedFromReportsHint"))}
             </span>
           </div>
         </div>
@@ -405,7 +423,7 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
         <CompletionSwitch
           checked={completed}
           onChange={onCompletedChange}
-          ariaLabel="Изпълнено"
+          ariaLabel={t("recurrence.completed")}
           disabled={disabled}
         />
       </div>

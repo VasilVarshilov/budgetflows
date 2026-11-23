@@ -22,6 +22,12 @@ import {
   calculateMonthSavings,
 } from "@/utils/comparisonStorage";
 import { isCompletedExpense, isRecordCompleted } from "@/utils/expenseStatus";
+import {
+  useI18n,
+  translateCategoryName,
+  formatLocalizedMonthYear,
+  pluralizeUnit,
+} from "@/i18n";
 
 interface MonthlyReportsTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -39,6 +45,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
   monthlyData,
   globalSavings = [],
 }) => {
+  const { t, language } = useI18n();
   // Default to current date
   const now = new Date();
   const currentMonthName = now.toLocaleDateString("bg-BG", { month: "long" });
@@ -264,7 +271,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60 p-4 shadow-2xs transition-colors">
             <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 mb-1">
               <TrendingUp className="w-3.5 h-3.5" />
-              <span>Реализирани приходи</span>
+              <span>{t("reports.realizedIncome")}</span>
             </div>
             <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
               +€{totalIncomeForMonth.toFixed(2)}
@@ -274,7 +281,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 dark:border-rose-900/60 p-4 shadow-2xs transition-colors">
             <div className="flex items-center gap-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 mb-1">
               <CreditCard className="w-3.5 h-3.5" />
-              <span>Реализирани разходи</span>
+              <span>{t("reports.realizedExpenses")}</span>
             </div>
             <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
               -€{totalExpense.toFixed(2)}
@@ -284,7 +291,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-purple-200/80 dark:border-purple-900/60 p-4 shadow-2xs transition-colors">
             <div className="flex items-center gap-1.5 text-xs font-medium text-purple-700 dark:text-purple-400 mb-1">
               <PiggyBank className="w-3.5 h-3.5" />
-              <span>Спестявания</span>
+              <span>{t("reports.savingsLabel")}</span>
             </div>
             <p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
               €{totalSavingsForMonth.toFixed(2)}
@@ -294,7 +301,7 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-blue-200/80 dark:border-blue-900/60 p-4 shadow-2xs transition-colors">
             <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 mb-1">
               <Scale className="w-3.5 h-3.5" />
-              <span>Нетен баланс</span>
+              <span>{t("reports.netBalanceLabel")}</span>
             </div>
             <p
               className={`text-xl font-bold tabular-nums ${
@@ -316,10 +323,12 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
             <Calendar className="w-8 h-8 text-slate-300 dark:text-slate-600" />
           </div>
           <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
-            Няма данни за този период
+            {t("reports.noDataTitle")}
           </h3>
           <p className="text-slate-500 dark:text-slate-400">
-            Няма намерени записи за {selectedMonth} {selectedYear}.
+            {t("reports.noDataSubtitle", {
+              period: formatLocalizedMonthYear(recordKey, language),
+            })}
           </p>
         </div>
       ) : (
@@ -329,14 +338,14 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col justify-between min-h-[350px] transition-colors">
             <h3 className="w-full text-left font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
               <Filter className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-              Разпределение
+              {t("reports.distributionTitle")}
             </h3>
 
             <div className="flex-1 flex items-center w-full">
               <CategoryDistributionChart
-                items={chartData.map((c) => ({ name: c.name, value: c.value }))}
-                totalLabel="Общо"
-                emptyTitle="Няма разходи за показване"
+                items={chartData.map((c) => ({ name: c.name, value: c.value, color: c.color }))}
+                totalLabel={t("common.total")}
+                emptyTitle={t("reports.noExpensesChart")}
               />
             </div>
           </div>
@@ -345,11 +354,13 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex flex-col transition-colors">
             <h3 className="font-semibold text-slate-700 dark:text-slate-200 mb-6 flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-              Детайли по категория
+              {t("reports.detailsByCategoryTitle")}
             </h3>
 
             <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar max-h-[400px]">
-              {chartData.map((item, idx) => (
+              {chartData.map((item, idx) => {
+                const displayName = translateCategoryName(item.name, language);
+                return (
                 <div
                   key={idx}
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700 group"
@@ -370,12 +381,12 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                         <CreditCard className="w-5 h-5" />
                       ) : (
                         <span className="text-xs font-bold">
-                          {item.name.charAt(0)}
+                          {displayName.charAt(0)}
                         </span>
                       )}
                     </div>
                     <div>
-                      <p className="font-medium text-slate-800 dark:text-slate-200">{item.name}</p>
+                      <p className="font-medium text-slate-800 dark:text-slate-200">{displayName}</p>
                       <div className="flex items-center gap-2">
                         <div className="w-16 h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                           <div
@@ -396,18 +407,19 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                     €{item.value.toFixed(2)}
                   </span>
                 </div>
-              ))}
+                );
+              })}
 
               {chartData.length === 0 && (
                 <div className="text-center py-8 text-slate-500 dark:text-slate-400 italic">
-                  Няма записани разходи
+                  {t("reports.noExpensesRecorded")}
                 </div>
               )}
             </div>
 
             <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
               <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                Реализирани разходи
+                {t("reports.realizedExpenses")}
               </span>
               <span className="text-xl font-bold text-slate-800 dark:text-white tabular-nums">
                 €{totalExpense.toFixed(2)}
@@ -422,15 +434,17 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <Banknote className="w-4 h-4 text-emerald-500" />
-                Приходи по категории
+                {t("reports.incomeByCategoryTitle")}
               </h3>
               <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                Общо: +€{totalIncomeForMonth.toFixed(2)}
+                {t("common.total")}: +€{totalIncomeForMonth.toFixed(2)}
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {incomeBreakdown.map((item, idx) => (
+              {incomeBreakdown.map((item, idx) => {
+                const displayName = translateCategoryName(item.name, language);
+                return (
                 <div
                   key={idx}
                   className="flex items-center justify-between p-3 rounded-lg bg-slate-50/70 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800"
@@ -440,11 +454,11 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                       className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
                       style={{ backgroundColor: item.color }}
                     >
-                      {item.name.charAt(0)}
+                      {displayName.charAt(0)}
                     </div>
                     <div className="min-w-0">
                       <p className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">
-                        {item.name}
+                        {displayName}
                       </p>
                       <div className="flex items-center gap-2">
                         <div className="w-16 h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -458,7 +472,12 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                         </div>
                         <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                           {item.percentage.toFixed(1)}% · {item.count}{" "}
-                          {item.count === 1 ? "запис" : "записа"}
+                          {pluralizeUnit(
+                            item.count,
+                            "common.entriesSingular",
+                            "common.entriesPlural",
+                            language
+                          )}
                         </span>
                       </div>
                     </div>
@@ -467,7 +486,8 @@ export const MonthlyReportsTab: React.FC<MonthlyReportsTabProps> = ({
                     +€{item.value.toFixed(2)}
                   </span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

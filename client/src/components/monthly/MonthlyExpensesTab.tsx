@@ -122,6 +122,13 @@ import {
   upsertElectricityRecordFromExpense,
   deleteElectricityRecordByExpenseId,
 } from "@/utils/electricityStorage";
+import {
+  useI18n,
+  formatLocalizedMonthYear,
+  translateCategoryName,
+  translateBudgetName,
+  formatLocalizedDate,
+} from "@/i18n";
 
 // Map за иконките, поддържащ всички налични иконки и AI предложения
 const ICON_MAP: Record<string, any> = AVAILABLE_ICONS_MAP;
@@ -309,6 +316,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   pendingRecordTarget,
   onConsumeRecordTarget,
 }) => {
+  const { t, language } = useI18n();
   // Helper to create fixed item (always recurring Monthly by default)
   function createFixedItem(
     name: string,
@@ -648,7 +656,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       upsertElectricityRecordFromExpense(enrichedExpense, currentMonth);
     }
     setImportNotification({
-      message: `Добавен е разход "${enrichedExpense.categoryName}" (${enrichedExpense.amount.toFixed(2)} €) от касова бележка.`,
+      message: t("expenses.receiptAddedToast", {
+        merchant: enrichedExpense.merchantName || translateCategoryName(enrichedExpense.categoryName, language),
+        amount: enrichedExpense.amount.toFixed(2),
+      }),
       type: "success",
     });
     setTimeout(() => {
@@ -1750,7 +1761,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
             <h2 className="text-xl font-bold text-slate-800 dark:text-white">
-              Месечни разходи
+              {t("expenses.pageTitle")}
             </h2>
 
             {/* Month Badge or Switcher */}
@@ -1763,23 +1774,25 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 >
                   {recordedMonthKeys.map((m) => (
                     <option key={m} value={m}>
-                      {m}
+                      {formatLocalizedMonthYear(m, language)}
                     </option>
                   ))}
                   {!recordedMonthKeys.includes(currentMonth) && (
-                    <option value={currentMonth}>{currentMonth}</option>
+                    <option value={currentMonth}>
+                      {formatLocalizedMonthYear(currentMonth, language)}
+                    </option>
                   )}
                 </select>
                 <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             ) : (
               <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 ml-1 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 px-2.5 py-0.5 rounded-full">
-                {currentMonth}
+                {formatLocalizedMonthYear(currentMonth, language)}
               </span>
             )}
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Управлявайте повтарящите се и допълнителни разходи за домакинството
+            {t("expenses.pageSubtitle")}
           </p>
         </div>
 
@@ -1788,33 +1801,33 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <button
             onClick={() => setIsAddingExpense((prev) => !prev)}
             className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95"
-            title="Добави нов разход ръчно"
+            title={t("expenses.addExpenseTooltip")}
           >
             <Plus className="w-4 h-4" />
-            <span>Добави разход</span>
+            <span>{t("expenses.addExpenseBtn")}</span>
           </button>
 
           {/* Scan Receipt Button - Single entry point */}
           <button
             onClick={() => setIsScanModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 cursor-pointer"
-            title="Сканирай касова бележка с камера или файл от устройството"
+            title={t("expenses.scanReceiptTooltip")}
           >
             <Camera className="w-4 h-4" />
-            <span className="hidden sm:inline">Сканирай касова бележка</span>
-            <span className="sm:hidden">Сканирай бележка</span>
+            <span className="hidden sm:inline">{t("expenses.scanReceiptLongBtn")}</span>
+            <span className="sm:hidden">{t("expenses.scanReceiptBtn")}</span>
           </button>
 
           <div className="text-right pl-2 border-l border-slate-100 dark:border-slate-800">
             <span className="text-[11px] text-slate-500 dark:text-slate-400 block uppercase font-medium tracking-wider">
-              Реализирани разходи
+              {t("expenses.totalRealized")}
             </span>
             <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">
               €{totalExpenses.toFixed(2)}
             </span>
             {totalPlannedExpenses > 0 && (
               <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 block tabular-nums">
-                Предстоящи: €{totalPlannedExpenses.toFixed(2)}
+                {t("expenses.plannedBadge")}: €{totalPlannedExpenses.toFixed(2)}
               </span>
             )}
           </div>
@@ -1856,10 +1869,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               </div>
               <div>
                 <h4 className="font-bold text-slate-800 dark:text-white text-base">
-                  Нов допълнителен разход
+                  {t("expenses.newAdditionalTitle")}
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Въведете текущ или периодичен разход за месеца
+                  {t("expenses.newAdditionalSubtitle")}
                 </p>
               </div>
             </div>
@@ -1871,10 +1884,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 setIsScanModalOpen(true);
               }}
               className="mr-7 flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-950/40 dark:to-indigo-950/40 hover:from-violet-100 hover:to-indigo-100 dark:hover:from-violet-900/60 dark:hover:to-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold transition-all active:scale-95 shadow-2xs"
-              title="Сканирай касова бележка с камера"
+              title={t("expenses.scanWithCameraBtn")}
             >
               <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Сканирай бележка с камера</span>
+              <span>{t("expenses.scanWithCameraBtn")}</span>
             </button>
           </div>
 
@@ -1882,7 +1895,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             {/* Category Selector Trigger */}
             <div>
               <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Категория
+                {t("expenses.categoryLabel")}
               </label>
               <button
                 onClick={() => setShowCategoryPicker(true)}
@@ -1903,11 +1916,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <div className="w-2 h-2 rounded-full bg-current" />
                       )}
                     </span>
-                    {selectedCategory.name}
+                    {translateCategoryName(selectedCategory.name, language)}
                   </span>
                 ) : (
                   <span className="text-slate-500 dark:text-slate-400 text-sm">
-                    Избери категория...
+                    {t("expenses.selectCategoryPlaceholder")}
                   </span>
                 )}
                 <Plus className="w-4 h-4 text-slate-400" />
@@ -1915,7 +1928,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             </div>
 
             <InputGroup
-              label="Сума (EUR)"
+              label={t("expenses.amountEurInputLabel")}
               value={amount}
               onChange={setAmount}
               placeholder="0.00"
@@ -1927,10 +1940,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                Бюджетна категория (Budget Category)
+                {t("expenses.budgetCategoryLabel")}
               </span>
               <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
-                За изчисляване и следене в бюджета
+                {t("expenses.budgetCategoryHint")}
               </span>
             </label>
             <select
@@ -1938,11 +1951,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               onChange={(e) => setSelectedBudgetCategoryId(e.target.value)}
               className="w-full px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white"
             >
-              <option value="">-- Автоматично по категория --</option>
-              <option value="none">-- Без бюджетна категория (No Budget) --</option>
+              <option value="">{t("expenses.budgetCategoryAuto")}</option>
+              <option value="none">{t("expenses.budgetNoneOpt")}</option>
               {budgetCategories.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                  {t("expenses.budgetLimitOpt", {
+                    name: translateBudgetName(b.categoryName, language),
+                    limit: b.monthlyLimit.toFixed(0),
+                  })}
                 </option>
               ))}
             </select>
@@ -1951,7 +1967,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                {!expenseCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+                {!expenseCompleted ? t("expenses.expectedDateLabel") : t("expenses.dateLabel")}
               </label>
               <input
                 type="date"
@@ -1963,14 +1979,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Бележка (опционално)
+                {t("expenses.noteOptionalLabel")}
               </label>
               <input
                 type="text"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400"
-                placeholder="напр. пазаруване, вечеря, гориво, абонамент..."
+                placeholder={t("expenses.additionalNotePlaceholder")}
               />
             </div>
           </div>
@@ -2001,13 +2017,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               }
               className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
             >
-              Добави разход
+              {t("expenses.addExpenseBtn")}
             </button>
             <button
               onClick={() => setIsAddingExpense(false)}
               className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-semibold transition-colors"
             >
-              Отказ
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -2021,7 +2037,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-blue-500" />
-                Повтарящи се разходи
+                {t("expenses.fixedTitle")}
               </h3>
               <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium">
                 {fixedExpenses.length}
@@ -2034,7 +2050,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 </span>
                 {totalPlannedFixed > 0 && (
                   <span className="block text-[10px] font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
-                    Предстоящи: €{totalPlannedFixed.toFixed(2)}
+                    {t("expenses.plannedBadge")}: €{totalPlannedFixed.toFixed(2)}
                   </span>
                 )}
               </div>
@@ -2042,7 +2058,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <button
                   onClick={() => setIsAddingFixed(true)}
                   className="p-1.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors shadow-sm"
-                  title="Добави повтарящ се разход"
+                  title={t("expenses.addFixedTooltip")}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -2061,7 +2077,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               </button>
 
               <h4 className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
-                Нов повтарящ се разход
+                {t("expenses.newFixedTitle")}
               </h4>
 
               <div>
@@ -2083,10 +2099,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <div className="w-2 h-2 rounded-full bg-current" />
                         )}
                       </span>
-                      {selectedFixedCategory.name}
+                      {translateCategoryName(selectedFixedCategory.name, language)}
                     </span>
                   ) : (
-                    <span className="text-slate-500 dark:text-slate-400">Избери категория (напр. Наем, Застраховка)...</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {t("expenses.fixedCategoryPlaceholder")}
+                    </span>
                   )}
                   <Plus className="w-3.5 h-3.5 text-slate-400" />
                 </button>
@@ -2095,18 +2113,21 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                   <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                  Бюджетна категория (Budget Category)
+                  {t("expenses.budgetCategoryLabel")}
                 </label>
                 <select
                   value={selectedFixedBudgetCategoryId}
                   onChange={(e) => setSelectedFixedBudgetCategoryId(e.target.value)}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 >
-                  <option value="">-- Автоматично по категория --</option>
-                  <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                  <option value="">{t("expenses.budgetCategoryAuto")}</option>
+                  <option value="none">{t("expenses.budgetNoneOpt")}</option>
                   {budgetCategories.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                      {t("expenses.budgetLimitOpt", {
+                        name: translateBudgetName(b.categoryName, language),
+                        limit: b.monthlyLimit.toFixed(0),
+                      })}
                     </option>
                   ))}
                 </select>
@@ -2114,7 +2135,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  {!fixedCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+                  {!fixedCompleted ? t("expenses.expectedDateLabel") : t("expenses.dateLabel")}
                 </label>
                 <input
                   type="date"
@@ -2130,7 +2151,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   inputMode="decimal"
                   value={fixedAmount}
                   onChange={(e) => setFixedAmount(sanitizeDecimalInput(e.target.value))}
-                  placeholder="Сума €"
+                  placeholder={t("expenses.amountPlaceholderShort")}
                   className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 />
                 <button
@@ -2143,7 +2164,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   }
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
                 >
-                  Добави
+                  {t("common.add")}
                 </button>
               </div>
 
@@ -2179,13 +2200,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
-                        Редактиране на повтарящ се разход
+                        {t("expenses.editingFixedHeader")}
                       </span>
                       <button
                         type="button"
                         onClick={handleCancelEditFixed}
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
-                        title="Отказ"
+                        title={t("common.cancel")}
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -2194,7 +2215,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                          Категория на разхода
+                          {t("expenses.expenseCategoryField")}
                         </label>
                         <button
                           type="button"
@@ -2214,11 +2235,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                   <span className="w-2 h-2 rounded-full bg-current" />
                                 )}
                               </span>
-                              <span className="truncate">{editFixedCategory.name}</span>
+                              <span className="truncate">
+                                {translateCategoryName(editFixedCategory.name, language)}
+                              </span>
                             </span>
                           ) : (
                             <span className="text-slate-500 dark:text-slate-400">
-                              Избери категория...
+                              {t("expenses.selectCategoryPlaceholder")}
                             </span>
                           )}
                           <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
@@ -2226,7 +2249,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       </div>
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                          Сума (€)
+                          {t("expenses.amountLabel")}
                         </label>
                         <input
                           type="text"
@@ -2234,7 +2257,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           value={editFixedAmount}
                           onChange={(e) => setEditFixedAmount(sanitizeDecimalInput(e.target.value))}
                           className="w-full px-3 py-2 min-h-[42px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 dark:text-white tabular-nums"
-                          placeholder="Сума €"
+                          placeholder={t("expenses.amountPlaceholderShort")}
                         />
                       </div>
                     </div>
@@ -2243,25 +2266,28 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
                           <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                          Бюджетна категория (Budget Category)
+                          {t("expenses.budgetCategoryLabel")}
                         </label>
                         <select
                           value={editFixedBudgetCategoryId}
                           onChange={(e) => setEditFixedBudgetCategoryId(e.target.value)}
                           className="w-full px-3 py-2 min-h-[42px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
                         >
-                          <option value="">-- Автоматично по категория --</option>
-                          <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                          <option value="">{t("expenses.budgetCategoryAuto")}</option>
+                          <option value="none">{t("expenses.budgetNoneOpt")}</option>
                           {budgetCategories.map((b) => (
                             <option key={b.id} value={b.id}>
-                              {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                              {t("expenses.budgetLimitOpt", {
+                                name: translateBudgetName(b.categoryName, language),
+                                limit: b.monthlyLimit.toFixed(0),
+                              })}
                             </option>
                           ))}
                         </select>
                       </div>
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                          {!editFixedCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+                          {!editFixedCompleted ? t("expenses.expectedDateLabel") : t("expenses.dateLabel")}
                         </label>
                         <input
                           type="date"
@@ -2274,14 +2300,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                     <div>
                       <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                        Име / Описание на разхода
+                        {t("expenses.fixedNameDescLabel")}
                       </label>
                       <input
                         type="text"
                         value={editFixedName}
                         onChange={(e) => setEditFixedName(e.target.value)}
                         className="w-full px-3 py-2 min-h-[40px] sm:min-h-[36px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="напр. Телефон, Наем, Застраховка"
+                        placeholder={t("expenses.fixedNameDescPlaceholder")}
                       />
                     </div>
 
@@ -2295,7 +2321,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       onCompletedChange={setEditFixedCompleted}
                       completedHint={
                         editFixedIsGenerated
-                          ? "Автоматично генериран повтарящ се запис"
+                          ? t("expenses.generatedAutoRecord")
                           : undefined
                       }
                     />
@@ -2312,7 +2338,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         onClick={handleCancelEditFixed}
                         className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                       >
-                        Отказ
+                        {t("common.cancel")}
                       </button>
                       <button
                         type="button"
@@ -2325,7 +2351,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"
                       >
                         <Check className="w-3.5 h-3.5" />
-                        Запази
+                        {t("common.save")}
                       </button>
                     </div>
                   </div>
@@ -2334,12 +2360,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
               const isPlanned = isPlannedExpense(item);
               const budgetLabel = resolveDisplayBudgetName(item);
+              const localizedBudgetLabel = budgetLabel ? translateBudgetName(budgetLabel, language) : "";
               const dateKey = resolveRecordDateKey(item, currentMonth);
-              const formattedDate = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+              const formattedDate = formatLocalizedDate(parseLocalDateKey(dateKey), language);
               const repeatLabel =
                 item.repeat && item.repeat !== "never"
                   ? formatRepeatLabel(item.repeat, item)
-                  : "Периодичен";
+                  : t("expenses.periodicLabel").replace(/:$/, "");
 
               return (
                 <div
@@ -2374,14 +2401,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         <span
                           className="font-semibold text-slate-900 dark:text-slate-100 text-sm truncate"
-                          title={item.categoryName}
+                          title={translateCategoryName(item.categoryName, language)}
                         >
-                          {item.categoryName}
+                          {translateCategoryName(item.categoryName, language)}
                         </span>
                         {isPlanned && (
                           <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-100/90 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800 shrink-0">
                             <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-                            <span>Предстоящ</span>
+                            <span>{t("expenses.plannedBadge")}</span>
                           </span>
                         )}
                       </div>
@@ -2401,22 +2428,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <CompletionSwitch
                           checked={!isPlanned}
                           onChange={(val) => handleToggleFixedCompletion(item.id, val)}
-                          ariaLabel={`Изпълнено за ${item.categoryName}`}
+                          ariaLabel={t("expenses.markCompletedAria", {
+                            name: translateCategoryName(item.categoryName, language),
+                          })}
                           size="sm"
                         />
                         <button
                           onClick={() => handleStartEditFixed(item)}
                           className="min-h-[32px] min-w-[32px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                          title="Редактирай"
-                          aria-label="Edit"
+                          title={t("common.edit")}
+                          aria-label={t("common.edit")}
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setPendingDeleteFixed(item)}
                           className="min-h-[32px] min-w-[32px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                          title="Изтрий"
-                          aria-label="Delete"
+                          title={t("common.delete")}
+                          aria-label={t("common.delete")}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -2439,7 +2468,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           type="button"
                           onClick={() => onOpenCalendar(dateKey)}
                           className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums shrink-0"
-                          title="Отвори датата в Календар"
+                          title={t("expenses.openInCalendarTooltip")}
                         >
                           <CalendarDays className="w-3 h-3 shrink-0" />
                           <span>{formattedDate}</span>
@@ -2450,17 +2479,17 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <span>{formattedDate}</span>
                         </span>
                       )}
-                      {budgetLabel && (
+                      {localizedBudgetLabel && (
                         <>
                           <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
                             ·
                           </span>
                           <span
                             className="inline-flex items-center gap-1 min-w-0 max-w-[140px] sm:max-w-[190px] text-emerald-700 dark:text-emerald-400 font-medium"
-                            title={`Бюджет: ${budgetLabel}`}
+                            title={t("expenses.budgetTooltipPrefix", { name: localizedBudgetLabel })}
                           >
                             <Target className="w-3 h-3 shrink-0" />
-                            <span className="truncate">{budgetLabel}</span>
+                            <span className="truncate">{localizedBudgetLabel}</span>
                           </span>
                         </>
                       )}
@@ -2471,22 +2500,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <CompletionSwitch
                         checked={!isPlanned}
                         onChange={(val) => handleToggleFixedCompletion(item.id, val)}
-                        ariaLabel={`Изпълнено за ${item.categoryName}`}
+                        ariaLabel={t("expenses.markCompletedAria", {
+                          name: translateCategoryName(item.categoryName, language),
+                        })}
                         size="sm"
                       />
                       <button
                         onClick={() => handleStartEditFixed(item)}
                         className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        title="Редактирай"
-                        aria-label="Edit"
+                        title={t("common.edit")}
+                        aria-label={t("common.edit")}
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setPendingDeleteFixed(item)}
                         className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        title="Изтрий"
-                        aria-label="Delete"
+                        title={t("common.delete")}
+                        aria-label={t("common.delete")}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -2509,7 +2540,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <div className="p-2.5 bg-amber-50/60 dark:bg-amber-950/25 rounded-lg border border-amber-200/70 dark:border-amber-800/60 space-y-1">
                           <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                             <StickyNote className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
-                            Бележка
+                            {t("expenses.noteLabel")}
                           </span>
                           <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-line break-words leading-relaxed">
                             {parsedFixed.plainNote}
@@ -2529,7 +2560,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             })}
             {fixedExpenses.length === 0 && (
               <div className="p-8 text-center text-slate-500 dark:text-slate-400 text-sm italic">
-                Няма добавени повтарящи се разходи
+                {t("expenses.noFixedEmpty")}
               </div>
             )}
           </div>
@@ -2541,20 +2572,22 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           {isFullWidthMode && (
             <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center justify-between text-indigo-900 dark:text-indigo-200 text-xs">
               <span className="font-semibold">
-                Разширен режим на цял екран за търсене и преглед на разходите
+                {t("expenses.fullWidthBanner")}
               </span>
               <button
                 onClick={() => setIsFullWidthMode(false)}
                 className="px-2.5 py-1 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 font-bold rounded-lg border border-indigo-200 dark:border-indigo-700 transition-colors shadow-xs"
               >
-                Обратно към стандартен изглед
+                {t("expenses.backToSplitView")}
               </button>
             </div>
           )}
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-700 dark:text-slate-200">Допълнителни разходи</h3>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200">
+                {t("expenses.additionalTitle")}
+              </h3>
               <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium">
                 {expenses.length}
               </span>
@@ -2566,7 +2599,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 </span>
                 {totalPlannedVariable > 0 && (
                   <span className="block text-[10px] font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
-                    Предстоящи: €{totalPlannedVariable.toFixed(2)}
+                    {t("expenses.plannedBadge")}: €{totalPlannedVariable.toFixed(2)}
                   </span>
                 )}
               </div>
@@ -2598,8 +2631,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 <Search className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
                 <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                   {expenses.length === 0
-                    ? "Няма добавени разходи"
-                    : "Няма намерени разходи, отговарящи на филтрите"}
+                    ? t("expenses.noExpensesAdded")
+                    : t("expenses.noFilteredExpenses")}
                 </p>
                 {(expenseFilters.searchTerm ||
                   expenseFilters.monthFilter !== "current" ||
@@ -2616,7 +2649,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     }}
                     className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold underline"
                   >
-                    Изчисти филтрите и търсенето
+                    {t("expenses.clearFiltersAndSearch")}
                   </button>
                 )}
               </div>
@@ -2633,13 +2666,17 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase tracking-wide truncate pr-2">
-                          Редактиране на разход: {editExpenseCategory?.name || expense.categoryName}
+                          {t("expenses.editingExpenseHeader")}:{" "}
+                          {translateCategoryName(
+                            editExpenseCategory?.name || expense.categoryName,
+                            language
+                          )}
                         </span>
                         <button
                           type="button"
                           onClick={handleCancelEditExpense}
                           className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 shrink-0"
-                          title="Отказ"
+                          title={t("common.cancel")}
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -2648,7 +2685,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                            Категория на разхода
+                            {t("expenses.expenseCategoryField")}
                           </label>
                           <button
                             type="button"
@@ -2670,11 +2707,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                     <span className="w-2 h-2 rounded-full bg-current" />
                                   )}
                                 </span>
-                                <span className="truncate">{editExpenseCategory.name}</span>
+                                <span className="truncate">
+                                  {translateCategoryName(editExpenseCategory.name, language)}
+                                </span>
                               </span>
                             ) : (
                               <span className="text-slate-500 dark:text-slate-400">
-                                Избери категория...
+                                {t("expenses.selectCategoryPlaceholder")}
                               </span>
                             )}
                             <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
@@ -2683,7 +2722,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                         <div>
                           <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                            Сума (€)
+                            {t("expenses.amountLabel")}
                           </label>
                           <input
                             type="text"
@@ -2693,21 +2732,21 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               setEditExpenseAmount(sanitizeDecimalInput(e.target.value))
                             }
                             className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-semibold tabular-nums"
-                            placeholder="Сума €"
+                            placeholder={t("expenses.amountPlaceholderShort")}
                           />
                         </div>
                       </div>
 
                       <div>
                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                          Бележка / Артикули
+                          {t("expenses.noteOrItemsLabel")}
                         </label>
                         <textarea
                           rows={2}
                           value={editExpenseNote}
                           onChange={(e) => setEditExpenseNote(e.target.value)}
                           className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-xs sm:text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-                          placeholder="Бележка или артикули..."
+                          placeholder={t("expenses.noteOrItemsPlaceholder")}
                         />
                       </div>
 
@@ -2715,7 +2754,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                            {!editExpenseCompleted ? "Очаквана дата" : "Дата / Очаквана дата"}
+                            {!editExpenseCompleted
+                              ? t("expenses.expectedDateLabel")
+                              : t("expenses.dateLabel")}
                           </label>
                           <input
                             type="date"
@@ -2727,18 +2768,21 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <div>
                           <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1 flex items-center gap-1.5">
                             <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                            Бюджетна категория (Budget Category)
+                            {t("expenses.budgetCategoryLabel")}
                           </label>
                           <select
                             value={editExpenseBudgetCategoryId}
                             onChange={(e) => setEditExpenseBudgetCategoryId(e.target.value)}
                             className="w-full px-3 py-2 min-h-[44px] sm:min-h-[40px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                           >
-                            <option value="">-- Автоматично по категория --</option>
-                            <option value="none">-- Без бюджетна категория (No Budget) --</option>
+                            <option value="">{t("expenses.budgetCategoryAuto")}</option>
+                            <option value="none">{t("expenses.budgetNoneOpt")}</option>
                             {budgetCategories.map((b) => (
                               <option key={b.id} value={b.id}>
-                                {b.categoryName} (Лимит: €{b.monthlyLimit.toFixed(0)})
+                                {t("expenses.budgetLimitOpt", {
+                                  name: translateBudgetName(b.categoryName, language),
+                                  limit: b.monthlyLimit.toFixed(0),
+                                })}
                               </option>
                             ))}
                           </select>
@@ -2755,7 +2799,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         onCompletedChange={setEditExpenseCompleted}
                         completedHint={
                           editExpenseIsGenerated
-                            ? "Автоматично генериран повтарящ се запис"
+                            ? t("expenses.generatedAutoRecord")
                             : undefined
                         }
                       />
@@ -2772,7 +2816,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           onClick={handleCancelEditExpense}
                           className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                         >
-                          Отказ
+                          {t("common.cancel")}
                         </button>
                         <button
                           type="button"
@@ -2785,7 +2829,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           className="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          Запази
+                          {t("common.save")}
                         </button>
                       </div>
                     </div>
@@ -2804,6 +2848,9 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                 const isPlanned = isPlannedExpense(expense);
                 const expenseBudgetLabel = resolveDisplayBudgetName(expense);
+                const localizedExpenseBudgetLabel = expenseBudgetLabel
+                  ? translateBudgetName(expenseBudgetLabel, language)
+                  : "";
                 const hasRepeatFrequency =
                   (expense.repeat && expense.repeat !== "never") || expense.isRecurring;
 
@@ -2843,25 +2890,27 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           {/* Category Name & Constrained Status/Budget Info */}
                           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                             <p className="font-bold text-slate-800 dark:text-slate-100 text-sm truncate max-w-full">
-                              {expense.categoryName}
+                              {translateCategoryName(expense.categoryName, language)}
                             </p>
 
                             {/* Planned Status Indicator */}
                             {isPlanned && (
                               <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 shrink-0">
                                 <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-                                Предстоящ
+                                {t("expenses.plannedBadge")}
                               </span>
                             )}
 
                             {/* Budget Category Badge (Strictly Constrained with Ellipsis) */}
-                            {expenseBudgetLabel && (
+                            {localizedExpenseBudgetLabel && (
                               <span
                                 className="inline-flex items-center gap-1 min-w-0 max-w-[165px] sm:max-w-[225px] text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800"
-                                title={`Бюджет: ${expenseBudgetLabel}`}
+                                title={t("expenses.budgetTooltipPrefix", {
+                                  name: localizedExpenseBudgetLabel,
+                                })}
                               >
                                 <Target className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                <span className="truncate">{expenseBudgetLabel}</span>
+                                <span className="truncate">{localizedExpenseBudgetLabel}</span>
                               </span>
                             )}
 
@@ -2870,7 +2919,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               expense.sourceMonth !== currentMonth && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md border border-blue-200 dark:border-blue-800 shrink-0">
                                   <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
-                                  {expense.sourceMonth}
+                                  {formatLocalizedMonthYear(expense.sourceMonth, language)}
                                 </span>
                               )}
 
@@ -2878,16 +2927,16 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             {hasRepeatFrequency ? (
                               <span
                                 className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap shrink-0"
-                                title="Повтарящ се разход"
+                                title={t("expenses.recurringBadge")}
                               >
                                 <Repeat className="w-3 h-3 shrink-0" />
                                 {expense.repeat && expense.repeat !== "never"
                                   ? formatRepeatLabel(expense.repeat, expense)
-                                  : "Периодичен"}
+                                  : t("expenses.periodicLabel").replace(/:$/, "")}
                               </span>
                             ) : expense.isFixedItem ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
-                                Повтарящ се
+                                {t("expenses.recurringBadge")}
                               </span>
                             ) : null}
                           </div>
@@ -2898,17 +2947,17 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               expense,
                               expense.sourceMonth || currentMonth
                             );
-                            const formatted = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+                            const formatted = formatLocalizedDate(parseLocalDateKey(dateKey), language);
                             if (isPlanned && onOpenCalendar) {
                               return (
                                 <button
                                   type="button"
                                   onClick={() => onOpenCalendar(dateKey)}
                                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums"
-                                  title="Отвори датата в Календар"
+                                  title={t("expenses.openInCalendarTooltip")}
                                 >
                                   <CalendarDays className="w-3.5 h-3.5 shrink-0" />
-                                  <span>Очаквана дата: {formatted}</span>
+                                  <span>{t("expenses.expectedDateLabel")}: {formatted}</span>
                                 </button>
                               );
                             }
@@ -2936,22 +2985,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <CompletionSwitch
                           checked={!isPlanned}
                           onChange={(val) => handleToggleExpenseCompletion(expense, val)}
-                          ariaLabel={`Изпълнено за ${expense.categoryName}`}
+                          ariaLabel={t("expenses.markCompletedAria", {
+                            name: translateCategoryName(expense.categoryName, language),
+                          })}
                           size="sm"
                         />
                         <button
                           onClick={() => handleStartEditExpense(expense)}
                           className="min-h-[36px] min-w-[36px] flex items-center justify-center p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                          title="Редактирай"
-                          aria-label="Редактирай"
+                          title={t("common.edit")}
+                          aria-label={t("common.edit")}
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setPendingDeleteExpenseItem(expense)}
                           className="min-h-[36px] min-w-[36px] flex items-center justify-center p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                          title="Изтрий"
-                          aria-label="Изтрий"
+                          title={t("common.delete")}
+                          aria-label={t("common.delete")}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -2976,7 +3027,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                         <div className="p-3 bg-amber-50/65 dark:bg-amber-950/25 rounded-xl border border-amber-200/80 dark:border-amber-800/60 space-y-1">
                           <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                             <StickyNote className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                            Бележка
+                            {t("expenses.noteLabel")}
                           </span>
                           <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-line break-words leading-relaxed">
                             {parsedReceipt.plainNote}
@@ -2992,7 +3043,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                               <Receipt className="w-3.5 h-3.5 text-indigo-500" />
-                              Артикули ({parsedReceipt.items.length})
+                              {t("expenses.itemsHeaderCount", { count: parsedReceipt.items.length })}
                             </span>
                             {parsedReceipt.items.length > 2 && (
                               <button
@@ -3002,12 +3053,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               >
                                 {isExpanded ? (
                                   <>
-                                    <span>Скрий детайли</span>
+                                    <span>{t("common.hideDetails")}</span>
                                     <ChevronUp className="w-3.5 h-3.5" />
                                   </>
                                 ) : (
                                   <>
-                                    <span>Виж детайли</span>
+                                    <span>{t("common.showDetails")}</span>
                                     <ChevronDown className="w-3.5 h-3.5" />
                                   </>
                                 )}
@@ -3042,10 +3093,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                             {fmtItemPrice(item.originalPrice)}
                                           </span>
                                           <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                                            -{fmtItemPrice(item.discount)} {item.discountLabel || "Отстъпка"}
+                                            -{fmtItemPrice(item.discount)} {item.discountLabel || t("ocr.discountWord")}
                                           </span>
                                           <span className="text-slate-600 dark:text-slate-300 font-medium">
-                                            Final: {fmtItemPrice(netPrice)}
+                                            {t("ocr.finalItemPrice", { price: fmtItemPrice(netPrice) })}
                                           </span>
                                         </div>
                                       )}
@@ -3072,7 +3123,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               parsedReceipt.currencySymbol === "£"
                                 ? `${parsedReceipt.currencySymbol}${(parsedReceipt.items[0].finalPrice ?? parsedReceipt.items[0].price).toFixed(2)}`
                                 : `${(parsedReceipt.items[0].finalPrice ?? parsedReceipt.items[0].price).toFixed(2)} ${parsedReceipt.currencySymbol || "€"}`}
-                              ) … и още {parsedReceipt.items.length - 1} артикула
+                              ) {t("expenses.collapsedItemsMore", { count: parsedReceipt.items.length - 1 })}
                             </div>
                           )}
                         </div>
@@ -3094,16 +3145,18 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             {totalPages > 1 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  Показване на {(safePage - 1) * PAGE_SIZE + 1}–
-                  {Math.min(safePage * PAGE_SIZE, filteredExpenses.length)} от{" "}
-                  {filteredExpenses.length} разхода
+                  {t("expenses.paginationShowing", {
+                    start: (safePage - 1) * PAGE_SIZE + 1,
+                    end: Math.min(safePage * PAGE_SIZE, filteredExpenses.length),
+                    total: filteredExpenses.length,
+                  })}
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={safePage <= 1}
                     className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    title="Предишна страница"
+                    title={t("expenses.prevPage")}
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
@@ -3114,7 +3167,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={safePage >= totalPages}
                     className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    title="Следваща страница"
+                    title={t("expenses.nextPage")}
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -3130,7 +3183,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         isOpen={Boolean(pendingDeleteFixed)}
         detailLabel={
           pendingDeleteFixed
-            ? `${pendingDeleteFixed.categoryName} (€${pendingDeleteFixed.amount.toFixed(2)})`
+            ? `${translateCategoryName(pendingDeleteFixed.categoryName, language)} (€${pendingDeleteFixed.amount.toFixed(2)})`
             : undefined
         }
         onCancel={() => setPendingDeleteFixed(null)}
@@ -3146,7 +3199,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         isOpen={Boolean(pendingDeleteExpenseItem)}
         detailLabel={
           pendingDeleteExpenseItem
-            ? `${pendingDeleteExpenseItem.merchantName || pendingDeleteExpenseItem.categoryName} (€${pendingDeleteExpenseItem.amount.toFixed(2)})`
+            ? `${pendingDeleteExpenseItem.merchantName || translateCategoryName(pendingDeleteExpenseItem.categoryName, language)} (€${pendingDeleteExpenseItem.amount.toFixed(2)})`
             : undefined
         }
         onCancel={() => setPendingDeleteExpenseItem(null)}

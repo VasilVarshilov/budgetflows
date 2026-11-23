@@ -49,6 +49,13 @@ import {
 } from "@/utils/formatting";
 import { userStorage } from "@/utils/userStorage";
 import { BudgetCardsCarousel } from "./BudgetCardsCarousel";
+import {
+  useI18n,
+  formatLocalizedMonthYear,
+  translateBudgetName,
+  translateCategoryName,
+  formatLocalizedDate,
+} from "@/i18n";
 
 const STORAGE_BASE_BUDGET_CARD_ORDER = "BudgetCardOrder";
 
@@ -76,6 +83,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
   monthlyData,
   onNavigateTab,
 }) => {
+  const { t, language } = useI18n();
   // Selected month for comparison (defaults to current month)
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>(() => {
     return getCurrentMonthBulgarian();
@@ -310,12 +318,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     e.preventDefault();
     const trimmedName = formData.categoryName.trim();
     if (!trimmedName) {
-      setFormError("Моля, посочете име на бюджета.");
+      setFormError(t("budgets.errMissingName"));
       return;
     }
     const limit = parseDecimalInput(formData.monthlyLimit);
     if (isNaN(limit) || limit <= 0) {
-      setFormError("Моля, въведете валиден положителен бюджет.");
+      setFormError(t("budgets.errInvalidLimit"));
       return;
     }
 
@@ -393,10 +401,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-800 dark:text-white">
-                Управление на бюджети
+                {t("budgets.pageTitle")}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Задайте месечни лимити и следете изразходването по категории в реално време
+                {t("budgets.pageSubtitleRealtime")}
               </p>
             </div>
           </div>
@@ -414,7 +422,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               >
                 {availableMonths.map((m) => (
                   <option key={m} value={m} className="dark:bg-slate-800 dark:text-white">
-                    {m}
+                    {formatLocalizedMonthYear(m, language)}
                   </option>
                 ))}
               </select>
@@ -427,7 +435,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Нов бюджет за категория</span>
+            <span>{t("budgets.newCategoryBudgetBtn")}</span>
           </button>
         </div>
       </div>
@@ -441,10 +449,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             </div>
             <div className="flex-1">
               <h4 className="font-bold text-sm text-rose-800 dark:text-rose-300">
-                Внимание: Надвишен бюджет за {selectedMonthKey}
+                {t("budgets.warningBannerTitle", {
+                  month: formatLocalizedMonthYear(selectedMonthKey, language),
+                })}
               </h4>
               <p className="text-xs text-rose-700 dark:text-rose-300/80 mt-0.5">
-                Имате категории или общ разход, които надхвърлят зададения лимит:
+                {t("budgets.warningBannerSubtitle")}
               </p>
               <div className="mt-2.5 space-y-1.5">
                 {budgetCalc.activeWarnings.map((warn, idx) => (
@@ -472,7 +482,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Общ месечен бюджет
+                  {t("budgets.overallTitle")}
                 </span>
                 <span
                   className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
@@ -483,7 +493,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       : "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
                   }`}
                 >
-                  {budgetCalc.totalPercentage}% изразходван
+                  {t("budgets.pctSpentBadge", { pct: budgetCalc.totalPercentage })}
                 </span>
               </div>
 
@@ -498,7 +508,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       setIsEditingTotal(true);
                     }}
                     className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Промени месечния бюджет"
+                    title={t("budgets.editMonthlyBudgetTooltip")}
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
@@ -521,14 +531,14 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   <button
                     onClick={handleSaveTotalBudget}
                     className="p-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors cursor-pointer"
-                    title="Запази"
+                    title={t("common.save")}
                   >
                     <Check className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setIsEditingTotal(false)}
                     className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition-colors cursor-pointer"
-                    title="Отказ"
+                    title={t("common.cancel")}
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -541,7 +551,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
               <span className="text-xs text-slate-500 dark:text-slate-400 block">
-                Изразходвано ({selectedMonthKey})
+                {t("budgets.spentForMonthLabel", {
+                  month: formatLocalizedMonthYear(selectedMonthKey, language),
+                })}
               </span>
               <span className="text-base font-bold text-slate-900 dark:text-white">
                 €{budgetCalc.totalSpent.toFixed(2)}
@@ -562,7 +574,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     : "text-emerald-700 dark:text-emerald-300 font-semibold"
                 }`}
               >
-                {budgetCalc.isTotalExceeded ? "Превишен с" : "Оставащ бюджет"}
+                {budgetCalc.isTotalExceeded
+                  ? t("budgets.exceededByLabel")
+                  : t("budgets.remainingBudgetLabel")}
               </span>
               <span
                 className={`text-base font-bold ${
@@ -577,7 +591,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-100 dark:border-slate-800 col-span-2 sm:col-span-1">
-              <span className="text-xs text-slate-500 dark:text-slate-400 block">Разпределено</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400 block">
+                {t("budgets.allocatedLabel")}
+              </span>
               <span className="text-base font-bold text-slate-900 dark:text-white">
                 €{totalAllocated.toFixed(2)}
               </span>
@@ -589,13 +605,14 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
         <div className="mt-5 space-y-2">
           <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-slate-300">
             <span>
-              Прогрес на общия бюджет (
-              {budgetCalc.totalStatus === "green"
-                ? "Зелена зона 0-80%"
-                : budgetCalc.totalStatus === "yellow"
-                ? "Жълта зона 80-100%"
-                : "Червена зона 100%+"}
-              )
+              {t("budgets.overallProgressLine", {
+                zone:
+                  budgetCalc.totalStatus === "green"
+                    ? t("budgets.zoneGreenRange")
+                    : budgetCalc.totalStatus === "yellow"
+                    ? t("budgets.zoneYellowRange")
+                    : t("budgets.zoneRedRange"),
+              })}
             </span>
             <span
               className={
@@ -628,8 +645,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
           <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400 pt-0.5">
             <span>0%</span>
-            <span className="text-slate-500 dark:text-slate-400">80% праг</span>
-            <span className="text-slate-500 dark:text-slate-400">100% лимит</span>
+            <span className="text-slate-500 dark:text-slate-400">
+              {t("budgets.threshold80")}
+            </span>
+            <span className="text-slate-500 dark:text-slate-400">
+              {t("budgets.limit100")}
+            </span>
           </div>
         </div>
       </div>
@@ -639,28 +660,28 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-              <span>Бюджети по категории</span>
+              <span>{t("budgets.categoryBudgetsTitle")}</span>
               <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-semibold">
                 {categoryBudgets.length}
               </span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Цветови индикатори: Зелен (0-80%), Жълт (80-100%), Червен (100%+)
+              {t("budgets.colorLegend")}
             </p>
           </div>
 
           <div className="flex items-center gap-2 text-xs">
             <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              {healthyCount} в норма
+              {t("budgets.statusInNorm", { count: healthyCount })}
             </span>
             <span className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
               <span className="w-2 h-2 rounded-full bg-amber-500" />
-              {warningCount} внимание
+              {t("budgets.statusWarning", { count: warningCount })}
             </span>
             <span className="inline-flex items-center gap-1 font-medium text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-md border border-rose-200 dark:border-rose-800">
               <span className="w-2 h-2 rounded-full bg-rose-500" />
-              {exceededCount} надвишени
+              {t("budgets.statusExceeded", { count: exceededCount })}
             </span>
           </div>
         </div>
@@ -669,16 +690,16 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-500 dark:text-slate-400">
             <HelpCircle className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Няма добавени бюджети за категории
+              {t("budgets.emptyTitle")}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Създайте нов бюджет за Храна, Транспорт, Забавления или други разходи.
+              {t("budgets.emptyDesc")}
             </p>
             <button
               onClick={handleOpenAddModal}
               className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-xs"
             >
-              + Добави първи бюджет
+              {t("budgets.addFirstBudgetBtn")}
             </button>
           </div>
         ) : (
@@ -731,12 +752,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                         <div className="min-w-0 flex-1">
                           <h4
                             className="font-bold text-slate-900 dark:text-white text-base sm:text-lg leading-snug line-clamp-2 break-words"
-                            title={item.budget.categoryName}
+                            title={translateBudgetName(item.budget.categoryName, language)}
                           >
-                            {item.budget.categoryName}
+                            {translateBudgetName(item.budget.categoryName, language)}
                           </h4>
                           <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-semibold tabular-nums block mt-0.5">
-                            Лимит: €{item.limit.toFixed(2)}
+                            {t("budgets.limitPrefix", { amount: item.limit.toFixed(2) })}
                           </span>
                           {linkedCats.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
@@ -750,7 +771,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                     )}`}
                                   >
                                     <CatIcon className="w-3 h-3 shrink-0" />
-                                    <span className="truncate max-w-[130px]">{cat.name}</span>
+                                    <span className="truncate max-w-[130px]">
+                                      {translateCategoryName(cat.name, language)}
+                                    </span>
                                   </span>
                                 );
                               })}
@@ -764,8 +787,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           type="button"
                           onClick={() => handleOpenEditModal(item.budget)}
                           className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center p-2 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-                          title="Редактирай бюджет"
-                          aria-label="Редактирай бюджет"
+                          title={t("budgets.editBudgetTooltip")}
+                          aria-label={t("budgets.editBudgetTooltip")}
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
@@ -773,8 +796,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           type="button"
                           onClick={() => setDeleteConfirmId(item.budget.id)}
                           className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center p-2 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
-                          title="Изтрий бюджет"
-                          aria-label="Изтрий бюджет"
+                          title={t("budgets.deleteBudgetTooltip")}
+                          aria-label={t("budgets.deleteBudgetTooltip")}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -785,7 +808,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
                       <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
                         <span className="text-slate-600 dark:text-slate-300 block text-xs font-medium">
-                          Изразходвано
+                          {t("budgets.spentCardLabel")}
                         </span>
                         <span className="font-extrabold text-slate-900 dark:text-white text-lg tabular-nums mt-0.5 block">
                           €{item.spent.toFixed(2)}
@@ -806,7 +829,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                               : "text-slate-600 dark:text-slate-300"
                           }`}
                         >
-                          {item.isExceeded ? "Превишен с" : "Оставащ бюджет"}
+                          {item.isExceeded
+                            ? t("budgets.exceededByLabel")
+                            : t("budgets.remainingBudgetLabel")}
                         </span>
                         <span
                           className={`font-extrabold text-lg tabular-nums mt-0.5 block ${
@@ -825,7 +850,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <div className="mt-5 space-y-2">
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-slate-500 dark:text-slate-400 font-medium">
-                          Усвояване
+                          {t("budgets.utilizationLabel")}
                         </span>
                         <span
                           className={`text-xs px-2.5 py-0.5 rounded-full font-bold border tabular-nums ${badgeColor}`}
@@ -850,8 +875,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <div className="mt-4 pt-3 border-t border-rose-100 dark:border-rose-900/60 flex items-start gap-1.5 text-xs text-rose-700 dark:text-rose-300 font-semibold">
                       <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400 mt-0.5" />
                       <span className="min-w-0 flex-1 break-words tabular-nums">
-                        {item.budget.categoryName} budget exceeded by €
-                        {item.overspentAmount.toFixed(2)} (Бюджетът е надвишен)
+                        {t("budgets.exceededCardMsg", {
+                          category: translateBudgetName(item.budget.categoryName, language),
+                          amount: item.overspentAmount.toFixed(2),
+                        })}
                       </span>
                     </div>
                   )}
@@ -861,9 +888,11 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                       <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
                         <CheckCircle2 className="w-4 h-4" />
-                        Бюджетът е в норма
+                        {t("budgets.healthyHint")}
                       </span>
-                      <span className="tabular-nums">Остават €{item.remaining.toFixed(2)}</span>
+                      <span className="tabular-nums">
+                        {t("budgets.remainingShort", { amount: item.remaining.toFixed(2) })}
+                      </span>
                     </div>
                   )}
 
@@ -871,9 +900,11 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                     <div className="mt-4 pt-3 border-t border-amber-100 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 font-medium">
                       <span className="flex items-center gap-1.5">
                         <AlertTriangle className="w-4 h-4 text-amber-500" />
-                        Близо до лимита
+                        {t("budgets.nearLimitHint")}
                       </span>
-                      <span className="tabular-nums">Остават €{item.remaining.toFixed(2)}</span>
+                      <span className="tabular-nums">
+                        {t("budgets.remainingShort", { amount: item.remaining.toFixed(2) })}
+                      </span>
                     </div>
                   )}
 
@@ -887,8 +918,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <span className="flex items-center gap-1.5">
                         <Receipt className="w-3.5 h-3.5 text-indigo-500" />
                         {expandedCategoryIds[item.budget.id]
-                          ? "Скрий детайли"
-                          : `Покажи детайли (${item.expenses.length})`}
+                          ? t("budgets.hideDetails")
+                          : t("budgets.showDetailsCount", { count: item.expenses.length })}
                       </span>
                       {expandedCategoryIds[item.budget.id] ? (
                         <ChevronUp className="w-4 h-4 text-indigo-500 group-hover:-translate-y-0.5 transition-transform" />
@@ -902,7 +933,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5 max-h-56 overflow-y-auto pr-1">
                         {item.expenses.length === 0 ? (
                           <div className="p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-center text-slate-500 dark:text-slate-400 text-xs">
-                            Няма записани разходи в тази категория за {selectedMonthKey}.
+                            {t("budgets.noExpensesForCategoryMonth", {
+                              month: formatLocalizedMonthYear(selectedMonthKey, language),
+                            })}
                           </div>
                         ) : (
                           item.expenses.map((exp) => {
@@ -911,8 +944,13 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                               exp.merchantName,
                               exp.receiptItems
                             );
-                            const title = exp.merchantName || parsed.merchantName || exp.categoryName;
-                            const dateStr = exp.date ? exp.date.split("T")[0] : "";
+                            const title =
+                              exp.merchantName ||
+                              parsed.merchantName ||
+                              translateCategoryName(exp.categoryName, language);
+                            const dateStr = exp.date
+                              ? formatLocalizedDate(exp.date, language)
+                              : "";
                             const hasSubItems = exp.receiptItems && exp.receiptItems.length > 0;
                             const manualNote =
                               parsed.plainNote &&
@@ -938,7 +976,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                   <span>{dateStr}</span>
                                   {exp.isRecurring && (
                                     <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">
-                                      Периодичен
+                                      {t("budgets.recurringBadge")}
                                     </span>
                                   )}
                                 </div>
@@ -947,7 +985,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                   <div className="p-2 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/60 space-y-0.5">
                                     <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
                                       <StickyNote className="w-3 h-3 shrink-0" />
-                                      Бележка
+                                      {t("budgets.manualNoteBadge")}
                                     </span>
                                     <p className="text-[11px] text-slate-700 dark:text-slate-200 whitespace-pre-line break-words">
                                       {manualNote}
@@ -965,7 +1003,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                                     ))}
                                     {exp.receiptItems!.length > 3 && (
                                       <span className="text-[9px] text-indigo-600 dark:text-indigo-400 block">
-                                        + още {exp.receiptItems!.length - 3} артикула
+                                        {t("budgets.moreItemsInNote", {
+                                          count: exp.receiptItems!.length - 3,
+                                        })}
                                       </span>
                                     )}
                                   </div>
@@ -989,7 +1029,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
         isOpen={Boolean(deleteConfirmId)}
         detailLabel={
           deleteConfirmId
-            ? categoryBudgets.find((b) => b.id === deleteConfirmId)?.categoryName
+            ? translateBudgetName(
+                categoryBudgets.find((b) => b.id === deleteConfirmId)?.categoryName || "",
+                language
+              ) || undefined
             : undefined
         }
         onCancel={() => setDeleteConfirmId(null)}
@@ -1011,8 +1054,8 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                 </div>
                 <h3 className="font-bold text-slate-800 dark:text-white text-base">
                   {editingBudgetId
-                    ? "Редактиране на бюджет"
-                    : "Нов бюджет за категория"}
+                    ? t("budgets.editBudgetTitle")
+                    : t("budgets.newBudgetTitle")}
                 </h3>
               </div>
               <button
@@ -1034,7 +1077,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               {/* Budget Name (Always Editable) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Име на бюджета
+                  {t("budgets.budgetNameLabel")}
                 </label>
                 <input
                   type="text"
@@ -1046,7 +1089,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       categoryName: e.target.value,
                     }));
                   }}
-                  placeholder="напр. Дом и Бит, Храна, Hobby & Gaming"
+                  placeholder={t("budgets.budgetNamePlaceholder")}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 px-3 py-2 min-h-[42px] rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
                   required
                 />
@@ -1056,7 +1099,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Включени категории разходи ({formData.categoryIds.length})
+                    {t("budgets.linkedCategoriesLabel", { count: formData.categoryIds.length })}
                   </label>
                   {formData.categoryIds.length > 0 && (
                     <button
@@ -1064,7 +1107,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       onClick={() => setFormData((prev) => ({ ...prev, categoryIds: [] }))}
                       className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
                     >
-                      Изчисти избора
+                      {t("budgets.clearSelectionBtn")}
                     </button>
                   )}
                 </div>
@@ -1076,6 +1119,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       const cat = availableCategories.find((c) => c.id === cid);
                       if (!cat) return null;
                       const CatIcon = AVAILABLE_ICONS_MAP[cat.iconName] || Target;
+                      const catLabel = translateCategoryName(cat.name, language);
                       return (
                         <button
                           key={cid}
@@ -1084,10 +1128,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-85 cursor-pointer ${getCategoryBadgeClasses(
                             cat.colorClass
                           )}`}
-                          title={`Премахни ${cat.name}`}
+                          title={t("budgets.removeCategoryTitle", { name: catLabel })}
                         >
                           <CatIcon className="w-3 h-3 shrink-0" />
-                          <span>{cat.name}</span>
+                          <span>{catLabel}</span>
                           <X className="w-3 h-3 ml-0.5 opacity-75" />
                         </button>
                       );
@@ -1138,12 +1182,12 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                             <CatIcon className="w-3.5 h-3.5" />
                           </span>
                           <span className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
-                            {cat.name}
+                            {translateCategoryName(cat.name, language)}
                           </span>
                         </div>
                         {isChecked && (
                           <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
-                            Избрана
+                            {t("budgets.selectedBadge")}
                           </span>
                         )}
                       </button>
@@ -1155,27 +1199,27 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                       {customCats.length > 0 && (
                         <>
                           <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                            Потребителски категории
+                            {t("budgets.customCategoriesHeader")}
                           </div>
                           {customCats.map(renderChecklistRow)}
                         </>
                       )}
                       <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        Предефинирани категории
+                        {t("budgets.defaultCategoriesHeader")}
                       </div>
                       {predefinedCats.map(renderChecklistRow)}
                     </div>
                   );
                 })()}
                 <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1.5">
-                  Разходите от всички избрани категории се сумират автоматично към този бюджет. При празен избор се отчитат само ръчно присвоени разходи.
+                  {t("budgets.linkedCategoriesHelp")}
                 </p>
               </div>
 
               {/* Monthly Limit Input */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Месечен лимит (€)
+                  {t("budgets.monthlyLimitLabel")}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">
@@ -1191,13 +1235,13 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                         monthlyLimit: sanitizeDecimalInput(e.target.value),
                       }))
                     }
-                    placeholder="напр. 400"
+                    placeholder={t("budgets.monthlyLimitPlaceholder")}
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white pl-8 pr-3 py-2 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
                     required
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1">
-                  Примери: Храна €400, Транспорт €250, Забавления €150
+                  {t("budgets.monthlyLimitExamples")}
                 </p>
               </div>
 
@@ -1208,14 +1252,18 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
                 >
-                  Отказ
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>{editingBudgetId ? "Запази промените" : "Добави бюджет"}</span>
+                  <span>
+                    {editingBudgetId
+                      ? t("common.saveChanges")
+                      : t("budgets.addBudgetSubmit")}
+                  </span>
                 </button>
               </div>
             </form>

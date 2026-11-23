@@ -29,6 +29,7 @@ import { parseDecimalInput, sanitizeDecimalInput } from "@/utils/formatting";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 import { userStorage } from "@/utils/userStorage";
 import { SavingsGoalCardsCarousel } from "./SavingsGoalCardsCarousel";
+import { translateGoalName, useI18n } from "@/i18n";
 
 const STORAGE_BASE_SAVINGS_GOAL_CARD_ORDER = "SavingsGoalCardOrder";
 
@@ -45,6 +46,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   monthlyData,
   onTriggerSync,
 }) => {
+  const { t, language } = useI18n();
   const [goals, setGoals] = useState<SavingsGoal[]>(() => loadSavingsGoals());
   const [showArchived, setShowArchived] = useState(false);
 
@@ -226,7 +228,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         description: goalDescription,
       });
       if (!res.ok) {
-        setGoalFormError(res.error || "Невалидни данни.");
+        setGoalFormError(res.error || t("savings.errors.invalidData"));
         return;
       }
       persistGoals(res.goals);
@@ -245,7 +247,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
       isEmergencyFund: goalIsEmergency,
     });
     if (!res.ok) {
-      setGoalFormError(res.error || "Грешка при създаване на цел.");
+      setGoalFormError(res.error || t("savings.errors.createGoalFailed"));
       return;
     }
     persistGoals(res.goals);
@@ -268,7 +270,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
     setFundError(null);
     const parsed = parseDecimalInput(fundAmount);
     if (isNaN(parsed) || parsed <= 0) {
-      setFundError("Моля, въведете валидна сума по-голяма от €0.");
+      setFundError(t("savings.errors.invalidPositiveAmount"));
       return;
     }
 
@@ -280,7 +282,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         summary.totalSavings
       );
       if (!res.ok) {
-        setFundError(res.error || "Грешка при разпределяне.");
+        setFundError(res.error || t("savings.errors.allocateFailed"));
         return;
       }
       persistGoals(res.goals);
@@ -288,7 +290,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
     } else {
       const res = withdrawFromSavingsGoal(goals, fundModal.goal.id, parsed);
       if (!res.ok) {
-        setFundError(res.error || "Грешка при изтегляне.");
+        setFundError(res.error || t("savings.errors.withdrawFailed"));
         return;
       }
       persistGoals(res.goals);
@@ -307,12 +309,14 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             </div>
             <div>
               <h4 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
-                Авариен фонд (Emergency Fund)
+                {t("savings.emergencyEmptyTitle")}
               </h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {summary.averageMonthlyExpenses > 0
-                  ? `Отделете част от спестяванията си за спешни случаи. Средният ви месечен разход е €${summary.averageMonthlyExpenses.toFixed(2)}.`
-                  : "Създайте защитен резерв от съществуващите спестявания за непредвидени ситуации."}
+                  ? t("savings.emergencyEmptyAvgDesc", {
+                      avg: summary.averageMonthlyExpenses.toFixed(2),
+                    })
+                  : t("savings.emergencyEmptyNoAvgDesc")}
               </p>
             </div>
           </div>
@@ -322,7 +326,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Създай Авариен фонд</span>
+            <span>{t("savings.createEmergencyBtn")}</span>
           </button>
         </div>
       );
@@ -330,6 +334,12 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
     const pct = getGoalProgressPercent(ef);
     const remaining = Math.max(0, ef.targetAmount - ef.allocatedAmount);
+    const displayEfName = translateGoalName(ef.name, true, language);
+    const displayEfDesc =
+      ef.description ===
+      "Финансов буфер за непредвидени разходи (препоръчително 3–6 месеца разходи)"
+        ? t("savings.emergencyDefaultDesc")
+        : ef.description;
 
     return (
       <div className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900/60 rounded-xl p-5 shadow-xs space-y-4">
@@ -341,21 +351,24 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="font-bold text-slate-900 dark:text-white text-base">
-                  {ef.name}
+                  {displayEfName}
                 </h4>
                 <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 tabular-nums">
                   {pct.toFixed(1)}%
                 </span>
               </div>
-              {ef.description && (
+              {displayEfDesc && (
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  {ef.description}
+                  {displayEfDesc}
                 </p>
               )}
               <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mt-1 tabular-nums">
                 {summary.emergencyCoverageMonths !== null
-                  ? `Покритие: ${summary.emergencyCoverageMonths.toFixed(1)} месеца (при ср. месечен разход €${summary.averageMonthlyExpenses.toFixed(2)})`
-                  : "Покритие: Добавете завършени разходи за изчисление на месечния буфер"}
+                  ? t("savings.coverageMonthsDetail", {
+                      months: summary.emergencyCoverageMonths.toFixed(1),
+                      avg: summary.averageMonthlyExpenses.toFixed(2),
+                    })
+                  : t("savings.coverageAddExpensesHint")}
               </p>
             </div>
           </div>
@@ -368,7 +381,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               className="inline-flex items-center gap-1 px-3 py-2 min-h-[40px] bg-blue-600 hover:bg-blue-700 disabled:opacity-45 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <ArrowDownLeft className="w-3.5 h-3.5" />
-              <span>Добави</span>
+              <span>{t("savings.emergencyAddBtn")}</span>
             </button>
             <button
               type="button"
@@ -377,14 +390,14 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               className="inline-flex items-center gap-1 px-3 py-2 min-h-[40px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-45 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>Извади</span>
+              <span>{t("savings.emergencyWithdrawBtn")}</span>
             </button>
             <button
               type="button"
               onClick={() => openEditGoalModal(ef)}
               className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Редактирай Авариен фонд"
-              aria-label="Редактирай Авариен фонд"
+              title={t("savings.goalModal.editEmergencyShort")}
+              aria-label={t("savings.goalModal.editEmergencyShort")}
             >
               <Pencil className="w-4 h-4" />
             </button>
@@ -400,19 +413,19 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300 tabular-nums">
             <span>
-              Заделени:{" "}
+              {t("savings.allocatedShort")}:{" "}
               <strong className="text-slate-900 dark:text-white">
                 €{ef.allocatedAmount.toFixed(2)}
               </strong>
             </span>
             <span>
-              Цел:{" "}
+              {t("savings.targetShort")}:{" "}
               <strong className="text-slate-900 dark:text-white">
                 €{ef.targetAmount.toFixed(2)}
               </strong>
             </span>
             <span>
-              Остават:{" "}
+              {t("savings.remainingShort")}:{" "}
               <strong className="text-slate-900 dark:text-white">
                 €{remaining.toFixed(2)}
               </strong>
@@ -430,10 +443,10 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         <div>
           <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Target className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-            Цели за спестяване („Касички“)
+            {t("savings.goalsJarsTitle")}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Разпределете наличните спестявания по виртуални цели без дублиране на баланса
+            {t("savings.goalsJarsSubtitle")}
           </p>
         </div>
 
@@ -445,8 +458,8 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               className="px-3 py-2 min-h-[40px] rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {showArchived
-                ? "Скрий архивирани"
-                : `Архивирани (${summary.archivedGoals.length})`}
+                ? t("savings.hideArchivedBtn")
+                : t("savings.archivedCountBtn", { count: summary.archivedGoals.length })}
             </button>
           )}
           <button
@@ -455,7 +468,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Нова цел</span>
+            <span>{t("savings.newGoalBtn")}</span>
           </button>
         </div>
       </div>
@@ -464,7 +477,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
-            Общо спестявания
+            {t("savings.summaryTotalSavings")}
           </span>
           <span className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-1 block">
             €{summary.totalSavings.toFixed(2)}
@@ -473,33 +486,37 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
-            Разпределени по цели
+            {t("savings.summaryOtherGoalsAllocated")}
           </span>
           <span className="text-lg sm:text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums mt-1 block">
             €{summary.otherGoalsAllocated.toFixed(2)}
           </span>
           <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-            Общо заделени: €{summary.totalAllocated.toFixed(2)}
+            {t("savings.summaryTotalAllocated", {
+              amount: summary.totalAllocated.toFixed(2),
+            })}
           </span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
-            Авариен фонд
+            {t("savings.emergencyFundTitle")}
           </span>
           <span className="text-lg sm:text-xl font-extrabold text-blue-700 dark:text-blue-400 tabular-nums mt-1 block">
             €{summary.emergencyFundAllocated.toFixed(2)}
           </span>
           <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
             {summary.emergencyCoverageMonths !== null
-              ? `Покритие: ${summary.emergencyCoverageMonths.toFixed(1)} мес.`
-              : "Няма данни за разходи"}
+              ? t("savings.coverageShort", {
+                  months: summary.emergencyCoverageMonths.toFixed(1),
+                })
+              : t("savings.noExpenseDataShort")}
           </span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
-            Неразпределени спестявания
+            {t("savings.summaryUnallocatedSavings")}
           </span>
           <span className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-1 block">
             €{summary.unallocatedSavings.toFixed(2)}
@@ -512,9 +529,9 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs">
           <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <span>
-            Разпределените суми по цели надвишават текущия общ баланс на спестяванията с{" "}
-            <strong className="tabular-nums">€{summary.overAllocatedAmount.toFixed(2)}</strong>.
-            Освободете средства от някоя цел или добавете спестяване, за да възстановите баланса.
+            {t("savings.overAllocatedNotice")}{" "}
+            <strong className="tabular-nums">€{summary.overAllocatedAmount.toFixed(2)}</strong>.{" "}
+            {t("savings.overAllocatedAction")}
           </span>
         </div>
       )}
@@ -523,7 +540,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
       <div className="space-y-2.5">
         <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <span>Авариен фонд</span>
+          <span>{t("savings.emergencyFundTitle")}</span>
         </h4>
         {renderEmergencyCard()}
       </div>
@@ -533,7 +550,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         <div className="flex items-center justify-between gap-2">
           <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Target className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Цели за спестяване</span>
+            <span>{t("savings.goalsGroupTitle")}</span>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
               · {orderedRegularGoals.length}
             </span>
@@ -583,8 +600,8 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                         type="button"
                         onClick={() => openEditGoalModal(goal)}
                         className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        title="Редактирай целта"
-                        aria-label="Редактирай целта"
+                        title={t("savings.goalEditTooltip")}
+                        aria-label={t("savings.goalEditTooltip")}
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -592,8 +609,8 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                         type="button"
                         onClick={() => setDeleteGoalTarget(goal)}
                         className="min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                        title="Изтрий целта"
-                        aria-label="Изтрий целта"
+                        title={t("savings.goalDeleteTooltip")}
+                        aria-label={t("savings.goalDeleteTooltip")}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -612,7 +629,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                     <div className="grid grid-cols-3 gap-2.5 pt-1 text-xs tabular-nums">
                       <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/70">
                         <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
-                          Заделени
+                          {t("savings.allocatedShort")}
                         </span>
                         <span className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base mt-0.5 block">
                           €{goal.allocatedAmount.toFixed(2)}
@@ -620,7 +637,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/70">
                         <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
-                          Цел
+                          {t("savings.targetShort")}
                         </span>
                         <span className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base mt-0.5 block">
                           €{goal.targetAmount.toFixed(2)}
@@ -628,7 +645,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 text-right">
                         <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
-                          Остават
+                          {t("savings.remainingShort")}
                         </span>
                         <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-sm sm:text-base mt-0.5 block">
                           €{remaining.toFixed(2)}
@@ -646,7 +663,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                       className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer"
                     >
                       <ArrowDownLeft className="w-4 h-4" />
-                      <span>Добави</span>
+                      <span>{t("savings.goalAddBtn")}</span>
                     </button>
                     <button
                       type="button"
@@ -655,7 +672,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                       className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-45 text-slate-700 dark:text-slate-200 rounded-xl text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer"
                     >
                       <ArrowUpRight className="w-4 h-4" />
-                      <span>Извади</span>
+                      <span>{t("savings.goalWithdrawBtn")}</span>
                     </button>
                   </div>
                 </div>
@@ -665,7 +682,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         ) : (
           <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400 space-y-3">
             <p>
-              Все още нямате създадени цели за спестяване (напр. „Ваканция“, „Нов автомобил“, „Техника“).
+              {t("savings.emptyJarsDesc")}
             </p>
             <button
               type="button"
@@ -673,7 +690,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Създай първа цел</span>
+              <span>{t("savings.createFirstGoalBtn")}</span>
             </button>
           </div>
         )}
@@ -683,17 +700,17 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
       {showArchived && summary.archivedGoals.length > 0 && (
         <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2.5">
           <h4 className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
-            Архивирани цели ({summary.archivedGoals.length})
+            {t("savings.archivedGoalsHeading", { count: summary.archivedGoals.length })}
           </h4>
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
             {summary.archivedGoals.map((ag) => (
               <div key={ag.id} className="py-2 flex items-center justify-between gap-3 text-xs">
                 <div className="min-w-0">
                   <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate">
-                    {ag.name}
+                    {translateGoalName(ag.name, Boolean(ag.isEmergencyFund), language)}
                   </span>
                   <span className="text-slate-500 dark:text-slate-400 tabular-nums">
-                    Цел: €{ag.targetAmount.toFixed(2)}
+                    {t("savings.targetShort")}: €{ag.targetAmount.toFixed(2)}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -703,14 +720,14 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
                   >
                     <ArchiveRestore className="w-3.5 h-3.5" />
-                    <span>Възстанови</span>
+                    <span>{t("savings.restoreBtn")}</span>
                   </button>
                   {!ag.isEmergencyFund && (
                     <button
                       type="button"
                       onClick={() => persistGoals(deleteSavingsGoalPermanently(goals, ag.id))}
                       className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
-                      title="Изтрий завинаги"
+                      title={t("savings.deleteForeverTooltip")}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -730,11 +747,11 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
                 {editingGoalId
                   ? goalIsEmergency
-                    ? "Редактирай Авариен фонд"
-                    : "Редактирай цел"
+                    ? t("savings.goalModal.editEmergencyShort")
+                    : t("savings.goalModal.editGoalShort")
                   : goalIsEmergency
-                  ? "Създай Авариен фонд"
-                  : "Нова цел за спестяване"}
+                  ? t("savings.goalModal.createEmergencyTitle")
+                  : t("savings.goalModal.createGoalShort")}
               </h3>
               <button
                 type="button"
@@ -749,14 +766,14 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               {!goalIsEmergency && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Име на целта
+                    {t("savings.goalModal.nameLabel")}
                   </label>
                   <input
                     type="text"
                     required
                     value={goalName}
                     onChange={(e) => setGoalName(e.target.value)}
-                    placeholder="напр. Ваканция, Нов автомобил, Техника"
+                    placeholder={t("savings.goalModal.shortNamePlaceholder")}
                     className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
@@ -765,7 +782,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Целева сума (€)
+                    {t("savings.goalModal.targetAmountLabel")}
                   </label>
                   <input
                     type="text"
@@ -781,7 +798,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                 {!editingGoalId && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Начално заделяне (€)
+                      {t("savings.goalModal.initialAllocationLabel")}
                     </label>
                     <input
                       type="text"
@@ -790,7 +807,9 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                       onChange={(e) =>
                         setGoalInitialAllocation(sanitizeDecimalInput(e.target.value))
                       }
-                      placeholder={`Макс: €${summary.unallocatedSavings.toFixed(2)}`}
+                      placeholder={t("savings.goalModal.maxUnallocatedPlaceholder", {
+                        amount: summary.unallocatedSavings.toFixed(2),
+                      })}
                       className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums"
                     />
                   </div>
@@ -799,13 +818,13 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Описание (опционално)
+                  {t("savings.goalModal.descriptionLabel")}
                 </label>
                 <input
                   type="text"
                   value={goalDescription}
                   onChange={(e) => setGoalDescription(e.target.value)}
-                  placeholder="Кратко описание на целта..."
+                  placeholder={t("savings.goalModal.descriptionPlaceholder")}
                   className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
@@ -822,13 +841,13 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                   onClick={() => setIsGoalModalOpen(false)}
                   className="px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
                 >
-                  Отказ
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   className="px-5 py-2.5 min-h-[44px] rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
                 >
-                  {editingGoalId ? "Запази" : "Създай цел"}
+                  {editingGoalId ? t("common.save") : t("savings.goalModal.createBtn")}
                 </button>
               </div>
             </form>
@@ -843,8 +862,20 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
                 {fundModal.mode === "allocate"
-                  ? `Добави към „${fundModal.goal.name}“`
-                  : `Извади от „${fundModal.goal.name}“`}
+                  ? t("savings.fundModal.addTitle", {
+                      name: translateGoalName(
+                        fundModal.goal.name,
+                        Boolean(fundModal.goal.isEmergencyFund),
+                        language
+                      ),
+                    })
+                  : t("savings.fundModal.withdrawTitle", {
+                      name: translateGoalName(
+                        fundModal.goal.name,
+                        Boolean(fundModal.goal.isEmergencyFund),
+                        language
+                      ),
+                    })}
               </h3>
               <button
                 type="button"
@@ -859,14 +890,14 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                 {fundModal.mode === "allocate" ? (
                   <>
-                    Налични неразпределени спестявания:{" "}
+                    {t("savings.fundModal.availableUnallocated")}{" "}
                     <strong className="text-slate-900 dark:text-white">
                       €{summary.unallocatedSavings.toFixed(2)}
                     </strong>
                   </>
                 ) : (
                   <>
-                    Заделени в тази цел:{" "}
+                    {t("savings.fundModal.allocatedInGoal")}{" "}
                     <strong className="text-slate-900 dark:text-white">
                       €{fundModal.goal.allocatedAmount.toFixed(2)}
                     </strong>
@@ -876,7 +907,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Сума (€)
+                  {t("savings.fundModal.amountLabel")}
                 </label>
                 <input
                   type="text"
@@ -904,7 +935,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                           onClick={() => setFundAmount(preset.toFixed(2))}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 tabular-nums cursor-pointer"
                         >
-                          {ratio === 1 ? "Макс" : `${ratio * 100}%`} (€{preset.toFixed(0)})
+                          {ratio === 1 ? t("savings.fundModal.maxPreset") : `${ratio * 100}%`} (€{preset.toFixed(0)})
                         </button>
                       );
                     })}
@@ -921,7 +952,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                           }}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 cursor-pointer"
                         >
-                          До целта
+                          {t("savings.fundModal.upToGoalBtn")}
                         </button>
                       )}
                   </>
@@ -936,7 +967,7 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                         onClick={() => setFundAmount(preset.toFixed(2))}
                         className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 tabular-nums cursor-pointer"
                       >
-                        {ratio === 1 ? "Всичко" : `${ratio * 100}%`} (€{preset.toFixed(0)})
+                        {ratio === 1 ? t("savings.fundModal.allBtn") : `${ratio * 100}%`} (€{preset.toFixed(0)})
                       </button>
                     );
                   })
@@ -955,13 +986,13 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                   onClick={() => setFundModal(null)}
                   className="px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
                 >
-                  Отказ
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   className="px-5 py-2.5 min-h-[44px] rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
                 >
-                  Потвърди
+                  {t("savings.fundModal.confirmBtn")}
                 </button>
               </div>
             </form>
@@ -971,11 +1002,19 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
       {/* Delete Goal Confirmation Dialog */}
       <ConfirmDeleteDialog
         isOpen={Boolean(deleteGoalTarget)}
-        title="Потвърждение"
-        message="Сигурни ли сте, че искате да изтриете тази цел?"
-        detailLabel={deleteGoalTarget ? deleteGoalTarget.name : undefined}
-        cancelLabel="Отказ"
-        confirmLabel="Изтрий"
+        title={t("common.confirm")}
+        message={t("savings.goalDeleteConfirmMsg")}
+        detailLabel={
+          deleteGoalTarget
+            ? translateGoalName(
+                deleteGoalTarget.name,
+                Boolean(deleteGoalTarget.isEmergencyFund),
+                language
+              )
+            : undefined
+        }
+        cancelLabel={t("common.cancel")}
+        confirmLabel={t("common.delete")}
         onCancel={() => setDeleteGoalTarget(null)}
         onConfirm={handleConfirmDeleteGoal}
       />

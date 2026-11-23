@@ -1,11 +1,7 @@
 import React, { useState } from "react";
 import { Check, Share2, X } from "lucide-react";
-import {
-  APP_DESCRIPTION,
-  APP_NAME,
-  APP_TAGLINE,
-  BrandMark,
-} from "./BrandLogo";
+import { APP_NAME, BrandMark } from "./BrandLogo";
+import { useI18n } from "@/i18n";
 
 interface AboutModalProps {
   isOpen: boolean;
@@ -14,15 +10,18 @@ interface AboutModalProps {
 
 export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
   const [shareCopied, setShareCopied] = useState(false);
+  const { t } = useI18n();
 
   if (!isOpen) return null;
+
+  const tagline = t("brand.tagline");
 
   const handleShareApp = async () => {
     const shareUrl =
       typeof window !== "undefined" ? window.location.origin : "";
     const shareData = {
       title: APP_NAME,
-      text: `${APP_NAME} — ${APP_TAGLINE}`,
+      text: `${APP_NAME} — ${tagline}`,
       url: shareUrl,
     };
 
@@ -37,7 +36,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
     try {
       if (typeof navigator !== "undefined" && navigator.clipboard && shareUrl) {
-        await navigator.clipboard.writeText(`${APP_NAME} — ${APP_TAGLINE}\n${shareUrl}`);
+        await navigator.clipboard.writeText(`${APP_NAME} — ${tagline}\n${shareUrl}`);
         setShareCopied(true);
         setTimeout(() => setShareCopied(false), 3000);
       }
@@ -51,17 +50,17 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
       role="dialog"
       aria-modal="true"
-      aria-label={`За ${APP_NAME}`}
+      aria-label={t("brand.aboutAria", { appName: APP_NAME })}
     >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full overflow-hidden animate-in zoom-in-95">
         <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-            За приложението
+            {t("brand.aboutTitle")}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Затвори"
+            aria-label={t("common.close")}
             className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -78,12 +77,12 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
               Budget Force <span className="text-sky-600 dark:text-sky-400">365</span>
             </h4>
             <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-              {APP_TAGLINE}
+              {tagline}
             </p>
           </div>
 
           <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-            {APP_DESCRIPTION}
+            {t("brand.description")}
           </p>
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
@@ -95,12 +94,12 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
               {shareCopied ? (
                 <>
                   <Check className="w-4 h-4" />
-                  <span>Линкът е копиран!</span>
+                  <span>{t("brand.linkCopied")}</span>
                 </>
               ) : (
                 <>
                   <Share2 className="w-4 h-4" />
-                  <span>Сподели {APP_NAME}</span>
+                  <span>{t("brand.shareApp", { appName: APP_NAME })}</span>
                 </>
               )}
             </button>
@@ -109,7 +108,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
               onClick={onClose}
               className="w-full sm:w-auto min-h-[42px] inline-flex items-center justify-center px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
             >
-              Затвори
+              {t("common.close")}
             </button>
           </div>
         </div>

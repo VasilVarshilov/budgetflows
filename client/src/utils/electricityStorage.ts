@@ -1,6 +1,8 @@
 import { ElectricityRecord, ExpenseItem, MonthlyRecord } from "@/types";
 import { userStorage, STORAGE_BASE_ELECTRICITY_HISTORY } from "./userStorage";
 import { isCompletedExpense } from "./expenseStatus";
+import { t } from "@/i18n/helpers";
+import type { SupportedLanguage } from "@/i18n/types";
 
 export const STORAGE_KEY_ELECTRICITY_HISTORY = "HomeBudget_ElectricityHistory";
 export const STORAGE_BASE_ELECTRICITY_DELETED_EXPENSES = "ElectricityDeletedExpenseIds";
@@ -50,11 +52,14 @@ export function resolveElectricityMeterMode(
   return "double";
 }
 
-export function getElectricityMeterTypeLabel(r: ElectricityRecord): string {
+export function getElectricityMeterTypeLabel(
+  r: ElectricityRecord,
+  lang?: SupportedLanguage
+): string {
   const mode = resolveElectricityMeterMode(r);
-  if (mode === "single") return "1 Електромер";
-  if (mode === "double") return "2 Електромера";
-  return "Ръчен запис";
+  if (mode === "single") return t("electricity.singleMeter", undefined, lang);
+  if (mode === "double") return t("electricity.doubleMeter", undefined, lang);
+  return t("electricity.manualEntry", undefined, lang);
 }
 
 // Initial realistic seed records so user immediately sees charts and history

@@ -26,10 +26,13 @@ import {
   generateLocalFinancialAnalysis,
   FinancialInsight,
   InsightPriority,
+  translateHealthRating,
 } from "@/utils/aiAnalysisEngine";
 import { isCompletedExpense } from "@/utils/expenseStatus";
 import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
 import { AiChatSection } from "./AiChatSection";
+import { useI18n } from "@/i18n";
+import { formatLocalizedMonthYear } from "@/i18n/helpers";
 
 interface AiAnalysisTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -46,14 +49,15 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
   currentMonth,
   onNavigateTab,
 }) => {
+  const { t, language } = useI18n();
   const [selectedFilter, setSelectedFilter] = useState<FilterCategory>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [summaryScope, setSummaryScope] = useState<"current" | "all">("current");
 
   // Generate analysis from real user data
   const analysis = useMemo(() => {
-    return generateLocalFinancialAnalysis(monthlyData, globalSavings);
-  }, [monthlyData, globalSavings]);
+    return generateLocalFinancialAnalysis(monthlyData, globalSavings, language);
+  }, [monthlyData, globalSavings, language]);
 
   const activeMonthKey = useMemo(() => {
     if (currentMonth && monthlyData[currentMonth]) return currentMonth;
@@ -121,26 +125,26 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
     switch (priority) {
       case "high":
         return {
-          label: "Висок приоритет",
+          label: t("ai.priorityHigh"),
           className: "bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800",
           dot: "bg-rose-500",
         };
       case "opportunity":
         return {
-          label: "Възможност за растеж",
+          label: t("ai.priorityOpportunity"),
           className: "bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800",
           dot: "bg-indigo-500",
         };
       case "medium":
         return {
-          label: "Препоръка за оптимизация",
+          label: t("ai.priorityMedium"),
           className: "bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",
           dot: "bg-amber-500",
         };
       case "low":
       default:
         return {
-          label: "Положителен статус",
+          label: t("ai.priorityLow"),
           className: "bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
           dot: "bg-emerald-500",
         };
@@ -175,17 +179,16 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 rounded-full text-xs font-semibold text-indigo-200 backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
-              <span>Интелигентен финансов AI асистент</span>
+              <span>{t("ai.assistantBadge")}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
 
             <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              AI Финансов Анализ & Персонализирани Инсайти
+              {t("ai.heroTitle")}
             </h2>
 
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-              Автоматизирано сканиране на паричните потоци, енергийната ефективност и
-              структурата на разходите. Генерира точни насоки за икономии и оптимизация.
+              {t("ai.heroDesc")}
             </p>
           </div>
 
@@ -199,7 +202,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <RefreshCw
                 className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
               />
-              <span>Обнови анализа</span>
+              <span>{t("ai.refreshBtn")}</span>
             </button>
 
             <button
@@ -207,7 +210,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
             >
               <Target className="w-4 h-4" />
-              <span>Приложи в Бюджет</span>
+              <span>{t("ai.applyBudgetBtn")}</span>
             </button>
           </div>
         </div>
@@ -216,7 +219,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-8 pt-6 border-t border-white/10">
           <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
             <span className="text-[11px] font-medium text-slate-300 block">
-              Финансов здравен индекс
+              {t("ai.healthScoreTitle")}
             </span>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-2xl sm:text-3xl font-black text-white">
@@ -224,44 +227,44 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               </span>
               <span className="text-xs text-indigo-300 font-semibold">/100</span>
               <span className="text-[11px] px-2 py-0.5 rounded-md font-bold ml-auto bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                {analysis.healthScore.rating}
+                {translateHealthRating(analysis.healthScore.rating, language)}
               </span>
             </div>
           </div>
 
           <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
             <span className="text-[11px] font-medium text-slate-300 block">
-              Норма на спестяване
+              {t("ai.savingsRateTitle")}
             </span>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-2xl sm:text-3xl font-black text-white">
                 {analysis.healthScore.savingsRate}%
               </span>
-              <span className="text-[11px] text-slate-300 ml-1">от дохода</span>
+              <span className="text-[11px] text-slate-300 ml-1">{t("ai.ofIncomeLabel")}</span>
             </div>
           </div>
 
           <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
             <span className="text-[11px] font-medium text-slate-300 block">
-              Авариен спестовен фонд
+              {t("ai.emergencyReserveTitle")}
             </span>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-2xl sm:text-3xl font-black text-white">
                 {analysis.healthScore.runwayMonths}
               </span>
-              <span className="text-xs text-slate-300 ml-1">месеца буфер</span>
+              <span className="text-xs text-slate-300 ml-1">{t("ai.monthsBufferSuffix")}</span>
             </div>
           </div>
 
           <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
             <span className="text-[11px] font-medium text-slate-300 block">
-              Потенциал за икономия
+              {t("ai.savingsPotentialTitle")}
             </span>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-2xl sm:text-3xl font-black text-emerald-400">
                 ~€{analysis.healthScore.monthlySavingsPotential}
               </span>
-              <span className="text-xs text-slate-300 ml-1">/месец</span>
+              <span className="text-xs text-slate-300 ml-1">{t("ai.perMonthSuffix")}</span>
             </div>
           </div>
         </div>
@@ -283,12 +286,16 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
-                Визуално разпределение на разходите
+                {t("ai.visualDistTitle")}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {summaryScope === "current" && activeMonthKey
-                  ? `Категории за ${activeMonthKey}`
-                  : `Всички анализирани месеци (${analysis.monthsAnalyzedCount})`}
+                  ? t("ai.categoriesForPeriod", {
+                      period: formatLocalizedMonthYear(activeMonthKey, language),
+                    })
+                  : t("ai.allAnalyzedMonths", {
+                      count: analysis.monthsAnalyzedCount,
+                    })}
               </p>
             </div>
           </div>
@@ -303,7 +310,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                   : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
-              Текущ месец
+              {t("ai.currentMonthScope")}
             </button>
             <button
               type="button"
@@ -314,15 +321,15 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                   : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
-              Общо ({analysis.monthsAnalyzedCount})
+              {t("ai.allMonthsScope", { count: analysis.monthsAnalyzedCount })}
             </button>
           </div>
         </div>
 
         <CategoryDistributionChart
           items={categorySummaryItems}
-          totalLabel="Разходи"
-          emptyTitle="Няма приключени разходи за визуализация"
+          totalLabel={t("ai.filterSpending")}
+          emptyTitle={t("ai.emptyChartTitle")}
           compact
         />
       </div>
@@ -338,7 +345,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
-            Всички инсайти ({analysis.insights.length})
+            {t("ai.allInsightsCount", { count: analysis.insights.length })}
           </button>
 
           <button
@@ -350,7 +357,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>⭐ Топ препоръки ({analysis.topRecommendations.length})</span>
+            <span>{t("ai.topRecsCount", { count: analysis.topRecommendations.length })}</span>
           </button>
 
           <button
@@ -361,7 +368,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
-            Приходи
+            {t("nav.income")}
           </button>
 
           <button
@@ -372,7 +379,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
-            Разходи
+            {t("ai.filterSpending")}
           </button>
 
           <button
@@ -383,7 +390,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
-            Спестявания
+            {t("ai.filterSavings")}
           </button>
 
           <button
@@ -394,7 +401,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
-            Електроенергия
+            {t("ai.filterElectricity")}
           </button>
 
           <button
@@ -405,12 +412,12 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
           >
-            Тенденции & Бюджет
+            {t("ai.filterTrendBudget")}
           </button>
         </div>
 
         <span className="text-xs text-slate-500 dark:text-slate-400 hidden md:block shrink-0 pr-2">
-          Анализирани {analysis.monthsAnalyzedCount} месеца
+          {t("ai.analyzedMonthsCount", { count: analysis.monthsAnalyzedCount })}
         </span>
       </div>
 
@@ -418,9 +425,11 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
       {filteredInsights.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500 dark:text-slate-400">
           <HelpCircle className="w-10 h-10 mx-auto text-slate-400 dark:text-slate-400 mb-2" />
-          <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">Няма инсайти в тази категория</h4>
+          <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">
+            {t("ai.noCategoryInsightsTitle")}
+          </h4>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Всички параметри в тази група функционират оптимално.
+            {t("ai.noCategoryInsightsDesc")}
           </p>
         </div>
       ) : (
@@ -459,7 +468,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
                           {insight.isTopRecommendation && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                              ⭐ Топ съвет
+                              {t("ai.topTipBadge")}
                             </span>
                           )}
                         </div>
@@ -470,7 +479,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                     {insight.metricValue && (
                       <div className="text-right shrink-0">
                         <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-                          {insight.metricLabel || "Стойност"}
+                          {insight.metricLabel || t("ai.valueFallbackLabel")}
                         </span>
                         <span className="text-sm font-black text-slate-900 dark:text-white">
                           {insight.metricValue}
@@ -502,7 +511,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 p-4 rounded-b-2xl">
                   <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-200">
                     <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">
-                      💡 Препоръка:
+                      {t("ai.recommendationPrefix")}
                     </span>
                     <p className="font-medium text-slate-700 dark:text-slate-200 leading-relaxed">
                       {insight.actionableTip}
@@ -523,10 +532,10 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
           </div>
           <div>
             <h3 className="font-bold text-slate-900 dark:text-white text-base">
-              Основни финансови правила за оптимизация
+              {t("ai.bestPracticesTitle")}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Препоръки, вградени в алгоритмите за анализ на личния бюджет
+              {t("ai.bestPracticesSub")}
             </p>
           </div>
         </div>
@@ -537,11 +546,10 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <span className="w-6 h-6 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-black text-xs flex items-center justify-center">
                 1
               </span>
-              <h4 className="font-bold text-slate-800 dark:text-white text-sm">Правило 50/30/20</h4>
+              <h4 className="font-bold text-slate-800 dark:text-white text-sm">{t("ai.rule1Title")}</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              До 50% за повтарящи се разходи (наем, ток, сметки), до 30% за лични желания
-              и минимум 20% за спестявания и инвестиции.
+              {t("ai.rule1Desc")}
             </p>
           </div>
 
@@ -550,11 +558,10 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <span className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-black text-xs flex items-center justify-center">
                 2
               </span>
-              <h4 className="font-bold text-slate-800 dark:text-white text-sm">3-6 месечен буфер</h4>
+              <h4 className="font-bold text-slate-800 dark:text-white text-sm">{t("ai.rule2Title")}</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              Поддържайте ликвиден спестовен фонд, покриващ поне три пълни месеца от
-              всичките ви регулярни битови разходи.
+              {t("ai.rule2Desc")}
             </p>
           </div>
 
@@ -563,11 +570,10 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               <span className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-black text-xs flex items-center justify-center">
                 3
               </span>
-              <h4 className="font-bold text-slate-800 dark:text-white text-sm">Нощна електроенергия</h4>
+              <h4 className="font-bold text-slate-800 dark:text-white text-sm">{t("ai.rule3Title")}</h4>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              Планирайте работата на пералня, сушилня и бойлер след 22:00 ч. за намаляване
-              на месечната фактура за ток с 10-15%.
+              {t("ai.rule3Desc")}
             </p>
           </div>
         </div>

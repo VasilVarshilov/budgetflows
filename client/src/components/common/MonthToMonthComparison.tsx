@@ -18,6 +18,11 @@ import {
   MonthComparisonData,
   MetricComparison,
 } from "@/utils/comparisonStorage";
+import {
+  formatLocalizedMonthYear,
+  localizeComparisonMetricName,
+  useI18n,
+} from "@/i18n";
 
 interface MonthToMonthComparisonProps {
   comparisonData: MonthComparisonData;
@@ -28,10 +33,11 @@ interface MonthToMonthComparisonProps {
 
 export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
   comparisonData,
-  title = "Сравнение месец спрямо месец",
+  title,
   subtitle,
   compact = false,
 }) => {
+  const { t, language } = useI18n();
   const {
     currentMonthLabel,
     previousMonthLabel,
@@ -41,6 +47,9 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
     savings,
     electricity,
   } = comparisonData;
+  const localizedCurrentMonth = formatLocalizedMonthYear(currentMonthLabel, language);
+  const localizedPreviousMonth = formatLocalizedMonthYear(previousMonthLabel, language);
+  const resolvedTitle = title ?? t("comparison.title");
 
   const renderMetricCard = (
     metric: MetricComparison,
@@ -109,10 +118,10 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
               </div>
               <div>
                 <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                  {metric.name}
+                  {localizeComparisonMetricName(metric.name, language)}
                 </h4>
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                  {currentMonthLabel} спрямо предходен
+                  {t("comparison.vsPreviousShort", { curr: localizedCurrentMonth })}
                 </span>
               </div>
             </div>
@@ -138,7 +147,7 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
               <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
-                Текущ ({currentMonthLabel})
+                {t("comparison.current", { month: localizedCurrentMonth })}
               </span>
               <span className="font-black text-slate-900 dark:text-white text-base">
                 €{metric.currentValue.toFixed(2)}
@@ -147,7 +156,7 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
 
             <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
               <span className="text-slate-500 dark:text-slate-400 block text-[11px] font-medium">
-                Предходен ({previousMonthLabel})
+                {t("comparison.previous", { month: localizedPreviousMonth })}
               </span>
               <span className="font-bold text-slate-700 dark:text-slate-300 text-base">
                 €{metric.previousValue.toFixed(2)}
@@ -161,9 +170,9 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
           <div className="flex items-center gap-1.5">
             <span className={`w-2 h-2 rounded-full shrink-0 ${badgeDot}`} />
             <span className={indicatorTextColor}>
-              {isImprovement && "Подобрение спрямо предходния месец"}
-              {isNegative && "Отрицателна тенденция"}
-              {isNeutral && "Без промяна"}
+              {isImprovement && t("comparison.improved")}
+              {isNegative && t("comparison.worsened")}
+              {isNeutral && t("comparison.noChange")}
             </span>
           </div>
 
@@ -185,10 +194,15 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
             <Layers className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base">{title}</h3>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base">
+              {resolvedTitle}
+            </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {subtitle ||
-                `Сравнение на финансовите показатели: ${currentMonthLabel} спрямо предходен месец (${previousMonthLabel})`}
+                t("comparison.subtitleTemplate", {
+                  curr: localizedCurrentMonth,
+                  prev: localizedPreviousMonth,
+                })}
             </p>
           </div>
         </div>
@@ -197,11 +211,11 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            Зелено = Подобрение
+            {t("comparison.greenLegend")}
           </span>
           <span className="inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-md border border-rose-200 dark:border-rose-800">
             <span className="w-2 h-2 rounded-full bg-rose-500" />
-            Червено = Отрицателен тренд
+            {t("comparison.redLegend")}
           </span>
         </div>
       </div>
@@ -211,7 +225,7 @@ export const MonthToMonthComparison: React.FC<MonthToMonthComparisonProps> = ({
         <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-2.5 rounded-xl text-xs text-amber-800 dark:text-amber-200">
           <Info className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span>
-            Липсват или са нулеви записите за предходния месец ({previousMonthLabel}). Показаните разлики са изчислени спрямо наличните данни.
+            {t("comparison.missingPrevNotice", { prev: localizedPreviousMonth })}
           </span>
         </div>
       )}

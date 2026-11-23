@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink, MapPin } from "lucide-react";
 import { TransactionLocation } from "@/types";
 import { buildGoogleMapsUrl } from "@/utils/locationUtils";
+import { useI18n } from "@/i18n";
 
 interface LocationCardProps {
   location: TransactionLocation;
@@ -18,6 +19,7 @@ export const LocationCard: React.FC<LocationCardProps> = ({
   defaultShowAddressDetails = false,
   className = "",
 }) => {
+  const { t } = useI18n();
   const placeName = (location?.placeName || "").trim();
   const address = (location?.address || "").trim();
   const [detailsExpanded, setDetailsExpanded] = useState<boolean>(false);
@@ -35,7 +37,7 @@ export const LocationCard: React.FC<LocationCardProps> = ({
     <div className={className}>
       {showHeading && (
         <h4 className="text-xs font-bold text-slate-900 dark:text-white mb-1.5">
-          Локация
+          {t("location.sectionLabel")}
         </h4>
       )}
 
@@ -46,7 +48,9 @@ export const LocationCard: React.FC<LocationCardProps> = ({
       >
         <div className="min-w-0 flex-1">
           <span className="block text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-            {hasPlaceName ? "ЛОКАЦИЯ" : "АДРЕС"}
+            {hasPlaceName
+              ? t("location.cardHeadingLocation")
+              : t("location.cardHeadingAddress")}
           </span>
 
           <p
@@ -87,7 +91,7 @@ export const LocationCard: React.FC<LocationCardProps> = ({
               className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-              <span>Отвори в Google Maps</span>
+              <span>{t("location.openInGoogleMaps")}</span>
             </a>
 
             {hasDistinctAddress && !defaultShowAddressDetails && (
@@ -100,7 +104,11 @@ export const LocationCard: React.FC<LocationCardProps> = ({
                 aria-expanded={detailsExpanded}
                 className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
               >
-                <span>{detailsExpanded ? "Скрий адреса" : "Детайли за адреса"}</span>
+                <span>
+                  {detailsExpanded
+                    ? t("location.hideAddressDetails")
+                    : t("location.showAddressDetails")}
+                </span>
                 {detailsExpanded ? (
                   <ChevronUp className="w-3.5 h-3.5 shrink-0" />
                 ) : (

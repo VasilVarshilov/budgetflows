@@ -84,6 +84,14 @@ import {
   parseLocalDateKey,
   resolveRecordDateKey,
 } from "@/utils/calendarEngine";
+import {
+  formatFullMonthIndex,
+  formatLocalizedDate,
+  formatLocalizedMonthYear,
+  translateCategoryName,
+  translateWeekday,
+  useI18n,
+} from "@/i18n";
 
 const ICON_MAP: Record<string, React.ElementType> = AVAILABLE_ICONS_MAP;
 
@@ -113,6 +121,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   pendingRecordTarget,
   onConsumeRecordTarget,
 }) => {
+  const { t, language } = useI18n();
   const [incomeCategories, setIncomeCategories] = useState<ExpenseCategory[]>(
     () => loadStoredIncomeCategories()
   );
@@ -223,8 +232,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
   // Due / Expected Incomes computed from recurring templates
   const dueExpectedIncomes = useMemo(() => {
-    return getDueExpectedIncomes(recurringTemplates);
-  }, [recurringTemplates]);
+    return getDueExpectedIncomes(recurringTemplates, new Date(), language);
+  }, [recurringTemplates, language]);
 
   // Available months & years across records
   const { availableMonths, availableYears } = useMemo(() => {
@@ -639,11 +648,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     e.preventDefault();
     const numericAmount = parseDecimalInput(formAmount);
     if (isNaN(numericAmount) || numericAmount <= 0) {
-      setFormError("Моля, въведете валидна сума по-голяма от 0.");
+      setFormError(t("income.errInvalidAmount"));
       return;
     }
     if (!formCategory) {
-      setFormError("Моля, изберете категория.");
+      setFormError(t("income.errNoCategory"));
       return;
     }
 
@@ -678,7 +687,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       saveRecurringIncomes(updatedTemplates);
       onTriggerSync?.();
       setIsFormOpen(false);
-      showToast("Повтарящият се шаблон беше обновен.");
+      showToast(t("income.toastTemplateUpdatedPlain"));
       return;
     }
 
@@ -734,7 +743,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
       onTriggerSync?.();
       setIsFormOpen(false);
-      showToast("Приходът беше обновен.");
+      showToast(t("income.toastIncomeUpdatedPlain"));
       return;
     }
 
@@ -768,9 +777,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       saveRecurringIncomes(updatedTemplates);
       onTriggerSync?.();
       setIsFormOpen(false);
-      showToast(
-        "Повтарящият се шаблон е създаден и ще се появи в „Очаквани приходи“ на датата на падеж."
-      );
+      showToast(t("income.toastTemplateCreatedDueHint"));
       return;
     }
 
@@ -816,9 +823,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     showToast(
       formCompleted
         ? isFixed
-          ? "Повтарящият се приход беше добавен успешно."
-          : "Приходът беше добавен успешно."
-        : "Предстоящият приход беше добавен."
+          ? t("income.toastRecurringAddedPlain")
+          : t("income.toastIncomeAddedPlain")
+        : t("income.toastUpcomingAddedPlain")
     );
   };
 
@@ -904,7 +911,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     saveRecurringIncomes(updatedTemplates);
     onTriggerSync?.();
     showToast(
-      `Потвърден приход: ${template.categoryName} (+€${template.amount.toFixed(2)}) за ${targetMonthKey}.`
+      t("income.toastConfirmedIncomeMonth", {
+        category: translateCategoryName(template.categoryName, language),
+        amount: template.amount.toFixed(2),
+        month: formatLocalizedMonthYear(targetMonthKey, language),
+      })
     );
   };
 
@@ -927,7 +938,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setRecurringTemplates(updatedTemplates);
     saveRecurringIncomes(updatedTemplates);
     onTriggerSync?.();
-    showToast(`Пропуснат очакван приход: ${template.categoryName}.`);
+    showToast(
+      t("income.toastSkippedIncomePlain", {
+        category: translateCategoryName(template.categoryName, language),
+      })
+    );
   };
 
   // --- Toggle Completion Status on an Income Entry ---
@@ -954,7 +969,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     const updatedList = existingList.filter((i) => i.id !== item.id);
     onSaveIncomesForMonth(monthKey, updatedList);
     setPendingDeleteEntry(null);
-    showToast("Приходът беше изтрит.");
+    showToast(t("income.toastIncomeDeleted"));
   };
 
   // --- Toggle / Delete Recurring Template ---
@@ -972,7 +987,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setRecurringTemplates(updated);
     saveRecurringIncomes(updated);
     onTriggerSync?.();
-    showToast("Повтарящият се шаблон беше изтрит.");
+    showToast(t("income.toastTemplateDeletedPlain"));
   };
 
   const renderCategoryIcon = (iconName: string, className = "w-5 h-5") => {
@@ -992,10 +1007,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               </div>
               <div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-                  Приходи
+                  {t("income.pageTitle")}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Всички постъпления, повтарящи се приходи и очаквани плащания
+                  {t("income.pageSubtitle")}
                 </p>
               </div>
             </div>
@@ -1008,20 +1023,20 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 type="button"
                 onClick={() => shiftMonth(-1)}
                 className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                title="Предишен месец"
-                aria-label="Предишен месец"
+                title={t("income.prevMonth")}
+                aria-label={t("income.prevMonth")}
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <span className="px-3 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap min-w-[125px] text-center">
-                {currentMonth}
+                {formatLocalizedMonthYear(currentMonth, language)}
               </span>
               <button
                 type="button"
                 onClick={() => shiftMonth(1)}
                 className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                title="Следващ месец"
-                aria-label="Следващ месец"
+                title={t("income.nextMonth")}
+                aria-label={t("income.nextMonth")}
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -1034,7 +1049,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               className="min-h-[44px] sm:min-h-[40px] flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors shadow-xs cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
-              <span>Добави приход</span>
+              <span>{t("income.addIncomeBtn")}</span>
             </button>
           </div>
         </div>
@@ -1043,40 +1058,42 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Реализирани приходи ({currentMonth})
+              {t("income.realizedForMonth", {
+                month: formatLocalizedMonthYear(currentMonth, language),
+              })}
             </span>
             <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
               +€{currentMonthTotal.toFixed(2)}
             </span>
             {currentMonthUpcomingTotal > 0 && (
               <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block tabular-nums mt-0.5">
-                Очаквани: +€{currentMonthUpcomingTotal.toFixed(2)}
+                {t("income.expectedPrefix")} +€{currentMonthUpcomingTotal.toFixed(2)}
               </span>
             )}
           </div>
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Повтарящи се приходи
+              {t("income.fixedSectionTitle")}
             </span>
             <span className="text-xl font-bold text-indigo-700 dark:text-indigo-300 tabular-nums">
               +€{currentMonthFixedTotal.toFixed(2)}
             </span>
             {currentMonthFixedUpcoming > 0 && (
               <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block tabular-nums mt-0.5">
-                Предстоящи: +€{currentMonthFixedUpcoming.toFixed(2)}
+                {t("income.upcomingPrefix")} +€{currentMonthFixedUpcoming.toFixed(2)}
               </span>
             )}
           </div>
           <div>
             <span className="text-xs text-slate-500 dark:text-slate-400 block">
-              Допълнителни приходи
+              {t("income.additionalSectionTitle")}
             </span>
             <span className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
               +€{currentMonthAdditionalTotal.toFixed(2)}
             </span>
             {currentMonthAdditionalUpcoming > 0 && (
               <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 block tabular-nums mt-0.5">
-                Предстоящи: +€{currentMonthAdditionalUpcoming.toFixed(2)}
+                {t("income.upcomingPrefix")} +€{currentMonthAdditionalUpcoming.toFixed(2)}
               </span>
             )}
           </div>
@@ -1103,7 +1120,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       {/* Standout Amber Upcoming Incomes Section (for IncomeItems with Изпълнено = false) */}
       {currentMonthUpcomingItems.length > 0 && (
         <section
-          aria-label="Предстоящи приходи"
+          aria-label={t("income.upcomingSectionAria")}
           className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white dark:from-amber-950/35 dark:via-slate-900 dark:to-slate-900 rounded-2xl border border-amber-300/90 dark:border-amber-800/80 p-4 sm:p-5 shadow-xs space-y-3 transition-colors"
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1114,14 +1131,16 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
-                    Предстоящи приходи
+                    {t("income.upcomingSectionAria")}
                   </h3>
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-200/85 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 tabular-nums">
                     {currentMonthUpcomingItems.length}
                   </span>
                 </div>
                 <p className="text-xs text-amber-800/85 dark:text-amber-300/85">
-                  Очаквани постъпления за {currentMonth} — не се включват в баланса до маркиране като „Изпълнено“
+                  {t("income.upcomingSubtitleMonth", {
+                    month: formatLocalizedMonthYear(currentMonth, language),
+                  })}
                 </p>
               </div>
             </div>
@@ -1147,8 +1166,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               >
                 <span>
                   {filters.statusFilter === "planned"
-                    ? "Покажи всички"
-                    : "Филтрирай предстоящи"}
+                    ? t("income.showAllPlain")
+                    : t("income.filterUpcomingBtn")}
                 </span>
               </button>
               {onOpenCalendar && (
@@ -1158,15 +1177,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors cursor-pointer shadow-2xs"
                 >
                   <CalendarDays className="w-3.5 h-3.5" />
-                  <span>Календар</span>
+                  <span>{t("income.calendarBtn")}</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => setIsUpcomingExpanded((prev) => !prev)}
                 className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl text-amber-800 dark:text-amber-300 hover:bg-amber-100/80 dark:hover:bg-amber-900/50 transition-colors cursor-pointer"
-                aria-label={isUpcomingExpanded ? "Скрий списъка" : "Покажи списъка"}
-                title={isUpcomingExpanded ? "Скрий списъка" : "Покажи списъка"}
+                aria-label={isUpcomingExpanded ? t("income.hideList") : t("income.showList")}
+                title={isUpcomingExpanded ? t("income.hideList") : t("income.showList")}
               >
                 {isUpcomingExpanded ? (
                   <ChevronUp className="w-4 h-4" />
@@ -1180,8 +1199,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
           {isUpcomingExpanded && (
             <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 bg-white dark:bg-slate-900 rounded-xl border border-amber-200/80 dark:border-amber-800/70 overflow-hidden">
               {currentMonthUpcomingItems.map(({ item, monthKey, dateKey }) => {
-                const formattedDate = parseLocalDateKey(dateKey).toLocaleDateString("bg-BG");
+                const formattedDate = formatLocalizedDate(parseLocalDateKey(dateKey), language);
                 const isRepeat = isRepeatingFrequency(item.repeat);
+                const localizedCategory = translateCategoryName(item.categoryName, language);
                 return (
                   <div
                     key={`upcoming_inc_${monthKey}_${item.id}`}
@@ -1199,11 +1219,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                         </div>
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <span className="font-semibold text-slate-900 dark:text-white text-sm truncate">
-                            {item.categoryName}
+                            {localizedCategory}
                           </span>
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/70 shrink-0">
                             <Clock className="w-3 h-3 shrink-0" />
-                            <span>Очакван</span>
+                            <span>{t("income.expectedChip")}</span>
                           </span>
                         </div>
                       </div>
@@ -1216,15 +1236,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <CompletionSwitch
                             checked={false}
                             onChange={(val) => handleToggleIncomeCompletion({ item, monthKey }, val)}
-                            ariaLabel={`Изпълнено за ${item.categoryName}`}
+                            ariaLabel={t("income.markCompletedAria", { name: localizedCategory })}
                             size="sm"
                           />
                           <button
                             type="button"
                             onClick={() => handleOpenEditEntry({ item, monthKey })}
                             className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                            title="Редактирай приход"
-                            aria-label="Редактирай приход"
+                            title={t("income.editTooltip")}
+                            aria-label={t("income.editTooltip")}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -1240,7 +1260,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             type="button"
                             onClick={() => onOpenCalendar(dateKey)}
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100/85 hover:bg-amber-200/85 dark:bg-amber-950/70 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer tabular-nums shrink-0"
-                            title="Отвори датата в Календар"
+                            title={t("income.openDateInCalendarTitle")}
                           >
                             <CalendarDays className="w-3 h-3 shrink-0" />
                             <span>{formattedDate}</span>
@@ -1258,7 +1278,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
                           }`}
                         >
-                          {isRepeat ? "Повтарящ се" : "Допълнителен"}
+                          {isRepeat ? t("income.typeRecurringSingle") : t("income.typeAdditionalSingle")}
                         </span>
                         {item.note && (
                           <span className="text-xs text-slate-500 dark:text-slate-400 truncate min-w-0">
@@ -1271,15 +1291,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                         <CompletionSwitch
                           checked={false}
                           onChange={(val) => handleToggleIncomeCompletion({ item, monthKey }, val)}
-                          ariaLabel={`Изпълнено за ${item.categoryName}`}
+                          ariaLabel={t("income.markCompletedAria", { name: localizedCategory })}
                           size="sm"
                         />
                         <button
                           type="button"
                           onClick={() => handleOpenEditEntry({ item, monthKey })}
                           className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                          title="Редактирай приход"
-                          aria-label="Редактирай приход"
+                          title={t("income.editTooltip")}
+                          aria-label={t("income.editTooltip")}
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
@@ -1296,7 +1316,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       {/* Expected Income Banner / Confirmation Section (Recurring Templates Due) */}
       {dueExpectedIncomes.length > 0 && (
         <section
-          aria-label="Очаквани приходи по шаблон"
+          aria-label={t("income.dueByTemplateTitle")}
           className="bg-amber-50/70 dark:bg-amber-950/25 rounded-2xl border border-amber-300/80 dark:border-amber-800/80 p-4 sm:p-5 space-y-3"
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1307,14 +1327,14 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
-                    Очаквани приходи по шаблон
+                    {t("income.dueByTemplateTitle")}
                   </h3>
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 tabular-nums">
                     {dueExpectedIncomes.length}
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300">
-                  Потвърдете получените суми, за да се отразят в приходите и баланса ви.
+                  {t("income.dueByTemplateDesc")}
                 </p>
               </div>
             </div>
@@ -1322,91 +1342,95 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
           <div className="divide-y divide-amber-200/70 dark:divide-amber-800/60 bg-white dark:bg-slate-900 rounded-xl border border-amber-200/80 dark:border-amber-800/70">
             {dueExpectedIncomes.map(
-              ({ template, occurrenceKey, dueDateIso, scheduleLabel }) => (
-                <div
-                  key={`${template.id}_${occurrenceKey}`}
-                  className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(template.categoryColor)}`}
-                    >
-                      {renderCategoryIcon(template.categoryIcon)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">
-                        {template.categoryName}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                        {onOpenCalendar ? (
-                          <button
-                            type="button"
-                            onClick={() => onOpenCalendar(dueDateIso)}
-                            className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums"
-                            title="Отвори датата в Календар"
-                          >
-                            <CalendarDays className="w-3 h-3 shrink-0" />
+              ({ template, occurrenceKey, dueDateIso, scheduleLabel }) => {
+                const localizedDue = formatLocalizedDate(
+                  parseLocalDateKey(dueDateIso),
+                  language
+                );
+                return (
+                  <div
+                    key={`${template.id}_${occurrenceKey}`}
+                    className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(template.categoryColor)}`}
+                      >
+                        {renderCategoryIcon(template.categoryIcon)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">
+                          {translateCategoryName(template.categoryName, language)}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                          {onOpenCalendar ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenCalendar(dueDateIso)}
+                              className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums"
+                              title={t("income.openDateInCalendarTitle")}
+                            >
+                              <CalendarDays className="w-3 h-3 shrink-0" />
+                              <span>
+                                {t("income.dueDatePrefix", { date: localizedDue })}
+                              </span>
+                            </button>
+                          ) : (
                             <span>
-                              Падеж:{" "}
-                              {parseLocalDateKey(dueDateIso).toLocaleDateString("bg-BG")}
+                              {t("income.dueDatePrefix", { date: localizedDue })}
                             </span>
-                          </button>
-                        ) : (
-                          <span>
-                            Падеж:{" "}
-                            {parseLocalDateKey(dueDateIso).toLocaleDateString("bg-BG")}
-                          </span>
-                        )}
-                        <span aria-hidden="true">·</span>
-                        <span>{scheduleLabel}</span>
-                        {template.note && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="truncate">{template.note}</span>
-                          </>
+                          )}
+                          <span aria-hidden="true">·</span>
+                          <span>{scheduleLabel}</span>
+                          {template.note && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="truncate">{template.note}</span>
+                            </>
+                          )}
+                        </div>
+                        {(template.location?.placeName || template.location?.address) && (
+                          <div className="mt-2">
+                            <LocationCard location={template.location} showHeading compact />
+                          </div>
                         )}
                       </div>
-                      {(template.location?.placeName || template.location?.address) && (
-                        <div className="mt-2">
-                          <LocationCard location={template.location} showHeading compact />
-                        </div>
-                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 shrink-0">
+                      <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 tabular-nums mr-1">
+                        +€{template.amount.toFixed(2)}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleConfirmExpectedIncome(
+                            template,
+                            occurrenceKey,
+                            dueDateIso
+                          )
+                        }
+                        className="min-h-[44px] sm:min-h-[38px] flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{t("income.confirmReceivedShort")}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSkipExpectedIncome(template, occurrenceKey)
+                        }
+                        className="min-h-[44px] sm:min-h-[38px] flex items-center gap-1 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                      >
+                        <SkipForward className="w-3.5 h-3.5" />
+                        <span>{t("income.skipBtn")}</span>
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 shrink-0">
-                    <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 tabular-nums mr-1">
-                      +€{template.amount.toFixed(2)}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleConfirmExpectedIncome(
-                          template,
-                          occurrenceKey,
-                          dueDateIso
-                        )
-                      }
-                      className="min-h-[44px] sm:min-h-[38px] flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Потвърди получен</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleSkipExpectedIncome(template, occurrenceKey)
-                      }
-                      className="min-h-[44px] sm:min-h-[38px] flex items-center gap-1 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
-                    >
-                      <SkipForward className="w-3.5 h-3.5" />
-                      <span>Пропусни</span>
-                    </button>
-                  </div>
-                </div>
-              )
+                );
+              }
             )}
           </div>
         </section>
@@ -1418,10 +1442,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
-                Повтарящи се шаблони за приходи
+                {t("income.templatesPanelTitle")}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                При настъпване на датата шаблонът се появява като „Очакван приход“ за потвърждение.
+                {t("income.templatesPanelDesc")}
               </p>
             </div>
             <button
@@ -1430,13 +1454,13 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               className="min-h-[40px] flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Нов шаблон</span>
+              <span>{t("income.addTemplateBtn")}</span>
             </button>
           </div>
 
           {recurringTemplates.length === 0 ? (
             <div className="text-center py-6 text-slate-500 dark:text-slate-400 text-xs">
-              Все още нямате настроени повтарящи се приходи (напр. Заплата, Пенсия, Наем).
+              {t("income.templatesEmptyHint")}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1461,12 +1485,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             : "text-slate-500 dark:text-slate-400 line-through"
                         }`}
                       >
-                        {tpl.categoryName}
+                        {translateCategoryName(tpl.categoryName, language)}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                        <span>{formatRecurrenceSchedule(tpl)}</span>
+                        <span>{formatRecurrenceSchedule(tpl, language)}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{tpl.active ? "Активен" : "На пауза"}</span>
+                        <span>{tpl.active ? t("income.activeStatus") : t("income.pausedStatus")}</span>
                         {tpl.note && (
                           <>
                             <span aria-hidden="true">·</span>
@@ -1491,8 +1515,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                       type="button"
                       onClick={() => handleToggleTemplateActive(tpl.id)}
                       className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      title={tpl.active ? "Сложи на пауза" : "Активирай"}
-                      aria-label={tpl.active ? "Сложи на пауза" : "Активирай"}
+                      title={tpl.active ? t("income.pauseBtn") : t("income.activateBtn")}
+                      aria-label={tpl.active ? t("income.pauseBtn") : t("income.activateBtn")}
                     >
                       {tpl.active ? (
                         <Pause className="w-4 h-4" />
@@ -1505,8 +1529,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                       type="button"
                       onClick={() => handleOpenEditTemplate(tpl)}
                       className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      title="Редактирай шаблон"
-                      aria-label="Редактирай шаблон"
+                      title={t("income.editTemplateTooltip")}
+                      aria-label={t("income.editTemplateTooltip")}
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -1515,8 +1539,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                       type="button"
                       onClick={() => setPendingDeleteTemplate(tpl)}
                       className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                      title="Изтрий шаблон"
-                      aria-label="Изтрий шаблон"
+                      title={t("income.deleteTemplateTooltip")}
+                      aria-label={t("income.deleteTemplateTooltip")}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1556,7 +1580,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                   <Repeat className="w-4 h-4 text-indigo-500" />
-                  Повтарящи се приходи
+                  {t("income.fixedSectionTitle")}
                 </h3>
                 <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium tabular-nums">
                   {filteredFixedEntries.length}
@@ -1569,7 +1593,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   </span>
                   {fixedUpcomingSum > 0 && (
                     <span className="block text-[10px] font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
-                      Предстоящи: +€{fixedUpcomingSum.toFixed(2)}
+                      {t("income.upcomingPrefix")} +€{fixedUpcomingSum.toFixed(2)}
                     </span>
                   )}
                 </div>
@@ -1577,7 +1601,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   type="button"
                   onClick={() => handleOpenAddModal(false, "monthly")}
                   className="p-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm cursor-pointer"
-                  title="Добави повтарящ се приход"
+                  title={t("income.addFixedTooltip")}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -1587,7 +1611,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
             {filteredFixedEntries.length === 0 ? (
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-8 text-center">
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3">
-                  Няма повтарящи се приходи за избраните критерии
+                  {t("income.noFixedMatch")}
                 </p>
                 <button
                   type="button"
@@ -1595,7 +1619,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Добави повтарящ се приход</span>
+                  <span>{t("income.addFixedBtn")}</span>
                 </button>
               </div>
             ) : (
@@ -1603,8 +1627,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 {filteredFixedEntries.map((entry) => {
                   const { item, monthKey } = entry;
                   const resolvedDateKey = resolveRecordDateKey(item, monthKey);
-                  const formattedDate = parseLocalDateKey(resolvedDateKey).toLocaleDateString("bg-BG");
+                  const formattedDate = formatLocalizedDate(
+                    parseLocalDateKey(resolvedDateKey),
+                    language
+                  );
                   const isCompleted = isRecordCompleted(item);
+                  const localizedCategory = translateCategoryName(item.categoryName, language);
 
                   return (
                     <div
@@ -1629,14 +1657,14 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
                             <span
                               className="font-bold text-slate-900 dark:text-white text-sm truncate"
-                              title={item.categoryName}
+                              title={localizedCategory}
                             >
-                              {item.categoryName}
+                              {localizedCategory}
                             </span>
                             {!isCompleted && (
                               <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-100/90 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800 shrink-0">
                                 <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-                                Предстоящ
+                                {t("income.plannedBadge")}
                               </span>
                             )}
                           </div>
@@ -1657,15 +1685,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             <CompletionSwitch
                               checked={isCompleted}
                               onChange={(val) => handleToggleIncomeCompletion(entry, val)}
-                              ariaLabel={`Изпълнено за ${item.categoryName}`}
+                              ariaLabel={t("income.markCompletedAria", { name: localizedCategory })}
                               size="sm"
                             />
                             <button
                               type="button"
                               onClick={() => handleOpenEditEntry(entry)}
                               className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
-                              title="Редактирай приход"
-                              aria-label="Редактирай приход"
+                              title={t("income.editTooltip")}
+                              aria-label={t("income.editTooltip")}
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
@@ -1673,8 +1701,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               type="button"
                               onClick={() => setPendingDeleteEntry(entry)}
                               className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                              title="Изтрий приход"
-                              aria-label="Изтрий приход"
+                              title={t("income.deleteTooltip")}
+                              aria-label={t("income.deleteTooltip")}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1697,7 +1725,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               type="button"
                               onClick={() => onOpenCalendar(resolvedDateKey)}
                               className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums shrink-0"
-                              title="Отвори датата в Календар"
+                              title={t("income.openDateInCalendarTitle")}
                             >
                               <CalendarDays className="w-3 h-3 shrink-0" />
                               <span>{formattedDate}</span>
@@ -1713,7 +1741,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
                                 ·
                               </span>
-                              <span className="truncate">{monthKey}</span>
+                              <span className="truncate">
+                                {formatLocalizedMonthYear(monthKey, language)}
+                              </span>
                             </>
                           )}
                         </div>
@@ -1722,15 +1752,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <CompletionSwitch
                             checked={isCompleted}
                             onChange={(val) => handleToggleIncomeCompletion(entry, val)}
-                            ariaLabel={`Изпълнено за ${item.categoryName}`}
+                            ariaLabel={t("income.markCompletedAria", { name: localizedCategory })}
                             size="sm"
                           />
                           <button
                             type="button"
                             onClick={() => handleOpenEditEntry(entry)}
                             className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
-                            title="Редактирай приход"
-                            aria-label="Редактирай приход"
+                            title={t("income.editTooltip")}
+                            aria-label={t("income.editTooltip")}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -1738,8 +1768,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             type="button"
                             onClick={() => setPendingDeleteEntry(entry)}
                             className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                            title="Изтрий приход"
-                            aria-label="Изтрий приход"
+                            title={t("income.deleteTooltip")}
+                            aria-label={t("income.deleteTooltip")}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1772,7 +1802,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                   <Banknote className="w-4 h-4 text-emerald-500" />
-                  Допълнителни приходи
+                  {t("income.additionalSectionTitle")}
                 </h3>
                 <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-medium tabular-nums">
                   {filteredAdditionalEntries.length}
@@ -1785,7 +1815,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   </span>
                   {additionalUpcomingSum > 0 && (
                     <span className="block text-[10px] font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
-                      Предстоящи: +€{additionalUpcomingSum.toFixed(2)}
+                      {t("income.upcomingPrefix")} +€{additionalUpcomingSum.toFixed(2)}
                     </span>
                   )}
                 </div>
@@ -1793,7 +1823,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   type="button"
                   onClick={() => handleOpenAddModal(false, "never")}
                   className="p-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-md hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors shadow-sm cursor-pointer"
-                  title="Добави допълнителен приход"
+                  title={t("income.addAdditionalTooltip")}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -1803,7 +1833,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
             {filteredAdditionalEntries.length === 0 ? (
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-8 text-center">
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3">
-                  Няма допълнителни приходи за избраните критерии
+                  {t("income.noAdditionalMatch")}
                 </p>
                 <button
                   type="button"
@@ -1811,7 +1841,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Добави приход</span>
+                  <span>{t("income.addIncomeBtn")}</span>
                 </button>
               </div>
             ) : (
@@ -1819,8 +1849,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 {filteredAdditionalEntries.map((entry) => {
                   const { item, monthKey } = entry;
                   const resolvedDateKey = resolveRecordDateKey(item, monthKey);
-                  const formattedDate = parseLocalDateKey(resolvedDateKey).toLocaleDateString("bg-BG");
+                  const formattedDate = formatLocalizedDate(
+                    parseLocalDateKey(resolvedDateKey),
+                    language
+                  );
                   const isCompleted = isRecordCompleted(item);
+                  const localizedCategory = translateCategoryName(item.categoryName, language);
 
                   return (
                     <div
@@ -1845,14 +1879,14 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
                             <span
                               className="font-bold text-slate-900 dark:text-white text-sm truncate"
-                              title={item.categoryName}
+                              title={localizedCategory}
                             >
-                              {item.categoryName}
+                              {localizedCategory}
                             </span>
                             {!isCompleted && (
                               <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-amber-100/90 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800 shrink-0">
                                 <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-                                Предстоящ
+                                {t("income.plannedBadge")}
                               </span>
                             )}
                           </div>
@@ -1873,7 +1907,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             <CompletionSwitch
                               checked={isCompleted}
                               onChange={(val) => handleToggleIncomeCompletion(entry, val)}
-                              ariaLabel={`Изпълнено за ${item.categoryName}`}
+                              ariaLabel={t("income.markCompletedAria", { name: localizedCategory })}
                               size="sm"
                             />
 
@@ -1881,8 +1915,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               type="button"
                               onClick={() => handleOpenEditEntry(entry)}
                               className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
-                              title="Редактирай приход"
-                              aria-label="Редактирай приход"
+                              title={t("income.editTooltip")}
+                              aria-label={t("income.editTooltip")}
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
@@ -1891,8 +1925,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               type="button"
                               onClick={() => setPendingDeleteEntry(entry)}
                               className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                              title="Изтрий приход"
-                              aria-label="Изтрий приход"
+                              title={t("income.deleteTooltip")}
+                              aria-label={t("income.deleteTooltip")}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1908,7 +1942,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               type="button"
                               onClick={() => onOpenCalendar(resolvedDateKey)}
                               className="inline-flex items-center gap-1 font-semibold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer tabular-nums shrink-0"
-                              title="Отвори датата в Календар"
+                              title={t("income.openDateInCalendarTitle")}
                             >
                               <CalendarDays className="w-3 h-3 shrink-0" />
                               <span>{formattedDate}</span>
@@ -1924,7 +1958,9 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                               <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
                                 ·
                               </span>
-                              <span className="truncate">{monthKey}</span>
+                              <span className="truncate">
+                                {formatLocalizedMonthYear(monthKey, language)}
+                              </span>
                             </>
                           )}
                         </div>
@@ -1933,15 +1969,15 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           <CompletionSwitch
                             checked={isCompleted}
                             onChange={(val) => handleToggleIncomeCompletion(entry, val)}
-                            ariaLabel={`Изпълнено за ${item.categoryName}`}
+                            ariaLabel={t("income.markCompletedAria", { name: localizedCategory })}
                             size="sm"
                           />
                           <button
                             type="button"
                             onClick={() => handleOpenEditEntry(entry)}
                             className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
-                            title="Редактирай приход"
-                            aria-label="Редактирай приход"
+                            title={t("income.editTooltip")}
+                            aria-label={t("income.editTooltip")}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -1949,8 +1985,8 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             type="button"
                             onClick={() => setPendingDeleteEntry(entry)}
                             className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                            title="Изтрий приход"
-                            aria-label="Изтрий приход"
+                            title={t("income.deleteTooltip")}
+                            aria-label={t("income.deleteTooltip")}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1993,16 +2029,16 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white"
               >
                 {editingTemplateId
-                  ? "Редакция на повтарящ се шаблон"
+                  ? t("income.editTemplateTitle")
                   : editingEntry
-                  ? "Редактирай приход"
-                  : "Добави приход"}
+                  ? t("income.editModalTitle")
+                  : t("income.addModalTitle")}
               </h3>
               <button
                 type="button"
                 onClick={() => setIsFormOpen(false)}
                 className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                aria-label="Затвори"
+                aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2022,7 +2058,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               {/* Amount */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Сума (€)
+                  {t("income.amountLabel")}
                 </label>
                 <input
                   type="text"
@@ -2043,14 +2079,14 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Категория
+                    {t("income.categoryLabel")}
                   </label>
                   <button
                     type="button"
                     onClick={() => setShowCategoryPicker(true)}
                     className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                   >
-                    + Управление / Нова категория
+                    {t("income.manageCategoryBtn")}
                   </button>
                 </div>
 
@@ -2066,11 +2102,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                       >
                         {renderCategoryIcon(formCategory.iconName, "w-4 h-4")}
                       </span>
-                      <span>{formCategory.name}</span>
+                      <span>{translateCategoryName(formCategory.name, language)}</span>
                     </span>
                   ) : (
                     <span className="text-sm text-slate-500 dark:text-slate-400">
-                      Избери категория...
+                      {t("income.selectCategoryPlaceholder")}
                     </span>
                   )}
                   <Tag className="w-4 h-4 text-slate-400" />
@@ -2091,7 +2127,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
                         }`}
                       >
-                        {cat.name}
+                        {translateCategoryName(cat.name, language)}
                       </button>
                     );
                   })}
@@ -2105,10 +2141,10 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                     <Calendar className="w-3.5 h-3.5 text-slate-400" />
                     <span>
                       {editingTemplateId
-                        ? "Начална дата на шаблона"
+                        ? t("income.dateTemplateLabel")
                         : !formCompleted
-                        ? "Очаквана дата"
-                        : "Дата / Очаквана дата"}
+                        ? t("income.dateExpectedLabel")
+                        : t("income.dateLabel")}
                     </span>
                   </span>
                 </label>
@@ -2133,13 +2169,13 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               {/* Note */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Бележка
+                  {t("income.noteLabel")}
                 </label>
                 <input
                   type="text"
                   value={formNote}
                   onChange={(e) => setFormNote(e.target.value)}
-                  placeholder="Напр. Месечна заплата, дивидент, наем..."
+                  placeholder={t("income.notePlaceholder")}
                   className="w-full px-3.5 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
@@ -2161,9 +2197,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   completed={formCompleted}
                   onCompletedChange={setFormCompleted}
                   completedHint={
-                    formIsGenerated
-                      ? "Автоматично генериран повтарящ се приход"
-                      : undefined
+                    formIsGenerated ? t("income.generatedHint") : undefined
                   }
                 />
               )}
@@ -2173,14 +2207,14 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                 <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3">
                   <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
                     <Repeat className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>Настройки на повтарящ се шаблон</span>
+                    <span>{t("income.templateSettingsTitle")}</span>
                   </div>
 
                   <div className="space-y-3 pt-2 border-t border-slate-200/80 dark:border-slate-700">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                          Честота
+                          {t("income.frequencyLabel")}
                         </label>
                         <select
                           value={formFrequency}
@@ -2191,16 +2225,16 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           }
                           className="w-full px-3 py-2 min-h-[40px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         >
-                          <option value="monthly">Месечен (Monthly)</option>
-                          <option value="weekly">Седмичен (Weekly)</option>
-                          <option value="yearly">Годишен (Yearly)</option>
+                          <option value="monthly">{t("income.freqMonthly")}</option>
+                          <option value="weekly">{t("income.freqWeekly")}</option>
+                          <option value="yearly">{t("income.freqYearly")}</option>
                         </select>
                       </div>
 
                       {formFrequency === "weekly" ? (
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            Ден от седмицата
+                            {t("income.dayOfWeekLabel")}
                           </label>
                           <select
                             value={formDayOfWeek}
@@ -2211,7 +2245,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           >
                             {WEEKDAYS_BG.map((dayName, idx) => (
                               <option key={dayName} value={idx}>
-                                {dayName}
+                                {translateWeekday(idx, false, language)}
                               </option>
                             ))}
                           </select>
@@ -2220,7 +2254,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                              Ден
+                              {t("income.dayLabel")}
                             </label>
                             <select
                               value={Math.min(
@@ -2244,7 +2278,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                           </div>
                           <div>
                             <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                              Месец
+                              {t("income.monthLabel")}
                             </label>
                             <select
                               value={formMonthOfYear}
@@ -2259,7 +2293,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                             >
                               {MONTH_NAMES_FULL_BG.map((mName, idx) => (
                                 <option key={mName} value={idx}>
-                                  {mName}
+                                  {formatFullMonthIndex(idx, language)}
                                 </option>
                               ))}
                             </select>
@@ -2268,7 +2302,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                       ) : (
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            Ден от месеца (1–31)
+                            {t("income.dayOfMonthRangeLabel")}
                           </label>
                           <input
                             type="number"
@@ -2299,17 +2333,17 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   onClick={() => setIsFormOpen(false)}
                   className="min-h-[44px] px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
-                  Отказ
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   className="min-h-[44px] px-5 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer"
                 >
                   {editingTemplateId
-                    ? "Запази шаблон"
+                    ? t("income.saveTemplateBtn")
                     : editingEntry
-                    ? "Запази промените"
-                    : "Запази приход"}
+                    ? t("common.saveChanges")
+                    : t("income.saveIncomeBtn")}
                 </button>
               </div>
             </form>
@@ -2322,7 +2356,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         isOpen={Boolean(pendingDeleteEntry)}
         detailLabel={
           pendingDeleteEntry
-            ? `${pendingDeleteEntry.item.categoryName} (+€${pendingDeleteEntry.item.amount.toFixed(2)})`
+            ? `${translateCategoryName(pendingDeleteEntry.item.categoryName, language)} (+€${pendingDeleteEntry.item.amount.toFixed(2)})`
             : undefined
         }
         onCancel={() => setPendingDeleteEntry(null)}
@@ -2333,7 +2367,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         isOpen={Boolean(pendingDeleteTemplate)}
         detailLabel={
           pendingDeleteTemplate
-            ? `${pendingDeleteTemplate.categoryName} (+€${pendingDeleteTemplate.amount.toFixed(2)})`
+            ? `${translateCategoryName(pendingDeleteTemplate.categoryName, language)} (+€${pendingDeleteTemplate.amount.toFixed(2)})`
             : undefined
         }
         onCancel={() => setPendingDeleteTemplate(null)}

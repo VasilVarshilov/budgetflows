@@ -1,4 +1,5 @@
 import { BackupData } from "@/types";
+import { t } from "@/i18n/helpers";
 
 export const DRIVE_BACKUP_FILENAME = "budgetflows-backup.json";
 
@@ -39,10 +40,10 @@ export async function findDriveBackup(
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Сесията с Google изтече. Моля, влезте отново.");
+      throw new Error(t("syncErrors.sessionExpired"));
     }
     const errText = await response.text();
-    throw new Error(`Грешка при търсене в Google Drive: ${errText}`);
+    throw new Error(t("syncErrors.driveSearchError", { err: errText }));
   }
 
   const result = await response.json();
@@ -93,10 +94,10 @@ export async function uploadDriveBackup(
 
     if (!response.ok) {
       if (response.status === 401) {
-        throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+        throw new Error(t("syncErrors.sessionExpired"));
       }
       const errText = await response.text();
-      throw new Error(`Неуспешно обновяване на архива в Google Drive: ${errText}`);
+      throw new Error(t("syncErrors.driveUpdateError", { err: errText }));
     }
 
     const updated = await response.json();
@@ -105,7 +106,7 @@ export async function uploadDriveBackup(
       fileId: updated.id || existingFile.id,
       modifiedTime: updated.modifiedTime || new Date().toISOString(),
       sizeBytes: updated.size ? parseInt(updated.size, 10) : sizeBytes,
-      message: "Архивът в Google Drive беше обновен успешно.",
+      message: t("syncErrors.driveUpdatedSuccess"),
     };
   }
 
@@ -144,10 +145,10 @@ export async function uploadDriveBackup(
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+      throw new Error(t("syncErrors.sessionExpired"));
     }
     const errText = await response.text();
-    throw new Error(`Неуспешно качване на архив в Google Drive: ${errText}`);
+    throw new Error(t("syncErrors.driveUploadError", { err: errText }));
   }
 
   const created = await response.json();
@@ -157,7 +158,7 @@ export async function uploadDriveBackup(
     fileId: created.id,
     modifiedTime: created.modifiedTime || new Date().toISOString(),
     sizeBytes: created.size ? parseInt(created.size, 10) : sizeBytes,
-    message: "Новият архив бе успешно записан в Google Drive (appDataFolder).",
+    message: t("syncErrors.driveCreatedSuccess"),
   };
 }
 
@@ -179,10 +180,10 @@ export async function downloadDriveBackup(
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+      throw new Error(t("syncErrors.sessionExpired"));
     }
     const errText = await response.text();
-    throw new Error(`Грешка при изтегляне на архив от Google Drive: ${errText}`);
+    throw new Error(t("syncErrors.driveDownloadError", { err: errText }));
   }
 
   return await response.text();
@@ -206,14 +207,14 @@ export async function deleteDriveBackup(
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Сесията с Google изтече (401). Моля, влезте отново.");
+      throw new Error(t("syncErrors.sessionExpired"));
     }
     if (response.status === 404) {
       // File was already deleted or not found
       return true;
     }
     const errText = await response.text();
-    throw new Error(`Грешка при изтриване на архива от Google Drive: ${errText}`);
+    throw new Error(t("syncErrors.driveDeleteError", { err: errText }));
   }
 
   return true;

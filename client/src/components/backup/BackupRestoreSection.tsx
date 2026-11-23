@@ -31,11 +31,11 @@ import { BackupData } from "@/types";
 import { GoogleAuthCard } from "@/components/auth/GoogleAuthCard";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
 import {
-  APP_DESCRIPTION,
   APP_NAME,
-  APP_TAGLINE,
   BrandMark,
 } from "@/components/brand/BrandLogo";
+import { useI18n } from "@/i18n";
+import { getIntlLocale } from "@/i18n/helpers";
 
 interface BackupRestoreSectionProps {
   onDataRestored?: () => void;
@@ -44,6 +44,7 @@ interface BackupRestoreSectionProps {
 export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
   onDataRestored,
 }) => {
+  const { t, language } = useI18n();
   const { user, activeUid } = useCloudSync();
 
   // Current system snapshot (used inside Import preview comparison table)
@@ -76,9 +77,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
 
   const handleDriveRestoreSuccess = () => {
     refreshSnapshot();
-    setSuccessMessage(
-      "Данните от Google Drive бяха успешно възстановени в приложението!"
-    );
+    setSuccessMessage(t("backup.driveRestoreSuccess"));
     if (onDataRestored) {
       onDataRestored();
     }
@@ -105,13 +104,19 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
       const { filename, backup } = exportBackupFile(ownerInfo);
       refreshSnapshot();
       setSuccessMessage(
-        `Архивът беше изтеглен успешно като "${filename}". Включени са ${backup.summary.expensesCount} разхода, ${backup.summary.savingsCount} спестявания и ${backup.summary.electricityCount} сметки за ток.`
+        t("backup.exportJsonSuccess", {
+          filename,
+          expenses: backup.summary.expensesCount,
+          savings: backup.summary.savingsCount,
+          electricity: backup.summary.electricityCount,
+        })
       );
       setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err: any) {
       setErrorMessage(
-        "Възникна грешка при експортирането на архива: " +
-          (err?.message || "Неизвестна грешка")
+        t("backup.exportJsonErr", {
+          error: err?.message || t("backup.unknownErr"),
+        })
       );
     }
   };
@@ -122,13 +127,20 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
     try {
       const summary = exportExcelWorkbook(ownerInfo);
       setSuccessMessage(
-        `Excel файлът "${summary.filename}" беше изтеглен успешно със 7 листа (${summary.expensesCount} разхода, ${summary.incomesCount} прихода, ${summary.savingsCount} спестявания, ${summary.electricityCount} сметки за ток).`
+        t("backup.exportExcelSuccess", {
+          filename: summary.filename,
+          expenses: summary.expensesCount,
+          incomes: summary.incomesCount,
+          savings: summary.savingsCount,
+          electricity: summary.electricityCount,
+        })
       );
       setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err: any) {
       setErrorMessage(
-        "Възникна грешка при експортирането в Excel (.xlsx): " +
-          (err?.message || "Неизвестна грешка")
+        t("backup.exportExcelErr", {
+          error: err?.message || t("backup.unknownErr"),
+        })
       );
     }
   };
@@ -150,10 +162,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
       const result = validateAndParseBackupFile(content);
 
       if (!result.isValid || !result.backup) {
-        setErrorMessage(
-          result.errorMessage ||
-            "Файлът не можа да бъде валидиран като съвместим архив."
-        );
+        setErrorMessage(result.errorMessage || t("backup.fileValidationErr"));
         if (fileInputRef.current) fileInputRef.current.value = "";
         return;
       }
@@ -163,9 +172,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
         user ? { uid: user.uid, email: user.email } : null
       );
       if (!ownership.allowed) {
-        setErrorMessage(
-          ownership.reason || "Този архив принадлежи на друг Google акаунт."
-        );
+        setErrorMessage(ownership.reason || t("backup.fileOwnershipErr"));
         if (fileInputRef.current) fileInputRef.current.value = "";
         return;
       }
@@ -177,7 +184,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
     };
 
     reader.onerror = () => {
-      setErrorMessage("Грешка при прочитането на избрания файл.");
+      setErrorMessage(t("backup.fileReadErr"));
     };
 
     reader.readAsText(file);
@@ -188,9 +195,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
     if (!pendingBackup) return;
 
     if (importMode === "replace" && !confirmReplaceChecked) {
-      setErrorMessage(
-        "Моля, маркирайте отметката за потвърждение на пълната замяна на данните."
-      );
+      setErrorMessage(t("backup.confirmReplaceCheckboxErr"));
       return;
     }
 
@@ -210,17 +215,18 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
       setTimeout(() => setSuccessMessage(null), 9000);
     } catch (err: any) {
       setErrorMessage(
-        "Грешка при прилагането на архива: " +
-          (err?.message || "Неуспешен импорт")
+        t("backup.applyBackupErr", {
+          error: err?.message || t("backup.importFailedFallback"),
+        })
       );
     }
   };
 
   const formatIsoDate = (isoStr?: string) => {
-    if (!isoStr) return "Няма скорошен архив";
+    if (!isoStr) return t("backup.noRecentBackup");
     try {
       const d = new Date(isoStr);
-      return d.toLocaleString("bg-BG", {
+      return d.toLocaleString(getIntlLocale(language), {
         day: "2-digit",
         month: "short",
         year: "numeric",
@@ -276,34 +282,32 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-800 dark:text-white">
-                  Експорт на данни
+                  {t("backup.exportCardTitle")}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Изтеглете пълен архив или таблица за Excel и Google Sheets
+                  {t("backup.exportCardSub")}
                 </p>
               </div>
             </div>
 
             <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-              Създайте резервно копие на всички ваши доходи, разходи, спестявания,
-              сметки за ток и настройки или изтеглете структурирана Excel книга (.xlsx)
-              за анализ в Excel, Google Sheets и LibreOffice Calc.
+              {t("backup.exportCardDesc")}
             </p>
 
             <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-100 dark:border-slate-700/60">
               <div className="flex items-start gap-2">
                 <Download className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-100">Пълен архив (JSON):</strong>{" "}
-                  съхранява всички модули и може да бъде възстановен по всяко време.
+                  <strong className="text-slate-800 dark:text-slate-100">{t("backup.jsonBulletBold")}</strong>{" "}
+                  {t("backup.jsonBulletDesc")}
                 </span>
               </div>
               <div className="flex items-start gap-2">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-100">Excel книга (.xlsx):</strong>{" "}
-                  единен файл <span className="font-medium">BudgetForce365_Export.xlsx</span> със 7 листа
-                  (Expenses, Incomes, Savings, Electricity, Categories, Budgets, Summary).
+                  <strong className="text-slate-800 dark:text-slate-100">{t("backup.excelBulletBold")}</strong>{" "}
+                  {t("backup.excelBulletDesc1")} <span className="font-medium">BudgetForce365_Export.xlsx</span>{" "}
+                  {t("backup.excelBulletDesc2")}
                 </span>
               </div>
             </div>
@@ -315,14 +319,14 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-sm shadow-md transition-all"
             >
               <Download className="w-4 h-4" />
-              <span>Експорт архив (JSON)</span>
+              <span>{t("backup.exportJsonBtn")}</span>
             </button>
             <button
               onClick={handleExportExcel}
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 border border-emerald-200 dark:border-emerald-800 bg-emerald-50/80 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-xl font-medium text-sm transition-all"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Експорт Excel (.xlsx)</span>
+              <span>{t("backup.exportExcelBtn")}</span>
             </button>
           </div>
         </div>
@@ -336,18 +340,16 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-800 dark:text-white">
-                  Импорт на архив
+                  {t("backup.importCardTitle")}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Възстановяване на данни от запазен архивен файл
+                  {t("backup.importCardSub")}
                 </p>
               </div>
             </div>
 
             <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-              Изберете предварително изтеглен файл с архив. Преди да се запишат
-              промените, ще видите преглед и ще изберете дали да обедините или
-              замените данните.
+              {t("backup.importCardDesc")}
             </p>
 
             {/* Hidden real file input */}
@@ -369,19 +371,17 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               </div>
               <div>
                 <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                  Кликнете тук за избор на файл
+                  {t("backup.dropzoneClick")}
                 </span>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Поддържа файлове с архив на {APP_NAME} (.json)
+                  {t("backup.dropzoneSupports", { appName: APP_NAME })}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/60">
               <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0" />
-              <span>
-                Защита от случайна загуба: преглед на записите преди възстановяване.
-              </span>
+              <span>{t("backup.importSafetyBanner")}</span>
             </div>
           </div>
 
@@ -391,7 +391,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium text-sm shadow-md transition-all"
             >
               <Upload className="w-4 h-4" />
-              <span>Импорт на архив (JSON)</span>
+              <span>{t("backup.importJsonBtn")}</span>
             </button>
           </div>
         </div>
@@ -411,7 +411,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-800 dark:text-white text-base sm:text-lg">
-                    Преглед на архив преди импортиране
+                    {t("backup.previewModal.title")}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {selectedFileName} ({selectedFileSize})
@@ -432,7 +432,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-indigo-50/60 dark:bg-indigo-950/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
                 <div>
                   <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
-                    Дата на архива
+                    {t("backup.previewModal.backupDate")}
                   </div>
                   <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
                     {formatIsoDate(pendingBackup.exportDate)}
@@ -440,7 +440,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 </div>
                 <div>
                   <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
-                    Приложение
+                    {t("backup.previewModal.appLabel")}
                   </div>
                   <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
                     {pendingBackup.appName || APP_NAME}
@@ -451,22 +451,22 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               {/* Comparison Breakdown Table */}
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
-                  Сравнение на записите (Текущи vs Архив)
+                  {t("backup.previewModal.comparisonHeading")}
                 </h4>
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-xs">
                   <table className="w-full text-left divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-semibold">
                       <tr>
-                        <th className="py-2.5 px-3">Модул / Категория</th>
-                        <th className="py-2.5 px-3 text-center">Текущо в приложението</th>
-                        <th className="py-2.5 px-3 text-center">В избрания архив</th>
+                        <th className="py-2.5 px-3">{t("backup.previewModal.colModule")}</th>
+                        <th className="py-2.5 px-3 text-center">{t("backup.previewModal.colCurrent")}</th>
+                        <th className="py-2.5 px-3 text-center">{t("backup.previewModal.colBackup")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200">
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>Доходи</span>
+                          <span>{t("backup.previewModal.rowIncome")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.incomeCount ?? 0}
@@ -479,7 +479,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                          <span>Разходи</span>
+                          <span>{t("backup.previewModal.rowExpenses")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.expensesCount ?? 0}
@@ -492,7 +492,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <PiggyBank className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                          <span>Спестявания</span>
+                          <span>{t("backup.previewModal.rowSavings")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.savingsCount ?? 0}
@@ -505,7 +505,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Zap className="w-3.5 h-3.5 text-amber-500" />
-                          <span>Сметки за ток</span>
+                          <span>{t("backup.previewModal.rowElectricity")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.electricityCount ?? 0}
@@ -518,7 +518,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                          <span>Обхванати месеци</span>
+                          <span>{t("backup.previewModal.rowMonths")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {currentSnapshot?.summary.monthsCovered.length ?? 0}
@@ -531,7 +531,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       <tr>
                         <td className="py-2.5 px-3 font-medium flex items-center gap-1.5">
                           <Sliders className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                          <span>Категории & Бюджети</span>
+                          <span>{t("backup.previewModal.rowCategoriesBudgets")}</span>
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500 dark:text-slate-400">
                           {(currentSnapshot?.summary.categoriesCount ?? 0) +
@@ -550,7 +550,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               {/* Mode Selection */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Изберете метод на импортиране:
+                  {t("backup.previewModal.chooseMethodHeading")}
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -574,16 +574,15 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                           className="text-indigo-600 focus:ring-indigo-500"
                         />
                         <span className="font-bold text-sm text-slate-800 dark:text-white">
-                          Обединяване
+                          {t("backup.previewModal.mergeTitle")}
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
-                        Препоръчително
+                        {t("backup.previewModal.recommendedBadge")}
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-300 mt-2">
-                      Запазва всички текущи записи и добавя само новите или
-                      липсващи елементи от архива без дублиране.
+                      {t("backup.previewModal.mergeDesc")}
                     </p>
                   </label>
 
@@ -607,16 +606,15 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                           className="text-rose-600 focus:ring-rose-500"
                         />
                         <span className="font-bold text-sm text-slate-800 dark:text-white">
-                          Пълна замяна
+                          {t("backup.previewModal.replaceTitle")}
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 px-2 py-0.5 rounded-full">
-                        Презаписване
+                        {t("backup.previewModal.overwriteBadge")}
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-300 mt-2">
-                      Изтрива текущите данни в приложението и ги замества изцяло с
-                      данните от архива.
+                      {t("backup.previewModal.replaceDesc")}
                     </p>
                   </label>
                 </div>
@@ -629,12 +627,10 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                     <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                     <div>
                       <div className="font-bold text-sm">
-                        Внимание: Пълната замяна ще изтрие текущите данни!
+                        {t("backup.previewModal.warningTitle")}
                       </div>
                       <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
-                        Всички текущи записи в браузъра ще бъдат заменени с тези
-                        от файла. За да предотвратим случайна загуба на данни, е
-                        необходимо вашето изрично потвърждение.
+                        {t("backup.previewModal.warningDesc")}
                       </p>
                     </div>
                   </div>
@@ -648,10 +644,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                       }
                       className="rounded text-red-600 focus:ring-red-500 w-4 h-4"
                     />
-                    <span>
-                      Потвърждавам, че желая да заменя всички текущи данни с
-                      тези от избрания файл.
-                    </span>
+                    <span>{t("backup.previewModal.confirmCheckbox")}</span>
                   </label>
                 </div>
               )}
@@ -664,7 +657,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 onClick={() => setIsPreviewOpen(false)}
                 className="px-4 py-2.5 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white text-sm font-semibold rounded-xl hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors"
               >
-                Отказ
+                {t("common.cancel")}
               </button>
 
               <button
@@ -682,12 +675,12 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 {importMode === "replace" ? (
                   <>
                     <AlertTriangle className="w-4 h-4" />
-                    <span>Замени и възстанови</span>
+                    <span>{t("backup.previewModal.confirmReplaceBtn")}</span>
                   </>
                 ) : (
                   <>
                     <RefreshCw className="w-4 h-4" />
-                    <span>Обедини данните</span>
+                    <span>{t("backup.previewModal.confirmMergeBtn")}</span>
                   </>
                 )}
               </button>
@@ -712,10 +705,10 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               {APP_NAME}
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              {APP_DESCRIPTION}
+              {t("brand.description")}
             </p>
             <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-              {APP_TAGLINE}
+              {t("brand.tagline")}
             </p>
           </div>
         </div>

@@ -30,6 +30,13 @@ import {
   loadStoredIncomeCategories,
 } from "@/utils/categoryStorage";
 import { getCategoryColor } from "@/utils/colors";
+import {
+  useI18n,
+  translateMonthName,
+  translateCategoryName,
+  formatLocalizedMonthYear,
+  pluralizeUnit,
+} from "@/i18n";
 
 export interface ExportCenterPanelProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -74,6 +81,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
   onClose,
   onPeriodChange,
 }) => {
+  const { t, language } = useI18n();
   const now = new Date();
   const currentMonthName = now.toLocaleDateString("bg-BG", { month: "long" });
   const capitalizedCurrentMonth =
@@ -146,8 +154,13 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => a.localeCompare(b, "bg"));
-  }, [monthlyData]);
+    return Array.from(map.values()).sort((a, b) =>
+      translateCategoryName(a, language).localeCompare(
+        translateCategoryName(b, language),
+        language === "bg" ? "bg" : "en"
+      )
+    );
+  }, [monthlyData, language]);
 
   // Calculate live preview data based on period + active filters
   const previewData = useMemo(() => {
@@ -204,7 +217,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
     try {
       setIsExportingTxt(true);
       exportTxtReport(previewData);
-      setFeedbackMessage("Текстовият отчет (TXT) беше успешно изтеглен.");
+      setFeedbackMessage(t("exportCenter.toastTxtSuccess"));
       setTimeout(() => setFeedbackMessage(null), 4000);
     } catch (err) {
       console.error(err);
@@ -217,7 +230,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
     try {
       setIsExportingPng(true);
       await exportPngReport(previewData);
-      setFeedbackMessage("Графичният отчет (PNG) беше успешно генериран и изтеглен.");
+      setFeedbackMessage(t("exportCenter.toastPngSuccess"));
       setTimeout(() => setFeedbackMessage(null), 4000);
     } catch (err) {
       console.error(err);
@@ -231,7 +244,10 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
       setIsExportingExcel(true);
       const res = exportExcelReport(previewData);
       setFeedbackMessage(
-        `Excel отчетът (${res.filename}) с ${res.sheets.length} листа беше успешно изтеглен.`
+        t("exportCenter.toastExcelSuccess", {
+          filename: res.filename,
+          sheets: res.sheets.length,
+        })
       );
       setTimeout(() => setFeedbackMessage(null), 4500);
     } catch (err) {
@@ -240,6 +256,16 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
       setIsExportingExcel(false);
     }
   };
+
+  const displayPeriodLabel = useMemo(() => {
+    if (periodType === "month") {
+      return formatLocalizedMonthYear(`${selectedMonth} ${selectedYear}`, language);
+    }
+    if (periodType === "year") {
+      return `${selectedYear} ${t("common.yearFullSuffix")}`;
+    }
+    return previewData.periodLabel;
+  }, [periodType, selectedMonth, selectedYear, previewData.periodLabel, language, t]);
 
   const isModal = variant === "modal";
 
@@ -259,10 +285,10 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
           </div>
           <div className="min-w-0">
             <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-white leading-tight">
-              Център за отчети и експорт
+              {t("exportCenter.title")}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Генериране на структурирани текстови, графични и Excel отчети
+              {t("exportCenter.subtitle")}
             </p>
           </div>
         </div>
@@ -271,7 +297,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
             type="button"
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shrink-0"
-            aria-label="Затвори"
+            aria-label={t("common.close")}
           >
             <X className="w-5 h-5" />
           </button>
@@ -289,7 +315,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
           {/* Step 1: Period & Filter Selection */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-2">
-              1. Изберете период и филтри на отчета
+              {t("exportCenter.step1Title")}
             </label>
             <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <button
@@ -301,7 +327,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
-                Избран месец
+                {t("exportCenter.periodMonth")}
               </button>
               <button
                 type="button"
@@ -312,7 +338,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
-                Цяла година
+                {t("exportCenter.periodYear")}
               </button>
               <button
                 type="button"
@@ -323,7 +349,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
-                Период по избор
+                {t("exportCenter.periodCustom")}
               </button>
             </div>
 
@@ -333,7 +359,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                 <div className="flex flex-col sm:flex-row gap-3">
                   <div className="flex-1">
                     <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      Месец
+                      {t("common.month")}
                     </label>
                     <select
                       value={selectedMonth}
@@ -342,14 +368,14 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     >
                       {MONTHS_BG.map((m) => (
                         <option key={m} value={m}>
-                          {m}
+                          {translateMonthName(m, language)}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div className="w-full sm:w-1/3">
                     <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      Година
+                      {t("common.year")}
                     </label>
                     <select
                       value={selectedYear}
@@ -358,7 +384,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     >
                       {YEARS.map((y) => (
                         <option key={y} value={y}>
-                          {y} г.
+                          {y} {t("common.yearSuffix")}
                         </option>
                       ))}
                     </select>
@@ -370,7 +396,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                 <div className="flex items-center gap-3">
                   <div className="flex-1">
                     <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      Изберете календарна година
+                      {t("exportCenter.selectYearLabel")}
                     </label>
                     <select
                       value={selectedYear}
@@ -379,7 +405,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     >
                       {YEARS.map((y) => (
                         <option key={y} value={y}>
-                          {y} година (всички 12 месеца)
+                          {t("exportCenter.all12MonthsOption", { year: y })}
                         </option>
                       ))}
                     </select>
@@ -391,7 +417,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      От дата
+                      {t("exportCenter.fromDate")}
                     </label>
                     <input
                       type="date"
@@ -402,7 +428,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                   </div>
                   <div>
                     <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      До дата
+                      {t("exportCenter.toDate")}
                     </label>
                     <input
                       type="date"
@@ -424,10 +450,10 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                   className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
                 >
                   <Filter className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>Филтри за експорта</span>
+                  <span>{t("exportCenter.filtersToggle")}</span>
                   {activeFiltersCount > 0 && (
                     <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold tabular-nums">
-                      {activeFiltersCount} активни
+                      {t("exportCenter.activeFiltersBadge", { count: activeFiltersCount })}
                     </span>
                   )}
                 </button>
@@ -438,7 +464,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    <span>Нулирай</span>
+                    <span>{t("common.reset")}</span>
                   </button>
                 )}
               </div>
@@ -449,14 +475,14 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     {/* Status Filter */}
                     <div>
                       <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
-                        Статус на операциите
+                        {t("exportCenter.statusLabel")}
                       </label>
                       <div className="grid grid-cols-3 gap-1 p-0.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
                         {(
                           [
-                            { id: "completed", label: "Изпълнени" },
-                            { id: "upcoming", label: "Предстоящи" },
-                            { id: "all", label: "Всички" },
+                            { id: "completed", label: t("exportCenter.statusCompleted") },
+                            { id: "upcoming", label: t("exportCenter.statusUpcoming") },
+                            { id: "all", label: t("exportCenter.statusAll") },
                           ] as const
                         ).map((opt) => (
                           <button
@@ -478,14 +504,14 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                     {/* Recurring Filter */}
                     <div>
                       <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
-                        Повтаряемост
+                        {t("exportCenter.recurringLabel")}
                       </label>
                       <div className="grid grid-cols-3 gap-1 p-0.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
                         {(
                           [
-                            { id: "all", label: "Всички" },
-                            { id: "recurring", label: "Повтарящи" },
-                            { id: "one_time", label: "Еднократни" },
+                            { id: "all", label: t("exportCenter.recurringAll") },
+                            { id: "recurring", label: t("exportCenter.recurringOnly") },
+                            { id: "one_time", label: t("exportCenter.oneTimeOnly") },
                           ] as const
                         ).map((opt) => (
                           <button
@@ -509,7 +535,14 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        Категории ({selectedCategories.length === 0 ? "Всички" : `${selectedCategories.length} избрани`})
+                        {t("exportCenter.categoriesLabel", {
+                          selection:
+                            selectedCategories.length === 0
+                              ? t("common.all")
+                              : t("exportCenter.selectedCategoriesCount", {
+                                  count: selectedCategories.length,
+                                }),
+                        })}
                       </label>
                     </div>
                     <div className="flex flex-wrap gap-1.5 max-h-[88px] overflow-y-auto pr-1 custom-scrollbar">
@@ -522,7 +555,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                             : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300"
                         }`}
                       >
-                        Всички
+                        {t("common.all")}
                       </button>
                       {availableCategories.map((catName) => {
                         const isSelected = selectedCategories.some(
@@ -543,7 +576,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                               className="w-2 h-2 rounded-full shrink-0"
                               style={{ backgroundColor: getCategoryColor(catName) }}
                             />
-                            <span>{catName}</span>
+                            <span>{translateCategoryName(catName, language)}</span>
                           </button>
                         );
                       })}
@@ -558,10 +591,10 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                2. Преглед на данните за експорт
+                {t("exportCenter.step2Title")}
               </label>
               <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-800">
-                {previewData.periodLabel}
+                {displayPeriodLabel}
               </span>
             </div>
 
@@ -570,7 +603,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800/70">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-300 mb-1">
                   <TrendingUp className="w-3.5 h-3.5" />
-                  <span>Приходи</span>
+                  <span>{t("exportCenter.kpiIncome")}</span>
                 </div>
                 <div className="text-base font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                   €{previewData.incomeTotal.toFixed(2)}
@@ -580,7 +613,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               <div className="p-3 bg-rose-50/60 dark:bg-rose-950/30 rounded-xl border border-rose-200 dark:border-rose-800/70">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-rose-800 dark:text-rose-300 mb-1">
                   <CreditCard className="w-3.5 h-3.5" />
-                  <span>Разходи</span>
+                  <span>{t("exportCenter.kpiExpenses")}</span>
                 </div>
                 <div className="text-base font-bold text-rose-700 dark:text-rose-400 tabular-nums">
                   €{previewData.expensesTotal.toFixed(2)}
@@ -590,7 +623,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               <div className="p-3 bg-purple-50/60 dark:bg-purple-950/30 rounded-xl border border-purple-200 dark:border-purple-800/70">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-purple-800 dark:text-purple-300 mb-1">
                   <PiggyBank className="w-3.5 h-3.5" />
-                  <span>Спестявания</span>
+                  <span>{t("exportCenter.kpiSavings")}</span>
                 </div>
                 <div className="text-base font-bold text-purple-700 dark:text-purple-400 tabular-nums">
                   €{previewData.savingsTotal.toFixed(2)}
@@ -600,7 +633,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               <div className="p-3 bg-blue-50/60 dark:bg-blue-950/30 rounded-xl border border-blue-200 dark:border-blue-800/70">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-blue-800 dark:text-blue-300 mb-1">
                   <Scale className="w-3.5 h-3.5" />
-                  <span>Нетен баланс</span>
+                  <span>{t("exportCenter.kpiNetBalance")}</span>
                 </div>
                 <div
                   className={`text-base font-bold tabular-nums ${
@@ -619,19 +652,28 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
             <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
               <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex flex-wrap justify-between gap-1">
                 <span>
-                  Категории разходи ({previewData.categoryBreakdown.length}) ·{" "}
-                  {previewData.filteredExpenses.length} разх. /{" "}
-                  {previewData.filteredIncomes.length} прих.
+                  {t("exportCenter.summaryLineLeft", {
+                    cats: previewData.categoryBreakdown.length,
+                    expCount: previewData.filteredExpenses.length,
+                    incCount: previewData.filteredIncomes.length,
+                  })}
                 </span>
                 <span>
-                  Включени: {previewData.recordCount}{" "}
-                  {previewData.recordCount === 1 ? "месец" : "месеца"}
+                  {t("exportCenter.summaryLineRight", {
+                    count: previewData.recordCount,
+                    unit: pluralizeUnit(
+                      previewData.recordCount,
+                      "common.monthsSingular",
+                      "common.monthsPlural",
+                      language
+                    ),
+                  })}
                 </span>
               </div>
 
               {previewData.categoryBreakdown.length === 0 ? (
                 <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                  Няма записани разходи за избрания период и филтри.
+                  {t("exportCenter.emptyPreview")}
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
@@ -644,7 +686,9 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                         className="w-2 h-2 rounded-full"
                         style={{ backgroundColor: cat.color }}
                       />
-                      <span className="font-medium">{cat.name}:</span>
+                      <span className="font-medium">
+                        {translateCategoryName(cat.name, language)}:
+                      </span>
                       <span className="font-bold">€{cat.amount.toFixed(0)}</span>
                       <span className="text-slate-500 dark:text-slate-400">
                         ({cat.percentage.toFixed(0)}%)
@@ -653,7 +697,9 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                   ))}
                   {previewData.categoryBreakdown.length > 6 && (
                     <span className="inline-flex items-center text-xs px-2 py-1 rounded-md text-slate-500 dark:text-slate-400">
-                      +{previewData.categoryBreakdown.length - 6} още
+                      {t("common.moreCount", {
+                        count: previewData.categoryBreakdown.length - 6,
+                      })}
                     </span>
                   )}
                 </div>
@@ -673,8 +719,10 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
         {/* Footer Actions / Download Buttons */}
         <div className="p-4 sm:px-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-slate-500 dark:text-slate-400 hidden md:block">
-            Формати: <strong className="text-slate-700 dark:text-slate-300">TXT</strong>,{" "}
-            <strong className="text-slate-700 dark:text-slate-300">PNG</strong> и{" "}
+            {t("exportCenter.formatsFooter")}{" "}
+            <strong className="text-slate-700 dark:text-slate-300">TXT</strong>,{" "}
+            <strong className="text-slate-700 dark:text-slate-300">PNG</strong>{" "}
+            {language === "bg" ? "и" : "&"}{" "}
             <strong className="text-emerald-700 dark:text-emerald-400">Excel (.xlsx)</strong>
           </div>
 
@@ -685,7 +733,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                 onClick={onClose}
                 className="px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
               >
-                Затвори
+                {t("common.close")}
               </button>
             )}
 
@@ -695,14 +743,14 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               onClick={handleExportTxt}
               disabled={isExportingTxt}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[42px] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
-              title="Свали отчет в текстов файл (TXT)"
+              title={t("exportCenter.exportTxtTitle")}
             >
               {isExportingTxt ? (
                 <Loader2 className="w-4 h-4 animate-spin text-slate-500 dark:text-slate-400" />
               ) : (
                 <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               )}
-              <span>Експорт TXT</span>
+              <span>{t("exportCenter.exportTxt")}</span>
             </button>
 
             {/* Export PNG Button */}
@@ -711,14 +759,14 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               onClick={handleExportPng}
               disabled={isExportingPng}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[42px] bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
-              title="Генерирай графично изображение с диаграми (PNG)"
+              title={t("exportCenter.exportPngTitle")}
             >
               {isExportingPng ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Image className="w-4 h-4" />
               )}
-              <span>Експорт PNG</span>
+              <span>{t("exportCenter.exportPng")}</span>
             </button>
 
             {/* Export Excel (.xlsx) Button */}
@@ -727,14 +775,14 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               onClick={handleExportExcel}
               disabled={isExportingExcel}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[42px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-xs transition-colors cursor-pointer text-sm"
-              title="Експортирай филтрирания отчет в Excel работна книга (.xlsx) с 6 листа"
+              title={t("exportCenter.exportExcelTitle")}
             >
               {isExportingExcel ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <FileSpreadsheet className="w-4 h-4" />
               )}
-              <span>Експорт Excel</span>
+              <span>{t("exportCenter.exportExcel")}</span>
             </button>
           </div>
         </div>
@@ -751,6 +799,8 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
   initialMonth,
   initialYear,
 }) => {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -767,7 +817,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
-      aria-label="Център за отчети и експорт"
+      aria-label={t("exportCenter.title")}
       onClick={onClose}
     >
       <div

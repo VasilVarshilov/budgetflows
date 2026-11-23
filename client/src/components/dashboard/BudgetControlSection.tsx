@@ -5,6 +5,7 @@ import {
   resolveCategoriesForBudget,
 } from "@/utils/budgetStorage";
 import { loadStoredCategories } from "@/utils/categoryStorage";
+import { useI18n, translateBudgetName, translateCategoryName } from "@/i18n";
 
 interface BudgetControlSectionProps {
   budgetData: OverallBudgetCalculation;
@@ -17,6 +18,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
   currentPeriodLabel,
   onNavigateTab,
 }) => {
+  const { t, language } = useI18n();
   const totalLimit = budgetData.totalMonthlyLimit;
   const status = budgetData.totalStatus;
   const percentageSpent = budgetData.totalPercentage;
@@ -34,7 +36,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
               </div>
               <div>
                 <h4 className="font-bold text-sm text-rose-800 dark:text-rose-200">
-                  ⚠️ Предупреждение: Превишен бюджет ({currentPeriodLabel})
+                  {t("dashboard.budgetControl.warningTitle", { period: currentPeriodLabel })}
                 </h4>
                 <div className="mt-2 space-y-1.5">
                   {budgetData.activeWarnings.map((warn, idx) => (
@@ -53,7 +55,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
               onClick={() => onNavigateTab?.("budgets")}
               className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shrink-0 cursor-pointer shadow-xs transition-colors self-start sm:self-auto"
             >
-              Управление на бюджети
+              {t("dashboard.budgetControl.manageBudgets")}
             </button>
           </div>
         </div>
@@ -68,10 +70,10 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base">
-                Бюджет и контрол на разходите
+                {t("dashboard.budgetControl.sectionTitle")}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Сравнение на разходите спрямо предварително зададените лимити ({currentPeriodLabel})
+                {t("dashboard.budgetControl.sectionSubtitle", { period: currentPeriodLabel })}
               </p>
             </div>
           </div>
@@ -79,7 +81,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
             onClick={() => onNavigateTab?.("budgets")}
             className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 px-3 py-1.5 rounded-xl transition-colors cursor-pointer self-start sm:self-auto"
           >
-            <span>Настройка на бюджети</span>
+            <span>{t("dashboard.budgetControl.configureBudgets")}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -90,7 +92,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Месечен бюджет
+                  {t("dashboard.budgetControl.monthlyBudget")}
                 </span>
                 <span
                   className={`text-xs font-bold px-2 py-0.5 rounded-full ${
@@ -103,7 +105,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                       : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
                   }`}
                 >
-                  {percentageSpent.toFixed(0)}% изразходвани
+                  {t("dashboard.budgetControl.pctSpent", { pct: percentageSpent.toFixed(0) })}
                 </span>
               </div>
 
@@ -113,7 +115,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                     €{budgetData.totalSpent.toFixed(2)}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    от лимит €{totalLimit.toFixed(2)}
+                    {t("dashboard.budgetControl.ofLimit", { limit: totalLimit.toFixed(2) })}
                   </div>
                 </div>
 
@@ -130,7 +132,9 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                       : `€${budgetData.totalRemaining.toFixed(2)}`}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {isExceeded ? "Превишение" : "Оставащи"}
+                    {isExceeded
+                      ? t("dashboard.budgetControl.overspentLabel")
+                      : t("dashboard.budgetControl.remainingLabel")}
                   </div>
                 </div>
               </div>
@@ -158,15 +162,21 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                 {budgetData.activeWarnings.length > 0 ? (
                   <span className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    {budgetData.activeWarnings.length} превишени лимита
+                    {t("dashboard.budgetControl.exceededLimitsCount", {
+                      count: budgetData.activeWarnings.length,
+                    })}
                   </span>
                 ) : (
                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                    ✓ Всички бюджети са в норма
+                    {t("dashboard.budgetControl.allNormal")}
                   </span>
                 )}
               </span>
-              <span>Лимити за {budgetData.categoryStatuses.length} категории</span>
+              <span>
+                {t("dashboard.budgetControl.limitsForCats", {
+                  count: budgetData.categoryStatuses.length,
+                })}
+              </span>
             </div>
           </div>
 
@@ -174,22 +184,24 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
           <div className="lg:col-span-7">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                Категории с дефиниран бюджет
+                {t("dashboard.budgetControl.categoryBudgetsHeading")}
               </span>
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Разход / Лимит
+                {t("dashboard.budgetControl.spentSlashLimit")}
               </span>
             </div>
 
             {budgetData.categoryStatuses.length === 0 ? (
               <div className="p-6 text-center text-slate-500 dark:text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                 <Target className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-xs font-medium">Все още няма въведени лимити по категории.</p>
+                <p className="text-xs font-medium">
+                  {t("dashboard.budgetControl.noCategoryLimits")}
+                </p>
                 <button
                   onClick={() => onNavigateTab?.("budgets")}
                   className="mt-2 text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
                 >
-                  + Задай месечни лимити
+                  {t("dashboard.budgetControl.setLimitsCta")}
                 </button>
               </div>
             ) : (
@@ -213,7 +225,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                       <div className="flex items-start justify-between text-xs mb-1.5 gap-2">
                         <div className="min-w-0 flex-1">
                           <span className="font-semibold text-slate-800 dark:text-slate-200 truncate block">
-                            {categoryName}
+                            {translateBudgetName(categoryName || "", language)}
                           </span>
                           {showChips && (
                             <div className="flex flex-wrap gap-1 mt-1">
@@ -222,7 +234,7 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                                   key={c.id}
                                   className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 text-[10px] font-medium text-slate-700 dark:text-slate-300"
                                 >
-                                  {c.name}
+                                  {translateCategoryName(c.name, language)}
                                 </span>
                               ))}
                             </div>
@@ -264,18 +276,24 @@ export const BudgetControlSection: React.FC<BudgetControlSectionProps> = ({
                         <span>
                           {cat.isExceeded ? (
                             <span className="text-rose-600 dark:text-rose-400 font-semibold">
-                              Превишен с €{cat.overspentAmount.toFixed(2)}
+                              {t("dashboard.budgetControl.overspentBy", {
+                                amount: cat.overspentAmount.toFixed(2),
+                              })}
                             </span>
                           ) : (
-                            <span>Остават €{cat.remaining.toFixed(2)}</span>
+                            <span>
+                              {t("dashboard.budgetControl.remainingAmount", {
+                                amount: cat.remaining.toFixed(2),
+                              })}
+                            </span>
                           )}
                         </span>
                         <span>
                           {cat.status === "green"
-                            ? "Зелена зона"
+                            ? t("dashboard.budgetControl.zoneGreen")
                             : cat.status === "yellow"
-                            ? "Жълта зона"
-                            : "Червена зона"}
+                            ? t("dashboard.budgetControl.zoneYellow")
+                            : t("dashboard.budgetControl.zoneRed")}
                         </span>
                       </div>
                     </div>

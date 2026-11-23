@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { Trash2 } from "lucide-react";
+import { useI18n } from "@/i18n";
 
 interface ConfirmDeleteDialogProps {
   isOpen: boolean;
@@ -16,12 +17,17 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
   isOpen,
   onConfirm,
   onCancel,
-  title = "Потвърждение",
-  message = "Сигурни ли сте, че искате да изтриете този запис?",
+  title,
+  message,
   detailLabel,
-  confirmLabel = "Изтрий",
-  cancelLabel = "Отказ",
+  confirmLabel,
+  cancelLabel,
 }) => {
+  const { t } = useI18n();
+  const resolvedTitle = title ?? t("common.confirm");
+  const resolvedMessage = message ?? t("common.confirmDeleteMessage");
+  const resolvedConfirm = confirmLabel ?? t("common.delete");
+  const resolvedCancel = cancelLabel ?? t("common.cancel");
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -57,13 +63,13 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
             id="confirm-delete-title"
             className="font-bold text-slate-900 dark:text-white text-base"
           >
-            {title}
+            {resolvedTitle}
           </h4>
           <p
             id="confirm-delete-message"
             className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed"
           >
-            {message}
+            {resolvedMessage}
           </p>
           {detailLabel && (
             <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 rounded-lg inline-block max-w-full truncate">
@@ -78,14 +84,14 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
             onClick={onCancel}
             className="flex-1 min-h-[44px] py-2.5 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
           >
-            {cancelLabel}
+            {resolvedCancel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="flex-1 min-h-[44px] py-2.5 text-xs sm:text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors shadow-sm active:scale-95 cursor-pointer"
           >
-            {confirmLabel}
+            {resolvedConfirm}
           </button>
         </div>
       </div>

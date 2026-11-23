@@ -1,6 +1,7 @@
 import { IncomeItem, MonthlyRecord, SavingsGoal } from "@/types";
 import { isCompletedExpense } from "./expenseStatus";
 import { STORAGE_BASE_SAVINGS_GOALS, userStorage } from "./userStorage";
+import { t } from "@/i18n/helpers";
 
 export const SAVINGS_GOALS_UPDATED_EVENT = "homebudget:savings-goals-updated";
 
@@ -202,11 +203,11 @@ export function createSavingsGoal(
 ): GoalOperationResult {
   const name = input.name.trim();
   if (!name) {
-    return { ok: false, error: "Моля, въведете име на целта.", goals };
+    return { ok: false, error: t("savings.errors.emptyGoalName"), goals };
   }
   const targetAmount = roundCurrency(Number(input.targetAmount) || 0);
   if (targetAmount <= 0) {
-    return { ok: false, error: "Целевата сума трябва да е по-голяма от €0.", goals };
+    return { ok: false, error: t("savings.errors.invalidTargetAmount"), goals };
   }
 
   const initialAllocation = roundCurrency(Math.max(0, Number(input.initialAllocation) || 0));
@@ -218,7 +219,9 @@ export function createSavingsGoal(
   if (initialAllocation > summary.unallocatedSavings + 0.0001) {
     return {
       ok: false,
-      error: `Недостатъчно неразпределени спестявания (налични: €${summary.unallocatedSavings.toFixed(2)}).`,
+      error: t("savings.errors.exceedsUnallocated", {
+        available: summary.unallocatedSavings.toFixed(2),
+      }),
       goals,
     };
   }
@@ -250,12 +253,12 @@ export function allocateToSavingsGoal(
 ): GoalOperationResult {
   const value = roundCurrency(Number(amount) || 0);
   if (value <= 0) {
-    return { ok: false, error: "Сумата за разпределяне трябва да е по-голяма от €0.", goals };
+    return { ok: false, error: t("savings.errors.invalidAmount"), goals };
   }
 
   const target = goals.find((g) => g.id === goalId && !g.archived);
   if (!target) {
-    return { ok: false, error: "Целта не беше намерена.", goals };
+    return { ok: false, error: t("savings.errors.goalNotFound"), goals };
   }
 
   const totalAllocated = roundCurrency(
@@ -268,7 +271,9 @@ export function allocateToSavingsGoal(
   if (value > unallocated + 0.0001) {
     return {
       ok: false,
-      error: `Можете да разпределите най-много €${unallocated.toFixed(2)} (налични неразпределени спестявания).`,
+      error: t("savings.errors.exceedsUnallocatedMax", {
+        available: unallocated.toFixed(2),
+      }),
       goals,
     };
   }
@@ -294,18 +299,21 @@ export function withdrawFromSavingsGoal(
 ): GoalOperationResult {
   const value = roundCurrency(Number(amount) || 0);
   if (value <= 0) {
-    return { ok: false, error: "Сумата за теглене трябва да е по-голяма от €0.", goals };
+    return { ok: false, error: t("savings.errors.invalidAmount"), goals };
   }
 
   const target = goals.find((g) => g.id === goalId && !g.archived);
   if (!target) {
-    return { ok: false, error: "Целта не беше намерена.", goals };
+    return { ok: false, error: t("savings.errors.goalNotFound"), goals };
   }
 
   if (value > target.allocatedAmount + 0.0001) {
     return {
       ok: false,
-      error: `Максималната сума за връщане от "${target.name}" е €${target.allocatedAmount.toFixed(2)}.`,
+      error: t("savings.errors.exceedsAllocatedGoal", {
+        name: target.isEmergencyFund ? t("savings.emergencyFundTitle") : target.name,
+        available: target.allocatedAmount.toFixed(2),
+      }),
       goals,
     };
   }
@@ -336,11 +344,11 @@ export function updateSavingsGoalDetails(
 ): GoalOperationResult {
   const name = updates.name.trim();
   if (!name) {
-    return { ok: false, error: "Името на целта не може да е празно.", goals };
+    return { ok: false, error: t("savings.errors.emptyGoalName"), goals };
   }
   const targetAmount = roundCurrency(Number(updates.targetAmount) || 0);
   if (targetAmount <= 0) {
-    return { ok: false, error: "Целевата сума трябва да е по-голяма от €0.", goals };
+    return { ok: false, error: t("savings.errors.invalidTargetAmount"), goals };
   }
 
   const nowIso = new Date().toISOString();

@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Sun, Moon, Laptop, Check } from "lucide-react";
-import { useTheme, Theme } from "@/utils/themeContext";
+import { useTheme } from "@/utils/themeContext";
+import { useI18n } from "@/i18n";
 
 export const ThemeToggle: React.FC = () => {
-  const { theme, resolvedTheme, isDark, setTheme, toggleTheme } = useTheme();
+  const { theme, resolvedTheme, isDark, setTheme } = useTheme();
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -18,20 +20,21 @@ export const ThemeToggle: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const currentThemeLabel =
+    theme === "system"
+      ? t("theme.systemShort")
+      : theme === "dark"
+      ? t("theme.darkShort")
+      : t("theme.lightShort");
+
   return (
     <div className="relative" ref={menuRef}>
       {/* Quick Toggle Button */}
       <button
         onClick={() => setIsOpen((prev) => !prev)}
         className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
-        title={`Тема: ${
-          theme === "system"
-            ? "Системна"
-            : theme === "dark"
-            ? "Тъмна"
-            : "Светла"
-        }`}
-        aria-label="Смяна на тема"
+        title={`${t("theme.label")}: ${currentThemeLabel}`}
+        aria-label={t("theme.toggleAria")}
         aria-expanded={isOpen}
       >
         {isDark ? (
@@ -43,7 +46,7 @@ export const ThemeToggle: React.FC = () => {
 
       {/* Dropdown Options */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
           <button
             onClick={() => {
               setTheme("light");
@@ -57,7 +60,7 @@ export const ThemeToggle: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <Sun className="w-3.5 h-3.5 text-amber-500" />
-              <span>Светла тема</span>
+              <span>{t("theme.light")}</span>
             </div>
             {theme === "light" && <Check className="w-3.5 h-3.5" />}
           </button>
@@ -75,7 +78,7 @@ export const ThemeToggle: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <Moon className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Тъмна тема</span>
+              <span>{t("theme.dark")}</span>
             </div>
             {theme === "dark" && <Check className="w-3.5 h-3.5" />}
           </button>
@@ -93,7 +96,14 @@ export const ThemeToggle: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <Laptop className="w-3.5 h-3.5 text-slate-400" />
-              <span>Системна ({resolvedTheme === "dark" ? "тъмна" : "светла"})</span>
+              <span>
+                {t("theme.systemResolved", {
+                  resolved:
+                    resolvedTheme === "dark"
+                      ? t("theme.darkWord")
+                      : t("theme.lightWord"),
+                })}
+              </span>
             </div>
             {theme === "system" && <Check className="w-3.5 h-3.5" />}
           </button>

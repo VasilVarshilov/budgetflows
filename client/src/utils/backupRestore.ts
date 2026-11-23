@@ -24,6 +24,7 @@ import {
   STORAGE_BASE_RECURRING_INCOMES,
 } from "./userStorage";
 import { migrateAndSyncBudgets } from "./budgetStorage";
+import { t } from "@/i18n/helpers";
 
 // Legacy Storage Key Constants (kept exported for reference compatibility)
 export const STORAGE_KEY_MONTHLY = "HomeBudget_Data";
@@ -108,8 +109,7 @@ export function validateBackupOwnership(
   if (backup.ownerUid && backup.ownerUid !== currentUser.uid) {
     return {
       allowed: false,
-      reason:
-        "Достъпът е отказан: Този архив принадлежи на друг Google/Firebase акаунт и не може да бъде възстановен в текущия профил.",
+      reason: t("syncErrors.ownershipOtherAccount"),
     };
   }
 
@@ -120,7 +120,10 @@ export function validateBackupOwnership(
   ) {
     return {
       allowed: false,
-      reason: `Достъпът е отказан: Архивът принадлежи на (${backup.ownerEmail}), а вие сте влезли като (${currentUser.email}).`,
+      reason: t("syncErrors.ownershipMismatchEmail", {
+        ownerEmail: backup.ownerEmail,
+        currentEmail: currentUser.email,
+      }),
     };
   }
 
@@ -328,7 +331,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
   if (!rawText || !rawText.trim()) {
     return {
       isValid: false,
-      errorMessage: "Файлът е празен. Моля, изберете валиден JSON архив.",
+      errorMessage: t("syncErrors.emptyFile"),
     };
   }
 
@@ -343,16 +346,14 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
   } catch (e) {
     return {
       isValid: false,
-      errorMessage:
-        "Невалиден JSON формат. Файлът съдържа синтактични грешки и не може да бъде разчетен.",
+      errorMessage: t("syncErrors.invalidJson"),
     };
   }
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return {
       isValid: false,
-      errorMessage:
-        "Форматът на файла е невалиден: очаква се JSON обект с архивни данни.",
+      errorMessage: t("syncErrors.invalidJsonObject"),
     };
   }
 
@@ -533,8 +534,7 @@ export function validateAndParseBackupFile(rawText: string): ValidationResult {
 
   return {
     isValid: false,
-    errorMessage:
-      "Файлът не съдържа разпознати структури на Budget Force 365 (липсват данни за разходи, спестявания или ток).",
+    errorMessage: t("syncErrors.unrecognizedStructure"),
   };
 }
 
@@ -638,7 +638,11 @@ export function applyBackup(
         (incoming.categories?.expenseCategories?.length || 0) +
         (incoming.categories?.incomeCategories?.length || 0),
       budgetsCount: (incoming.budgets || []).length,
-      message: `Всички данни бяха успешно заменени с архива (${monthCount} месеца, ${(incoming.savings || []).length} записа в спестявания, ${(incoming.electricityHistory || []).length} сметки за ток).`,
+      message: t("syncErrors.replaceSuccess", {
+        months: monthCount,
+        savings: (incoming.savings || []).length,
+        electricity: (incoming.electricityHistory || []).length,
+      }),
     };
   }
 
@@ -859,6 +863,10 @@ export function applyBackup(
       mergedCats.expenseCategories.length +
       mergedCats.incomeCategories.length,
     budgetsCount: mergedBudgets.length,
-    message: `Данните бяха успешно обединени! Общо ${totalMonths} месеца, ${mergedSavings.length} спестявания и ${mergedElec.length} сметки за ток.`,
+    message: t("syncErrors.mergeSuccess", {
+      months: totalMonths,
+      savings: mergedSavings.length,
+      electricity: mergedElec.length,
+    }),
   };
 }

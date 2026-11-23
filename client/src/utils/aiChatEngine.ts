@@ -19,6 +19,15 @@ import {
   calculateMonthSavings,
   calculateMonthElectricity,
 } from "./comparisonStorage";
+import {
+  formatLocalizedMonthYear,
+  getCurrentLanguage,
+  getIntlLocale,
+  translateBudgetName,
+  translateCategoryName,
+  translateGoalName,
+} from "@/i18n/helpers";
+import type { SupportedLanguage } from "@/i18n/types";
 
 export interface AiChatMatchedExpense {
   id: string;
@@ -524,10 +533,11 @@ function normalizeText(text: string): string {
     .trim();
 }
 
-function isEnglishQuery(question: string): boolean {
+function isEnglishQuery(question: string, preferredLang?: SupportedLanguage): boolean {
   const latCount = (question.match(/[a-zA-Z]/g) || []).length;
   const cyrCount = (question.match(/[а-яА-Я]/g) || []).length;
-  return latCount > cyrCount;
+  if (latCount !== cyrCount) return latCount > cyrCount;
+  return (preferredLang ?? getCurrentLanguage()) === "en";
 }
 
 function parseMonthEntries(monthlyData: Record<string, MonthlyRecord>): MonthEntry[] {
@@ -752,10 +762,12 @@ function parseQueryTimeRange(
   question: string,
   entries: MonthEntry[],
   activeMonth: { month: string; year: number; monthIndex: number; key: string },
-  defaultToAll: boolean
+  defaultToAll: boolean,
+  en = false
 ): ResolvedTimeRange {
   const norm = normalizeText(question);
   const tokens = norm.split(" ");
+  const lang: SupportedLanguage = en ? "en" : "bg";
 
   // Explicit year check (e.g. 2025, 2026)
   const yearMatch = norm.match(/\b(20\d{2})\b/);
@@ -776,9 +788,13 @@ function parseQueryTimeRange(
     });
     const startYear = Math.floor(minAbs / 12);
     const startIdx = ((minAbs % 12) + 12) % 12;
+    const startLabel = formatLocalizedMonthYear(`${MONTHS_BG[startIdx]} ${startYear}`, lang);
+    const anchorLabel = formatLocalizedMonthYear(`${anchor.month} ${anchor.year}`, lang);
     return {
       kind: "last_n_months",
-      label: `Последните ${n} месеца (${MONTHS_BG[startIdx]} ${startYear} – ${anchor.month} ${anchor.year})`,
+      label: en
+        ? `Last ${n} months (${startLabel} – ${anchorLabel})`
+        : `Последните ${n} месеца (${startLabel} – ${anchorLabel})`,
       entries: matchingEntries,
       lastNCount: n,
     };
@@ -792,7 +808,7 @@ function parseQueryTimeRange(
   ) {
     return {
       kind: "all_months",
-      label: `Всички месеци (${entries.length})`,
+      label: en ? `All months (${entries.length})` : `Всички месеци (${entries.length})`,
       entries,
     };
   }
@@ -826,7 +842,7 @@ function parseQueryTimeRange(
     const key = `${mName} ${targetYear}`;
     return {
       kind: "single_month",
-      label: key,
+      label: formatLocalizedMonthYear(key, lang),
       entries: entries.filter((e) => e.key === key),
       targetMonth: { month: mName, year: targetYear, monthIndex: detectedMonthIdx, key },
     };
@@ -844,7 +860,7 @@ function parseQueryTimeRange(
     const key = `${prev.prevMonth} ${prev.prevYear}`;
     return {
       kind: "single_month",
-      label: key,
+      label: formatLocalizedMonthYear(key, lang),
       entries: entries.filter((e) => e.key === key),
       targetMonth: {
         month: prev.prevMonth,
@@ -863,7 +879,7 @@ function parseQueryTimeRange(
   ) {
     return {
       kind: "single_month",
-      label: activeMonth.key,
+      label: formatLocalizedMonthYear(activeMonth.key, lang),
       entries: entries.filter((e) => e.key === activeMonth.key),
       targetMonth: activeMonth,
     };
@@ -875,7 +891,7 @@ function parseQueryTimeRange(
     const yearEntries = entries.filter((e) => e.year === y);
     return {
       kind: "year",
-      label: `${y} г.`,
+      label: en ? `${y}` : `${y} г.`,
       entries: yearEntries,
     };
   }
@@ -884,7 +900,7 @@ function parseQueryTimeRange(
     const yearEntries = entries.filter((e) => e.year === y);
     return {
       kind: "year",
-      label: `${y} г.`,
+      label: en ? `${y}` : `${y} г.`,
       entries: yearEntries,
     };
   }
@@ -892,7 +908,7 @@ function parseQueryTimeRange(
     const yearEntries = entries.filter((e) => e.year === explicitYear);
     return {
       kind: "year",
-      label: `${explicitYear} г.`,
+      label: en ? `${explicitYear}` : `${explicitYear} г.`,
       entries: yearEntries,
     };
   }
@@ -901,19 +917,24 @@ function parseQueryTimeRange(
   if (defaultToAll) {
     return {
       kind: "all_months",
-      label: entries.length > 0 ? `Всички месеци (${entries.length})` : activeMonth.key,
+      label:
+        entries.length > 0
+          ? en
+            ? `All months (${entries.length})`
+            : `Всички месеци (${entries.length})`
+          : formatLocalizedMonthYear(activeMonth.key, lang),
       entries,
     };
   }
   return {
     kind: "single_month",
-    label: activeMonth.key,
+    label: formatLocalizedMonthYear(activeMonth.key, lang),
     entries: entries.filter((e) => e.key === activeMonth.key),
     targetMonth: activeMonth,
   };
 }
 
-function extractSearchTermsFromQuestion(question: string): {
+function extractSearchTermsFromQuestion(question: string, en = false): {
   terms: string[];
   matchedGroups: SynonymGroup[];
   displayTopic: string;
@@ -953,7 +974,7 @@ function extractSearchTermsFromQuestion(question: string): {
 
   const displayTopic =
     matchedGroups.length > 0
-      ? matchedGroups.map((g) => g.labelBg).join(", ")
+      ? matchedGroups.map((g) => (en ? g.labelEn : g.labelBg)).join(", ")
       : rawTokens.join(" ");
 
   return {
@@ -980,10 +1001,10 @@ function fmtEur(n: number): string {
   return `€${n.toFixed(2)}`;
 }
 
-function formatDateShort(iso: string): string {
+function formatDateShort(iso: string, en = false): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("bg-BG");
+  return d.toLocaleDateString(getIntlLocale(en ? "en" : "bg"));
 }
 
 function buildSuggestions(en: boolean): string[] {
@@ -1010,10 +1031,13 @@ export function answerFinancialChatQuestion(
   question: string,
   monthlyData: Record<string, MonthlyRecord>,
   globalSavings: IncomeItem[],
-  selectedMonth?: string
+  selectedMonth?: string,
+  preferredLang?: SupportedLanguage
 ): AiChatResponse {
   const trimmed = question.trim();
-  const en = isEnglishQuery(trimmed);
+  const en = isEnglishQuery(trimmed, preferredLang);
+  const lang: SupportedLanguage = en ? "en" : "bg";
+  const tCat = (name: string) => translateCategoryName(name, lang);
   const norm = normalizeText(trimmed);
 
   const entries = parseMonthEntries(monthlyData);
@@ -1035,7 +1059,7 @@ export function answerFinancialChatQuestion(
         ? "Please enter a question about your expenses, receipts, savings, budgets, or income."
         : "Моля, въведете въпрос за вашите разходи, касови бележки, спестявания, бюджети или приходи.",
       calculation: "—",
-      timeRangeLabel: activeMonth.key,
+      timeRangeLabel: formatLocalizedMonthYear(activeMonth.key, lang),
       matchedExpenses: [],
       followUpSuggestions: buildSuggestions(en),
     };
@@ -1073,16 +1097,21 @@ export function answerFinancialChatQuestion(
     const goalMatchedEntries = (goalList = activeGoals): AiChatMatchedExpense[] =>
       goalList.map((g) => {
         const pct = getGoalProgressPercent(g);
+        const goalDisplay = translateGoalName(g.name, g.isEmergencyFund, lang);
         return {
           id: g.id,
-          monthKey: "Цели за спестяване",
-          date: formatDateShort(g.updatedAt),
-          merchantOrCategory: g.name,
-          categoryName: g.isEmergencyFund ? "Авариен фонд" : "Спестовна цел",
+          monthKey: en ? "Savings goals" : "Цели за спестяване",
+          date: formatDateShort(g.updatedAt, en),
+          merchantOrCategory: goalDisplay,
+          categoryName: g.isEmergencyFund
+            ? translateGoalName("Авариен фонд", true, lang)
+            : en
+            ? "Savings goal"
+            : "Спестовна цел",
           expenseAmount: g.targetAmount,
           matchedAmount: g.allocatedAmount,
           matchedKind: "saving",
-          matchedSnippet: `Цел: ${fmtEur(g.targetAmount)} · ${pct.toFixed(1)}%${
+          matchedSnippet: `${en ? "Target" : "Цел"}: ${fmtEur(g.targetAmount)} · ${pct.toFixed(1)}%${
             g.description ? ` · ${g.description}` : ""
           }`,
         };
@@ -1095,8 +1124,10 @@ export function answerFinancialChatQuestion(
           answer: en
             ? `You do not have an active Emergency Fund goal yet. You have ${fmtEur(summary.unallocatedSavings)} in unallocated savings (Average Monthly Expenses: ${fmtEur(summary.averageMonthlyExpenses)}).`
             : `Все още нямате създаден активен „Авариен фонд“. Имате ${fmtEur(summary.unallocatedSavings)} неразпределени спестявания (ср. месечни разходи: ${fmtEur(summary.averageMonthlyExpenses)}).`,
-          calculation: `Авариен фонд: €0.00 | Ср. месечни разходи: ${fmtEur(summary.averageMonthlyExpenses)}`,
-          timeRangeLabel: "Спестовни цели",
+          calculation: en
+            ? `Emergency Fund: €0.00 | Avg. monthly expenses: ${fmtEur(summary.averageMonthlyExpenses)}`
+            : `Авариен фонд: €0.00 | Ср. месечни разходи: ${fmtEur(summary.averageMonthlyExpenses)}`,
+          timeRangeLabel: en ? "Savings goals" : "Спестовни цели",
           matchedExpenses: [],
           totalMatchedAmount: 0,
           followUpSuggestions: buildSuggestions(en),
@@ -1104,6 +1135,7 @@ export function answerFinancialChatQuestion(
       }
 
       const pct = getGoalProgressPercent(ef);
+      const efDisplay = translateGoalName(ef.name, ef.isEmergencyFund, lang);
       const coverageStr =
         summary.emergencyCoverageMonths !== null
           ? en
@@ -1115,10 +1147,12 @@ export function answerFinancialChatQuestion(
 
       return {
         answer: en
-          ? `Your Emergency Fund ("${ef.name}") is ${pct.toFixed(1)}% completed (${fmtEur(ef.allocatedAmount)} of ${fmtEur(ef.targetAmount)}). It currently covers ${coverageStr} (avg. monthly expenses: ${fmtEur(summary.averageMonthlyExpenses)}).`
-          : `Вашият „${ef.name}“ е изпълнен на ${pct.toFixed(1)}% (${fmtEur(ef.allocatedAmount)} от цел ${fmtEur(ef.targetAmount)}). Покрива ${coverageStr} (при средни месечни разходи ${fmtEur(summary.averageMonthlyExpenses)}).`,
-        calculation: `${fmtEur(ef.allocatedAmount)} ÷ ${fmtEur(ef.targetAmount)} = ${pct.toFixed(1)}% | Покритие: ${coverageStr}`,
-        timeRangeLabel: "Авариен фонд",
+          ? `Your Emergency Fund ("${efDisplay}") is ${pct.toFixed(1)}% completed (${fmtEur(ef.allocatedAmount)} of ${fmtEur(ef.targetAmount)}). It currently covers ${coverageStr} (avg. monthly expenses: ${fmtEur(summary.averageMonthlyExpenses)}).`
+          : `Вашият „${efDisplay}“ е изпълнен на ${pct.toFixed(1)}% (${fmtEur(ef.allocatedAmount)} от цел ${fmtEur(ef.targetAmount)}). Покрива ${coverageStr} (при средни месечни разходи ${fmtEur(summary.averageMonthlyExpenses)}).`,
+        calculation: en
+          ? `${fmtEur(ef.allocatedAmount)} ÷ ${fmtEur(ef.targetAmount)} = ${pct.toFixed(1)}% | Coverage: ${coverageStr}`
+          : `${fmtEur(ef.allocatedAmount)} ÷ ${fmtEur(ef.targetAmount)} = ${pct.toFixed(1)}% | Покритие: ${coverageStr}`,
+        timeRangeLabel: efDisplay,
         matchedExpenses: goalMatchedEntries([ef]),
         totalMatchedAmount: ef.allocatedAmount,
         followUpSuggestions: buildSuggestions(en),
@@ -1130,8 +1164,10 @@ export function answerFinancialChatQuestion(
         answer: en
           ? `You have ${fmtEur(summary.unallocatedSavings)} in unallocated savings out of ${fmtEur(summary.totalSavings)} total savings (${fmtEur(summary.totalAllocated)} allocated across ${activeGoals.length} goals).`
           : `Имате ${fmtEur(summary.unallocatedSavings)} неразпределени спестявания от общо ${fmtEur(summary.totalSavings)} (${fmtEur(summary.totalAllocated)} разпределени в ${activeGoals.length} цели).`,
-        calculation: `Общо ${fmtEur(summary.totalSavings)} - Разпределени ${fmtEur(summary.totalAllocated)} = Неразпределени ${fmtEur(summary.unallocatedSavings)}`,
-        timeRangeLabel: "Спестявания и цели",
+        calculation: en
+          ? `Total ${fmtEur(summary.totalSavings)} − Allocated ${fmtEur(summary.totalAllocated)} = Unallocated ${fmtEur(summary.unallocatedSavings)}`
+          : `Общо ${fmtEur(summary.totalSavings)} - Разпределени ${fmtEur(summary.totalAllocated)} = Неразпределени ${fmtEur(summary.unallocatedSavings)}`,
+        timeRangeLabel: en ? "Savings & goals" : "Спестявания и цели",
         matchedExpenses: goalMatchedEntries(),
         totalMatchedAmount: summary.unallocatedSavings,
         followUpSuggestions: buildSuggestions(en),
@@ -1144,12 +1180,17 @@ export function answerFinancialChatQuestion(
         0,
         matchedGoalByName.targetAmount - matchedGoalByName.allocatedAmount
       );
+      const goalDisplay = translateGoalName(
+        matchedGoalByName.name,
+        matchedGoalByName.isEmergencyFund,
+        lang
+      );
       return {
         answer: en
-          ? `You have saved ${fmtEur(matchedGoalByName.allocatedAmount)} for "${matchedGoalByName.name}" out of a ${fmtEur(matchedGoalByName.targetAmount)} target (${pct.toFixed(1)}% completed, ${fmtEur(remaining)} remaining).`
-          : `Заделили сте ${fmtEur(matchedGoalByName.allocatedAmount)} за „${matchedGoalByName.name}“ от цел ${fmtEur(matchedGoalByName.targetAmount)} (${pct.toFixed(1)}% изпълнение, остават ${fmtEur(remaining)}).`,
-        calculation: `${fmtEur(matchedGoalByName.allocatedAmount)} / ${fmtEur(matchedGoalByName.targetAmount)} = ${pct.toFixed(1)}% (остават ${fmtEur(remaining)})`,
-        timeRangeLabel: `Цел: ${matchedGoalByName.name}`,
+          ? `You have saved ${fmtEur(matchedGoalByName.allocatedAmount)} for "${goalDisplay}" out of a ${fmtEur(matchedGoalByName.targetAmount)} target (${pct.toFixed(1)}% completed, ${fmtEur(remaining)} remaining).`
+          : `Заделили сте ${fmtEur(matchedGoalByName.allocatedAmount)} за „${goalDisplay}“ от цел ${fmtEur(matchedGoalByName.targetAmount)} (${pct.toFixed(1)}% изпълнение, остават ${fmtEur(remaining)}).`,
+        calculation: `${fmtEur(matchedGoalByName.allocatedAmount)} / ${fmtEur(matchedGoalByName.targetAmount)} = ${pct.toFixed(1)}% (${en ? "remaining" : "остават"} ${fmtEur(remaining)})`,
+        timeRangeLabel: `${en ? "Goal" : "Цел"}: ${goalDisplay}`,
         matchedExpenses: goalMatchedEntries([matchedGoalByName]),
         totalMatchedAmount: matchedGoalByName.allocatedAmount,
         followUpSuggestions: buildSuggestions(en),
@@ -1165,8 +1206,10 @@ export function answerFinancialChatQuestion(
           : en
           ? `You have ${fmtEur(summary.totalSavings)} in savings and no active savings goals yet.`
           : `Имате ${fmtEur(summary.totalSavings)} общи спестявания и все още нямате активни цели за спестяване.`,
-      calculation: `Общо ${fmtEur(summary.totalSavings)} | Разпределени ${fmtEur(summary.totalAllocated)} | Неразпределени ${fmtEur(summary.unallocatedSavings)}`,
-      timeRangeLabel: "Цели за спестяване",
+      calculation: en
+        ? `Total ${fmtEur(summary.totalSavings)} | Allocated ${fmtEur(summary.totalAllocated)} | Unallocated ${fmtEur(summary.unallocatedSavings)}`
+        : `Общо ${fmtEur(summary.totalSavings)} | Разпределени ${fmtEur(summary.totalAllocated)} | Неразпределени ${fmtEur(summary.unallocatedSavings)}`,
+      timeRangeLabel: en ? "Savings goals" : "Цели за спестяване",
       matchedExpenses: goalMatchedEntries(),
       totalMatchedAmount: summary.totalAllocated,
       followUpSuggestions: buildSuggestions(en),
@@ -1211,12 +1254,12 @@ export function answerFinancialChatQuestion(
       rangeStart = todayStart;
       rangeEnd = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + 7, 12, 0, 0, 0);
       windowLabel = en
-        ? `Next 7 days (${formatDateShort(rangeStart.toISOString())} – ${formatDateShort(rangeEnd.toISOString())})`
-        : `Следващата седмица (${formatDateShort(rangeStart.toISOString())} – ${formatDateShort(rangeEnd.toISOString())})`;
+        ? `Next 7 days (${formatDateShort(rangeStart.toISOString(), en)} – ${formatDateShort(rangeEnd.toISOString(), en)})`
+        : `Следващата седмица (${formatDateShort(rangeStart.toISOString(), en)} – ${formatDateShort(rangeEnd.toISOString(), en)})`;
     } else if (isNextMonthFutureQuery) {
       rangeStart = new Date(todayStart.getFullYear(), todayStart.getMonth() + 1, 1, 12, 0, 0, 0);
       rangeEnd = new Date(todayStart.getFullYear(), todayStart.getMonth() + 2, 0, 12, 0, 0, 0);
-      windowLabel = `${MONTHS_BG[rangeStart.getMonth()]} ${rangeStart.getFullYear()}`;
+      windowLabel = formatLocalizedMonthYear(`${MONTHS_BG[rangeStart.getMonth()]} ${rangeStart.getFullYear()}`, lang);
     } else if (
       /(?:this\s*month|този\s*месец|текущ)/.test(norm) ||
       isExpectedIncomeThisMonthCalendarQuery
@@ -1229,7 +1272,7 @@ export function answerFinancialChatQuestion(
       if (!explicitPastMonth) {
         rangeStart = new Date(activeMonth.year, activeMonth.monthIndex, 1, 12, 0, 0, 0);
         rangeEnd = new Date(activeMonth.year, activeMonth.monthIndex + 1, 0, 12, 0, 0, 0);
-        windowLabel = activeMonth.key;
+        windowLabel = formatLocalizedMonthYear(activeMonth.key, lang);
       }
     } else if (isUpcomingRecurringQuery) {
       rangeStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1, 12, 0, 0, 0);
@@ -1261,20 +1304,20 @@ export function answerFinancialChatQuestion(
             ? en
               ? `Expected income in ${windowLabel}: ${fmtEur(totalCalAmount)} across ${matchingCalendarEvents.length} scheduled/upcoming ${matchingCalendarEvents.length === 1 ? "entry" : "entries"} (${matchingCalendarEvents
                   .slice(0, 5)
-                  .map((e) => `${e.categoryName} ${fmtEur(e.amount)} on ${parseLocalDateKey(e.dateKey).toLocaleDateString("en-GB")}`)
+                  .map((e) => `${tCat(e.categoryName)} ${fmtEur(e.amount)} on ${parseLocalDateKey(e.dateKey).toLocaleDateString("en-GB")}`)
                   .join(", ")}).`
               : `Очаквани приходи за ${windowLabel}: ${fmtEur(totalCalAmount)} от ${matchingCalendarEvents.length} ${matchingCalendarEvents.length === 1 ? "запис" : "записа"} (${matchingCalendarEvents
                   .slice(0, 5)
-                  .map((e) => `${e.categoryName} ${fmtEur(e.amount)} (${parseLocalDateKey(e.dateKey).toLocaleDateString("bg-BG")})`)
+                  .map((e) => `${tCat(e.categoryName)} ${fmtEur(e.amount)} (${parseLocalDateKey(e.dateKey).toLocaleDateString("bg-BG")})`)
                   .join(", ")}).`
             : en
             ? `You have ${matchingCalendarEvents.length} upcoming ${isUpcomingRecurringQuery ? "recurring " : ""}${matchingCalendarEvents.length === 1 ? "payment" : "payments"} in ${windowLabel} totaling ${fmtEur(totalCalAmount)}: ${matchingCalendarEvents
                 .slice(0, 5)
-                .map((e) => `${e.merchantName || e.categoryName} ${fmtEur(e.amount)} on ${parseLocalDateKey(e.dateKey).toLocaleDateString("en-GB")}`)
+                .map((e) => `${e.merchantName || tCat(e.categoryName)} ${fmtEur(e.amount)} on ${parseLocalDateKey(e.dateKey).toLocaleDateString("en-GB")}`)
                 .join(", ")}.`
             : `Имате ${matchingCalendarEvents.length} предстоящи ${isUpcomingRecurringQuery ? "повтарящи се " : ""}${matchingCalendarEvents.length === 1 ? "плащане" : "плащания"} за ${windowLabel} на обща стойност ${fmtEur(totalCalAmount)}: ${matchingCalendarEvents
                 .slice(0, 5)
-                .map((e) => `${e.merchantName || e.categoryName} ${fmtEur(e.amount)} (${parseLocalDateKey(e.dateKey).toLocaleDateString("bg-BG")})`)
+                .map((e) => `${e.merchantName || tCat(e.categoryName)} ${fmtEur(e.amount)} (${parseLocalDateKey(e.dateKey).toLocaleDateString("bg-BG")})`)
                 .join(", ")}.`
           : wantsIncome
           ? en
@@ -1287,23 +1330,36 @@ export function answerFinancialChatQuestion(
         matchingCalendarEvents.length > 0
           ? matchingCalendarEvents
               .slice(0, 6)
-              .map((e) => `${e.merchantName || e.categoryName}: ${fmtEur(e.amount)}`)
+              .map((e) => `${e.merchantName || tCat(e.categoryName)}: ${fmtEur(e.amount)}`)
               .join(" + ") + ` = ${fmtEur(totalCalAmount)}`
+          : en
+          ? "0 upcoming entries = €0.00"
           : "0 предстоящи записа = €0.00",
       timeRangeLabel: windowLabel,
       matchedExpenses: matchingCalendarEvents.map((ev) => ({
         id: ev.id,
         monthKey: ev.monthKey,
-        date: parseLocalDateKey(ev.dateKey).toLocaleDateString("bg-BG"),
-        merchantOrCategory: ev.merchantName || ev.categoryName,
-        categoryName: ev.kind === "income" ? "Очакван приход" : ev.categoryName,
+        date: parseLocalDateKey(ev.dateKey).toLocaleDateString(getIntlLocale(lang)),
+        merchantOrCategory: ev.merchantName || tCat(ev.categoryName),
+        categoryName:
+          ev.kind === "income"
+            ? en
+              ? "Expected income"
+              : "Очакван приход"
+            : tCat(ev.categoryName),
         expenseAmount: ev.amount,
         matchedAmount: ev.amount,
         matchedKind:
           ev.kind === "income" ? "income" : ev.isRecurring ? "fixed" : "category",
-        matchedSnippet: `${ev.isProjected ? "По график" : "Предстоящ"}${
-          ev.note ? ` · ${ev.note}` : ""
-        }`,
+        matchedSnippet: `${
+          ev.isProjected
+            ? en
+              ? "Scheduled"
+              : "По график"
+            : en
+            ? "Upcoming"
+            : "Предстоящ"
+        }${ev.note ? ` · ${ev.note}` : ""}`,
       })),
       totalMatchedAmount: parseFloat(totalCalAmount.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
@@ -1327,21 +1383,25 @@ export function answerFinancialChatQuestion(
       Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m)) ||
       /\b20\d{2}\b/.test(norm);
 
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const scopedKeys = new Set(range.entries.map((e) => e.key));
     let scopedUpcoming = upcomingIncomes.filter((inc) =>
       range.kind === "all_months"
         ? true
         : scopedKeys.size > 0
         ? scopedKeys.has(inc.monthKey)
-        : inc.monthKey === range.label
+        : inc.monthKey === range.targetMonth?.key
     );
     let effectiveLabel = range.label;
 
     if (!hasExplicitRange && scopedUpcoming.length === 0 && upcomingIncomes.length > 0) {
       scopedUpcoming = upcomingIncomes;
       effectiveLabel =
-        entries.length > 0 ? `Всички месеци (${entries.length})` : range.label;
+        entries.length > 0
+          ? en
+            ? `All months (${entries.length})`
+            : `Всички месеци (${entries.length})`
+          : range.label;
     }
 
     const expectedSum = scopedUpcoming.reduce((s, inc) => s + inc.amount, 0);
@@ -1352,11 +1412,11 @@ export function answerFinancialChatQuestion(
           ? en
             ? `You are expecting ${scopedUpcoming.length} upcoming ${scopedUpcoming.length === 1 ? "income" : "incomes"} in ${effectiveLabel} totaling ${fmtEur(expectedSum)}: ${scopedUpcoming
                 .slice(0, 5)
-                .map((i) => `${i.categoryName} (${fmtEur(i.amount)})`)
+                .map((i) => `${tCat(i.categoryName)} (${fmtEur(i.amount)})`)
                 .join(", ")}.`
             : `Очаквате ${scopedUpcoming.length} ${scopedUpcoming.length === 1 ? "предстоящ приход" : "предстоящи прихода"} за ${effectiveLabel} на обща стойност ${fmtEur(expectedSum)}: ${scopedUpcoming
                 .slice(0, 5)
-                .map((i) => `${i.categoryName} (${fmtEur(i.amount)})`)
+                .map((i) => `${tCat(i.categoryName)} (${fmtEur(i.amount)})`)
                 .join(", ")}.`
           : en
           ? `You have no upcoming or expected income in ${effectiveLabel}.`
@@ -1365,20 +1425,26 @@ export function answerFinancialChatQuestion(
         scopedUpcoming.length > 0
           ? scopedUpcoming
               .slice(0, 6)
-              .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+              .map((i) => `${tCat(i.categoryName)}: ${fmtEur(i.amount)}`)
               .join(" + ") + ` = ${fmtEur(expectedSum)}`
+          : en
+          ? "0 expected incomes = €0.00"
           : "0 очаквани прихода = €0.00",
       timeRangeLabel: effectiveLabel,
       matchedExpenses: scopedUpcoming.map((inc) => ({
         id: inc.id,
         monthKey: inc.monthKey,
-        date: formatDateShort(inc.date),
-        merchantOrCategory: inc.categoryName,
-        categoryName: "Очакван приход",
+        date: formatDateShort(inc.date, en),
+        merchantOrCategory: tCat(inc.categoryName),
+        categoryName: en ? "Expected income" : "Очакван приход",
         expenseAmount: inc.amount,
         matchedAmount: inc.amount,
         matchedKind: "income",
-        matchedSnippet: inc.note ? `Предстоящ · ${inc.note}` : "Предстоящ приход",
+        matchedSnippet: inc.note
+          ? `${en ? "Upcoming" : "Предстоящ"} · ${inc.note}`
+          : en
+          ? "Upcoming income"
+          : "Предстоящ приход",
       })),
       totalMatchedAmount: parseFloat(expectedSum.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
@@ -1400,14 +1466,14 @@ export function answerFinancialChatQuestion(
     );
 
   if (isExpectedSpendQuery) {
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const scopedKeys = new Set(range.entries.map((e) => e.key));
     const inScope = (e: IndexedExpense) =>
       range.kind === "all_months"
         ? true
         : scopedKeys.size > 0
         ? scopedKeys.has(e.monthKey)
-        : e.monthKey === range.label;
+        : e.monthKey === range.targetMonth?.key;
 
     const scopedCompleted = completedExpenses.filter(inScope);
     const scopedPlanned = plannedExpenses.filter(inScope);
@@ -1420,13 +1486,13 @@ export function answerFinancialChatQuestion(
       ...scopedPlanned.map((e) => ({
         id: e.id,
         monthKey: e.monthKey,
-        date: formatDateShort(e.date),
-        merchantOrCategory: e.merchantName || e.categoryName,
-        categoryName: e.categoryName,
+        date: formatDateShort(e.date, en),
+        merchantOrCategory: e.merchantName || tCat(e.categoryName),
+        categoryName: tCat(e.categoryName),
         expenseAmount: e.amount,
         matchedAmount: e.amount,
         matchedKind: (e.isFixed ? "fixed" : "category") as AiChatMatchedExpense["matchedKind"],
-        matchedSnippet: `Предстоящ${e.note ? ` · ${e.note}` : ""}`,
+        matchedSnippet: `${en ? "Upcoming" : "Предстоящ"}${e.note ? ` · ${e.note}` : ""}`,
       })),
       ...scopedCompleted
         .slice()
@@ -1434,13 +1500,13 @@ export function answerFinancialChatQuestion(
         .map((e) => ({
           id: e.id,
           monthKey: e.monthKey,
-          date: formatDateShort(e.date),
-          merchantOrCategory: e.merchantName || e.categoryName,
-          categoryName: e.categoryName,
+          date: formatDateShort(e.date, en),
+          merchantOrCategory: e.merchantName || tCat(e.categoryName),
+          categoryName: tCat(e.categoryName),
           expenseAmount: e.amount,
           matchedAmount: e.amount,
           matchedKind: (e.isFixed ? "fixed" : "category") as AiChatMatchedExpense["matchedKind"],
-          matchedSnippet: `Изпълнен${e.note ? ` · ${e.note}` : ""}`,
+          matchedSnippet: `${en ? "Completed" : "Изпълнен"}${e.note ? ` · ${e.note}` : ""}`,
         })),
     ];
 
@@ -1448,7 +1514,9 @@ export function answerFinancialChatQuestion(
       answer: en
         ? `Expected total spending for ${range.label}: ${fmtEur(expectedTotal)} (Completed: ${fmtEur(completedSum)} + Upcoming: ${fmtEur(plannedSum)} across ${scopedPlanned.length} upcoming items).`
         : `Очаквани общи разходи за ${range.label}: ${fmtEur(expectedTotal)} — Изпълнени ${fmtEur(completedSum)} (${scopedCompleted.length} бр.) + Предстоящи ${fmtEur(plannedSum)} (${scopedPlanned.length} бр.).`,
-      calculation: `Реализирани разходи ${fmtEur(completedSum)} + Предстоящи разходи ${fmtEur(plannedSum)} = Очаквани разходи ${fmtEur(expectedTotal)}`,
+      calculation: en
+        ? `Completed expenses ${fmtEur(completedSum)} + Upcoming expenses ${fmtEur(plannedSum)} = Expected ${fmtEur(expectedTotal)}`
+        : `Реализирани разходи ${fmtEur(completedSum)} + Предстоящи разходи ${fmtEur(plannedSum)} = Очаквани разходи ${fmtEur(expectedTotal)}`,
       timeRangeLabel: range.label,
       matchedExpenses: matched,
       totalMatchedAmount: parseFloat(expectedTotal.toFixed(2)),
@@ -1465,21 +1533,25 @@ export function answerFinancialChatQuestion(
       Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m)) ||
       /\b20\d{2}\b/.test(norm);
 
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const scopedKeys = new Set(range.entries.map((e) => e.key));
     let scopedPlanned = plannedExpenses.filter((e) =>
       range.kind === "all_months"
         ? true
         : scopedKeys.size > 0
         ? scopedKeys.has(e.monthKey)
-        : e.monthKey === range.label
+        : e.monthKey === range.targetMonth?.key
     );
     let effectiveLabel = range.label;
 
     if (!hasExplicitRange && scopedPlanned.length === 0 && plannedExpenses.length > 0) {
       scopedPlanned = plannedExpenses;
       effectiveLabel =
-        entries.length > 0 ? `Всички месеци (${entries.length})` : range.label;
+        entries.length > 0
+          ? en
+            ? `All months (${entries.length})`
+            : `Всички месеци (${entries.length})`
+          : range.label;
     }
 
     const plannedSum = scopedPlanned.reduce((s, e) => s + e.amount, 0);
@@ -1490,11 +1562,11 @@ export function answerFinancialChatQuestion(
           ? en
             ? `You have ${scopedPlanned.length} upcoming ${scopedPlanned.length === 1 ? "expense" : "expenses"} in ${effectiveLabel} totaling ${fmtEur(plannedSum)}: ${scopedPlanned
                 .slice(0, 5)
-                .map((e) => `${e.categoryName} (${fmtEur(e.amount)})`)
+                .map((e) => `${tCat(e.categoryName)} (${fmtEur(e.amount)})`)
                 .join(", ")}.`
             : `Имате ${scopedPlanned.length} ${scopedPlanned.length === 1 ? "предстоящ разход" : "предстоящи разхода"} за ${effectiveLabel} на обща стойност ${fmtEur(plannedSum)}: ${scopedPlanned
                 .slice(0, 5)
-                .map((e) => `${e.categoryName} (${fmtEur(e.amount)})`)
+                .map((e) => `${tCat(e.categoryName)} (${fmtEur(e.amount)})`)
                 .join(", ")}.`
           : en
           ? `You have no upcoming expenses in ${effectiveLabel}.`
@@ -1503,20 +1575,26 @@ export function answerFinancialChatQuestion(
         scopedPlanned.length > 0
           ? scopedPlanned
               .slice(0, 6)
-              .map((e) => `${e.categoryName}: ${fmtEur(e.amount)}`)
+              .map((e) => `${tCat(e.categoryName)}: ${fmtEur(e.amount)}`)
               .join(" + ") + ` = ${fmtEur(plannedSum)}`
+          : en
+          ? "0 upcoming expenses = €0.00"
           : "0 предстоящи разхода = €0.00",
       timeRangeLabel: effectiveLabel,
       matchedExpenses: scopedPlanned.map((e) => ({
         id: e.id,
         monthKey: e.monthKey,
-        date: formatDateShort(e.date),
-        merchantOrCategory: e.merchantName || e.categoryName,
-        categoryName: e.categoryName,
+        date: formatDateShort(e.date, en),
+        merchantOrCategory: e.merchantName || tCat(e.categoryName),
+        categoryName: tCat(e.categoryName),
         expenseAmount: e.amount,
         matchedAmount: e.amount,
         matchedKind: e.isFixed ? "fixed" : "category",
-        matchedSnippet: e.note ? `Предстоящ · ${e.note}` : "Предстоящ разход",
+        matchedSnippet: e.note
+          ? `${en ? "Upcoming" : "Предстоящ"} · ${e.note}`
+          : en
+          ? "Upcoming expense"
+          : "Предстоящ разход",
       })),
       totalMatchedAmount: parseFloat(plannedSum.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
@@ -1533,7 +1611,7 @@ export function answerFinancialChatQuestion(
       /(?:last|past|this|year|month|all|последн|този|минал|годин|всички)/.test(norm) ||
       Object.keys(MONTHS_EN_TO_IDX).some((m) => norm.includes(m)) ||
       Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m));
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, !hasExplicitRange);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, !hasExplicitRange, en);
 
     const lifetimeNet = globalSavings.reduce(
       (s, tx) => s + (tx.type === "expense" ? -Number(tx.amount) : Number(tx.amount)),
@@ -1584,9 +1662,16 @@ export function answerFinancialChatQuestion(
     const matched: AiChatMatchedExpense[] = filteredTx.slice(0, 12).map((tx) => ({
       id: tx.id,
       monthKey: range.label,
-      date: formatDateShort(tx.date),
-      merchantOrCategory: tx.categoryName || "Спестяване",
-      categoryName: tx.type === "expense" ? "Теглене" : "Вноска",
+      date: formatDateShort(tx.date, en),
+      merchantOrCategory: tCat(tx.categoryName || "Спестяване"),
+      categoryName:
+        tx.type === "expense"
+          ? en
+            ? "Withdrawal"
+            : "Теглене"
+          : en
+          ? "Deposit"
+          : "Вноска",
       expenseAmount: Number(tx.amount) || 0,
       matchedAmount: tx.type === "expense" ? -Number(tx.amount) : Number(tx.amount),
       matchedKind: "saving",
@@ -1597,7 +1682,9 @@ export function answerFinancialChatQuestion(
       answer: en
         ? `Net savings recorded in ${range.label}: ${fmtEur(netInRange)} (${filteredTx.length} transactions). Total lifetime savings balance: ${fmtEur(lifetimeNet)}.`
         : `Нетни спестявания за ${range.label}: ${fmtEur(netInRange)} (${filteredTx.length} трансакции). Общ баланс в „Спестявания“: ${fmtEur(lifetimeNet)}.`,
-      calculation: `${fmtEur(deposits)} (вноски) − ${fmtEur(withdrawals)} (тегления) = ${fmtEur(netInRange)} | Нетен паричен поток (Приходи ${fmtEur(periodIncome)} − Разходи ${fmtEur(periodExp)} = ${fmtEur(periodIncome - periodExp)})`,
+      calculation: en
+        ? `${fmtEur(deposits)} (deposits) − ${fmtEur(withdrawals)} (withdrawals) = ${fmtEur(netInRange)} | Net cashflow (Income ${fmtEur(periodIncome)} − Expenses ${fmtEur(periodExp)} = ${fmtEur(periodIncome - periodExp)})`
+        : `${fmtEur(deposits)} (вноски) − ${fmtEur(withdrawals)} (тегления) = ${fmtEur(netInRange)} | Нетен паричен поток (Приходи ${fmtEur(periodIncome)} − Разходи ${fmtEur(periodExp)} = ${fmtEur(periodIncome - periodExp)})`,
       timeRangeLabel: range.label,
       matchedExpenses: matched,
       totalMatchedAmount: parseFloat(netInRange.toFixed(2)),
@@ -1613,10 +1700,12 @@ export function answerFinancialChatQuestion(
       norm
     )
   ) {
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const target = range.targetMonth || activeMonth;
     const prev = getPreviousMonthAndYear(target.month, target.year);
     const prevKey = `${prev.prevMonth} ${prev.prevYear}`;
+    const targetLabel = formatLocalizedMonthYear(target.key, lang);
+    const prevLabel = formatLocalizedMonthYear(prevKey, lang);
 
     const curItems = completedExpenses.filter((e) => e.monthKey === target.key);
     const prevItems = completedExpenses.filter((e) => e.monthKey === prevKey);
@@ -1637,7 +1726,7 @@ export function answerFinancialChatQuestion(
         const prevVal = prevByCat[cat] || 0;
         const diff = curVal - prevVal;
         const pct = prevVal > 0 ? (diff / prevVal) * 100 : curVal > 0 ? 100 : 0;
-        return { cat, curVal, prevVal, diff, pct };
+        return { cat, displayCat: tCat(cat), curVal, prevVal, diff, pct };
       })
       .filter((x) => x.diff > 0.01)
       .sort((a, b) => b.diff - a.diff);
@@ -1645,41 +1734,43 @@ export function answerFinancialChatQuestion(
     const matched: AiChatMatchedExpense[] = increased.map((row, idx) => ({
       id: `inc_${idx}_${row.cat}`,
       monthKey: target.key,
-      date: target.key,
-      merchantOrCategory: row.cat,
+      date: targetLabel,
+      merchantOrCategory: row.displayCat,
       categoryName: `${fmtEur(row.prevVal)} → ${fmtEur(row.curVal)}`,
       expenseAmount: row.curVal,
       matchedAmount: parseFloat(row.diff.toFixed(2)),
       matchedKind: "category",
-      matchedSnippet: `+${fmtEur(row.diff)} (${row.prevVal > 0 ? `+${row.pct.toFixed(0)}%` : "нова категория"})`,
+      matchedSnippet: `+${fmtEur(row.diff)} (${row.prevVal > 0 ? `+${row.pct.toFixed(0)}%` : en ? "new category" : "нова категория"})`,
     }));
 
     return {
       answer:
         increased.length > 0
           ? en
-            ? `${increased.length} ${increased.length === 1 ? "category" : "categories"} increased in ${target.key} compared to ${prevKey}: ${increased
+            ? `${increased.length} ${increased.length === 1 ? "category" : "categories"} increased in ${targetLabel} compared to ${prevLabel}: ${increased
                 .slice(0, 4)
-                .map((x) => `${x.cat} (+${fmtEur(x.diff)})`)
+                .map((x) => `${x.displayCat} (+${fmtEur(x.diff)})`)
                 .join(", ")}.`
-            : `${increased.length} категории са с по-висок разход през ${target.key} спрямо ${prevKey}: ${increased
+            : `${increased.length} категории са с по-висок разход през ${targetLabel} спрямо ${prevLabel}: ${increased
                 .slice(0, 4)
-                .map((x) => `${x.cat} (+${fmtEur(x.diff)})`)
+                .map((x) => `${x.displayCat} (+${fmtEur(x.diff)})`)
                 .join(", ")}.`
           : en
-          ? `No categories increased in ${target.key} compared to ${prevKey}.`
-          : `Няма категории с увеличение през ${target.key} спрямо ${prevKey}.`,
+          ? `No categories increased in ${targetLabel} compared to ${prevLabel}.`
+          : `Няма категории с увеличение през ${targetLabel} спрямо ${prevLabel}.`,
       calculation:
         increased.length > 0
           ? increased
               .slice(0, 5)
               .map(
                 (x) =>
-                  `${x.cat}: ${fmtEur(x.curVal)} − ${fmtEur(x.prevVal)} = +${fmtEur(x.diff)} (${x.prevVal > 0 ? `+${x.pct.toFixed(0)}%` : "нов"})`
+                  `${x.displayCat}: ${fmtEur(x.curVal)} − ${fmtEur(x.prevVal)} = +${fmtEur(x.diff)} (${x.prevVal > 0 ? `+${x.pct.toFixed(0)}%` : en ? "new" : "нов"})`
               )
               .join(" · ")
-          : `Сравнени ${curItems.length} записа (${target.key}) спрямо ${prevItems.length} записа (${prevKey})`,
-      timeRangeLabel: `${prevKey} → ${target.key}`,
+          : en
+          ? `Compared ${curItems.length} entries (${targetLabel}) vs ${prevItems.length} entries (${prevLabel})`
+          : `Сравнени ${curItems.length} записа (${targetLabel}) спрямо ${prevItems.length} записа (${prevLabel})`,
+      timeRangeLabel: `${prevLabel} → ${targetLabel}`,
       matchedExpenses: matched,
       totalMatchedAmount: parseFloat(
         increased.reduce((s, r) => s + r.diff, 0).toFixed(2)
@@ -1698,14 +1789,18 @@ export function answerFinancialChatQuestion(
         answer: en
           ? `At least 2 months with expense data are needed to measure spending growth (currently ${activeEntries.length} month recorded).`
           : `Необходими са данни за поне 2 месеца, за да се изчисли темпът на растеж на разходите (текущо: ${activeEntries.length} месец).`,
-        calculation: `Налични активни месеци: ${activeEntries.map((e) => e.key).join(", ") || "няма"}`,
-        timeRangeLabel: `Всички месеци (${entries.length})`,
+        calculation: en
+          ? `Active months: ${activeEntries.map((e) => formatLocalizedMonthYear(e.key, lang)).join(", ") || "none"}`
+          : `Налични активни месеци: ${activeEntries.map((e) => e.key).join(", ") || "няма"}`,
+        timeRangeLabel: en ? `All months (${entries.length})` : `Всички месеци (${entries.length})`,
         matchedExpenses: [],
         followUpSuggestions: buildSuggestions(en),
       };
     }
 
     const latestEntry = activeEntries[activeEntries.length - 1];
+    const latestLabel = formatLocalizedMonthYear(latestEntry.key, lang);
+    const firstLabel = formatLocalizedMonthYear(activeEntries[0].key, lang);
     const baselineEntries = activeEntries.slice(0, -1);
     const catStats: Record<string, { prevSum: number; prevMonths: number; latest: number }> = {};
 
@@ -1736,7 +1831,7 @@ export function answerFinancialChatQuestion(
         const avgPrev = st.prevMonths > 0 ? st.prevSum / st.prevMonths : 0;
         const diff = st.latest - avgPrev;
         const pct = avgPrev > 0 ? (diff / avgPrev) * 100 : st.latest > 0 ? 100 : 0;
-        return { cat, avgPrev, latest: st.latest, diff, pct };
+        return { cat, displayCat: tCat(cat), avgPrev, latest: st.latest, diff, pct };
       })
       .filter((r) => r.diff > 0.01)
       .sort((a, b) => b.pct - a.pct || b.diff - a.diff);
@@ -1745,25 +1840,27 @@ export function answerFinancialChatQuestion(
       answer:
         growthRows.length > 0
           ? en
-            ? `Fastest growing expense category in ${latestEntry.key}: ${growthRows[0].cat} (+${growthRows[0].pct.toFixed(0)}%, +${fmtEur(growthRows[0].diff)} vs prior monthly average).`
-            : `Най-бързо растяща категория през ${latestEntry.key}: „${growthRows[0].cat}“ (+${growthRows[0].pct.toFixed(0)}%, +${fmtEur(growthRows[0].diff)} спрямо средното за предходните месеци).`
+            ? `Fastest growing expense category in ${latestLabel}: ${growthRows[0].displayCat} (+${growthRows[0].pct.toFixed(0)}%, +${fmtEur(growthRows[0].diff)} vs prior monthly average).`
+            : `Най-бързо растяща категория през ${latestLabel}: „${growthRows[0].displayCat}“ (+${growthRows[0].pct.toFixed(0)}%, +${fmtEur(growthRows[0].diff)} спрямо средното за предходните месеци).`
           : en
-          ? `No expense categories showed upward growth in ${latestEntry.key} compared to previous months.`
-          : `Няма категории с ръст през ${latestEntry.key} спрямо предходните месеци.`,
+          ? `No expense categories showed upward growth in ${latestLabel} compared to previous months.`
+          : `Няма категории с ръст през ${latestLabel} спрямо предходните месеци.`,
       calculation: growthRows
         .slice(0, 4)
         .map(
           (r) =>
-            `${r.cat}: ср. ${fmtEur(r.avgPrev)} → ${fmtEur(r.latest)} (+${fmtEur(r.diff)} / +${r.pct.toFixed(0)}%)`
+            `${r.displayCat}: ${en ? "avg" : "ср."} ${fmtEur(r.avgPrev)} → ${fmtEur(r.latest)} (+${fmtEur(r.diff)} / +${r.pct.toFixed(0)}%)`
         )
         .join(" · "),
-      timeRangeLabel: `${activeEntries[0].key} – ${latestEntry.key} (${activeEntries.length} месеца)`,
+      timeRangeLabel: en
+        ? `${firstLabel} – ${latestLabel} (${activeEntries.length} months)`
+        : `${firstLabel} – ${latestLabel} (${activeEntries.length} месеца)`,
       matchedExpenses: growthRows.slice(0, 8).map((r, i) => ({
         id: `grow_${i}_${r.cat}`,
         monthKey: latestEntry.key,
-        date: latestEntry.key,
-        merchantOrCategory: r.cat,
-        categoryName: `Ср. ${fmtEur(r.avgPrev)} → ${fmtEur(r.latest)}`,
+        date: latestLabel,
+        merchantOrCategory: r.displayCat,
+        categoryName: `${en ? "Avg" : "Ср."} ${fmtEur(r.avgPrev)} → ${fmtEur(r.latest)}`,
         expenseAmount: r.latest,
         matchedAmount: parseFloat(r.diff.toFixed(2)),
         matchedKind: "category",
@@ -1790,7 +1887,7 @@ export function answerFinancialChatQuestion(
     );
 
   if (asksAdditionalExpenses || asksFixedOrRecurringExpenses) {
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const targetEntries = range.entries.length > 0 ? range.entries : entries;
     const scopedKeys = new Set(targetEntries.map((te) => te.key));
 
@@ -1812,20 +1909,22 @@ export function answerFinancialChatQuestion(
           additionalInRange.length > 0
             ? additionalInRange
                 .slice(0, 8)
-                .map((e) => `${e.categoryName}: ${fmtEur(e.amount)}`)
+                .map((e) => `${tCat(e.categoryName)}: ${fmtEur(e.amount)}`)
                 .join(" + ") + ` = ${fmtEur(totalAdd)}`
+            : en
+            ? "0 entries"
             : "0 записа",
         timeRangeLabel: range.label,
         matchedExpenses: additionalInRange.map((e) => ({
           id: e.id,
           monthKey: e.monthKey,
-          date: formatDateShort(e.date),
-          merchantOrCategory: e.merchantName || e.categoryName,
-          categoryName: e.categoryName,
+          date: formatDateShort(e.date, en),
+          merchantOrCategory: e.merchantName || tCat(e.categoryName),
+          categoryName: tCat(e.categoryName),
           expenseAmount: e.amount,
           matchedAmount: e.amount,
           matchedKind: e.merchantName ? "merchant" : "category",
-          matchedSnippet: e.note || "Допълнителен разход",
+          matchedSnippet: e.note || (en ? "Additional expense" : "Допълнителен разход"),
         })),
         totalMatchedAmount: parseFloat(totalAdd.toFixed(2)),
         followUpSuggestions: buildSuggestions(en),
@@ -1850,20 +1949,22 @@ export function answerFinancialChatQuestion(
         recurringInRange.length > 0
           ? recurringInRange
               .slice(0, 8)
-              .map((e) => `${e.categoryName}: ${fmtEur(e.amount)}`)
+              .map((e) => `${tCat(e.categoryName)}: ${fmtEur(e.amount)}`)
               .join(" + ") + ` = ${fmtEur(totalRec)}`
+          : en
+          ? "0 entries"
           : "0 записа",
       timeRangeLabel: range.label,
       matchedExpenses: recurringInRange.map((e) => ({
         id: e.id,
         monthKey: e.monthKey,
-        date: formatDateShort(e.date),
-        merchantOrCategory: e.merchantName || e.categoryName,
-        categoryName: e.categoryName,
+        date: formatDateShort(e.date, en),
+        merchantOrCategory: e.merchantName || tCat(e.categoryName),
+        categoryName: tCat(e.categoryName),
         expenseAmount: e.amount,
         matchedAmount: e.amount,
         matchedKind: "fixed",
-        matchedSnippet: e.note || "Повтарящ се разход",
+        matchedSnippet: e.note || (en ? "Recurring expense" : "Повтарящ се разход"),
       })),
       totalMatchedAmount: parseFloat(totalRec.toFixed(2)),
       followUpSuggestions: buildSuggestions(en),
@@ -1874,12 +1975,13 @@ export function answerFinancialChatQuestion(
   // INTENT 5: Average monthly spending
   // ------------------------------------------------------------------
   if (/(?:average|avg|mean|среден|средно\s*месеч|средния\s*разход)/.test(norm)) {
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, true);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, true, en);
     const activeInRange = range.entries.filter((e) => calculateMonthExpenses(e.record) > 0);
     const calcSet = activeInRange.length > 0 ? activeInRange : range.entries;
 
     const perMonthTotals = calcSet.map((e) => ({
       key: e.key,
+      displayKey: formatLocalizedMonthYear(e.key, lang),
       total: calculateMonthExpenses(e.record),
     }));
     const grandTotal = perMonthTotals.reduce((s, m) => s + m.total, 0);
@@ -1896,15 +1998,17 @@ export function answerFinancialChatQuestion(
           : "Все още няма въведени месечни разходи.",
       calculation:
         calcSet.length > 0
-          ? `${fmtEur(grandTotal)} ÷ ${calcSet.length} мес. = ${fmtEur(avg)}/мес.`
+          ? en
+            ? `${fmtEur(grandTotal)} ÷ ${calcSet.length} mo. = ${fmtEur(avg)}/mo.`
+            : `${fmtEur(grandTotal)} ÷ ${calcSet.length} мес. = ${fmtEur(avg)}/мес.`
           : "0.00 ÷ 0 = €0.00",
       timeRangeLabel: range.label,
       matchedExpenses: perMonthTotals.map((m, idx) => ({
         id: `avg_${idx}_${m.key}`,
         monthKey: m.key,
-        date: m.key,
-        merchantOrCategory: m.key,
-        categoryName: "Месечен разход",
+        date: m.displayKey,
+        merchantOrCategory: m.displayKey,
+        categoryName: en ? "Monthly spending" : "Месечен разход",
         expenseAmount: m.total,
         matchedAmount: m.total,
         matchedKind: "category",
@@ -1918,10 +2022,10 @@ export function answerFinancialChatQuestion(
   // INTENT 6: Largest / Biggest expense
   // ------------------------------------------------------------------
   if (/(?:largest|biggest|highest|most\s+expensive|max\s+expense|най-голям|най-висок|най-скъп)/.test(norm)) {
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const scopedKeys = new Set(range.entries.map((e) => e.key));
     const scopedExpenses = completedExpenses
-      .filter((e) => (scopedKeys.size > 0 ? scopedKeys.has(e.monthKey) : e.monthKey === range.label))
+      .filter((e) => (scopedKeys.size > 0 ? scopedKeys.has(e.monthKey) : e.monthKey === range.targetMonth?.key))
       .sort((a, b) => b.amount - a.amount);
 
     if (scopedExpenses.length === 0) {
@@ -1929,7 +2033,7 @@ export function answerFinancialChatQuestion(
         answer: en
           ? `No expenses recorded in ${range.label}.`
           : `Няма записани разходи за ${range.label}.`,
-        calculation: "0 разхода",
+        calculation: en ? "0 expenses" : "0 разхода",
         timeRangeLabel: range.label,
         matchedExpenses: [],
         followUpSuggestions: buildSuggestions(en),
@@ -1939,16 +2043,18 @@ export function answerFinancialChatQuestion(
     const top = scopedExpenses[0];
     return {
       answer: en
-        ? `Your largest expense in ${range.label} was ${fmtEur(top.amount)} (${top.merchantName || top.categoryName}, ${formatDateShort(top.date)}).`
-        : `Най-големият ви разход за ${range.label} е ${fmtEur(top.amount)} (${top.merchantName ? `${top.merchantName} · ` : ""}${top.categoryName}, ${formatDateShort(top.date)}).`,
-      calculation: `Максимум от ${scopedExpenses.length} разхода: ${fmtEur(top.amount)} (${top.categoryName}${top.merchantName ? ` — ${top.merchantName}` : ""})`,
+        ? `Your largest expense in ${range.label} was ${fmtEur(top.amount)} (${top.merchantName || tCat(top.categoryName)}, ${formatDateShort(top.date, en)}).`
+        : `Най-големият ви разход за ${range.label} е ${fmtEur(top.amount)} (${top.merchantName ? `${top.merchantName} · ` : ""}${tCat(top.categoryName)}, ${formatDateShort(top.date, en)}).`,
+      calculation: en
+        ? `Max of ${scopedExpenses.length} expenses: ${fmtEur(top.amount)} (${tCat(top.categoryName)}${top.merchantName ? ` — ${top.merchantName}` : ""})`
+        : `Максимум от ${scopedExpenses.length} разхода: ${fmtEur(top.amount)} (${tCat(top.categoryName)}${top.merchantName ? ` — ${top.merchantName}` : ""})`,
       timeRangeLabel: range.label,
       matchedExpenses: scopedExpenses.slice(0, 5).map((e) => ({
         id: e.id,
         monthKey: e.monthKey,
-        date: formatDateShort(e.date),
-        merchantOrCategory: e.merchantName || e.categoryName,
-        categoryName: e.categoryName,
+        date: formatDateShort(e.date, en),
+        merchantOrCategory: e.merchantName || tCat(e.categoryName),
+        categoryName: tCat(e.categoryName),
         expenseAmount: e.amount,
         matchedAmount: e.amount,
         matchedKind: e.merchantName ? "merchant" : "category",
@@ -1963,29 +2069,34 @@ export function answerFinancialChatQuestion(
   // INTENT 7: Budget utilization & limits
   // ------------------------------------------------------------------
   if (/(?:budget|limit|utilization|overspent|бюджет|лимит|усвояван|надвиш)/.test(norm)) {
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const target = range.targetMonth || activeMonth;
+    const targetLabel = formatLocalizedMonthYear(target.key, lang);
     const record = monthlyData[target.key];
     const status = calculateAllBudgetsStatus(record, totalMonthlyBudget, categoryBudgets);
 
     const exceeded = status.categoryStatuses.filter((c) => c.isExceeded);
     return {
       answer: en
-        ? `Budget utilization for ${target.key}: ${fmtEur(status.totalSpent)} of ${fmtEur(status.totalMonthlyLimit)} (${status.totalPercentage.toFixed(1)}%). ${exceeded.length > 0 ? `Exceeded: ${exceeded.map((e) => e.budget.categoryName).join(", ")}.` : "All category budgets are within limits."}`
-        : `Усвояване на бюджета за ${target.key}: ${fmtEur(status.totalSpent)} от ${fmtEur(status.totalMonthlyLimit)} (${status.totalPercentage.toFixed(1)}%). ${exceeded.length > 0 ? `Надвишени категории: ${exceeded.map((e) => e.budget.categoryName).join(", ")}.` : "Всички категорийни бюджети са в рамките на лимита."}`,
-      calculation: `${fmtEur(status.totalSpent)} / ${fmtEur(status.totalMonthlyLimit)} = ${status.totalPercentage.toFixed(1)}% · Остатък: ${fmtEur(status.totalRemaining)}`,
-      timeRangeLabel: target.key,
+        ? `Budget utilization for ${targetLabel}: ${fmtEur(status.totalSpent)} of ${fmtEur(status.totalMonthlyLimit)} (${status.totalPercentage.toFixed(1)}%). ${exceeded.length > 0 ? `Exceeded: ${exceeded.map((e) => translateBudgetName(e.budget.categoryName, lang)).join(", ")}.` : "All category budgets are within limits."}`
+        : `Усвояване на бюджета за ${targetLabel}: ${fmtEur(status.totalSpent)} от ${fmtEur(status.totalMonthlyLimit)} (${status.totalPercentage.toFixed(1)}%). ${exceeded.length > 0 ? `Надвишени категории: ${exceeded.map((e) => translateBudgetName(e.budget.categoryName, lang)).join(", ")}.` : "Всички категорийни бюджети са в рамките на лимита."}`,
+      calculation: `${fmtEur(status.totalSpent)} / ${fmtEur(status.totalMonthlyLimit)} = ${status.totalPercentage.toFixed(1)}% · ${en ? "Remaining" : "Остатък"}: ${fmtEur(status.totalRemaining)}`,
+      timeRangeLabel: targetLabel,
       matchedExpenses: status.categoryStatuses.map((cs) => ({
         id: cs.budget.id,
         monthKey: target.key,
         date: `${cs.percentage.toFixed(0)}%`,
-        merchantOrCategory: cs.budget.categoryName,
-        categoryName: `Лимит ${fmtEur(cs.limit)}`,
+        merchantOrCategory: translateBudgetName(cs.budget.categoryName, lang),
+        categoryName: `${en ? "Limit" : "Лимит"} ${fmtEur(cs.limit)}`,
         expenseAmount: cs.spent,
         matchedAmount: cs.spent,
         matchedKind: "category",
         matchedSnippet: cs.isExceeded
-          ? `Надвишен с ${fmtEur(cs.overspentAmount)}`
+          ? en
+            ? `Exceeded by ${fmtEur(cs.overspentAmount)}`
+            : `Надвишен с ${fmtEur(cs.overspentAmount)}`
+          : en
+          ? `Remaining ${fmtEur(cs.remaining)}`
           : `Остават ${fmtEur(cs.remaining)}`,
       })),
       totalMatchedAmount: status.totalSpent,
@@ -1997,7 +2108,7 @@ export function answerFinancialChatQuestion(
   // INTENT 8: Income queries (Completed / Realized incomes with Fixed vs Additional)
   // ------------------------------------------------------------------
   if (mentionsIncomeKeyword) {
-    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false);
+    const range = parseQueryTimeRange(trimmed, entries, activeMonth, false, en);
     const scopedKeys = new Set(range.entries.map((e) => e.key));
     const inScopeCompleted = completedIncomes.filter((inc) =>
       range.kind === "all_months" ? true : scopedKeys.has(inc.monthKey)
@@ -2022,13 +2133,13 @@ export function answerFinancialChatQuestion(
       const matchedFixed: AiChatMatchedExpense[] = fixedIncomes.map((inc) => ({
         id: inc.id,
         monthKey: inc.monthKey,
-        date: formatDateShort(inc.date),
-        merchantOrCategory: inc.categoryName || "Приход",
-        categoryName: "Повтарящ се приход",
+        date: formatDateShort(inc.date, en),
+        merchantOrCategory: tCat(inc.categoryName || "Приход"),
+        categoryName: en ? "Recurring income" : "Повтарящ се приход",
         expenseAmount: inc.amount,
         matchedAmount: inc.amount,
         matchedKind: "income",
-        matchedSnippet: inc.note || "Повтарящ се приход",
+        matchedSnippet: inc.note || (en ? "Recurring income" : "Повтарящ се приход"),
       }));
 
       const upcomingSuffixEn =
@@ -2053,8 +2164,10 @@ export function answerFinancialChatQuestion(
           fixedIncomes.length > 0
             ? fixedIncomes
                 .slice(0, 6)
-                .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+                .map((i) => `${tCat(i.categoryName)}: ${fmtEur(i.amount)}`)
                 .join(" + ") + ` = ${fmtEur(fixedSum)}`
+            : en
+            ? "0 recurring incomes = €0.00"
             : "0 повтарящи се прихода = €0.00",
         timeRangeLabel: range.label,
         matchedExpenses: matchedFixed,
@@ -2070,13 +2183,13 @@ export function answerFinancialChatQuestion(
       const matchedAdditional: AiChatMatchedExpense[] = additionalIncomes.map((inc) => ({
         id: inc.id,
         monthKey: inc.monthKey,
-        date: formatDateShort(inc.date),
-        merchantOrCategory: inc.categoryName || "Приход",
-        categoryName: "Допълнителен приход",
+        date: formatDateShort(inc.date, en),
+        merchantOrCategory: tCat(inc.categoryName || "Приход"),
+        categoryName: en ? "Additional income" : "Допълнителен приход",
         expenseAmount: inc.amount,
         matchedAmount: inc.amount,
         matchedKind: "income",
-        matchedSnippet: inc.note || "Еднократен приход",
+        matchedSnippet: inc.note || (en ? "One-time income" : "Еднократен приход"),
       }));
 
       return {
@@ -2092,8 +2205,10 @@ export function answerFinancialChatQuestion(
           additionalIncomes.length > 0
             ? additionalIncomes
                 .slice(0, 6)
-                .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+                .map((i) => `${tCat(i.categoryName)}: ${fmtEur(i.amount)}`)
                 .join(" + ") + ` = ${fmtEur(additionalSum)}`
+            : en
+            ? "0 additional incomes = €0.00"
             : "0 допълнителни прихода = €0.00",
         timeRangeLabel: range.label,
         matchedExpenses: matchedAdditional,
@@ -2113,13 +2228,19 @@ export function answerFinancialChatQuestion(
     const matchedIncomes: AiChatMatchedExpense[] = inScopeCompleted.map((inc) => ({
       id: inc.id,
       monthKey: inc.monthKey,
-      date: formatDateShort(inc.date),
-      merchantOrCategory: inc.categoryName || "Приход",
-      categoryName: inc.isFixed ? "Повтарящ се приход" : "Допълнителен приход",
+      date: formatDateShort(inc.date, en),
+      merchantOrCategory: tCat(inc.categoryName || "Приход"),
+      categoryName: inc.isFixed
+        ? en
+          ? "Recurring income"
+          : "Повтарящ се приход"
+        : en
+        ? "Additional income"
+        : "Допълнителен приход",
       expenseAmount: inc.amount,
       matchedAmount: inc.amount,
       matchedKind: "income",
-      matchedSnippet: inc.note || (inc.isFixed ? "Повтарящ се" : "Допълнителен"),
+      matchedSnippet: inc.note || (inc.isFixed ? (en ? "Recurring" : "Повтарящ се") : (en ? "Additional" : "Допълнителен")),
     }));
 
     return {
@@ -2128,7 +2249,9 @@ export function answerFinancialChatQuestion(
         : `Общи реализирани приходи за ${range.label}: ${fmtEur(totalInc)} (${matchedIncomes.length} записа) — Повтарящи се: ${fmtEur(fixedIncSum)} · Допълнителни: ${fmtEur(additionalIncSum)}.`,
       calculation:
         matchedIncomes.length > 0
-          ? `Повтарящи се ${fmtEur(fixedIncSum)} + Допълнителни ${fmtEur(additionalIncSum)} = ${fmtEur(totalInc)}`
+          ? en
+            ? `Recurring ${fmtEur(fixedIncSum)} + Additional ${fmtEur(additionalIncSum)} = ${fmtEur(totalInc)}`
+            : `Повтарящи се ${fmtEur(fixedIncSum)} + Допълнителни ${fmtEur(additionalIncSum)} = ${fmtEur(totalInc)}`
           : "0.00",
       timeRangeLabel: range.label,
       matchedExpenses: matchedIncomes,
@@ -2148,19 +2271,20 @@ export function answerFinancialChatQuestion(
     Object.keys(MONTHS_BG_LOWER_TO_IDX).some((m) => norm.includes(m)) ||
     /\b20\d{2}\b/.test(norm);
 
-  const range = parseQueryTimeRange(trimmed, entries, activeMonth, !hasExplicitRange);
+  const range = parseQueryTimeRange(trimmed, entries, activeMonth, !hasExplicitRange, en);
   const scopedKeys = new Set(range.entries.map((e) => e.key));
   const scopedExpenses =
     range.kind === "all_months"
       ? completedExpenses
       : completedExpenses.filter((e) => scopedKeys.has(e.monthKey));
 
-  const { terms, matchedGroups, displayTopic } = extractSearchTermsFromQuestion(trimmed);
+  const { terms, matchedGroups, displayTopic } = extractSearchTermsFromQuestion(trimmed, en);
 
   // Special Electricity check if user asks specifically about electricity/power
   if (matchedGroups.some((g) => g.id === "electricity") && electricityHistory.length > 0) {
     const scopedElec = range.entries.map((e) => ({
       key: e.key,
+      displayKey: formatLocalizedMonthYear(e.key, lang),
       cost: calculateMonthElectricity(e.month, e.year, e.record),
     }));
     const elecTotal = scopedElec.reduce((s, x) => s + x.cost, 0);
@@ -2169,16 +2293,16 @@ export function answerFinancialChatQuestion(
         answer: en
           ? `Electricity cost in ${range.label}: ${fmtEur(elecTotal)}.`
           : `Разходи за електроенергия за ${range.label}: ${fmtEur(elecTotal)}.`,
-        calculation: scopedElec.map((x) => `${x.key}: ${fmtEur(x.cost)}`).join(" + ") + ` = ${fmtEur(elecTotal)}`,
+        calculation: scopedElec.map((x) => `${x.displayKey}: ${fmtEur(x.cost)}`).join(" + ") + ` = ${fmtEur(elecTotal)}`,
         timeRangeLabel: range.label,
         matchedExpenses: scopedElec
           .filter((x) => x.cost > 0)
           .map((x, idx) => ({
             id: `elec_${idx}_${x.key}`,
             monthKey: x.key,
-            date: x.key,
-            merchantOrCategory: "Сметка ТОК",
-            categoryName: "Електроенергия",
+            date: x.displayKey,
+            merchantOrCategory: en ? "Electricity Bill" : "Сметка ТОК",
+            categoryName: en ? "Electricity" : "Електроенергия",
             expenseAmount: x.cost,
             matchedAmount: x.cost,
             matchedKind: "electricity",
@@ -2200,7 +2324,9 @@ export function answerFinancialChatQuestion(
       answer: en
         ? `Total spending in ${range.label}: ${fmtEur(totalExp)} (${scopedExpenses.length} expenses). Income: ${fmtEur(totalInc)}.`
         : `Общи разходи за ${range.label}: ${fmtEur(totalExp)} (${scopedExpenses.length} записа). Приходи: ${fmtEur(totalInc)}.`,
-      calculation: `Разходи (${scopedExpenses.length} записа) = ${fmtEur(totalExp)} | Нетен баланс = ${fmtEur(totalInc - totalExp)}`,
+      calculation: en
+        ? `Expenses (${scopedExpenses.length} entries) = ${fmtEur(totalExp)} | Net balance = ${fmtEur(totalInc - totalExp)}`
+        : `Разходи (${scopedExpenses.length} записа) = ${fmtEur(totalExp)} | Нетен баланс = ${fmtEur(totalInc - totalExp)}`,
       timeRangeLabel: range.label,
       matchedExpenses: scopedExpenses
         .slice()
@@ -2209,9 +2335,9 @@ export function answerFinancialChatQuestion(
         .map((e) => ({
           id: e.id,
           monthKey: e.monthKey,
-          date: formatDateShort(e.date),
-          merchantOrCategory: e.merchantName || e.categoryName,
-          categoryName: e.categoryName,
+          date: formatDateShort(e.date, en),
+          merchantOrCategory: e.merchantName || tCat(e.categoryName),
+          categoryName: tCat(e.categoryName),
           expenseAmount: e.amount,
           matchedAmount: e.amount,
           matchedKind: e.isFixed ? "fixed" : "category",
@@ -2241,19 +2367,19 @@ export function answerFinancialChatQuestion(
     // If user asked directly for a merchant (e.g. "Lidl") or category (e.g. "Fuel"), sum full expense once
     if (merchantMatch || categoryMatch) {
       merchantOrCatSum += exp.amount;
-      calculationParts.push(`${exp.merchantName || exp.categoryName} (${fmtEur(exp.amount)})`);
+      calculationParts.push(`${exp.merchantName || tCat(exp.categoryName)} (${fmtEur(exp.amount)})`);
       matchedList.push({
         id: exp.id,
         monthKey: exp.monthKey,
-        date: formatDateShort(exp.date),
-        merchantOrCategory: exp.merchantName || exp.categoryName,
-        categoryName: exp.categoryName,
+        date: formatDateShort(exp.date, en),
+        merchantOrCategory: exp.merchantName || tCat(exp.categoryName),
+        categoryName: tCat(exp.categoryName),
         expenseAmount: exp.amount,
         matchedAmount: exp.amount,
         matchedKind: merchantMatch ? "merchant" : "category",
         matchedSnippet:
           exp.parsedItems.length > 0
-            ? `${exp.parsedItems.length} артикула`
+            ? `${exp.parsedItems.length} ${en ? "items" : "артикула"}`
             : exp.note || undefined,
       });
       continue;
@@ -2272,13 +2398,13 @@ export function answerFinancialChatQuestion(
           return `${q}${it.name} (${fmtEur(p)})`;
         })
         .join(", ");
-      calculationParts.push(`${snippet} [${exp.merchantName || exp.categoryName}]`);
+      calculationParts.push(`${snippet} [${exp.merchantName || tCat(exp.categoryName)}]`);
       matchedList.push({
         id: exp.id,
         monthKey: exp.monthKey,
-        date: formatDateShort(exp.date),
-        merchantOrCategory: exp.merchantName || exp.categoryName,
-        categoryName: exp.categoryName,
+        date: formatDateShort(exp.date, en),
+        merchantOrCategory: exp.merchantName || tCat(exp.categoryName),
+        categoryName: tCat(exp.categoryName),
         expenseAmount: exp.amount,
         matchedAmount: parseFloat(itemsSubtotal.toFixed(2)),
         matchedKind: "item",
@@ -2299,14 +2425,14 @@ export function answerFinancialChatQuestion(
       const snippetText =
         matchedPlainLines.length > 0 ? matchedPlainLines.join(", ") : exp.note;
       calculationParts.push(
-        `${exp.merchantName || exp.categoryName} (${fmtEur(exp.amount)} — бележка: „${snippetText}“)`
+        `${exp.merchantName || tCat(exp.categoryName)} (${fmtEur(exp.amount)} — ${en ? "note" : "бележка"}: „${snippetText}“)`
       );
       matchedList.push({
         id: exp.id,
         monthKey: exp.monthKey,
-        date: formatDateShort(exp.date),
-        merchantOrCategory: exp.merchantName || exp.categoryName,
-        categoryName: exp.categoryName,
+        date: formatDateShort(exp.date, en),
+        merchantOrCategory: exp.merchantName || tCat(exp.categoryName),
+        categoryName: tCat(exp.categoryName),
         expenseAmount: exp.amount,
         matchedAmount: exp.amount,
         matchedKind: "note",
@@ -2335,7 +2461,7 @@ export function answerFinancialChatQuestion(
       const calcStr =
         scopedIncomeMatches
           .slice(0, 6)
-          .map((i) => `${i.categoryName}: ${fmtEur(i.amount)}`)
+          .map((i) => `${tCat(i.categoryName)}: ${fmtEur(i.amount)}`)
           .join(" + ") + ` = ${fmtEur(totalIncMatch)}`;
 
       return {
@@ -2347,9 +2473,9 @@ export function answerFinancialChatQuestion(
         matchedExpenses: scopedIncomeMatches.map((inc) => ({
           id: inc.id,
           monthKey: inc.monthKey,
-          date: formatDateShort(inc.date),
-          merchantOrCategory: inc.categoryName,
-          categoryName: inc.categoryName,
+          date: formatDateShort(inc.date, en),
+          merchantOrCategory: tCat(inc.categoryName),
+          categoryName: tCat(inc.categoryName),
           expenseAmount: inc.amount,
           matchedAmount: inc.amount,
           matchedKind: "income",
@@ -2363,11 +2489,14 @@ export function answerFinancialChatQuestion(
     const knownCatMatch =
       storedCategories.find((c) => textMatchesAnyTerm(c.name, terms)) ||
       storedIncomeCategories.find((c) => textMatchesAnyTerm(c.name, terms));
+    const knownCatDisplay = knownCatMatch ? tCat(knownCatMatch.name) : "";
     return {
       answer: en
         ? `No expenses, receipt items, or notes matching "${displayTopic}" were found in ${range.label}.`
         : `Не бяха открити разходи, артикули от касови бележки или бележки за „${displayTopic}“ през ${range.label}.`,
-      calculation: `Проверени ${scopedExpenses.length} разхода (категории, търговци, артикули и бележки)${knownCatMatch ? ` · Категория „${knownCatMatch.name}“ има €0.00 за периода` : ""}.`,
+      calculation: en
+        ? `Checked ${scopedExpenses.length} expenses (categories, merchants, items, and notes)${knownCatMatch ? ` · Category "${knownCatDisplay}" has €0.00 in this period` : ""}.`
+        : `Проверени ${scopedExpenses.length} разхода (категории, търговци, артикули и бележки)${knownCatMatch ? ` · Категория „${knownCatDisplay}“ има €0.00 за периода` : ""}.`,
       timeRangeLabel: range.label,
       matchedExpenses: [],
       totalMatchedAmount: 0,
@@ -2390,7 +2519,7 @@ export function answerFinancialChatQuestion(
   const calcFormula =
     calculationParts.length <= 6
       ? `${calculationParts.join(" + ")} = ${fmtEur(totalMatched)}`
-      : `${calculationParts.slice(0, 5).join(" + ")} + още ${calculationParts.length - 5} = ${fmtEur(totalMatched)}`;
+      : `${calculationParts.slice(0, 5).join(" + ")} + ${en ? `${calculationParts.length - 5} more` : `още ${calculationParts.length - 5}`} = ${fmtEur(totalMatched)}`;
 
   return {
     answer: answerText,

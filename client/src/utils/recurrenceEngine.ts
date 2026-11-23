@@ -2,6 +2,12 @@ import { ExpenseItem, IncomeItem, MonthlyRecord, RepeatFrequency } from "@/types
 import { MONTHS_BG } from "./comparisonStorage";
 import { createEmptyMonthlyRecord } from "./incomeStorage";
 import { STORAGE_BASE_RECURRENCE_DISMISSED, userStorage } from "./userStorage";
+import {
+  formatShortMonthIndex,
+  getCurrentLanguage,
+  t,
+  translateWeekday,
+} from "@/i18n/helpers";
 
 export interface RepeatOptionMeta {
   value: RepeatFrequency;
@@ -421,9 +427,9 @@ export function formatRepeatLabel(
   repeat?: RepeatFrequency,
   source?: RepeatLabelSource | null
 ): string {
+  const lang = getCurrentLanguage();
   const normalized = normalizeRepeatValue(repeat);
-  const found = REPEAT_OPTIONS.find((opt) => opt.value === normalized);
-  const baseLabel = found ? found.labelBg : "Никога";
+  const baseLabel = t(`recurrence.${normalized}`, undefined, lang);
 
   if (!source || normalized === "never" || normalized === "daily") {
     return baseLabel;
@@ -455,7 +461,7 @@ export function formatRepeatLabel(
 
   if (normalized === "weekly" || normalized === "biweekly") {
     if (typeof resolved.dayOfWeek === "number") {
-      const dayName = WEEKDAY_NAMES_BG[clampDayOfWeek(resolved.dayOfWeek)];
+      const dayName = translateWeekday(clampDayOfWeek(resolved.dayOfWeek), false, lang);
       return `${baseLabel} (${dayName})`;
     }
     return baseLabel;
@@ -467,7 +473,7 @@ export function formatRepeatLabel(
       typeof resolved.monthOfYear === "number"
     ) {
       const d = clampDayOfMonth(resolved.dayOfMonth);
-      const m = MONTH_NAMES_SHORT_BG[clampMonthOfYear(resolved.monthOfYear)];
+      const m = formatShortMonthIndex(clampMonthOfYear(resolved.monthOfYear), lang);
       return `${baseLabel} (${d} ${m})`;
     }
     return baseLabel;
@@ -476,7 +482,7 @@ export function formatRepeatLabel(
   // monthly | quarterly | semiannual
   if (typeof resolved.dayOfMonth === "number") {
     const d = clampDayOfMonth(resolved.dayOfMonth);
-    return `${baseLabel} (${d}-о число)`;
+    return `${baseLabel} (${t("recurrence.dayOrdinal", { day: d }, lang)})`;
   }
 
   return baseLabel;

@@ -4,6 +4,13 @@ import { loadBudgets } from "./budgetStorage";
 import { computeMonthToMonthComparison, MONTHS_BG } from "./comparisonStorage";
 import { loadAppSettings } from "./incomeStorage";
 import { isCompletedExpense, isRecordCompleted } from "./expenseStatus";
+import {
+  formatLocalizedMonthYear,
+  getCurrentLanguage,
+  t,
+  translateCategoryName,
+} from "@/i18n/helpers";
+import type { SupportedLanguage } from "@/i18n/types";
 
 export type InsightType =
   | "income"
@@ -48,14 +55,32 @@ export interface FullAnalysisResult {
   topRecommendations: FinancialInsight[];
 }
 
+export function translateHealthRating(
+  rating: FinancialHealthScore["rating"],
+  lang: SupportedLanguage = getCurrentLanguage()
+): string {
+  switch (rating) {
+    case "Отличен":
+      return t("ai.ratings.excellent", undefined, lang);
+    case "Добър":
+      return t("ai.ratings.good", undefined, lang);
+    case "Задоволителен":
+      return t("ai.ratings.fair", undefined, lang);
+    default:
+      return t("ai.ratings.needsOptimization", undefined, lang);
+  }
+}
+
 /**
  * Intelligent Rule-Based Local Financial Analysis Engine
  * Extracts deep metrics across all stored records and generates high-fidelity insights.
  */
 export function generateLocalFinancialAnalysis(
   monthlyData: Record<string, MonthlyRecord>,
-  globalSavings: IncomeItem[]
+  globalSavings: IncomeItem[],
+  lang: SupportedLanguage = getCurrentLanguage()
 ): FullAnalysisResult {
+  const isEn = lang === "en";
   const electricityHistory = getStoredElectricityHistory();
   const { totalMonthlyBudget, categoryBudgets } = loadBudgets();
 
@@ -199,6 +224,7 @@ export function generateLocalFinancialAnalysis(
   if (topCategory && totalExpenses > 0) {
     const topCatPct = Math.round((topCategory[1] / totalExpenses) * 100);
     const monthlyTopSpend = monthsCount > 0 ? topCategory[1] / monthsCount : topCategory[1];
+    const topCatDisplay = translateCategoryName(topCategory[0], lang);
 
     if (topCatPct >= 35) {
       const suggestReduction = Math.round(monthlyTopSpend * 0.15);
@@ -209,11 +235,17 @@ export function generateLocalFinancialAnalysis(
         type: "spending",
         category: "spending",
         priority: "high",
-        title: `Висока концентрация на разходи в „${topCategory[0]}“ (${topCatPct}%)`,
-        description: `Категорията „${topCategory[0]}“ заема почти ${topCatPct}% от всичките ви разходи (€${monthlyTopSpend.toFixed(2)}/мес). Това е ключова област за бърза оптимизация.`,
-        impact: `Спестяване: ~€${suggestReduction}/мес`,
-        actionableTip: `Намаляването на харчовете за ${topCategory[0]} с едва 15% ще освободи около €${suggestReduction} допълнителни свободни парични средства всеки месец.`,
-        metricLabel: "Дял от общите разходи",
+        title: isEn
+          ? `High spending concentration in “${topCatDisplay}” (${topCatPct}%)`
+          : `Висока концентрация на разходи в „${topCatDisplay}“ (${topCatPct}%)`,
+        description: isEn
+          ? `Category “${topCatDisplay}” accounts for ${topCatPct}% of all your expenses (€${monthlyTopSpend.toFixed(2)}/mo). This is a key area for quick optimization.`
+          : `Категорията „${topCatDisplay}“ заема почти ${topCatPct}% от всичките ви разходи (€${monthlyTopSpend.toFixed(2)}/мес). Това е ключова област за бърза оптимизация.`,
+        impact: isEn ? `Savings: ~€${suggestReduction}/mo` : `Спестяване: ~€${suggestReduction}/мес`,
+        actionableTip: isEn
+          ? `Reducing spending on ${topCatDisplay} by just 15% will free up around €${suggestReduction} in extra cash every month.`
+          : `Намаляването на харчовете за ${topCatDisplay} с едва 15% ще освободи около €${suggestReduction} допълнителни свободни парични средства всеки месец.`,
+        metricLabel: isEn ? "Share of total expenses" : "Дял от общите разходи",
         metricValue: `${topCatPct}%`,
         isTopRecommendation: true,
       });
@@ -223,11 +255,15 @@ export function generateLocalFinancialAnalysis(
         type: "spending",
         category: "spending",
         priority: "low",
-        title: `Балансирано разпределение на разходите`,
-        description: `Най-голямото перо е „${topCategory[0]}“ с ${topCatPct}%, което показва стабилна диверсификация без прекомерна зависимост от единична категория.`,
-        actionableTip: `Продължавайте да следите разходите по категории, за да задържите този баланс.`,
-        metricLabel: "Водеща категория",
-        metricValue: `${topCategory[0]} (${topCatPct}%)`,
+        title: isEn ? "Balanced expense distribution" : "Балансирано разпределение на разходите",
+        description: isEn
+          ? `Your largest category is “${topCatDisplay}” at ${topCatPct}%, showing healthy diversification without over-reliance on a single category.`
+          : `Най-голямото перо е „${topCatDisplay}“ с ${topCatPct}%, което показва стабилна диверсификация без прекомерна зависимост от единична категория.`,
+        actionableTip: isEn
+          ? "Continue tracking expenses by category to preserve this healthy balance."
+          : "Продължавайте да следите разходите по категории, за да задържите този баланс.",
+        metricLabel: isEn ? "Top category" : "Водеща категория",
+        metricValue: `${topCatDisplay} (${topCatPct}%)`,
       });
     }
   }
@@ -252,11 +288,17 @@ export function generateLocalFinancialAnalysis(
         type: "spending",
         category: "spending",
         priority: "medium",
-        title: `Възможност за намаляване на разходите за хранене навън и заведения`,
-        description: `За ресторанти, кафе и забавления харчите средно €${diningMonthly.toFixed(2)} на месец (${diningPct.toFixed(1)}% от бюджета).`,
-        impact: `Спестяване: ~€${diningSavings}/мес`,
-        actionableTip: `Приготвянето на храна у дома само 2-3 пъти повече в месеца може да спести приблизително €${diningSavings} на месец, без да ограничава социалния ви живот.`,
-        metricLabel: "Месечно за заведения",
+        title: isEn
+          ? "Opportunity to reduce dining out and entertainment costs"
+          : "Възможност за намаляване на разходите за хранене навън и заведения",
+        description: isEn
+          ? `You spend an average of €${diningMonthly.toFixed(2)} per month on restaurants, cafes, and entertainment (${diningPct.toFixed(1)}% of expenses).`
+          : `За ресторанти, кафе и забавления харчите средно €${diningMonthly.toFixed(2)} на месец (${diningPct.toFixed(1)}% от бюджета).`,
+        impact: isEn ? `Savings: ~€${diningSavings}/mo` : `Спестяване: ~€${diningSavings}/мес`,
+        actionableTip: isEn
+          ? `Cooking at home just 2–3 extra times per month can save roughly €${diningSavings}/mo without limiting your social life.`
+          : `Приготвянето на храна у дома само 2-3 пъти повече в месеца може да спести приблизително €${diningSavings} на месец, без да ограничава социалния ви живот.`,
+        metricLabel: isEn ? "Monthly dining & leisure" : "Месечно за заведения",
         metricValue: `€${diningMonthly.toFixed(2)}`,
         isTopRecommendation: true,
       });
@@ -274,11 +316,17 @@ export function generateLocalFinancialAnalysis(
         type: "recommendation",
         category: "spending",
         priority: "high",
-        title: `Бюджетен съвет: Високи повтарящи се ангажименти (${fixedRatio}%)`,
-        description: `Повтарящите ви се разходи (кредити, сметки, абонаменти) заемат ${fixedRatio}% от всички разходи. Препоръчителният праг по правилото 50/30/20 е до 50%.`,
-        impact: `Оптимизация на дълг и договори`,
-        actionableTip: `Прегледайте абонаментите за мобилни оператори, телевизия и застраховки или помислете за предоговаряне на банкови лихви и обединяване на кредити.`,
-        metricLabel: "Повтарящи се разходи",
+        title: isEn
+          ? `Budget tip: High recurring commitments (${fixedRatio}%)`
+          : `Бюджетен съвет: Високи повтарящи се ангажименти (${fixedRatio}%)`,
+        description: isEn
+          ? `Your recurring expenses (loans, bills, subscriptions) take up ${fixedRatio}% of all expenses. The recommended 50/30/20 threshold is up to 50%.`
+          : `Повтарящите ви се разходи (кредити, сметки, абонаменти) заемат ${fixedRatio}% от всички разходи. Препоръчителният праг по правилото 50/30/20 е до 50%.`,
+        impact: isEn ? "Debt & contract optimization" : "Оптимизация на дълг и договори",
+        actionableTip: isEn
+          ? "Review mobile, TV, and insurance subscriptions or consider refinancing high-interest loans."
+          : "Прегледайте абонаментите за мобилни оператори, телевизия и застраховки или помислете за предоговаряне на банкови лихви и обединяване на кредити.",
+        metricLabel: isEn ? "Recurring expenses" : "Повтарящи се разходи",
         metricValue: `${fixedRatio}%`,
         isTopRecommendation: true,
       });
@@ -288,10 +336,16 @@ export function generateLocalFinancialAnalysis(
         type: "spending",
         category: "spending",
         priority: "low",
-        title: `Добра структура между повтарящи се и допълнителни разходи`,
-        description: `Повтарящите ви се разходи са ${fixedRatio}%, а текущите допълнителни са ${variableRatio}%, което оставя достатъчна гъвкавост за реакция при непредвидени обстоятелства.`,
-        actionableTip: `Запазете контрола върху гъвкавите разходи чрез редовно следене на седмичните лимити.`,
-        metricLabel: "Повтарящи се / Допълнителни",
+        title: isEn
+          ? "Healthy split between recurring and variable expenses"
+          : "Добра структура между повтарящи се и допълнителни разходи",
+        description: isEn
+          ? `Recurring expenses are ${fixedRatio}% and variable expenses are ${variableRatio}%, leaving solid flexibility for unexpected needs.`
+          : `Повтарящите ви се разходи са ${fixedRatio}%, а текущите допълнителни са ${variableRatio}%, което оставя достатъчна гъвкавост за реакция при непредвидени обстоятелства.`,
+        actionableTip: isEn
+          ? "Keep control over variable spending by tracking weekly category limits."
+          : "Запазете контрола върху гъвкавите разходи чрез редовно следене на седмичните лимити.",
+        metricLabel: isEn ? "Recurring / Additional" : "Повтарящи се / Допълнителни",
         metricValue: `${fixedRatio}% / ${variableRatio}%`,
       });
     }
@@ -309,16 +363,23 @@ export function generateLocalFinancialAnalysis(
 
     if (outliers.length > 0) {
       const topOutlier = outliers[0];
+      const outlierCat = translateCategoryName(topOutlier.categoryName, lang);
       insights.push({
         id: `unusual_exp_${topOutlier.id}`,
         type: "unusual",
         category: "spending",
         priority: "medium",
-        title: `Открит необичайно висок единичен разход: €${topOutlier.amount.toFixed(2)}`,
-        description: `Плащането в категория „${topOutlier.categoryName}“ (${topOutlier.note || "без бележка"}) надвишава обичайния размер на трансакциите повече от 2.5 пъти.`,
-        impact: `Внимание: Еднократно натоварване`,
-        actionableTip: `Ако това е редовно повтарящ се годишен или сезонен разход, създайте отделен целеви подфонд, за да не натоварва бюджета в рамките на един-единствен месец.`,
-        metricLabel: "Сума на записа",
+        title: isEn
+          ? `Unusually large single expense detected: €${topOutlier.amount.toFixed(2)}`
+          : `Открит необичайно висок единичен разход: €${topOutlier.amount.toFixed(2)}`,
+        description: isEn
+          ? `The payment in “${outlierCat}” (${topOutlier.note || "no note"}) exceeds your typical transaction size by more than 2.5x.`
+          : `Плащането в категория „${outlierCat}“ (${topOutlier.note || "без бележка"}) надвишава обичайния размер на трансакциите повече от 2.5 пъти.`,
+        impact: isEn ? "Notice: One-time spike" : "Внимание: Еднократно натоварване",
+        actionableTip: isEn
+          ? "If this is an annual or seasonal expense, consider creating a dedicated savings goal so it does not strain a single month's budget."
+          : "Ако това е редовно повтарящ се годишен или сезонен разход, създайте отделен целеви подфонд, за да не натоварва бюджета в рамките на един-единствен месец.",
+        metricLabel: isEn ? "Expense amount" : "Сума на записа",
         metricValue: `€${topOutlier.amount.toFixed(2)}`,
         isTopRecommendation: outliers.length > 0 && runwayMonths < 3,
       });
@@ -338,12 +399,18 @@ export function generateLocalFinancialAnalysis(
       type: "savings",
       category: "savings",
       priority: "high",
-      title: `Спешна възможност: Изграждане на 3-месечен авариен фонд`,
-      description: `Текущите ви спестявания покриват ${runwayMonths} месеца от месечните ви разходи. Финансовите експерти препоръчват минимум 3 до 6 месеца буфер за сигурност.`,
-      impact: `Цел: €${targetFund.toFixed(0)} фонд`,
-      actionableTip: `Заделянето на допълнителни €${monthlyNeeded}/мес ще ви осигури пълен 3-месечен фонд за сигурност само за следващите половин година.`,
-      metricLabel: "Наличен буфер",
-      metricValue: `${runwayMonths} мес.`,
+      title: isEn
+        ? "Priority: Build a 3-month Emergency Fund"
+        : "Спешна възможност: Изграждане на 3-месечен авариен фонд",
+      description: isEn
+        ? `Your current savings cover ${runwayMonths} months of expenses. Financial guidelines recommend at least 3 to 6 months as a safety buffer.`
+        : `Текущите ви спестявания покриват ${runwayMonths} месеца от месечните ви разходи. Финансовите експерти препоръчват минимум 3 до 6 месеца буфер за сигурност.`,
+      impact: isEn ? `Target: €${targetFund.toFixed(0)} fund` : `Цел: €${targetFund.toFixed(0)} фонд`,
+      actionableTip: isEn
+        ? `Setting aside an extra €${monthlyNeeded}/mo will build a full 3-month safety reserve within the next six months.`
+        : `Заделянето на допълнителни €${monthlyNeeded}/мес ще ви осигури пълен 3-месечен фонд за сигурност само за следващите половин година.`,
+      metricLabel: isEn ? "Current buffer" : "Наличен буфер",
+      metricValue: isEn ? `${runwayMonths} mo.` : `${runwayMonths} мес.`,
       isTopRecommendation: true,
     });
   } else if (runwayMonths >= 6) {
@@ -352,12 +419,18 @@ export function generateLocalFinancialAnalysis(
       type: "savings",
       category: "savings",
       priority: "opportunity",
-      title: `Отличен авариен буфер (${runwayMonths} месеца издръжка)`,
-      description: `Имате натрупани €${currentSavingsBalance.toFixed(2)}, които гарантират спокойствие за повече от половин година при евентуална загуба на доходи.`,
-      impact: `Възможност за инвестиции`,
-      actionableTip: `Тъй като аварийният ви фонд е напълно обезпечен, можете да помислите за доходно насочване на новите спестявания към дългосрочни инструменти.`,
-      metricLabel: "Покритие на разходи",
-      metricValue: `${runwayMonths} месеца`,
+      title: isEn
+        ? `Strong emergency buffer (${runwayMonths} months covered)`
+        : `Отличен авариен буфер (${runwayMonths} месеца издръжка)`,
+      description: isEn
+        ? `You have €${currentSavingsBalance.toFixed(2)} saved, providing peace of mind for over half a year in case of income disruption.`
+        : `Имате натрупани €${currentSavingsBalance.toFixed(2)}, които гарантират спокойствие за повече от половин година при евентуална загуба на доходи.`,
+      impact: isEn ? "Investment opportunity" : "Възможност за инвестиции",
+      actionableTip: isEn
+        ? "With your emergency fund fully covered, consider allocating new savings toward long-term yielding instruments."
+        : "Тъй като аварийният ви фонд е напълно обезпечен, можете да помислите за доходно насочване на новите спестявания към дългосрочни инструменти.",
+      metricLabel: isEn ? "Expense coverage" : "Покритие на разходи",
+      metricValue: isEn ? `${runwayMonths} months` : `${runwayMonths} месеца`,
       isTopRecommendation: false,
     });
   } else {
@@ -366,10 +439,16 @@ export function generateLocalFinancialAnalysis(
       type: "savings",
       category: "savings",
       priority: "medium",
-      title: `Стабилен спестовен фонд (${runwayMonths} месеца)`,
-      description: `Спестовният ви фонд покрива разходите за ${runwayMonths} месеца. Придвижването към 6 месеца ще ви осигури максимална сигурност.`,
-      actionableTip: `Автоматизирайте спестяването още в деня на получаване на заплата (принципът „Плати първо на себе си“).`,
-      metricLabel: "Наличност",
+      title: isEn
+        ? `Solid savings buffer (${runwayMonths} months)`
+        : `Стабилен спестовен фонд (${runwayMonths} месеца)`,
+      description: isEn
+        ? `Your savings cover ${runwayMonths} months of expenses. Growing this toward 6 months will maximize financial security.`
+        : `Спестовният ви фонд покрива разходите за ${runwayMonths} месеца. Придвижването към 6 месеца ще ви осигури максимална сигурност.`,
+      actionableTip: isEn
+        ? "Automate saving on payday using the “Pay yourself first” principle."
+        : "Автоматизирайте спестяването още в деня на получаване на заплата (принципът „Плати първо на себе си“).",
+      metricLabel: isEn ? "Available balance" : "Наличност",
       metricValue: `€${currentSavingsBalance.toFixed(2)}`,
     });
   }
@@ -384,11 +463,17 @@ export function generateLocalFinancialAnalysis(
       type: "recommendation",
       category: "savings",
       priority: "high",
-      title: `Увеличете нормата на спестяване до поне 15%`,
-      description: `В момента спестявате средно ${savingsRate.toFixed(1)}% от доходите си. Златният стандарт за финансова независимост е минимум 15-20%.`,
-      impact: `Потенциал: +€${boostSavings}/мес`,
-      actionableTip: `Пренасочете спестените пари от оптимизиране на абонаменти и ресторанти директно към спестовната сметка преди началото на месеца.`,
-      metricLabel: "Текуща норма",
+      title: isEn
+        ? "Aim to raise your savings rate to at least 15%"
+        : "Увеличете нормата на спестяване до поне 15%",
+      description: isEn
+        ? `You are currently saving an average of ${savingsRate.toFixed(1)}% of income. A healthy long-term target is 15–20%.`
+        : `В момента спестявате средно ${savingsRate.toFixed(1)}% от доходите си. Златният стандарт за финансова независимост е минимум 15-20%.`,
+      impact: isEn ? `Potential: +€${boostSavings}/mo` : `Потенциал: +€${boostSavings}/мес`,
+      actionableTip: isEn
+        ? "Redirect money saved from trimming subscriptions and dining out straight into savings at the start of the month."
+        : "Пренасочете спестените пари от оптимизиране на абонаменти и ресторанти директно към спестовната сметка преди началото на месеца.",
+      metricLabel: isEn ? "Current rate" : "Текуща норма",
       metricValue: `${savingsRate.toFixed(1)}%`,
     });
   }
@@ -416,11 +501,17 @@ export function generateLocalFinancialAnalysis(
         type: "electricity",
         category: "electricity",
         priority: "medium",
-        title: `Електроенергия: Ниско използване на нощната тарифа (${nightRatio}%)`,
-        description: `Само ${nightRatio}% от електроенергията ви се потребява на евтината нощна тарифа. Нощната тарифа е почти 40% по-изгодна от дневната.`,
-        impact: `Спестяване: ~€${elecSavings}/мес`,
-        actionableTip: `Настройвайте бойлера, пералнята и съдомиялната машина с таймер за работа в нощните часове (22:00 - 06:00 ч.), за да намалите сметката с до 15%.`,
-        metricLabel: "Нощна тарифа",
+        title: isEn
+          ? `Electricity: Low night-tariff usage (${nightRatio}%)`
+          : `Електроенергия: Ниско използване на нощната тарифа (${nightRatio}%)`,
+        description: isEn
+          ? `Only ${nightRatio}% of your electricity is consumed on the cheaper night tariff. Night rates are nearly 40% lower than daytime rates.`
+          : `Само ${nightRatio}% от електроенергията ви се потребява на евтината нощна тарифа. Нощната тарифа е почти 40% по-изгодна от дневната.`,
+        impact: isEn ? `Savings: ~€${elecSavings}/mo` : `Спестяване: ~€${elecSavings}/мес`,
+        actionableTip: isEn
+          ? "Schedule water heaters, washing machines, and dishwashers via timer during night hours (22:00 – 06:00) to cut bills by up to 15%."
+          : "Настройвайте бойлера, пералнята и съдомиялната машина с таймер за работа в нощните часове (22:00 - 06:00 ч.), за да намалите сметката с до 15%.",
+        metricLabel: isEn ? "Night tariff share" : "Нощна тарифа",
         metricValue: `${nightRatio}%`,
         isTopRecommendation: true,
       });
@@ -430,10 +521,16 @@ export function generateLocalFinancialAnalysis(
         type: "electricity",
         category: "electricity",
         priority: "low",
-        title: `Отлична оптимизация на нощната тарифа за ток (${nightRatio}%)`,
-        description: `Потребявате ${nightRatio}% от енергията на по-ниската цена, което ви осигурява реални спестявания всеки месец.`,
-        actionableTip: `Продължавайте да планирате енергоемките уреди през часовете с намалена цена на киловатчас.`,
-        metricLabel: "Дял нощна консумация",
+        title: isEn
+          ? `Great night-tariff electricity optimization (${nightRatio}%)`
+          : `Отлична оптимизация на нощната тарифа за ток (${nightRatio}%)`,
+        description: isEn
+          ? `You consume ${nightRatio}% of energy at the lower night rate, creating consistent monthly savings.`
+          : `Потребявате ${nightRatio}% от енергията на по-ниската цена, което ви осигурява реални спестявания всеки месец.`,
+        actionableTip: isEn
+          ? "Continue running high-draw appliances during off-peak night hours."
+          : "Продължавайте да планирате енергоемките уреди през часовете с намалена цена на киловатчас.",
+        metricLabel: isEn ? "Night usage share" : "Дял нощна консумация",
         metricValue: `${nightRatio}%`,
       });
     }
@@ -446,16 +543,28 @@ export function generateLocalFinancialAnalysis(
       const pctChange = previous.totalCost > 0 ? (costChange / previous.totalCost) * 100 : 0;
 
       if (pctChange > 15) {
+        const prevPeriodDisplay = formatLocalizedMonthYear(
+          `${previous.month} ${previous.year}`,
+          lang
+        );
         insights.push({
           id: "elec_cost_spike",
           type: "trend",
           category: "electricity",
           priority: "high",
-          title: `Ръст в сметката за ток: +${pctChange.toFixed(0)}% (€${latest.totalCost.toFixed(2)})`,
-          description: `Последната ви сметка е с €${costChange.toFixed(2)} по-висока спрямо предходния отчен период (${previous.month} ${previous.year}).`,
-          impact: `Консумация: +${(latest.consumption - previous.consumption).toFixed(0)} kWh`,
-          actionableTip: `Проверете за увеличена работа на отоплителни или климатични уреди, или уплътнения на прозорци и врати.`,
-          metricLabel: "Промяна спрямо минал месец",
+          title: isEn
+            ? `Electricity bill spike: +${pctChange.toFixed(0)}% (€${latest.totalCost.toFixed(2)})`
+            : `Ръст в сметката за ток: +${pctChange.toFixed(0)}% (€${latest.totalCost.toFixed(2)})`,
+          description: isEn
+            ? `Your latest bill is €${costChange.toFixed(2)} higher than the previous period (${prevPeriodDisplay}).`
+            : `Последната ви сметка е с €${costChange.toFixed(2)} по-висока спрямо предходния отчен период (${prevPeriodDisplay}).`,
+          impact: isEn
+            ? `Usage: +${(latest.consumption - previous.consumption).toFixed(0)} kWh`
+            : `Консумация: +${(latest.consumption - previous.consumption).toFixed(0)} kWh`,
+          actionableTip: isEn
+            ? "Check for increased heating/AC runtime or window and door insulation."
+            : "Проверете за увеличена работа на отоплителни или климатични уреди, или уплътнения на прозорци и врати.",
+          metricLabel: isEn ? "Change vs prior month" : "Промяна спрямо минал месец",
           metricValue: `+${pctChange.toFixed(0)}%`,
         });
       }
@@ -475,11 +584,17 @@ export function generateLocalFinancialAnalysis(
         type: "recommendation",
         category: "trend",
         priority: "high",
-        title: `Превишаване на месечния бюджет с €${overspent}`,
-        description: `Средният ви месечен разход (€${avgMonthlyExpenses.toFixed(2)}) надвишава определения лимит от €${totalMonthlyBudget.toFixed(2)} с ${budgetPct - 100}%.`,
-        impact: `Преразход: €${overspent}/мес`,
-        actionableTip: `Прегледайте индивидуалните лимити по категории в секция „Бюджет“ или коригирайте месечния лимит според реалните ви нужди.`,
-        metricLabel: "Усвояване на лимита",
+        title: isEn
+          ? `Monthly budget exceeded by €${overspent}`
+          : `Превишаване на месечния бюджет с €${overspent}`,
+        description: isEn
+          ? `Your average monthly spend (€${avgMonthlyExpenses.toFixed(2)}) exceeds the €${totalMonthlyBudget.toFixed(2)} limit by ${budgetPct - 100}%.`
+          : `Средният ви месечен разход (€${avgMonthlyExpenses.toFixed(2)}) надвишава определения лимит от €${totalMonthlyBudget.toFixed(2)} с ${budgetPct - 100}%.`,
+        impact: isEn ? `Overspent: €${overspent}/mo` : `Преразход: €${overspent}/мес`,
+        actionableTip: isEn
+          ? "Review individual category limits in the Budgets tab or adjust the monthly limit to match your actual needs."
+          : "Прегледайте индивидуалните лимити по категории в секция „Бюджет“ или коригирайте месечния лимит според реалните ви нужди.",
+        metricLabel: isEn ? "Limit utilization" : "Усвояване на лимита",
         metricValue: `${budgetPct}%`,
         isTopRecommendation: true,
       });
@@ -490,11 +605,17 @@ export function generateLocalFinancialAnalysis(
         type: "trend",
         category: "trend",
         priority: "low",
-        title: `Бюджетът се спазва стриктно (€${surplus} буфер)`,
-        description: `Харчите средно ${budgetPct}% от зададения месечен лимит (€${totalMonthlyBudget.toFixed(2)}), запазвайки положителен свободен остатък.`,
-        actionableTip: `Прехвърляйте спестения буфер от €${surplus} автоматично към спестовния фонд в края на всеки месец.`,
-        metricLabel: "Свободен марж",
-        metricValue: `€${surplus}/мес`,
+        title: isEn
+          ? `Budget stays on track (€${surplus} cushion)`
+          : `Бюджетът се спазва стриктно (€${surplus} буфер)`,
+        description: isEn
+          ? `You spend on average ${budgetPct}% of your monthly limit (€${totalMonthlyBudget.toFixed(2)}), keeping a positive margin.`
+          : `Харчите средно ${budgetPct}% от зададения месечен лимит (€${totalMonthlyBudget.toFixed(2)}), запазвайки положителен свободен остатък.`,
+        actionableTip: isEn
+          ? `Transfer the remaining €${surplus} cushion directly to your savings fund at the end of each month.`
+          : `Прехвърляйте спестения буфер от €${surplus} автоматично към спестовния фонд в края на всеки месец.`,
+        metricLabel: isEn ? "Available margin" : "Свободен марж",
+        metricValue: isEn ? `€${surplus}/mo` : `€${surplus}/мес`,
       });
     }
   }
@@ -518,26 +639,38 @@ export function generateLocalFinancialAnalysis(
     Math.abs(momComparison.income.percentageChange) >= 3
   ) {
     const isUp = momComparison.income.difference > 0;
+    const currLabel = formatLocalizedMonthYear(momComparison.currentMonthLabel, lang);
+    const prevLabel = formatLocalizedMonthYear(momComparison.previousMonthLabel, lang);
     insights.push({
       id: "income_mom_trend",
       type: "income",
       category: "income",
       priority: isUp ? "opportunity" : "medium",
-      title: isUp
+      title: isEn
+        ? isUp
+          ? `Income increased by ${momComparison.income.formattedPercentage} vs last month`
+          : `Income decreased by ${momComparison.income.formattedPercentage} vs last month`
+        : isUp
         ? `Приходите са нараснали с ${momComparison.income.formattedPercentage} спрямо миналия месец`
         : `Понижение на приходите с ${momComparison.income.formattedPercentage} спрямо миналия месец`,
-      description: `За ${momComparison.currentMonthLabel} са отчетени €${momComparison.income.currentValue.toFixed(
-        2
-      )} приход спрямо €${momComparison.income.previousValue.toFixed(
-        2
-      )} за ${momComparison.previousMonthLabel}.`,
-      impact: isUp
+      description: isEn
+        ? `For ${currLabel}, recorded income was €${momComparison.income.currentValue.toFixed(2)} compared to €${momComparison.income.previousValue.toFixed(2)} in ${prevLabel}.`
+        : `За ${currLabel} са отчетени €${momComparison.income.currentValue.toFixed(2)} приход спрямо €${momComparison.income.previousValue.toFixed(2)} за ${prevLabel}.`,
+      impact: isEn
+        ? isUp
+          ? `+€${momComparison.income.difference.toFixed(2)} extra funds`
+          : `-€${Math.abs(momComparison.income.difference).toFixed(2)} lower income`
+        : isUp
         ? `+€${momComparison.income.difference.toFixed(2)} повече ресурс`
         : `-€${Math.abs(momComparison.income.difference).toFixed(2)} по-нисък приход`,
-      actionableTip: isUp
-        ? `Използвайте допълнителния приход за ускоряване на спестовната цел или погасяване на повтарящи се задължения.`
-        : `При по-нисък месечен приход прегледайте променливите разходи, за да запазите положителния нетен баланс.`,
-      metricLabel: "Промяна (MoM)",
+      actionableTip: isEn
+        ? isUp
+          ? "Use the extra income to accelerate a savings goal or pay down recurring obligations."
+          : "With lower monthly income, review discretionary spending to keep net balance positive."
+        : isUp
+        ? "Използвайте допълнителния приход за ускоряване на спестовната цел или погасяване на повтарящи се задължения."
+        : "При по-нисък месечен приход прегледайте променливите разходи, за да запазите положителния нетен баланс.",
+      metricLabel: isEn ? "Change (MoM)" : "Промяна (MoM)",
       metricValue: momComparison.income.formattedPercentage,
     });
   }
@@ -546,20 +679,26 @@ export function generateLocalFinancialAnalysis(
   const topIncomeCat = sortedIncomeCats[0];
   if (topIncomeCat && totalIncome > 0) {
     const sharePct = Math.round((topIncomeCat[1] / totalIncome) * 100);
+    const topIncomeDisplay = translateCategoryName(topIncomeCat[0], lang);
     insights.push({
       id: "income_top_source",
       type: "income",
       category: "income",
       priority: sharePct >= 85 && sortedIncomeCats.length === 1 ? "medium" : "low",
-      title: `Основен източник на доход: „${topIncomeCat[0]}“ (${sharePct}%)`,
-      description: `Категория „${topIncomeCat[0]}“ генерира €${topIncomeCat[1].toFixed(
-        2
-      )} или ${sharePct}% от общите анализирани приходи.`,
-      actionableTip:
-        sortedIncomeCats.length > 1
-          ? `Имате ${sortedIncomeCats.length} активни източника на приход — поддържането на допълнителни канали повишава финансовата устойчивост.`
-          : `Добавянето на вторичен източник на доход (фрийланс, дивидент или наем) намалява риска при промяна в основната заплата.`,
-      metricLabel: "Дял от приходите",
+      title: isEn
+        ? `Primary income source: “${topIncomeDisplay}” (${sharePct}%)`
+        : `Основен източник на доход: „${topIncomeDisplay}“ (${sharePct}%)`,
+      description: isEn
+        ? `Category “${topIncomeDisplay}” generated €${topIncomeCat[1].toFixed(2)}, representing ${sharePct}% of analyzed income.`
+        : `Категория „${topIncomeDisplay}“ генерира €${topIncomeCat[1].toFixed(2)} или ${sharePct}% от общите анализирани приходи.`,
+      actionableTip: isEn
+        ? sortedIncomeCats.length > 1
+          ? `You have ${sortedIncomeCats.length} active income streams — maintaining diverse sources strengthens financial resilience.`
+          : "Adding a secondary income stream (freelance, dividends, or rent) reduces risk if primary salary changes."
+        : sortedIncomeCats.length > 1
+        ? `Имате ${sortedIncomeCats.length} активни източника на приход — поддържането на допълнителни канали повишава финансовата устойчивост.`
+        : "Добавянето на вторичен източник на доход (фрийланс, дивидент или наем) намалява риска при промяна в основната заплата.",
+      metricLabel: isEn ? "Share of income" : "Дял от приходите",
       metricValue: `${sharePct}%`,
     });
   }
@@ -575,24 +714,28 @@ export function generateLocalFinancialAnalysis(
       type: "income",
       category: "income",
       priority: meetsTarget ? "low" : "opportunity",
-      title: meetsTarget
+      title: isEn
+        ? meetsTarget
+          ? `Meeting your ${savingsTargetPercent}% savings target`
+          : `Savings tip: €${targetSaveAmount.toFixed(0)}/mo (${savingsTargetPercent}%)`
+        : meetsTarget
         ? `Постигате целевото спестяване от ${savingsTargetPercent}%`
         : `Препоръка за спестяване: €${targetSaveAmount.toFixed(0)}/мес (${savingsTargetPercent}%)`,
-      description: `При среден месечен доход €${avgMonthlyIncome.toFixed(
-        2
-      )} зададената цел от ${savingsTargetPercent}% изисква заделяне на €${targetSaveAmount.toFixed(
-        2
-      )} на месец (текущ нетен остатък: €${actualSavedAvg.toFixed(2)}).`,
-      impact: `Цел: €${targetSaveAmount.toFixed(2)}/мес`,
-      actionableTip: meetsTarget
-        ? `Запазете текущата дисциплина или увеличете процента на спестяване на таблото за по-бързо натрупване.`
-        : `Заделете €${targetSaveAmount.toFixed(
-            2
-          )} веднага при постъпване на дохода и планирайте месечните разходи с останалите €${(
-            avgMonthlyIncome - targetSaveAmount
-          ).toFixed(2)}.`,
-      metricLabel: `Цел ${savingsTargetPercent}%`,
-      metricValue: `€${targetSaveAmount.toFixed(0)}/мес`,
+      description: isEn
+        ? `With an average monthly income of €${avgMonthlyIncome.toFixed(2)}, your ${savingsTargetPercent}% target requires €${targetSaveAmount.toFixed(2)}/mo (current net surplus: €${actualSavedAvg.toFixed(2)}).`
+        : `При среден месечен доход €${avgMonthlyIncome.toFixed(2)} зададената цел от ${savingsTargetPercent}% изисква заделяне на €${targetSaveAmount.toFixed(2)} на месец (текущ нетен остатък: €${actualSavedAvg.toFixed(2)}).`,
+      impact: isEn
+        ? `Target: €${targetSaveAmount.toFixed(2)}/mo`
+        : `Цел: €${targetSaveAmount.toFixed(2)}/мес`,
+      actionableTip: isEn
+        ? meetsTarget
+          ? "Maintain this discipline or raise your savings percentage on the dashboard to build wealth faster."
+          : `Set aside €${targetSaveAmount.toFixed(2)} immediately upon receiving income and budget the remaining €${(avgMonthlyIncome - targetSaveAmount).toFixed(2)}.`
+        : meetsTarget
+        ? "Запазете текущата дисциплина или увеличете процента на спестяване на таблото за по-бързо натрупване."
+        : `Заделете €${targetSaveAmount.toFixed(2)} веднага при постъпване на дохода и планирайте месечните разходи с останалите €${(avgMonthlyIncome - targetSaveAmount).toFixed(2)}.`,
+      metricLabel: isEn ? `Target ${savingsTargetPercent}%` : `Цел ${savingsTargetPercent}%`,
+      metricValue: isEn ? `€${targetSaveAmount.toFixed(0)}/mo` : `€${targetSaveAmount.toFixed(0)}/мес`,
     });
   }
 

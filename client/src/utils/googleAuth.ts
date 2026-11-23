@@ -18,6 +18,7 @@ import {
   loadFirebaseConfigAsync,
 } from "./firebaseConfig";
 import { purgeLegacySharedKeys } from "./userStorage";
+import { t } from "@/i18n/helpers";
 
 const DRIVE_APPDATA_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 
@@ -487,7 +488,7 @@ export async function signInWithGoogle(
   accessToken: string;
 }> {
   if (isSigningIn) {
-    throw new Error("В момента тече вход в Google. Моля изчакайте.");
+    throw new Error(t("authErrors.signInInProgress"));
   }
 
   const mode = options.mode || "login";
@@ -504,9 +505,7 @@ export async function signInWithGoogle(
 
     const client = getAuthClient() || auth;
     if (!client) {
-      throw new Error(
-        "Google Authentication не е конфигуриран. Моля настройте VITE_FIREBASE_API_KEY в .env или GitHub Secrets."
-      );
+      throw new Error(t("authErrors.notConfigured"));
     }
 
     const currentUser = client.currentUser;
@@ -534,9 +533,7 @@ export async function signInWithGoogle(
     } catch (popupErr: any) {
       // If reauthenticateWithPopup encountered user mismatch or credential error, fall back safely
       if (mode === "reconnect" && popupErr?.code === "auth/user-mismatch") {
-        throw new Error(
-          "Избраният Google профил е различен от текущия. Използвайте бутона 'Смени акаунта', за да не смесвате данните."
-        );
+        throw new Error(t("authErrors.differentAccountReconnect"));
       }
       if (
         popupErr?.code === "auth/popup-blocked" ||
@@ -550,15 +547,13 @@ export async function signInWithGoogle(
     }
 
     if (options.expectedUid && result.user.uid !== options.expectedUid && mode === "reconnect") {
-      throw new Error(
-        "Избраният Google профил е различен от текущия. Локалните ви данни са запазени непокътнати."
-      );
+      throw new Error(t("authErrors.differentAccountIntact"));
     }
 
     const credential = GoogleAuthProvider.credentialFromResult(result);
 
     if (!credential?.accessToken) {
-      throw new Error("Не бе получен OAuth токен за достъп до Google Drive.");
+      throw new Error(t("authErrors.noDriveToken"));
     }
 
     saveStoredOAuthToken(credential.accessToken, 3600, result.user.uid);
@@ -627,61 +622,56 @@ export function isAccessDeniedError(error: any): boolean {
 export function formatFirebaseAuthError(error: any): string {
   const code = error?.code || "";
   const msg = String(error?.message || "");
-  const currentDomain = typeof window !== "undefined" ? window.location.hostname : "домейна";
-  const currentOrigin = typeof window !== "undefined" ? window.location.origin : `https://${currentDomain}`;
+  const currentDomain =
+    typeof window !== "undefined" ? window.location.hostname : t("authErrors.defaultDomain");
+  const currentOrigin =
+    typeof window !== "undefined" ? window.location.origin : `https://${currentDomain}`;
   const config = getFirebaseConfig();
-  const redirectUri = `https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/__/auth/handler`;
+  const authDomain =
+    config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`;
+  const redirectUri = `https://${authDomain}/__/auth/handler`;
 
   if (isRefererBlockedError(error)) {
-    return (
-      `Достъпът на Firebase API ключа от адрес (${currentOrigin}) е блокиран от Google Cloud (HTTP 403 API_KEY_HTTP_REFERRER_BLOCKED). ` +
-      `Добавете "${currentOrigin}/*" и "https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/*" в Website restrictions на API ключа в Google Cloud Console -> APIs & Services -> Credentials.`
-    );
+    return t("authErrors.refererBlocked", { origin: currentOrigin, authDomain });
   }
   if (isOriginMismatchError(error)) {
-    return (
-      `Грешка 400 (origin_mismatch): Текущият JavaScript origin (${currentOrigin}) не е добавен в "Authorized JavaScript origins" ` +
-      `или Redirect URI (${redirectUri}) липсва в OAuth 2.0 Client ID в Google Cloud Console -> APIs & Services -> Credentials.`
-    );
+    return t("authErrors.originMismatch", { origin: currentOrigin, redirectUri });
   }
   if (isAccessDeniedError(error)) {
-    return (
-      "Грешка 403 (access_denied): OAuth приложението в Google Cloud все още е в режим 'Testing' (само за одобрени тестови потребители). " +
-      "За да могат да влизат и други Google акаунти, превключете Publishing Status на 'In production' в Google Cloud Console -> Google Auth Platform -> Audience (или добавете имейла в Test users)."
-    );
+    return t("authErrors.accessDenied");
   }
   if (code === "auth/unauthorized-domain" || msg.includes("auth/unauthorized-domain")) {
-    return `Неоторизиран домейн (${currentDomain}): Този домейн все още не е добавен в списъка "Authorized domains" във Firebase Authentication.`;
+    return t("authErrors.unauthorizedDomain", { domain: currentDomain });
   }
   if (
     code === "auth/unauthorized-continue-uri" ||
     msg.includes("redirect_uri_mismatch")
   ) {
-    return `Несъответствие в Redirect URI: Проверете Authorized redirect URIs в Google Cloud Console (трябва да съдържа ${redirectUri}).`;
+    return t("authErrors.redirectMismatch", { redirectUri });
   }
   if (code === "auth/operation-not-allowed") {
-    return "Входът с Google не е активиран във Firebase Authentication (Build -> Authentication -> Sign-in method -> Google -> Enable).";
+    return t("authErrors.operationNotAllowed");
   }
   if (
     code === "auth/bad-request" ||
     msg.includes("The requested action is invalid") ||
     msg.includes("bad-request")
   ) {
-    return `Грешка при OAuth заявката: В Google Cloud Console проверете ограниченията на API ключа и добавете "${currentOrigin}/*" и "https://${config.authDomain || `${config.projectId || "<PROJECT_ID>"}.firebaseapp.com`}/*".`;
+    return t("authErrors.badRequest", { origin: currentOrigin, authDomain });
   }
   if (code === "auth/popup-closed-by-user") {
-    return "Прозорецът за вход с Google беше затворен преди да завърши автентикацията.";
+    return t("authErrors.popupClosed");
   }
   if (code === "auth/popup-blocked") {
-    return "Браузърът блокира изскачащия прозорец за вход. Моля, разрешете popups за този сайт.";
+    return t("authErrors.popupBlocked");
   }
   if (code === "auth/cancelled-popup-request") {
-    return "Заявката за вход беше прекъсната от друга операция.";
+    return t("authErrors.cancelledPopup");
   }
   if (code === "auth/network-request-failed") {
-    return "Мрежова грешка при свързване със сървърите на Google. Проверете интернет връзката си.";
+    return t("authErrors.networkFailed");
   }
-  return msg || "Възникна неочаквана грешка при вход с Google.";
+  return msg || t("authErrors.unexpected");
 }
 
 export function isUnauthorizedDomainError(error: any): boolean {

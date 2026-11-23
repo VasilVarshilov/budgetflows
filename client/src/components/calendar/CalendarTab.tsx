@@ -12,7 +12,6 @@ import {
   X,
 } from "lucide-react";
 import { MonthlyRecord } from "@/types";
-import { MONTHS_BG } from "@/utils/comparisonStorage";
 import {
   buildMonthCalendarGrid,
   CalendarEvent,
@@ -26,6 +25,13 @@ import {
 import { formatRepeatLabel } from "@/utils/recurrenceEngine";
 import { CompletionSwitch } from "@/components/ui/RecurrenceCompletionRows";
 import { LocationCard } from "@/components/common/LocationCard";
+import {
+  formatFullMonthIndex,
+  getMonFirstWeekdaysShort,
+  pluralizeUnit,
+  translateCategoryName,
+  useI18n,
+} from "@/i18n";
 
 interface CalendarTabProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -54,15 +60,13 @@ interface CalendarTabProps {
   ) => void;
 }
 
-const WEEKDAYS_SHORT_BG = ["Пон", "Вт", "Ср", "Чет", "Пет", "Съб", "Нед"];
-
-const FILTER_OPTIONS: Array<{ id: CalendarFilterMode; label: string }> = [
-  { id: "all", label: "Всички" },
-  { id: "expenses", label: "Разходи" },
-  { id: "incomes", label: "Приходи" },
-  { id: "upcoming", label: "Предстоящи" },
-  { id: "completed", label: "Изпълнени" },
-  { id: "recurring", label: "Повтарящи се" },
+const FILTER_OPTIONS: Array<{ id: CalendarFilterMode; labelKey: string }> = [
+  { id: "all", labelKey: "calendar.filters.all" },
+  { id: "expenses", labelKey: "calendar.filters.expenses" },
+  { id: "incomes", labelKey: "calendar.filters.incomes" },
+  { id: "upcoming", labelKey: "calendar.filters.upcoming" },
+  { id: "completed", labelKey: "calendar.filters.completed" },
+  { id: "recurring", labelKey: "calendar.filters.recurring" },
 ];
 
 export const CalendarTab: React.FC<CalendarTabProps> = ({
@@ -74,6 +78,11 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   onOpenEvent,
   onNavigateTab,
 }) => {
+  const { language, t } = useI18n();
+  const weekdaysShort = useMemo(
+    () => getMonFirstWeekdaysShort(language),
+    [language]
+  );
   const [viewCursor, setViewCursor] = useState<{ year: number; month: number }>(() => {
     if (initialDateKey) {
       const d = parseLocalDateKey(initialDateKey);
@@ -153,8 +162,8 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
   const selectedDateFormatted = useMemo(() => {
     const d = parseLocalDateKey(selectedDateKey);
-    return `${d.getDate()} ${MONTHS_BG[d.getMonth()]} ${d.getFullYear()}`;
-  }, [selectedDateKey]);
+    return `${d.getDate()} ${formatFullMonthIndex(d.getMonth(), language)} ${d.getFullYear()}`;
+  }, [selectedDateKey, language]);
 
   const handlePrevMonth = () => {
     setViewCursor((prev) => {
@@ -204,10 +213,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {selectedDayEvents.length === 0
-                ? "Няма транзакции за избраната дата"
-                : `${selectedDayEvents.length} ${
-                    selectedDayEvents.length === 1 ? "запис" : "записа"
-                  }`}
+                ? t("calendar.noDayTransactions")
+                : `${selectedDayEvents.length} ${pluralizeUnit(
+                    selectedDayEvents.length,
+                    "common.entriesSingular",
+                    "common.entriesPlural",
+                    language
+                  )}`}
             </p>
           </div>
         </div>
@@ -217,7 +229,9 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="grid grid-cols-3 gap-2">
             <div className="p-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/50">
               <span className="text-[11px] text-emerald-700 dark:text-emerald-300 block">
-                Приходи ({selectedDaySummary.completedIncomesCount})
+                {t("calendar.dayIncomesCount", {
+                  count: selectedDaySummary.completedIncomesCount,
+                })}
               </span>
               <span className="text-sm font-bold text-emerald-800 dark:text-emerald-200 tabular-nums block">
                 {selectedDaySummary.completedIncomesTotal > 0
@@ -226,13 +240,15 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               </span>
               {selectedDaySummary.upcomingIncomesTotal > 0 && (
                 <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums block mt-0.5">
-                  Очаквани: +€{selectedDaySummary.upcomingIncomesTotal.toFixed(2)}
+                  {t("income.expectedPrefix")} +€{selectedDaySummary.upcomingIncomesTotal.toFixed(2)}
                 </span>
               )}
             </div>
             <div className="p-2.5 rounded-lg bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/70 dark:border-rose-900/50">
               <span className="text-[11px] text-rose-700 dark:text-rose-300 block">
-                Разходи ({selectedDaySummary.completedExpensesCount})
+                {t("calendar.dayExpensesCount", {
+                  count: selectedDaySummary.completedExpensesCount,
+                })}
               </span>
               <span className="text-sm font-bold text-rose-800 dark:text-rose-200 tabular-nums block">
                 {selectedDaySummary.completedExpensesTotal > 0
@@ -241,13 +257,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               </span>
               {selectedDaySummary.upcomingExpensesTotal > 0 && (
                 <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums block mt-0.5">
-                  Предстоящи: -€{selectedDaySummary.upcomingExpensesTotal.toFixed(2)}
+                  {t("income.upcomingPrefix")} -€{selectedDaySummary.upcomingExpensesTotal.toFixed(2)}
                 </span>
               )}
             </div>
             <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
               <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                Нето за деня
+                {t("calendar.dayNet")}
               </span>
               <span
                 className={`text-sm font-bold tabular-nums block ${
@@ -266,7 +282,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               {(selectedDaySummary.upcomingIncomesTotal > 0 ||
                 selectedDaySummary.upcomingExpensesTotal > 0) && (
                 <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums block mt-0.5">
-                  С очаквани:{" "}
+                  {t("calendar.withUpcoming")}{" "}
                   {selectedDaySummary.net > 0 ? "+" : selectedDaySummary.net < 0 ? "-" : ""}€
                   {Math.abs(selectedDaySummary.net).toFixed(2)}
                 </span>
@@ -279,7 +295,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         {incomes.length > 0 && (
           <div className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400 flex items-center justify-between gap-2">
-              <span>Приходи ({incomes.length})</span>
+              <span>{t("calendar.dayIncomesCount", { count: incomes.length })}</span>
               <span className="tabular-nums text-right">
                 {selectedDaySummary.completedIncomesTotal > 0 && (
                   <span>+€{selectedDaySummary.completedIncomesTotal.toFixed(2)}</span>
@@ -290,125 +306,128 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                   )}
                 {selectedDaySummary.upcomingIncomesTotal > 0 && (
                   <span className="text-amber-700 dark:text-amber-300">
-                    Очакв. +€{selectedDaySummary.upcomingIncomesTotal.toFixed(2)}
+                    {t("calendar.expectedShort")} +€{selectedDaySummary.upcomingIncomesTotal.toFixed(2)}
                   </span>
                 )}
               </span>
             </h4>
             <div className="space-y-2">
-              {incomes.map((ev) => (
-                <div
-                  key={ev.id}
-                  role={onOpenEvent ? "button" : undefined}
-                  tabIndex={onOpenEvent ? 0 : undefined}
-                  onClick={() => handleOpenTransaction(ev)}
-                  onKeyDown={(e) => {
-                    if (onOpenEvent && (e.key === "Enter" || e.key === " ")) {
-                      e.preventDefault();
-                      handleOpenTransaction(ev);
-                    }
-                  }}
-                  className={`p-3 rounded-xl border space-y-2.5 transition-colors ${
-                    ev.isUpcoming
-                      ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
-                      : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
-                  } ${onOpenEvent ? "cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-700" : ""}`}
-                  title={onOpenEvent ? "Отвори прихода за преглед / редакция" : undefined}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                          {ev.categoryName}
-                        </span>
-                        {ev.isRecurring && (
-                          <Repeat
-                            className="w-3.5 h-3.5 text-indigo-500 shrink-0"
-                            aria-label="Повтарящ се"
-                          />
-                        )}
-                        {onOpenEvent && (
-                          <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              {incomes.map((ev) => {
+                const localizedCategory = translateCategoryName(ev.categoryName, language);
+                return (
+                  <div
+                    key={ev.id}
+                    role={onOpenEvent ? "button" : undefined}
+                    tabIndex={onOpenEvent ? 0 : undefined}
+                    onClick={() => handleOpenTransaction(ev)}
+                    onKeyDown={(e) => {
+                      if (onOpenEvent && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        handleOpenTransaction(ev);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border space-y-2.5 transition-colors ${
+                      ev.isUpcoming
+                        ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
+                        : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
+                    } ${onOpenEvent ? "cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-700" : ""}`}
+                    title={onOpenEvent ? t("calendar.openIncomeTitle") : undefined}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                            {localizedCategory}
+                          </span>
+                          {ev.isRecurring && (
+                            <Repeat
+                              className="w-3.5 h-3.5 text-indigo-500 shrink-0"
+                              aria-label={t("calendar.recurringAria")}
+                            />
+                          )}
+                          {onOpenEvent && (
+                            <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+                          <span
+                            className={`inline-flex items-center gap-1 ${
+                              ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                            }`}
+                          >
+                            {ev.isCompleted ? (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                            ) : (
+                              <Clock className="w-3 h-3 text-amber-500" />
+                            )}
+                            {ev.isCompleted
+                              ? t("calendar.statusCompleted")
+                              : ev.isProjected
+                              ? t("calendar.statusScheduled")
+                              : t("calendar.statusUpcoming")}
+                          </span>
+                          {ev.isRecurring && (
+                            <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat, ev)}</span>
+                          )}
+                        </div>
+                        {ev.note && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
+                            {ev.note}
+                          </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+
+                      <div
+                        className="flex items-center gap-2 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <span
-                          className={`inline-flex items-center gap-1 ${
-                            ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                          className={`text-sm font-bold tabular-nums ${
+                            ev.isUpcoming
+                              ? "text-amber-700 dark:text-amber-300"
+                              : "text-emerald-700 dark:text-emerald-400"
                           }`}
                         >
-                          {ev.isCompleted ? (
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                          ) : (
-                            <Clock className="w-3 h-3 text-amber-500" />
-                          )}
-                          {ev.isCompleted
-                            ? "Изпълнен"
-                            : ev.isProjected
-                            ? "Планиран по график"
-                            : "Предстоящ"}
+                          +€{ev.amount.toFixed(2)}
                         </span>
-                        {ev.isRecurring && (
-                          <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat, ev)}</span>
+                        {!ev.isProjected &&
+                        ev.recordListType === "income" &&
+                        onToggleRecordCompletion ? (
+                          <CompletionSwitch
+                            checked={ev.isCompleted}
+                            onChange={(nextVal) =>
+                              onToggleRecordCompletion({
+                                monthKey: ev.monthKey,
+                                recordType: "income",
+                                id: ev.sourceId,
+                                nextCompleted: nextVal,
+                              })
+                            }
+                            ariaLabel={t("income.markCompletedAria", { name: localizedCategory })}
+                            size="sm"
+                          />
+                        ) : (
+                          ev.isProjected &&
+                          onMaterializeProjectedEvent && (
+                            <button
+                              type="button"
+                              onClick={() => onMaterializeProjectedEvent(ev)}
+                              className="px-2 py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                              title={t("calendar.recordProjectedIncomeTitle")}
+                            >
+                              {t("calendar.recordBtn")}
+                            </button>
+                          )
                         )}
                       </div>
-                      {ev.note && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
-                          {ev.note}
-                        </p>
-                      )}
                     </div>
 
-                    <div
-                      className="flex items-center gap-2 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <span
-                        className={`text-sm font-bold tabular-nums ${
-                          ev.isUpcoming
-                            ? "text-amber-700 dark:text-amber-300"
-                            : "text-emerald-700 dark:text-emerald-400"
-                        }`}
-                      >
-                        +€{ev.amount.toFixed(2)}
-                      </span>
-                      {!ev.isProjected &&
-                      ev.recordListType === "income" &&
-                      onToggleRecordCompletion ? (
-                        <CompletionSwitch
-                          checked={ev.isCompleted}
-                          onChange={(nextVal) =>
-                            onToggleRecordCompletion({
-                              monthKey: ev.monthKey,
-                              recordType: "income",
-                              id: ev.sourceId,
-                              nextCompleted: nextVal,
-                            })
-                          }
-                          ariaLabel={`Изпълнено за ${ev.categoryName}`}
-                          size="sm"
-                        />
-                      ) : (
-                        ev.isProjected &&
-                        onMaterializeProjectedEvent && (
-                          <button
-                            type="button"
-                            onClick={() => onMaterializeProjectedEvent(ev)}
-                            className="px-2 py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                            title="Запиши този планиран приход"
-                          >
-                            Запиши
-                          </button>
-                        )
-                      )}
-                    </div>
+                    {(ev.location?.placeName || ev.location?.address) && (
+                      <LocationCard location={ev.location} showHeading compact />
+                    )}
                   </div>
-
-                  {(ev.location?.placeName || ev.location?.address) && (
-                    <LocationCard location={ev.location} showHeading compact />
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -417,7 +436,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         {expenses.length > 0 && (
           <div className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2">
-              <span>Разходи ({expenses.length})</span>
+              <span>{t("calendar.dayExpensesCount", { count: expenses.length })}</span>
               <span className="tabular-nums text-right">
                 {selectedDaySummary.completedExpensesTotal > 0 && (
                   <span>-€{selectedDaySummary.completedExpensesTotal.toFixed(2)}</span>
@@ -428,127 +447,130 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                   )}
                 {selectedDaySummary.upcomingExpensesTotal > 0 && (
                   <span className="text-amber-700 dark:text-amber-300">
-                    Предст. -€{selectedDaySummary.upcomingExpensesTotal.toFixed(2)}
+                    {t("calendar.upcomingShort")} -€{selectedDaySummary.upcomingExpensesTotal.toFixed(2)}
                   </span>
                 )}
               </span>
             </h4>
             <div className="space-y-2">
-              {expenses.map((ev) => (
-                <div
-                  key={ev.id}
-                  role={onOpenEvent ? "button" : undefined}
-                  tabIndex={onOpenEvent ? 0 : undefined}
-                  onClick={() => handleOpenTransaction(ev)}
-                  onKeyDown={(e) => {
-                    if (onOpenEvent && (e.key === "Enter" || e.key === " ")) {
-                      e.preventDefault();
-                      handleOpenTransaction(ev);
-                    }
-                  }}
-                  className={`p-3 rounded-xl border space-y-2.5 transition-colors ${
-                    ev.isUpcoming
-                      ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
-                      : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
-                  } ${onOpenEvent ? "cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700" : ""}`}
-                  title={onOpenEvent ? "Отвори разхода за преглед / редакция" : undefined}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                          {ev.merchantName || ev.categoryName}
-                        </span>
-                        {ev.isRecurring && (
-                          <Repeat
-                            className="w-3.5 h-3.5 text-indigo-500 shrink-0"
-                            aria-label="Повтарящ се"
-                          />
-                        )}
-                        {onOpenEvent && (
-                          <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              {expenses.map((ev) => {
+                const localizedCategory = translateCategoryName(ev.categoryName, language);
+                return (
+                  <div
+                    key={ev.id}
+                    role={onOpenEvent ? "button" : undefined}
+                    tabIndex={onOpenEvent ? 0 : undefined}
+                    onClick={() => handleOpenTransaction(ev)}
+                    onKeyDown={(e) => {
+                      if (onOpenEvent && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        handleOpenTransaction(ev);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border space-y-2.5 transition-colors ${
+                      ev.isUpcoming
+                        ? "border-amber-300/80 dark:border-amber-800/70 bg-amber-50/45 dark:bg-amber-950/20"
+                        : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
+                    } ${onOpenEvent ? "cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700" : ""}`}
+                    title={onOpenEvent ? t("calendar.openExpenseTitle") : undefined}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                            {ev.merchantName || localizedCategory}
+                          </span>
+                          {ev.isRecurring && (
+                            <Repeat
+                              className="w-3.5 h-3.5 text-indigo-500 shrink-0"
+                              aria-label={t("calendar.recurringAria")}
+                            />
+                          )}
+                          {onOpenEvent && (
+                            <ChevronOpenIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+                          <span
+                            className={`inline-flex items-center gap-1 ${
+                              ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                            }`}
+                          >
+                            {ev.isCompleted ? (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                            ) : (
+                              <Clock className="w-3 h-3 text-amber-500" />
+                            )}
+                            {ev.isCompleted
+                              ? t("calendar.statusCompleted")
+                              : ev.isProjected
+                              ? t("calendar.statusScheduled")
+                              : t("calendar.statusUpcoming")}
+                          </span>
+                          {ev.merchantName && <span>· {localizedCategory}</span>}
+                          {ev.isRecurring && (
+                            <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat, ev)}</span>
+                          )}
+                        </div>
+                        {ev.note && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
+                            {ev.note}
+                          </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
+
+                      <div
+                        className="flex items-center gap-2 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <span
-                          className={`inline-flex items-center gap-1 ${
-                            ev.isUpcoming ? "text-amber-700 dark:text-amber-300 font-semibold" : ""
+                          className={`text-sm font-bold tabular-nums ${
+                            ev.isUpcoming
+                              ? "text-amber-700 dark:text-amber-300"
+                              : "text-rose-700 dark:text-rose-400"
                           }`}
                         >
-                          {ev.isCompleted ? (
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                          ) : (
-                            <Clock className="w-3 h-3 text-amber-500" />
-                          )}
-                          {ev.isCompleted
-                            ? "Изпълнен"
-                            : ev.isProjected
-                            ? "Планиран по график"
-                            : "Предстоящ"}
+                          -€{ev.amount.toFixed(2)}
                         </span>
-                        {ev.merchantName && <span>· {ev.categoryName}</span>}
-                        {ev.isRecurring && (
-                          <span className="whitespace-nowrap shrink-0">· {formatRepeatLabel(ev.repeat, ev)}</span>
+                        {!ev.isProjected &&
+                        (ev.recordListType === "fixed" || ev.recordListType === "additional") &&
+                        onToggleRecordCompletion ? (
+                          <CompletionSwitch
+                            checked={ev.isCompleted}
+                            onChange={(nextVal) =>
+                              onToggleRecordCompletion({
+                                monthKey: ev.monthKey,
+                                recordType:
+                                  ev.recordListType === "fixed" ? "fixed" : "additional",
+                                id: ev.sourceId,
+                                nextCompleted: nextVal,
+                              })
+                            }
+                            ariaLabel={t("expenses.markCompletedAria", { name: localizedCategory })}
+                            size="sm"
+                          />
+                        ) : (
+                          ev.isProjected &&
+                          onMaterializeProjectedEvent && (
+                            <button
+                              type="button"
+                              onClick={() => onMaterializeProjectedEvent(ev)}
+                              className="px-2 py-1 text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                              title={t("calendar.recordProjectedExpenseTitle")}
+                            >
+                              {t("calendar.recordBtn")}
+                            </button>
+                          )
                         )}
                       </div>
-                      {ev.note && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
-                          {ev.note}
-                        </p>
-                      )}
                     </div>
 
-                    <div
-                      className="flex items-center gap-2 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <span
-                        className={`text-sm font-bold tabular-nums ${
-                          ev.isUpcoming
-                            ? "text-amber-700 dark:text-amber-300"
-                            : "text-rose-700 dark:text-rose-400"
-                        }`}
-                      >
-                        -€{ev.amount.toFixed(2)}
-                      </span>
-                      {!ev.isProjected &&
-                      (ev.recordListType === "fixed" || ev.recordListType === "additional") &&
-                      onToggleRecordCompletion ? (
-                        <CompletionSwitch
-                          checked={ev.isCompleted}
-                          onChange={(nextVal) =>
-                            onToggleRecordCompletion({
-                              monthKey: ev.monthKey,
-                              recordType:
-                                ev.recordListType === "fixed" ? "fixed" : "additional",
-                              id: ev.sourceId,
-                              nextCompleted: nextVal,
-                            })
-                          }
-                          ariaLabel={`Изпълнено за ${ev.categoryName}`}
-                          size="sm"
-                        />
-                      ) : (
-                        ev.isProjected &&
-                        onMaterializeProjectedEvent && (
-                          <button
-                            type="button"
-                            onClick={() => onMaterializeProjectedEvent(ev)}
-                            className="px-2 py-1 text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                            title="Запиши този планиран разход"
-                          >
-                            Запиши
-                          </button>
-                        )
-                      )}
-                    </div>
+                    {(ev.location?.placeName || ev.location?.address) && (
+                      <LocationCard location={ev.location} showHeading compact />
+                    )}
                   </div>
-
-                  {(ev.location?.placeName || ev.location?.address) && (
-                    <LocationCard location={ev.location} showHeading compact />
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -561,14 +583,14 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               onClick={() => onNavigateTab("monthly")}
               className="flex-1 min-h-[40px] px-3 py-2 text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 rounded-xl transition-colors whitespace-nowrap cursor-pointer"
             >
-              Управление на разходи
+              {t("calendar.manageExpensesBtn")}
             </button>
             <button
               type="button"
               onClick={() => onNavigateTab("income")}
               className="flex-1 min-h-[40px] px-3 py-2 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors whitespace-nowrap cursor-pointer"
             >
-              Управление на приходи
+              {t("calendar.manageIncomesBtn")}
             </button>
           </div>
         )}
@@ -583,10 +605,10 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <CalendarDays className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-            Финансов календар
+            {t("calendar.pageTitle")}
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Изпълнени, предстоящи и повтарящи се плащания и приходи по дати
+            {t("calendar.pageSubtitle")}
           </p>
         </div>
 
@@ -595,7 +617,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
             type="button"
             onClick={handlePrevMonth}
             className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-            aria-label="Предишен месец"
+            aria-label={t("calendar.prevMonthAria")}
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
@@ -604,16 +626,16 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
             type="button"
             onClick={handleJumpToday}
             className="px-4 py-2 min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-bold min-w-[165px] text-center hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap cursor-pointer"
-            title="Върни към текущия месец"
+            title={t("calendar.jumpCurrentMonthTitle")}
           >
-            {MONTHS_BG[viewCursor.month]} {viewCursor.year}
+            {formatFullMonthIndex(viewCursor.month, language)} {viewCursor.year}
           </button>
 
           <button
             type="button"
             onClick={handleNextMonth}
             className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-            aria-label="Следващ месец"
+            aria-label={t("calendar.nextMonthAria")}
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -627,7 +649,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50">
             <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1 flex-wrap">
               <CheckCircle2 className="w-3 h-3 shrink-0" />
-              <span>Реализирани приходи</span>
+              <span>{t("calendar.summary.realizedIncome")}</span>
               <span className="px-1.5 py-0.2 rounded-full bg-emerald-200/80 dark:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums">
                 ({currentMonthSummary.completedIncomesCount})
               </span>
@@ -643,7 +665,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="p-3 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/50">
             <span className="text-[11px] font-semibold text-rose-800 dark:text-rose-300 flex items-center gap-1 flex-wrap">
               <CheckCircle2 className="w-3 h-3 shrink-0" />
-              <span>Реализирани разходи</span>
+              <span>{t("calendar.summary.realizedExpenses")}</span>
               <span className="px-1.5 py-0.2 rounded-full bg-rose-200/80 dark:bg-rose-900/70 text-rose-900 dark:text-rose-200 text-[10px] font-extrabold tabular-nums">
                 ({currentMonthSummary.completedExpensesCount})
               </span>
@@ -659,7 +681,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="p-3 rounded-xl bg-sky-50/70 dark:bg-sky-950/25 border border-sky-200/80 dark:border-sky-800/60">
             <span className="text-[11px] font-semibold text-sky-800 dark:text-sky-300 flex items-center gap-1 flex-wrap">
               <Clock className="w-3 h-3 shrink-0" />
-              <span>Очаквани приходи</span>
+              <span>{t("calendar.summary.expectedIncome")}</span>
               <span className="px-1.5 py-0.2 rounded-full bg-sky-200/80 dark:bg-sky-900/70 text-sky-900 dark:text-sky-200 text-[10px] font-extrabold tabular-nums">
                 ({currentMonthSummary.upcomingIncomesCount})
               </span>
@@ -673,7 +695,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-950/35 border border-amber-300/80 dark:border-amber-800/70">
             <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1 flex-wrap">
               <Clock className="w-3 h-3 shrink-0" />
-              <span>Предстоящи разходи</span>
+              <span>{t("calendar.summary.upcomingExpenses")}</span>
               <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-[10px] font-extrabold tabular-nums">
                 ({currentMonthSummary.upcomingExpensesCount})
               </span>
@@ -698,7 +720,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                 }`}
               >
-                {opt.label}
+                {t(opt.labelKey)}
               </button>
             );
           })}
@@ -710,7 +732,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         <div className="lg:col-span-7 xl:col-span-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
           {/* Weekday Headers */}
           <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/70">
-            {WEEKDAYS_SHORT_BG.map((dayName) => (
+            {weekdaysShort.map((dayName) => (
               <div
                 key={dayName}
                 className="py-2.5 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400"
@@ -763,13 +785,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                       {hasRecurring && (
                         <Repeat
                           className="w-3 h-3 text-indigo-500 dark:text-indigo-400"
-                          aria-label="Повтарящ се"
+                          aria-label={t("calendar.recurringAria")}
                         />
                       )}
                       {hasUpcoming && (
                         <Clock
                           className="w-3 h-3 text-amber-500 dark:text-amber-400"
-                          aria-label="Предстоящ"
+                          aria-label={t("calendar.upcomingAria")}
                         />
                       )}
                     </div>
@@ -789,7 +811,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                       {dayTotals.upcomingIncomesTotal > 0 && (
                         <div
                           className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 tabular-nums truncate"
-                          title="Очаквани приходи"
+                          title={t("calendar.summary.expectedIncome")}
                         >
                           <Clock className="w-2.5 h-2.5 shrink-0 hidden sm:inline" />
                           <span className="truncate">
@@ -808,7 +830,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                       {dayTotals.upcomingExpensesTotal > 0 && (
                         <div
                           className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 dark:text-orange-400 tabular-nums truncate"
-                          title="Предстоящи разходи"
+                          title={t("calendar.summary.upcomingExpenses")}
                         >
                           <Clock className="w-2.5 h-2.5 shrink-0 hidden sm:inline" />
                           <span className="truncate">
@@ -850,7 +872,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                 type="button"
                 onClick={() => setIsMobileDrawerOpen(false)}
                 className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                aria-label="Затвори детайлите за деня"
+                aria-label={t("calendar.closeDayDetailsAria")}
               >
                 <X className="w-5 h-5" />
               </button>

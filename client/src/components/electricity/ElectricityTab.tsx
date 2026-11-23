@@ -38,6 +38,8 @@ import {
   STORAGE_BASE_ELECTRICITY_LAST,
 } from '@/utils/userStorage';
 import { getPageScrollTop, smoothScrollToTop } from '@/utils/scrollUtils';
+import { useI18n } from '@/i18n';
+import { formatLocalizedMonthYear, translateMonthName } from '@/i18n/helpers';
 
 const STORAGE_BASE_ELECTRICITY_SINGLE_LAST = 'ElectricitySingleLastReadings';
 
@@ -64,6 +66,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
   monthlyData,
   onAddManualElectricityExpense,
 }) => {
+  const { t, language } = useI18n();
   const [activeSubTab, setActiveSubTab] = useState<ElectricitySubTab>('single');
   const [lastCalcMode, setLastCalcMode] = useState<'single' | 'double'>('single');
   const isFirstSubTabRenderRef = useRef(true);
@@ -372,7 +375,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
     e.preventDefault();
     const parsedCost = parseDecimalInput(manualCost);
     if (isNaN(parsedCost) || parsedCost <= 0) {
-      setManualError('Моля, въведете валидна сума по-голяма от 0.');
+      setManualError(t('electricity.manualErrCost'));
       return;
     }
 
@@ -380,7 +383,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
       ? parseDecimalInput(manualConsumption)
       : 0;
     if (manualConsumption.trim() && (isNaN(parsedCons) || parsedCons < 0)) {
-      setManualError('Моля, въведете валидна консумация (kWh) или оставете празно.');
+      setManualError(t('electricity.manualErrCons'));
       return;
     }
 
@@ -534,6 +537,13 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const translateCalcError = (err: string) => {
+    if (err.includes('валидни числови стойности')) return t('electricity.errInvalidNumbers');
+    if (err.includes('показание Т1')) return t('electricity.errNewT1LtOld');
+    if (err.includes('показание Т2')) return t('electricity.errNewT2LtOld');
+    return err;
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Sub-tab Navigation */}
@@ -550,7 +560,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
           }`}
         >
           <Calculator className="w-4 h-4 shrink-0" />
-          <span>1 Електромер</span>
+          <span>{t('electricity.singleMeter')}</span>
         </button>
 
         <button
@@ -565,7 +575,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
           }`}
         >
           <Calculator className="w-4 h-4 shrink-0" />
-          <span>2 Електромера</span>
+          <span>{t('electricity.doubleMeter')}</span>
         </button>
 
         <button
@@ -577,7 +587,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
           }`}
         >
           <History className="w-4 h-4 shrink-0" />
-          <span>История на тока</span>
+          <span>{t('electricity.historyTabBtn')}</span>
           {mergedHistoryRecords.length > 0 && (
             <span
               className={`text-xs px-2 py-0.5 rounded-full font-bold ml-1 ${
@@ -592,15 +602,15 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
         </button>
       </div>
 
-      {/* Calculator View: 1 Електромер (default) & 2 Електромера (current calculator preserved) */}
+      {/* Calculator View: 1 Meter (default) & 2 Meters (current calculator preserved) */}
       {(activeSubTab === 'single' || activeSubTab === 'double') && (
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-yellow-100 dark:border-slate-800 transition-colors">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
               <Zap className="w-6 h-6 text-yellow-500" />
               {isSingleMode
-                ? 'Електроенергия Калкулатор — 1 Електромер'
-                : 'Електроенергия Калкулатор — 2 Електромера'}
+                ? t('electricity.calcTitleSingle')
+                : t('electricity.calcTitleDouble')}
             </h2>
             <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
               <button
@@ -609,14 +619,14 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                 className="text-xs font-semibold text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/60 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <PlusCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                Ръчен запис (без показания)
+                {t('electricity.manualEntryNoReadings')}
               </button>
               <button
                 onClick={() => setActiveSubTab('history')}
                 className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
               >
                 <History className="w-4 h-4" />
-                Преглед на историята ({mergedHistoryRecords.length})
+                {t('electricity.viewHistoryCount', { count: mergedHistoryRecords.length })}
               </button>
             </div>
           </div>
@@ -631,7 +641,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                   rel="noopener noreferrer"
                   className="flex-1 flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 py-2 rounded-lg text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700"
                 >
-                  EVN Цени <ExternalLink className="w-3 h-3" />
+                  {t('electricity.evnPricesLink')} <ExternalLink className="w-3 h-3" />
                 </a>
                 <a
                   href="https://onlineplus.evn.bg/account/login?ReturnUrl=%2Fopeninvoices"
@@ -639,7 +649,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                   rel="noopener noreferrer"
                   className="flex-1 flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 py-2 rounded-lg text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700"
                 >
-                  Проверка сметка <ExternalLink className="w-3 h-3" />
+                  {t('electricity.checkBillLink')} <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
 
@@ -647,11 +657,13 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
               <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
                   <Calendar className="w-3.5 h-3.5 text-yellow-500" />
-                  <span>Период на отчета</span>
+                  <span>{t('electricity.reportPeriodTitle')}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Месец</label>
+                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">
+                      {t('common.month')}
+                    </label>
                     <select
                       value={calcMonth}
                       onChange={(e) => setCalcMonth(e.target.value)}
@@ -659,13 +671,15 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                     >
                       {MONTHS_BG_LIST.map((m) => (
                         <option key={m} value={m}>
-                          {m}
+                          {translateMonthName(m, language)}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Година</label>
+                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">
+                      {t('common.year')}
+                    </label>
                     <input
                       type="number"
                       value={calcYear}
@@ -676,16 +690,18 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                 </div>
               </div>
 
-              <h3 className="font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2">Въвеждане на данни</h3>
+              <h3 className="font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2">
+                {t('electricity.dataEntryHeader')}
+              </h3>
 
               <div className="grid grid-cols-2 gap-4">
                 <InputGroup
-                  label="Старо Т1"
+                  label={t('electricity.oldT1Label')}
                   value={activeInputs.oldT1}
                   onChange={(v) => setActiveInputs((prev) => ({ ...prev, oldT1: v }))}
                 />
                 <InputGroup
-                  label="Ново Т1"
+                  label={t('electricity.newT1Label')}
                   value={activeInputs.newT1}
                   onChange={(v) => setActiveInputs((prev) => ({ ...prev, newT1: v }))}
                 />
@@ -693,12 +709,12 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
               <div className="grid grid-cols-2 gap-4">
                 <InputGroup
-                  label="Старо Т2"
+                  label={t('electricity.oldT2Label')}
                   value={activeInputs.oldT2}
                   onChange={(v) => setActiveInputs((prev) => ({ ...prev, oldT2: v }))}
                 />
                 <InputGroup
-                  label="Ново Т2"
+                  label={t('electricity.newT2Label')}
                   value={activeInputs.newT2}
                   onChange={(v) => setActiveInputs((prev) => ({ ...prev, newT2: v }))}
                 />
@@ -706,12 +722,12 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
               <div className="grid grid-cols-2 gap-4 pt-2">
                 <InputGroup
-                  label="Цена Т1 (Дневна, €/kWh)"
+                  label={t('electricity.priceT1Label')}
                   value={activeInputs.priceT1}
                   onChange={(v) => setActiveInputs((prev) => ({ ...prev, priceT1: v }))}
                 />
                 <InputGroup
-                  label="Цена Т2 (Нощна, €/kWh)"
+                  label={t('electricity.priceT2Label')}
                   value={activeInputs.priceT2}
                   onChange={(v) => setActiveInputs((prev) => ({ ...prev, priceT2: v }))}
                 />
@@ -719,21 +735,21 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
               <div className="pt-2">
                 <InputGroup
-                  label="Обща сума по фактура (€)"
+                  label={t('electricity.totalInvoiceAmount')}
                   value={activeInputs.invoiceTotal}
                   onChange={(v) => setActiveInputs((prev) => ({ ...prev, invoiceTotal: v }))}
-                  placeholder={isSingleMode ? "по избор" : undefined}
+                  placeholder={isSingleMode ? t('common.optional') : undefined}
                 />
               </div>
 
               {/* Optional note */}
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">
-                  Забележка (по избор)
+                  {t('electricity.calcNoteLabel')}
                 </label>
                 <input
                   type="text"
-                  placeholder="напр. Редовен месечен отчет, климатици..."
+                  placeholder={t('electricity.calcNotePlaceholder')}
                   value={calcNote}
                   onChange={(e) => setCalcNote(e.target.value)}
                   className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/20"
@@ -745,7 +761,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                 className="w-full mt-4 bg-yellow-500 text-slate-950 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
               >
                 <Calculator className="w-5 h-5" />
-                Изчисли и запиши в историята
+                {t('electricity.calculateAndSaveBtn')}
               </button>
 
               {activeShowAutoShiftNotice && (
@@ -753,18 +769,19 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                   <div className="flex items-center gap-2">
                     <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span>
-                      Сметката беше изчислена и <strong>автоматично запазена в История на тока</strong>!
+                      {t('electricity.autoShiftPart1')}{" "}
+                      <strong>{t('electricity.autoShiftPart2')}</strong>!
                     </span>
                   </div>
                   <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60 dark:border-emerald-800/60">
                     <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                      Показанията от Ново Т1/Т2 бяха прехвърлени в Старо Т1/Т2.
+                      {t('electricity.autoShiftSub')}
                     </span>
                     <button
                       onClick={() => setActiveSubTab('history')}
                       className="text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-emerald-100 underline flex items-center gap-1 cursor-pointer"
                     >
-                      Към историята <ArrowRight className="w-3 h-3" />
+                      {t('electricity.goToHistory')} <ArrowRight className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
@@ -773,7 +790,9 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
             {/* Results Column */}
             <div className="flex flex-col h-full">
-              <h3 className="font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mb-4">Резултати</h3>
+              <h3 className="font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mb-4">
+                {t('electricity.resultsHeader')}
+              </h3>
 
               {activeResults ? (
                 <div className="flex-1 bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col gap-6">
@@ -782,21 +801,23 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                     <div className="flex items-center gap-2">
                       <Zap className="w-6 h-6 text-yellow-400" />
                       <div>
-                        <h3 className="text-lg font-bold text-yellow-400 leading-none">Сметка ТОК</h3>
+                        <h3 className="text-lg font-bold text-yellow-400 leading-none">
+                          {t('electricity.billTitleShort')}
+                        </h3>
                         <p className="text-xs text-slate-400 uppercase mt-1">
-                          ({calcMonth} {calcYear})
+                          ({formatLocalizedMonthYear(`${calcMonth} ${calcYear}`, language)})
                         </p>
                       </div>
                     </div>
                     <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">
-                      Записан в история
+                      {t('electricity.savedToHistoryBadge')}
                     </span>
                   </div>
 
                   {!activeResults.isValid ? (
                     <div className="text-red-400 bg-red-900/20 p-4 rounded-lg border border-red-800/50 text-sm">
                       {activeResults.errors.map((e, i) => (
-                        <p key={i}>• {e}</p>
+                        <p key={i}>• {translateCalcError(e)}</p>
                       ))}
                     </div>
                   ) : (
@@ -806,21 +827,25 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-2 text-slate-300">
                             <Sun className="w-4 h-4 text-amber-400" />
-                            <span>Консумация Т1 (дневна):</span>
+                            <span>{t('electricity.consT1Day')}</span>
                           </div>
                           <span className="font-mono font-bold">{activeResults.consT1.toFixed(3)} kWh</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-2 text-slate-300">
                             <Moon className="w-4 h-4 text-indigo-400" />
-                            <span>Консумация Т2 (нощна):</span>
+                            <span>{t('electricity.consT2Night')}</span>
                           </div>
                           <span className="font-mono font-bold">{activeResults.consT2.toFixed(3)} kWh</span>
                         </div>
                         <div className="flex justify-between items-center pt-2 border-t border-slate-700/50">
                           <div className="flex items-center gap-2 text-white font-medium">
                             <Zap className="w-4 h-4 text-yellow-400" />
-                            <span>{isSingleMode ? 'Обща консумация:' : 'Общо електромер 1:'}</span>
+                            <span>
+                              {isSingleMode
+                                ? t('electricity.totalConsSingle')
+                                : t('electricity.totalConsEm1')}
+                            </span>
                           </div>
                           <span className="font-mono font-bold text-yellow-400">
                             {activeResults.totalCons.toFixed(3)} kWh
@@ -830,12 +855,14 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
                       {/* Cards */}
                       <div className="space-y-3">
-                        {/* Cost Card (Single meter: Сметка ток / Two meters: Сметка електромер 1) */}
+                        {/* Cost Card */}
                         <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <Lightbulb className="w-6 h-6 text-yellow-200" />
                             <span className="text-sm font-medium text-slate-200">
-                              {isSingleMode ? 'Сметка ток:' : 'Сметка електромер 1:'}
+                              {isSingleMode
+                                ? t('electricity.billSingleLabel')
+                                : t('electricity.billEm1Label')}
                             </span>
                           </div>
                           <span className="text-2xl font-bold text-white">
@@ -849,7 +876,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                             <div className="flex items-center gap-3">
                               <Plug className="w-6 h-6 text-emerald-400" />
                               <span className="text-sm font-medium text-emerald-100">
-                                Сметка електромер 2:
+                                {t('electricity.billEm2Label')}
                               </span>
                             </div>
                             <span className="text-2xl font-bold text-emerald-400">
@@ -864,7 +891,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                         <div className="flex justify-between items-center px-2">
                           <div className="flex items-center gap-2 text-slate-400 text-sm">
                             <FileText className="w-4 h-4" />
-                            <span>Обща сума по фактурата:</span>
+                            <span>{t('electricity.invoiceTotalColon')}</span>
                           </div>
                           <span className="font-bold text-lg text-white">
                             €{(parseDecimalInput(inputs.invoiceTotal || '0') || 0).toFixed(2)}
@@ -886,12 +913,12 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                           {activeIsAdded ? (
                             <>
                               <Check className="w-5 h-5" />
-                              Добавено към разходи!
+                              {t('electricity.addedToExpenses')}
                             </>
                           ) : (
                             <>
                               <Plus className="w-5 h-5" />
-                              Добави към разходи
+                              {t('electricity.addToExpenses')}
                             </>
                           )}
                         </button>
@@ -901,7 +928,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                           className="w-full py-3 bg-slate-800 text-slate-300 border border-slate-700 rounded-xl font-medium hover:bg-slate-700 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <Download className="w-5 h-5" />
-                          Калкулации (.txt)
+                          {t('electricity.calculationsTxtBtn')}
                         </button>
                       </div>
                     </>
@@ -912,9 +939,11 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                   <div className="p-4 bg-white dark:bg-slate-800 rounded-full shadow-sm border border-slate-100 dark:border-slate-700">
                     <Calculator className="w-8 h-8 text-slate-400 dark:text-slate-400" />
                   </div>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-200">Въведете данни и натиснете Изчисли</p>
+                  <p className="text-sm font-medium text-slate-600 dark:text-slate-200">
+                    {t('electricity.emptyResultsTitle')}
+                  </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 text-center max-w-xs">
-                    Всеки изчислен отчет автоматично ще се запази в историята на тока с пълна статистика.
+                    {t('electricity.emptyResultsDesc')}
                   </p>
                 </div>
               )}
@@ -944,10 +973,10 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                    Ръчен запис за ток
+                    {t('electricity.manualModalTitle')}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Добавя се към Разходи и История на тока
+                    {t('electricity.manualModalSubtitle')}
                   </p>
                 </div>
               </div>
@@ -955,6 +984,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                 type="button"
                 onClick={() => setIsManualModalOpen(false)}
                 className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                aria-label={t('common.close')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -970,7 +1000,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
-                    Месец
+                    {t('common.month')}
                   </label>
                   <select
                     value={manualMonth}
@@ -979,14 +1009,14 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                   >
                     {MONTHS_BG_LIST.map((m) => (
                       <option key={m} value={m}>
-                        {m}
+                        {translateMonthName(m, language)}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
-                    Година
+                    {t('common.year')}
                   </label>
                   <input
                     type="number"
@@ -998,7 +1028,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
               </div>
 
               <InputGroup
-                label="Сума на сметката (€)"
+                label={t('electricity.billAmountLabel')}
                 value={manualCost}
                 onChange={(v) => {
                   setManualCost(v);
@@ -1008,24 +1038,24 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
               />
 
               <InputGroup
-                label="Консумация kWh (опционално)"
+                label={t('electricity.consumptionOptionalLabel')}
                 value={manualConsumption}
                 onChange={(v) => {
                   setManualConsumption(v);
                   setManualError(null);
                 }}
-                placeholder="напр. 320"
+                placeholder={t('electricity.consumptionPlaceholder')}
               />
 
               <div>
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
-                  Бележка (опционално)
+                  {t('electricity.noteOptionalLabel')}
                 </label>
                 <input
                   type="text"
                   value={manualNote}
                   onChange={(e) => setManualNote(e.target.value)}
-                  placeholder="напр. Месечна фактура EVN"
+                  placeholder={t('electricity.notePlaceholder')}
                   className="w-full text-sm bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-yellow-500/30"
                 />
               </div>
@@ -1036,14 +1066,14 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                   onClick={() => setIsManualModalOpen(false)}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                 >
-                  Отказ
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 text-xs font-bold text-slate-950 bg-yellow-500 hover:bg-yellow-400 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  Запази в Разходи и История
+                  {t('electricity.saveToHistoryBtn')}
                 </button>
               </div>
             </form>

@@ -54,6 +54,19 @@ import {
 import { AVAILABLE_ICONS_MAP, resolveCategoryDisplayIcon } from "@/utils/categoryStorage";
 import { parseLocalDateKey } from "@/utils/calendarEngine";
 import { formatRepeatLabel } from "@/utils/recurrenceEngine";
+import { translateHealthRating } from "@/utils/aiAnalysisEngine";
+import {
+  useI18n,
+  translateCategoryName,
+  translateGoalName,
+  translateBudgetName,
+  translateMonthName,
+  translateElectricityPeriodLabel,
+  translateElectricityNote,
+  formatLocalizedMonthYear,
+  formatLocalizedDate,
+  formatShortMonthIndex,
+} from "@/i18n";
 
 export type DashboardTabTarget =
   | "dashboard"
@@ -247,6 +260,9 @@ function CardHeader({
   viewMode,
   onToggleViewMode,
   rightBadge,
+  toggleAriaLabel,
+  showChartTitle,
+  showSummaryTitle,
 }: {
   title: string;
   periodLabel: string;
@@ -254,6 +270,9 @@ function CardHeader({
   viewMode: "summary" | "chart";
   onToggleViewMode: (mode: "summary" | "chart") => void;
   rightBadge?: React.ReactNode;
+  toggleAriaLabel?: string;
+  showChartTitle?: string;
+  showSummaryTitle?: string;
 }) {
   return (
     <div className="flex items-start justify-between gap-3">
@@ -270,14 +289,14 @@ function CardHeader({
         <div
           className="inline-flex items-center p-1 rounded-full bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shrink-0"
           role="group"
-          aria-label="Превключване между карта и графика"
+          aria-label={toggleAriaLabel}
           data-no-drag="true"
         >
           <button
             type="button"
             onClick={() => onToggleViewMode("chart")}
             aria-pressed={viewMode === "chart"}
-            title="Покажи графика"
+            title={showChartTitle}
             className={`w-9 h-7 rounded-full inline-flex items-center justify-center transition-all cursor-pointer ${
               viewMode === "chart"
                 ? "bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs"
@@ -290,7 +309,7 @@ function CardHeader({
             type="button"
             onClick={() => onToggleViewMode("summary")}
             aria-pressed={viewMode === "summary"}
-            title="Покажи ключови данни"
+            title={showSummaryTitle}
             className={`w-9 h-7 rounded-full inline-flex items-center justify-center transition-all cursor-pointer ${
               viewMode === "summary"
                 ? "bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs"
@@ -393,7 +412,26 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
     onOpenExportCenter,
   } = props;
 
-  const meta = DASHBOARD_CARDS_META[cardId];
+  const { t, language } = useI18n();
+  const meta = {
+    ...DASHBOARD_CARDS_META[cardId],
+    title: t(`dashboard.cards.${cardId}.title`) || DASHBOARD_CARDS_META[cardId].title,
+    category:
+      t(`dashboard.cards.${cardId}.category`) || DASHBOARD_CARDS_META[cardId].category,
+  };
+  const headerToggleProps = {
+    toggleAriaLabel: t("dashboard.toggleChartViewAria"),
+    showChartTitle: t("dashboard.showChartTooltip"),
+    showSummaryTitle: t("dashboard.showSummaryTooltip"),
+  };
+  const prevMonthLabel = formatLocalizedMonthYear(
+    monthComparisonData.previousMonthLabel,
+    language
+  );
+  const currMonthLabel = formatLocalizedMonthYear(
+    monthComparisonData.currentMonthLabel,
+    language
+  );
   const gridStroke = isDark ? "#272b36" : "#f1f5f9";
   const axisTickStyle = { fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" };
   const chartTooltipStyle = {
@@ -428,12 +466,12 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           {isExpanded ? (
             <>
               <ChevronUp className="w-3.5 h-3.5" />
-              <span>Скрий детайлите</span>
+              <span>{t("common.hideDetails")}</span>
             </>
           ) : (
             <>
               <ChevronDown className="w-3.5 h-3.5" />
-              <span>{expandLabel || "Виж детайли"}</span>
+              <span>{expandLabel || t("common.showDetails")}</span>
             </>
           )}
         </button>
@@ -457,7 +495,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
   );
 
   // ============================================================================
-  // 1. OVERVIEW CARD ("Общ преглед")
+  // 1. OVERVIEW CARD
   // ============================================================================
   if (cardId === "overview") {
     const netSavingsPct =
@@ -471,6 +509,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           supportsChartToggle
           viewMode={viewMode}
           onToggleViewMode={onToggleViewMode}
+          {...headerToggleProps}
         />
 
         {/* Hero KPI */}
@@ -478,7 +517,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
               <Scale className="w-3.5 h-3.5" />
-              <span>Нетно салдо (Приходи − Разходи)</span>
+              <span>{t("dashboard.overview.netBalanceLabel")}</span>
             </span>
             <p
               className={`text-3xl sm:text-4xl font-black tracking-tight tabular-nums ${
@@ -493,7 +532,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           <TrendIndicator
             fallbackPercent={netSavingsPct}
             fallbackPositive={netBalance >= 0}
-            subLabel={totalIncome > 0 ? "от приходите" : "за периода"}
+            subLabel={
+              totalIncome > 0
+                ? t("dashboard.overview.ofIncome")
+                : t("dashboard.overview.forPeriod")
+            }
           />
         </div>
 
@@ -501,7 +544,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         {viewMode === "chart" ? (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Месечна динамика: Приходи спрямо Разходи (€)
+              {t("dashboard.overview.monthlyDynamicsTitle")}
             </p>
             <div className="h-[220px] w-full">
               {canRenderCharts ? (
@@ -517,7 +560,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                       contentStyle={chartTooltipStyle}
                       formatter={(val: any, name: any) => [
                         `€${Number(val).toFixed(2)}`,
-                        name === "expenses" ? "Разходи" : "Приходи",
+                        name === "expenses"
+                          ? t("dashboard.overview.expensesSeries")
+                          : t("dashboard.overview.incomeSeries"),
                       ]}
                     />
                     <Legend
@@ -526,7 +571,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                         paddingTop: 6,
                         color: isDark ? "#cbd5e1" : "#475569",
                       }}
-                      formatter={(val) => (val === "expenses" ? "Разходи" : "Приходи")}
+                      formatter={(val) =>
+                        val === "expenses"
+                          ? t("dashboard.overview.expensesSeries")
+                          : t("dashboard.overview.incomeSeries")
+                      }
                     />
                     <Line
                       type="monotone"
@@ -553,21 +602,21 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800/80 border-t border-slate-100 dark:border-slate-800/80">
             <MetricRow
-              label="Реализирани приходи"
+              label={t("dashboard.overview.realizedIncome")}
               value={`€${totalIncome.toFixed(2)}`}
               tone="positive"
             />
             <MetricRow
-              label="Реализирани разходи"
+              label={t("dashboard.overview.realizedExpenses")}
               value={`€${totalExpenses.toFixed(2)}`}
               tone="negative"
             />
             <MetricRow
-              label="Спестявания за периода"
+              label={t("dashboard.overview.periodSavings")}
               value={`€${periodSavings.toFixed(2)}`}
             />
             <MetricRow
-              label="Предстоящи до края на периода"
+              label={t("dashboard.overview.upcomingEndPeriod")}
               value={
                 <span className="inline-flex items-center gap-1.5">
                   <span className="text-sky-600 dark:text-sky-400">
@@ -593,9 +642,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             <div className="rounded-2xl bg-slate-900 dark:bg-slate-800/90 p-4 text-white space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  Бързи действия
+                  {t("dashboard.overview.quickActions")}
                 </p>
-                <span className="text-[11px] text-slate-400">Директен достъп</span>
+                <span className="text-[11px] text-slate-400">
+                  {t("dashboard.overview.directAccess")}
+                </span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -604,7 +655,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Добави разход</span>
+                  <span>{t("dashboard.addExpense")}</span>
                 </button>
                 <button
                   type="button"
@@ -612,7 +663,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Добави приход</span>
+                  <span>{t("dashboard.addIncome")}</span>
                 </button>
                 <button
                   type="button"
@@ -620,7 +671,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-slate-950 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                 >
                   <Zap className="w-3.5 h-3.5" />
-                  <span>Сметка ТОК</span>
+                  <span>{t("dashboard.overview.electricityBtn")}</span>
                 </button>
                 <button
                   type="button"
@@ -628,7 +679,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Експорт</span>
+                  <span>{t("dashboard.overview.exportBtn")}</span>
                 </button>
               </div>
             </div>
@@ -637,8 +688,8 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
         {renderCardFooter({
           hasExpandContent: true,
-          expandLabel: "Сравнение и бързи действия",
-          primaryActionLabel: "Експорт на отчет",
+          expandLabel: t("dashboard.overview.expandLabel"),
+          primaryActionLabel: t("dashboard.exportReportBtn"),
           onPrimaryAction: onOpenExportCenter,
         })}
       </div>
@@ -646,7 +697,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
   }
 
   // ============================================================================
-  // 2. SPENDING OVERVIEW CARD ("Преглед на разходите")
+  // 2. SPENDING OVERVIEW CARD
   // ============================================================================
   if (cardId === "spending") {
     const visibleCategories = isExpanded
@@ -661,13 +712,14 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           supportsChartToggle
           viewMode={viewMode}
           onToggleViewMode={onToggleViewMode}
+          {...headerToggleProps}
         />
 
         <div className="flex items-end justify-between gap-4">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
               <ArrowUpRight className="w-3.5 h-3.5 text-rose-500" />
-              <span>Реализирани разходи</span>
+              <span>{t("dashboard.spending.realizedExpenses")}</span>
             </span>
             <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-slate-900 dark:text-white">
               €{totalExpenses.toFixed(2)}
@@ -675,7 +727,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           </div>
           <TrendIndicator
             comparison={monthComparisonData.expenses}
-            subLabel={`сп. ${monthComparisonData.previousMonthLabel}`}
+            subLabel={t("dashboard.spending.vsPrev", { prev: prevMonthLabel })}
           />
         </div>
 
@@ -684,9 +736,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             {canRenderCharts ? (
               <CategoryDistributionChart
                 items={categoryBreakdown}
-                totalLabel="Общо"
-                emptyTitle="Няма разходи за този период"
-                emptyActionLabel="+ Въведи разход"
+                totalLabel={t("common.total")}
+                emptyTitle={t("dashboard.spending.emptyChartTitle")}
+                emptyActionLabel={t("dashboard.spending.emptyChartAction")}
                 onEmptyAction={() => onNavigateTab?.("monthly")}
               />
             ) : (
@@ -698,7 +750,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-3 border-y border-slate-100 dark:border-slate-800/80">
               <div>
                 <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-                  Повтарящи се
+                  {t("dashboard.spending.recurring")}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tabular-nums mt-0.5 block">
                   €{totalFixed.toFixed(2)}
@@ -706,7 +758,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               </div>
               <div>
                 <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-                  Допълнителни
+                  {t("dashboard.spending.additional")}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tabular-nums mt-0.5 block">
                   €{totalVariable.toFixed(2)}
@@ -714,7 +766,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               </div>
               <div>
                 <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-                  Предстоящи разходи
+                  {t("dashboard.spending.upcoming")}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 tabular-nums mt-0.5 block">
                   €{totalPlannedExpenses.toFixed(2)}
@@ -722,7 +774,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               </div>
               <div className="sm:text-right">
                 <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-                  Очаквани общо
+                  {t("dashboard.spending.expectedTotal")}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-sky-600 dark:text-sky-400 tabular-nums mt-0.5 block">
                   €{(totalExpenses + totalPlannedExpenses).toFixed(2)}
@@ -733,8 +785,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             {visibleCategories.length > 0 ? (
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  <span>Разпределение по категории</span>
-                  <span className="tabular-nums">{categoryBreakdown.length} кат.</span>
+                  <span>{t("dashboard.spending.categoryDist")}</span>
+                  <span className="tabular-nums">
+                    {t("dashboard.spending.catCount", { count: categoryBreakdown.length })}
+                  </span>
                 </div>
                 <div className="space-y-2">
                   {visibleCategories.map((cat) => {
@@ -750,7 +804,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                               className="w-2.5 h-2.5 rounded-full shrink-0"
                               style={{ backgroundColor: cat.color }}
                             />
-                            <span className="truncate">{cat.name}</span>
+                            <span className="truncate">
+                              {translateCategoryName(cat.name, language)}
+                            </span>
                           </span>
                           <span className="font-bold text-slate-900 dark:text-white tabular-nums shrink-0 ml-2">
                             €{cat.value.toFixed(2)}{" "}
@@ -776,10 +832,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             ) : (
               <div className="py-6 text-center space-y-1">
                 <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-                  Няма разходи за този период
+                  {t("dashboard.spending.emptyChartTitle")}
                 </p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">
-                  Натиснете „Добави разход“, за да запишете първия си разход.
+                  {t("dashboard.spending.emptyHint")}
                 </p>
               </div>
             )}
@@ -789,7 +845,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         {isExpanded && canRenderCharts && (
           <div className="pt-2 space-y-2 border-t border-slate-100 dark:border-slate-800 animate-in fade-in duration-150">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 pt-2">
-              Месечна тенденция на разходите (€)
+              {t("dashboard.spending.monthlyTrendTitle")}
             </p>
             <div className="h-[200px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -804,7 +860,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                     contentStyle={chartTooltipStyle}
                     formatter={(val: any, name: any) => [
                       `€${Number(val).toFixed(2)}`,
-                      name === "expenses" ? "Разходи" : "Приходи",
+                      name === "expenses"
+                        ? t("dashboard.overview.expensesSeries")
+                        : t("dashboard.overview.incomeSeries"),
                     ]}
                   />
                   <Line
@@ -824,9 +882,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           hasExpandContent: categoryBreakdown.length > 0,
           expandLabel:
             categoryBreakdown.length > 4
-              ? `Всички категории (${categoryBreakdown.length}) и графика`
-              : "Годишна тенденция",
-          primaryActionLabel: "Към Разходи",
+              ? t("dashboard.spending.expandAllCats", { count: categoryBreakdown.length })
+              : t("dashboard.spending.expandYearTrend"),
+          primaryActionLabel: t("dashboard.spending.toExpenses"),
           onPrimaryAction: () => onNavigateTab?.("monthly"),
         })}
       </div>
@@ -834,7 +892,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
   }
 
   // ============================================================================
-  // 3. UPCOMING EXPENSES & PAYMENTS CARD ("Предстоящи разходи")
+  // 3. UPCOMING EXPENSES & PAYMENTS CARD
   // ============================================================================
   if (cardId === "upcoming") {
     const urgentItems = [...overdueItems, ...dueTodayItems];
@@ -854,16 +912,21 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           periodLabel={currentPeriodLabel}
           viewMode={viewMode}
           onToggleViewMode={onToggleViewMode}
+          {...headerToggleProps}
           rightBadge={
             overdueItems.length > 0 ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
                 <AlertCircle className="w-3.5 h-3.5" />
-                <span>{overdueItems.length} просрочени</span>
+                <span>
+                  {t("dashboard.upcoming.overdueBadge", { count: overdueItems.length })}
+                </span>
               </span>
             ) : dueTodayItems.length > 0 ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 shrink-0">
                 <Clock className="w-3.5 h-3.5" />
-                <span>{dueTodayItems.length} днес</span>
+                <span>
+                  {t("dashboard.upcoming.todayBadge", { count: dueTodayItems.length })}
+                </span>
               </span>
             ) : null
           }
@@ -873,7 +936,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
               <Clock className="w-3.5 h-3.5 text-amber-500" />
-              <span>Планирани разходи ({upcomingExpenseItems.length} бр.)</span>
+              <span>
+                {t("dashboard.upcoming.plannedExpenses", {
+                  count: upcomingExpenseItems.length,
+                })}
+              </span>
             </span>
             <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-amber-600 dark:text-amber-400">
               €{totalPlannedExpenses.toFixed(2)}
@@ -881,7 +948,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           </div>
           <div className="text-right shrink-0">
             <span className="text-[11px] text-slate-400 dark:text-slate-500 block">
-              Очаквани общо
+              {t("dashboard.upcoming.expectedTotal")}
             </span>
             <span className="text-sm font-bold text-slate-800 dark:text-slate-200 tabular-nums">
               €{(totalExpenses + totalPlannedExpenses).toFixed(2)}
@@ -893,15 +960,15 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-100 dark:border-slate-800/80">
           <div>
             <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              Падеж днес
+              {t("dashboard.upcoming.dueToday")}
             </span>
             <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tabular-nums mt-0.5 block">
-              {dueTodayItems.length} бр.
+              {dueTodayItems.length} {t("common.pcs")}
             </span>
           </div>
           <div>
             <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              С изминал падеж
+              {t("dashboard.upcoming.overdueLabel")}
             </span>
             <span
               className={`text-sm sm:text-base font-bold tabular-nums mt-0.5 block ${
@@ -910,12 +977,12 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   : "text-slate-900 dark:text-white"
               }`}
             >
-              {overdueItems.length} бр.
+              {overdueItems.length} {t("common.pcs")}
             </span>
           </div>
           <div className="text-right">
             <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              Очаквани приходи
+              {t("dashboard.upcoming.expectedIncome")}
             </span>
             <span className="text-sm sm:text-base font-bold text-emerald-600 dark:text-emerald-400 tabular-nums mt-0.5 block">
               +€{totalExpectedIncome.toFixed(2)}
@@ -931,7 +998,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                 (o) => o.id === item.id && o.monthKey === item.monthKey && o.kind === item.kind
               );
               const isDueToday = dueTodayItems.some(
-                (t) => t.id === item.id && t.monthKey === item.monthKey && t.kind === item.kind
+                (td) => td.id === item.id && td.monthKey === item.monthKey && td.kind === item.kind
               );
               const isIncome = item.kind === "income";
               const displayIconName = resolveCategoryDisplayIcon(
@@ -941,11 +1008,15 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               const IconComponent =
                 (displayIconName && AVAILABLE_ICONS_MAP[displayIconName]) ||
                 (isIncome ? ArrowDownLeft : Clock);
-              const formattedDate = parseLocalDateKey(item.dateKey).toLocaleDateString("bg-BG");
+              const formattedDate = formatLocalizedDate(
+                parseLocalDateKey(item.dateKey),
+                language
+              );
               const hasRepeat = Boolean(item.repeat && item.repeat !== "never");
               const secondaryLabel = [item.merchantName, item.note]
                 .filter(Boolean)
                 .join(" · ");
+              const displayCategory = translateCategoryName(item.categoryName, language);
 
               return (
                 <div
@@ -992,7 +1063,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                          {item.categoryName}
+                          {displayCategory}
                         </p>
                         {hasRepeat && (
                           <span
@@ -1014,13 +1085,13 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                           }
                         >
                           {isOverdue
-                            ? `Просрочен (${formattedDate})`
+                            ? t("dashboard.upcoming.overdueDate", { date: formattedDate })
                             : isDueToday
-                            ? "Падеж днес"
+                            ? t("dashboard.upcoming.dueTodayText")
                             : formattedDate}
                         </span>
                         {(periodType === "year" || periodType === "custom") &&
-                          ` · ${item.monthKey}`}
+                          ` · ${formatLocalizedMonthYear(item.monthKey, language)}`}
                         {secondaryLabel ? ` · ${secondaryLabel}` : ""}
                       </p>
                     </div>
@@ -1046,7 +1117,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                       onChange={() =>
                         onToggleRecordCompletion?.(item.monthKey, item.kind, item.id, true)
                       }
-                      ariaLabel={`Отбележи „${item.categoryName}“ като изпълнено`}
+                      ariaLabel={t("dashboard.upcoming.markCompletedAria", {
+                        name: displayCategory,
+                      })}
                       size="sm"
                     />
                   </div>
@@ -1058,7 +1131,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           <div className="py-6 text-center space-y-2">
             <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Всички записи за {currentPeriodLabel} са изпълнени
+              {t("dashboard.upcoming.allDoneForPeriod", { period: currentPeriodLabel })}
             </p>
             <div className="flex items-center justify-center gap-4 pt-1">
               <button
@@ -1066,14 +1139,14 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                 onClick={() => onNavigateTab?.("monthly")}
                 className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
               >
-                + Планирай разход
+                {t("dashboard.upcoming.planExpense")}
               </button>
               <button
                 type="button"
                 onClick={() => onNavigateTab?.("income")}
                 className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
               >
-                + Очакван приход
+                {t("dashboard.upcoming.expectedIncomeAction")}
               </button>
             </div>
           </div>
@@ -1081,8 +1154,8 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
         {renderCardFooter({
           hasExpandContent: combinedOrdered.length > 4,
-          expandLabel: `Виж всички (${combinedOrdered.length})`,
-          primaryActionLabel: "Отвори Календар",
+          expandLabel: t("dashboard.upcoming.seeAll", { count: combinedOrdered.length }),
+          primaryActionLabel: t("dashboard.upcoming.openCalendar"),
           onPrimaryAction: () =>
             onOpenCalendar
               ? onOpenCalendar((urgentItems[0] || upcomingItems[0])?.dateKey)
@@ -1108,13 +1181,14 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           supportsChartToggle
           viewMode={viewMode}
           onToggleViewMode={onToggleViewMode}
+          {...headerToggleProps}
         />
 
         <div className="flex items-end justify-between gap-4">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
               <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Реализирани приходи ({incomeCount} бр.)</span>
+              <span>{t("dashboard.income.realizedIncome", { count: incomeCount })}</span>
             </span>
             <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-emerald-600 dark:text-emerald-400">
               €{totalIncome.toFixed(2)}
@@ -1122,14 +1196,14 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           </div>
           <TrendIndicator
             comparison={monthComparisonData.income}
-            subLabel={`сп. ${monthComparisonData.previousMonthLabel}`}
+            subLabel={t("dashboard.spending.vsPrev", { prev: prevMonthLabel })}
           />
         </div>
 
         {viewMode === "chart" ? (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Приходи спрямо Разходи (€)
+              {t("dashboard.income.incomeVsExpenses")}
             </p>
             <div className="h-[220px] w-full">
               {canRenderCharts ? (
@@ -1152,7 +1226,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                           paddingTop: 6,
                           color: isDark ? "#cbd5e1" : "#475569",
                         }}
-                        formatter={(val) => (val === "income" ? "Приходи" : "Разходи")}
+                        formatter={(val) =>
+                          val === "income"
+                            ? t("dashboard.overview.incomeSeries")
+                            : t("dashboard.overview.expensesSeries")
+                        }
                       />
                       <Bar dataKey="income" name="income" fill="#10b981" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="expenses" name="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
@@ -1169,7 +1247,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                       <YAxis tick={axisTickStyle} stroke={gridStroke} />
                       <Tooltip
                         contentStyle={chartTooltipStyle}
-                        formatter={(val: any) => [`€${Number(val).toFixed(2)}`, "Сума"]}
+                        formatter={(val: any) => [`€${Number(val).toFixed(2)}`, t("common.amount")]}
                       />
                       <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                         {incomeVsExpensesData.map((entry: any, index: number) => (
@@ -1188,19 +1266,23 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           <div className="space-y-4">
             <div className="divide-y divide-slate-100 dark:divide-slate-800/80 border-t border-slate-100 dark:border-slate-800/80">
               <MetricRow
-                label="Повтарящи се приходи"
+                label={t("dashboard.income.recurringIncome")}
                 value={`€${totalFixedIncome.toFixed(2)}`}
-                subValue="Заплата и регулярни постъпления"
+                subValue={t("dashboard.income.recurringSub")}
               />
               <MetricRow
-                label="Допълнителни приходи"
+                label={t("dashboard.income.additionalIncome")}
                 value={`€${totalAdditionalIncome.toFixed(2)}`}
-                subValue="Бонуси, извънредни и еднократни"
+                subValue={t("dashboard.income.additionalSub")}
               />
               <MetricRow
-                label={`Очаквани приходи (${upcomingIncomeItems.length} бр.)`}
+                label={t("dashboard.income.expectedIncomeCount", {
+                  count: upcomingIncomeItems.length,
+                })}
                 value={`+€${totalExpectedIncome.toFixed(2)}`}
-                subValue={`Общо очаквани за периода: €${(totalIncome + totalExpectedIncome).toFixed(2)}`}
+                subValue={t("dashboard.income.expectedIncomeSub", {
+                  amount: (totalIncome + totalExpectedIncome).toFixed(2),
+                })}
                 tone="amber"
               />
             </div>
@@ -1208,50 +1290,55 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             {visibleUpcomingIncome.length > 0 && (
               <div className="pt-1 space-y-1.5">
                 <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  Предстоящи постъпления
+                  {t("dashboard.income.upcomingReceipts")}
                 </p>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800/70">
-                  {visibleUpcomingIncome.map((inc) => (
-                    <div
-                      key={`inc_${inc.monthKey}_${inc.id}`}
-                      onClick={() =>
-                        onOpenRecord
-                          ? onOpenRecord({
-                              kind: "income",
-                              monthKey: inc.monthKey,
-                              id: inc.id,
-                            })
-                          : onOpenCalendar?.(inc.dateKey)
-                      }
-                      className="py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-lg px-2 -mx-2 transition-colors"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
-                          {inc.categoryName}
-                        </p>
-                        <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate tabular-nums">
-                          {parseLocalDateKey(inc.dateKey).toLocaleDateString("bg-BG")}
-                          {inc.note ? ` · ${inc.note}` : ""}
-                        </p>
-                      </div>
+                  {visibleUpcomingIncome.map((inc) => {
+                    const displayCat = translateCategoryName(inc.categoryName, language);
+                    return (
                       <div
-                        className="flex items-center gap-2 shrink-0"
-                        onClick={(e) => e.stopPropagation()}
+                        key={`inc_${inc.monthKey}_${inc.id}`}
+                        onClick={() =>
+                          onOpenRecord
+                            ? onOpenRecord({
+                                kind: "income",
+                                monthKey: inc.monthKey,
+                                id: inc.id,
+                              })
+                            : onOpenCalendar?.(inc.dateKey)
+                        }
+                        className="py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-lg px-2 -mx-2 transition-colors"
                       >
-                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                          +€{inc.amount.toFixed(2)}
-                        </span>
-                        <CompletionSwitch
-                          checked={false}
-                          onChange={() =>
-                            onToggleRecordCompletion?.(inc.monthKey, "income", inc.id, true)
-                          }
-                          ariaLabel={`Отбележи приход „${inc.categoryName}“ като получен`}
-                          size="sm"
-                        />
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                            {displayCat}
+                          </p>
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate tabular-nums">
+                            {formatLocalizedDate(parseLocalDateKey(inc.dateKey), language)}
+                            {inc.note ? ` · ${inc.note}` : ""}
+                          </p>
+                        </div>
+                        <div
+                          className="flex items-center gap-2 shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                            +€{inc.amount.toFixed(2)}
+                          </span>
+                          <CompletionSwitch
+                            checked={false}
+                            onChange={() =>
+                              onToggleRecordCompletion?.(inc.monthKey, "income", inc.id, true)
+                            }
+                            ariaLabel={t("dashboard.income.markReceivedAria", {
+                              name: displayCat,
+                            })}
+                            size="sm"
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1260,8 +1347,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
         {renderCardFooter({
           hasExpandContent: upcomingIncomeItems.length > 3,
-          expandLabel: `Всички очаквани (${upcomingIncomeItems.length})`,
-          primaryActionLabel: "Управление на приходи",
+          expandLabel: t("dashboard.income.seeAllExpected", {
+            count: upcomingIncomeItems.length,
+          }),
+          primaryActionLabel: t("dashboard.income.manageIncome"),
           onPrimaryAction: () => onNavigateTab?.("income"),
         })}
       </div>
@@ -1289,11 +1378,16 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           periodLabel={currentPeriodLabel}
           viewMode={viewMode}
           onToggleViewMode={onToggleViewMode}
+          {...headerToggleProps}
           rightBadge={
             budgetData.activeWarnings.length > 0 ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                <span>{budgetData.activeWarnings.length} сигнала</span>
+                <span>
+                  {t("dashboard.budget.signalsBadge", {
+                    count: budgetData.activeWarnings.length,
+                  })}
+                </span>
               </span>
             ) : null
           }
@@ -1303,7 +1397,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
               <Target className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Изразходвано от лимит €{budgetData.totalMonthlyLimit.toFixed(2)}</span>
+              <span>
+                {t("dashboard.budget.spentOfLimit", {
+                  limit: budgetData.totalMonthlyLimit.toFixed(2),
+                })}
+              </span>
             </span>
             <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-slate-900 dark:text-white">
               €{budgetData.totalSpent.toFixed(2)}
@@ -1322,7 +1420,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               {pctRounded}%
             </span>
             <span className="text-[11px] text-slate-400 dark:text-slate-500 block">
-              усвоен бюджет
+              {t("dashboard.budget.utilized")}
             </span>
           </div>
         </div>
@@ -1337,7 +1435,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           </div>
           <div className="flex items-center justify-between text-xs tabular-nums">
             <span className="text-slate-500 dark:text-slate-400">
-              {budgetData.isTotalExceeded ? "Превишение:" : "Оставащ бюджет:"}
+              {budgetData.isTotalExceeded
+                ? t("dashboard.budget.overspent")
+                : t("dashboard.budget.remaining")}
             </span>
             <span
               className={`font-bold ${
@@ -1347,7 +1447,9 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               }`}
             >
               {budgetData.isTotalExceeded
-                ? `+€${budgetData.totalOverspentAmount.toFixed(2)} над лимита`
+                ? t("dashboard.budget.overLimitValue", {
+                    amount: budgetData.totalOverspentAmount.toFixed(2),
+                  })
                 : `€${budgetData.totalRemaining.toFixed(2)}`}
             </span>
           </div>
@@ -1363,7 +1465,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   <div key={cs.budget.id} className="py-2.5 space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                        {cs.budget.categoryName}
+                        {translateBudgetName(cs.budget.categoryName, language)}
                       </span>
                       <span className="tabular-nums font-bold text-slate-900 dark:text-white shrink-0 ml-2">
                         €{cs.spent.toFixed(2)}{" "}
@@ -1389,7 +1491,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               })
             ) : (
               <p className="py-4 text-xs text-slate-500 dark:text-slate-400 text-center">
-                Няма зададени лимити по категории.
+                {t("dashboard.budget.noCategoryLimits")}
               </p>
             )}
           </div>
@@ -1405,8 +1507,8 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
         {renderCardFooter({
           hasExpandContent: true,
-          expandLabel: "Пълен бюджетен контрол",
-          primaryActionLabel: "Настрой бюджети",
+          expandLabel: t("dashboard.budget.fullBudgetControl"),
+          primaryActionLabel: t("dashboard.budget.configureBudgets"),
           onPrimaryAction: () => onNavigateTab?.("budgets"),
         })}
       </div>
@@ -1433,13 +1535,14 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           supportsChartToggle
           viewMode={viewMode}
           onToggleViewMode={onToggleViewMode}
+          {...headerToggleProps}
         />
 
         <div className="flex items-end justify-between gap-4">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
               <PiggyBank className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Общ наличен спестовен фонд</span>
+              <span>{t("dashboard.savings.totalFund")}</span>
             </span>
             <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-slate-900 dark:text-white">
               €{lifetimeSavings.toFixed(2)}
@@ -1447,14 +1550,16 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           </div>
           <TrendIndicator
             comparison={monthComparisonData.savings}
-            subLabel={`за периода: €${periodSavings.toFixed(2)}`}
+            subLabel={t("dashboard.savings.forPeriodVal", {
+              amount: periodSavings.toFixed(2),
+            })}
           />
         </div>
 
         {viewMode === "chart" ? (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Кумулативно натрупване на спестявания (€)
+              {t("dashboard.savings.cumulativeTitle")}
             </p>
             <div className="h-[220px] w-full">
               {canRenderCharts ? (
@@ -1468,7 +1573,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                     <YAxis tick={axisTickStyle} stroke={gridStroke} />
                     <Tooltip
                       contentStyle={chartTooltipStyle}
-                      formatter={(val: any) => [`€${Number(val).toFixed(2)}`, "Спестявания"]}
+                      formatter={(val: any) => [
+                        `€${Number(val).toFixed(2)}`,
+                        t("dashboard.savings.tooltipLabel"),
+                      ]}
                     />
                     <Line
                       type="monotone"
@@ -1489,27 +1597,34 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           <div className="space-y-4">
             <div className="divide-y divide-slate-100 dark:divide-slate-800/80 border-t border-slate-100 dark:border-slate-800/80">
               <MetricRow
-                label="Нетно спестяване за периода"
+                label={t("dashboard.savings.netPeriodSavings")}
                 value={`€${periodSavings.toFixed(2)}`}
-                subValue={`Постигнато спрямо месечна цел: ${goalProgressPct}%`}
+                subValue={t("dashboard.savings.achievedTargetPct", { pct: goalProgressPct })}
                 tone={periodSavings >= 0 ? "positive" : "negative"}
               />
               <MetricRow
-                label={`Препоръчително заделяне (${savingsTargetPercent}% от €${totalIncome.toFixed(2)})`}
+                label={t("dashboard.savings.recommendedAllocation", {
+                  pct: savingsTargetPercent,
+                  income: totalIncome.toFixed(2),
+                })}
                 value={`€${recommendedSavings.toFixed(2)}`}
                 subValue={
                   totalIncome > 0
                     ? netBalance >= recommendedSavings
-                      ? "Нетният баланс покрива целта ви"
-                      : `Недостиг до целта: €${targetGap.toFixed(2)}`
-                    : "Въведете приходи за автоматично изчисление"
+                      ? t("dashboard.savings.goalCovered")
+                      : t("dashboard.savings.goalGap", { gap: targetGap.toFixed(2) })
+                    : t("dashboard.savings.enterIncomeHint")
                 }
               />
               {savingsAllocationSummary.activeGoals.length > 0 && (
                 <MetricRow
-                  label={`Активни цели (${savingsAllocationSummary.activeGoals.length} бр.)`}
+                  label={t("dashboard.savings.activeGoals", {
+                    count: savingsAllocationSummary.activeGoals.length,
+                  })}
                   value={`€${savingsAllocationSummary.totalAllocated.toFixed(2)}`}
-                  subValue={`Неразпределени: €${savingsAllocationSummary.unallocatedSavings.toFixed(2)}`}
+                  subValue={t("dashboard.savings.unallocated", {
+                    amount: savingsAllocationSummary.unallocatedSavings.toFixed(2),
+                  })}
                 />
               )}
             </div>
@@ -1520,7 +1635,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               data-no-drag="true"
             >
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                <span>Месечна цел (%):</span>
+                <span>{t("dashboard.savings.monthlyGoalPct")}</span>
                 <input
                   type="number"
                   min={0}
@@ -1529,11 +1644,14 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   value={savingsTargetPercent}
                   onChange={(e) => onSavingsTargetChange(e.target.value)}
                   className="w-18 px-2.5 py-1.5 min-h-[38px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  aria-label="Цел за спестяване в проценти"
+                  aria-label={t("dashboard.savings.goalAria")}
                 />
               </label>
               <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                Препоръка: <strong className="text-emerald-600 dark:text-emerald-400">€{recommendedSavings.toFixed(2)}</strong>
+                {t("dashboard.savings.recommendation")}{" "}
+                <strong className="text-emerald-600 dark:text-emerald-400">
+                  €{recommendedSavings.toFixed(2)}
+                </strong>
               </span>
             </div>
           </div>
@@ -1542,7 +1660,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         {isExpanded && savingsAllocationSummary.activeGoals.length > 0 && (
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5 animate-in fade-in duration-150">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Разпределение по спестовни цели
+              {t("dashboard.savings.goalsDistTitle")}
             </p>
             <div className="space-y-2">
               {savingsAllocationSummary.activeGoals.map((goal) => {
@@ -1551,8 +1669,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   <div key={goal.id} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                        {goal.name}
-                        {goal.isEmergencyFund ? " (Авариен фонд)" : ""}
+                        {translateGoalName(goal.name, goal.isEmergencyFund, language)}
+                        {goal.isEmergencyFund && goal.name !== "Авариен фонд"
+                          ? t("dashboard.savings.emergencySuffix")
+                          : ""}
                       </span>
                       <span className="tabular-nums font-bold text-slate-900 dark:text-white shrink-0 ml-2">
                         €{goal.allocatedAmount.toFixed(2)} / €{goal.targetAmount.toFixed(2)} ({pct}%)
@@ -1573,8 +1693,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
         {renderCardFooter({
           hasExpandContent: savingsAllocationSummary.activeGoals.length > 0,
-          expandLabel: `Цели (${savingsAllocationSummary.activeGoals.length})`,
-          primaryActionLabel: "Отвори Спестявания",
+          expandLabel: t("dashboard.savings.goalsExpandLabel", {
+            count: savingsAllocationSummary.activeGoals.length,
+          }),
+          primaryActionLabel: t("dashboard.savings.openSavings"),
           onPrimaryAction: () => onNavigateTab?.("savings"),
         })}
       </div>
@@ -1609,21 +1731,28 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
       sortedDesc.slice(0, 10),
       "asc"
     ).map((r) => ({
-      period: `${r.month.slice(0, 3)} ${String(r.year).slice(-2)}`,
+      period: `${translateMonthName(r.month, language, true)} ${String(r.year).slice(-2)}`,
       cost: Number((r.totalCost || 0).toFixed(2)),
       kwh: Number((r.consumption || 0).toFixed(0)),
     }));
 
     const latestMode = latest ? resolveElectricityMeterMode(latest) : null;
+    const latestPeriodDisplay = latest
+      ? translateElectricityPeriodLabel(latest.periodLabel, language)
+      : currentPeriodLabel;
+    const previousPeriodDisplay = previous
+      ? translateElectricityPeriodLabel(previous.periodLabel, language)
+      : "";
 
     return (
       <div className="rounded-3xl bg-white dark:bg-[#16181d] border border-slate-200/90 dark:border-slate-800/90 p-5 sm:p-6 shadow-xs space-y-5">
         <CardHeader
           title={meta.title}
-          periodLabel={latest ? latest.periodLabel : currentPeriodLabel}
+          periodLabel={latestPeriodDisplay}
           supportsChartToggle
           viewMode={viewMode}
           onToggleViewMode={onToggleViewMode}
+          {...headerToggleProps}
         />
 
         <div className="flex items-end justify-between gap-4">
@@ -1632,10 +1761,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
               <Zap className="w-3.5 h-3.5 text-amber-500" />
               <span>
                 {monthComparisonData.electricity.currentValue > 0
-                  ? `Сметка за ${monthComparisonData.currentMonthLabel}`
+                  ? t("dashboard.electricity.billForMonth", { month: currMonthLabel })
                   : latest
-                  ? `Последна сметка (${latest.periodLabel})`
-                  : "Няма отчетени сметки"}
+                  ? t("dashboard.electricity.lastBill", { period: latestPeriodDisplay })
+                  : t("dashboard.electricity.noBillsYet")}
               </span>
             </span>
             <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-slate-900 dark:text-white">
@@ -1646,7 +1775,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
           monthComparisonData.electricity.previousValue > 0 ? (
             <TrendIndicator
               comparison={monthComparisonData.electricity}
-              subLabel={`сп. ${monthComparisonData.previousMonthLabel}`}
+              subLabel={t("dashboard.spending.vsPrev", { prev: prevMonthLabel })}
             />
           ) : previous && latest ? (
             <TrendIndicator
@@ -1658,17 +1787,17 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   : 0
               }
               fallbackPositive={latest.totalCost <= previous.totalCost}
-              subLabel={`сп. ${previous.periodLabel}`}
+              subLabel={t("dashboard.spending.vsPrev", { prev: previousPeriodDisplay })}
             />
           ) : (
-            <TrendIndicator fallbackPercent={0} subLabel="няма история" />
+            <TrendIndicator fallbackPercent={0} subLabel={t("dashboard.electricity.noHistory")} />
           )}
         </div>
 
         {viewMode === "chart" ? (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Историческа тенденция на сметките за ток (€)
+              {t("dashboard.electricity.trendTitle")}
             </p>
             <div className="h-[220px] w-full">
               {canRenderCharts ? (
@@ -1685,8 +1814,8 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                         contentStyle={chartTooltipStyle}
                         formatter={(val: any, name: any) =>
                           name === "cost"
-                            ? [`€${Number(val).toFixed(2)}`, "Сметка"]
-                            : [`${Number(val).toFixed(0)} kWh`, "Консумация"]
+                            ? [`€${Number(val).toFixed(2)}`, t("dashboard.electricity.billSeries")]
+                            : [`${Number(val).toFixed(0)} kWh`, t("dashboard.electricity.kwhSeries")]
                         }
                       />
                       <Line
@@ -1701,7 +1830,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                    Няма достатъчно записи за графика.
+                    {t("dashboard.electricity.notEnoughForChart")}
                   </div>
                 )
               ) : (
@@ -1712,35 +1841,42 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         ) : latest ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800/80 border-t border-slate-100 dark:border-slate-800/80">
             <MetricRow
-              label="Последно потребление"
+              label={t("dashboard.electricity.lastConsumption")}
               value={
                 latest.consumption > 0
                   ? `${latest.consumption.toFixed(0)} kWh`
-                  : "Без kWh отчет"
+                  : t("dashboard.electricity.noKwhReading")
               }
               subValue={
                 latestMode === "double" && (latest.consT1 > 0 || latest.consT2 > 0)
-                  ? `${getElectricityMeterTypeLabel(latest)} · T1: ${latest.consT1.toFixed(0)} kWh · T2: ${latest.consT2.toFixed(0)} kWh`
-                  : `${getElectricityMeterTypeLabel(latest)}${latest.note ? ` · ${latest.note}` : ""}`
+                  ? `${getElectricityMeterTypeLabel(latest, language)} · T1: ${latest.consT1.toFixed(0)} kWh · T2: ${latest.consT2.toFixed(0)} kWh`
+                  : `${getElectricityMeterTypeLabel(latest, language)}${latest.note ? ` · ${translateElectricityNote(latest.note, language)}` : ""}`
               }
             />
             <MetricRow
-              label="Средна месечна сметка"
+              label={t("dashboard.electricity.avgMonthlyBill")}
               value={`€${avgCost.toFixed(2)}`}
               subValue={
                 avgKwh > 0
-                  ? `Средно потребление: ${avgKwh.toFixed(0)} kWh (${sortedDesc.length} отчета)`
-                  : `Общо ${sortedDesc.length} записа в историята`
+                  ? t("dashboard.electricity.avgConsumptionSub", {
+                      kwh: avgKwh.toFixed(0),
+                      count: sortedDesc.length,
+                    })
+                  : t("dashboard.electricity.totalRecordsSub", {
+                      count: sortedDesc.length,
+                    })
               }
             />
             {previous && (
               <MetricRow
-                label={`Предходен запис (${previous.periodLabel})`}
+                label={t("dashboard.electricity.previousRecord", {
+                  period: previousPeriodDisplay,
+                })}
                 value={`€${previous.totalCost.toFixed(2)}`}
                 subValue={
                   previous.consumption > 0
                     ? `${previous.consumption.toFixed(0)} kWh`
-                    : previous.note
+                    : translateElectricityNote(previous.note, language)
                 }
               />
             )}
@@ -1748,10 +1884,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         ) : (
           <div className="py-6 text-center space-y-1">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-              Все още няма записани сметки за ток
+              {t("dashboard.electricity.emptyTitle")}
             </p>
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              Използвайте калкулатора ТОК за точно разпределение и история.
+              {t("dashboard.electricity.emptyHint")}
             </p>
           </div>
         )}
@@ -1759,7 +1895,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         {isExpanded && sortedDesc.length > 0 && (
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2 animate-in fade-in duration-150">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 pt-1">
-              Последни отчетени периоди
+              {t("dashboard.electricity.recentPeriods")}
             </p>
             <div className="divide-y divide-slate-100 dark:divide-slate-800/70">
               {sortedDesc.slice(0, 5).map((rec) => (
@@ -1769,10 +1905,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                 >
                   <div className="min-w-0">
                     <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {rec.periodLabel}
+                      {translateElectricityPeriodLabel(rec.periodLabel, language)}
                     </span>
                     <span className="text-slate-400 dark:text-slate-500 ml-2">
-                      {getElectricityMeterTypeLabel(rec)}
+                      {getElectricityMeterTypeLabel(rec, language)}
                       {rec.consumption > 0 ? ` · ${rec.consumption.toFixed(0)} kWh` : ""}
                     </span>
                   </div>
@@ -1787,8 +1923,10 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
         {renderCardFooter({
           hasExpandContent: sortedDesc.length > 1,
-          expandLabel: `История (${sortedDesc.length} сметки)`,
-          primaryActionLabel: "Калкулатор ТОК",
+          expandLabel: t("dashboard.electricity.historyExpandLabel", {
+            count: sortedDesc.length,
+          }),
+          primaryActionLabel: t("dashboard.electricity.calculatorBtn"),
           onPrimaryAction: () => onNavigateTab?.("electricity"),
         })}
       </div>
@@ -1811,10 +1949,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         periodLabel={currentPeriodLabel}
         viewMode={viewMode}
         onToggleViewMode={onToggleViewMode}
+        {...headerToggleProps}
         rightBadge={
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 shrink-0">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{aiAnalysis.healthScore.rating}</span>
+            <span>{translateHealthRating(aiAnalysis.healthScore.rating, language)}</span>
           </span>
         }
       />
@@ -1823,7 +1962,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         <div>
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Финансов здравен индекс</span>
+            <span>{t("dashboard.ai.healthIndex")}</span>
           </span>
           <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-slate-900 dark:text-white">
             {score}
@@ -1834,10 +1973,11 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         </div>
         <div className="text-right shrink-0">
           <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums block">
-            +{aiAnalysis.healthScore.monthlySavingsPotential.toFixed(0)} €/мес
+            +{aiAnalysis.healthScore.monthlySavingsPotential.toFixed(0)}{" "}
+            {t("dashboard.ai.perMonthUnit")}
           </span>
           <span className="text-[11px] text-slate-400 dark:text-slate-500">
-            потенциал за спестяване
+            {t("dashboard.ai.savingsPotential")}
           </span>
         </div>
       </div>
@@ -1846,15 +1986,15 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
       <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-100 dark:border-slate-800/80">
         <div>
           <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-            Наблюдения
+            {t("dashboard.ai.insightsCount")}
           </span>
           <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tabular-nums mt-0.5 block">
-            {aiAnalysis.insights.length} бр.
+            {aiAnalysis.insights.length} {t("common.pcs")}
           </span>
         </div>
         <div>
           <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-            Аномалии / приоритетни
+            {t("dashboard.ai.anomaliesCount")}
           </span>
           <span
             className={`text-sm sm:text-base font-bold tabular-nums mt-0.5 block ${
@@ -1863,15 +2003,15 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
                 : "text-slate-900 dark:text-white"
             }`}
           >
-            {anomalyCount} бр.
+            {anomalyCount} {t("common.pcs")}
           </span>
         </div>
         <div className="text-right">
           <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-            Буфер (месеци)
+            {t("dashboard.ai.bufferMonths")}
           </span>
           <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tabular-nums mt-0.5 block">
-            {aiAnalysis.healthScore.runwayMonths.toFixed(1)} мес.
+            {aiAnalysis.healthScore.runwayMonths.toFixed(1)} {t("dashboard.ai.monthsUnit")}
           </span>
         </div>
       </div>
@@ -1899,7 +2039,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             ))
           ) : (
             <p className="py-4 text-xs text-slate-500 dark:text-slate-400 text-center">
-              Добавете повече данни за персонализирани предложения за оптимизация.
+              {t("dashboard.ai.emptyHint")}
             </p>
           )}
         </div>
@@ -1914,8 +2054,8 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
       {renderCardFooter({
         hasExpandContent: true,
-        expandLabel: "Детайлни препоръки",
-        primaryActionLabel: "Пълен AI Анализ",
+        expandLabel: t("dashboard.ai.detailedRecs"),
+        primaryActionLabel: t("dashboard.ai.fullAnalysis"),
         onPrimaryAction: () => onNavigateTab?.("ai-analysis"),
       })}
     </div>

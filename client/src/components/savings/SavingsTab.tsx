@@ -33,6 +33,14 @@ import {
   parseDecimalInput,
   compareExpensesChronologically,
 } from "@/utils/formatting";
+import {
+  formatFullMonthIndex,
+  formatLocalizedDate,
+  formatShortMonthIndex,
+  pluralizeUnit,
+  translateCategoryName,
+  useI18n,
+} from "@/i18n";
 
 // Map за lucide-react иконките (използва се по iconName)
 const ICON_MAP: Record<string, any> = {
@@ -127,6 +135,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   onTriggerSync,
 }) => {
   const { isDark } = useTheme();
+  const { t, language } = useI18n();
   const [categories, setCategories] = useState<ExpenseCategory[]>(() =>
     loadStoredIncomeCategories(),
   );
@@ -515,7 +524,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     textAnchor="middle"
                     className="text-[12px] fill-slate-500 dark:fill-slate-400 font-semibold uppercase tracking-wide"
                   >
-                    {MONTHS_SHORT[index]}
+                    {formatShortMonthIndex(index, language)}
                   </text>
                 </g>
               );
@@ -533,10 +542,10 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <PiggyBank className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-            Спестявания
+            {t("savings.mainTitle")}
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Общ баланс и история (Lifetime)
+            {t("savings.mainSubtitle")}
           </p>
         </div>
 
@@ -550,10 +559,10 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               }
             }}
             className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
-            title="Добави спестяване / приход"
+            title={t("savings.addTooltip")}
           >
             <Plus className="w-4 h-4" />
-            <span>Добави</span>
+            <span>{t("savings.addShortBtn")}</span>
           </button>
 
           <button
@@ -565,24 +574,24 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               }
             }}
             className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200/80 dark:border-red-900/60 rounded-xl text-xs sm:text-sm font-semibold hover:bg-red-100 dark:hover:bg-red-900/60 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            title="Извади сума"
+            title={t("savings.withdrawTooltip")}
           >
             <Minus className="w-4 h-4" />
-            <span>Извади</span>
+            <span>{t("savings.withdrawShortBtn")}</span>
           </button>
 
           <button
             onClick={() => setIsExportModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs sm:text-sm font-semibold transition-colors shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
-            title="Експорт на спестявания в текстов файл"
+            title={t("savings.exportTooltip")}
           >
             <Download className="w-4 h-4" />
-            <span>Експорт</span>
+            <span>{t("savings.exportBtn")}</span>
           </button>
 
           <div className="text-right pl-2 sm:pl-3 border-l border-slate-100 dark:border-slate-800">
             <span className="text-[11px] text-slate-500 dark:text-slate-400 block uppercase tracking-wider font-medium">
-              Налични средства
+              {t("savings.availableFundsLabel")}
             </span>
             <span
               className={`text-xl sm:text-2xl font-black tabular-nums ${totalBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}
@@ -604,8 +613,8 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
           <button
             onClick={() => setIsAdding(false)}
             className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-            title="Затвори"
-            aria-label="Затвори"
+            title={t("common.close")}
+            aria-label={t("common.close")}
           >
             <X className="w-5 h-5" />
           </button>
@@ -618,7 +627,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
             ) : (
               <Minus className="w-4 h-4" />
             )}
-            {transactionType === "income" ? "Добави спестяване / приход" : "Извади сума"}
+            {transactionType === "income"
+              ? t("savings.addTooltip")
+              : t("savings.withdrawTooltip")}
           </h4>
 
           <div className="space-y-4">
@@ -626,7 +637,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               {/* Category Selector Trigger */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Категория
+                  {t("common.category")}
                 </label>
                 <button
                   onClick={() => setShowCategoryPicker(true)}
@@ -649,11 +660,11 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                           <div className="w-2 h-2 rounded-full bg-current" />
                         )}
                       </span>
-                      {selectedCategory.name}
+                      {translateCategoryName(selectedCategory.name, language)}
                     </span>
                   ) : (
                     <span className="text-slate-500 dark:text-slate-400">
-                      Избери категория...
+                      {t("savings.chooseCategoryPlaceholder")}
                     </span>
                   )}
                   <Plus className="w-4 h-4 text-slate-500 dark:text-slate-400" />
@@ -661,7 +672,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               </div>
 
               <InputGroup
-                label="Сума (EUR)"
+                label={t("savings.amountEurLabel")}
                 value={amount}
                 onChange={setAmount}
                 placeholder="0.00"
@@ -670,7 +681,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Бележка (опционално)
+                {t("savings.goalModal.noteLabel")}
               </label>
               <input
                 type="text"
@@ -695,13 +706,15 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                   ${transactionType === "income" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}
                 `}
               >
-                {transactionType === "income" ? "Добави" : "Извади"}
+                {transactionType === "income"
+                  ? t("savings.addShortBtn")
+                  : t("savings.withdrawShortBtn")}
               </button>
               <button
                 onClick={() => setIsAdding(false)}
                 className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-semibold transition-colors"
               >
-                Отказ
+                {t("common.cancel")}
               </button>
             </div>
           </div>
@@ -720,10 +733,16 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
         <div className="space-y-4 order-2 lg:order-1">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-slate-700 dark:text-slate-200">
-              История на транзакциите
+              {t("savings.transactionsHistoryTitle")}
             </h3>
             <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums">
-              {savingsData.length} {savingsData.length === 1 ? "запис" : "записа"}
+              {savingsData.length}{" "}
+              {pluralizeUnit(
+                savingsData.length,
+                "common.entriesSingular",
+                "common.entriesPlural",
+                language
+              )}
             </span>
           </div>
 
@@ -755,10 +774,10 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     </div>
                     <div>
                       <p className="font-medium text-slate-800 dark:text-slate-100">
-                        {item.categoryName}
+                        {translateCategoryName(item.categoryName, language)}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {new Date(item.date).toLocaleDateString("bg-BG")}
+                        {formatLocalizedDate(item.date, language)}
                       </p>
                       {item.note && (
                         <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 italic">
@@ -777,8 +796,8 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                     <button
                       onClick={() => setPendingDeleteTx(item)}
                       className="min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center p-2 text-slate-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                      title="Изтрий транзакция"
-                      aria-label="Изтрий транзакция"
+                      title={t("savings.deleteTxTooltip")}
+                      aria-label={t("savings.deleteTxTooltip")}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -789,7 +808,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
             {savingsData.length === 0 && (
               <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                 <PiggyBank className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                <p>Все още няма записи</p>
+                <p>{t("savings.noEntriesYet")}</p>
               </div>
             )}
           </div>
@@ -800,13 +819,13 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
           <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 sticky top-6 transition-colors">
             <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-6 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-blue-500" />
-              Месечен растеж
+              {t("savings.monthlyGrowthTitle")}
             </h3>
             {savingsData.length > 0 ? (
               renderMonthlyGrowthChart()
             ) : (
               <div className="h-[200px] flex items-center justify-center text-slate-500 dark:text-slate-400">
-                Няма достатъчно данни за графиката
+                {t("savings.notEnoughChartData")}
               </div>
             )}
           </div>
@@ -830,7 +849,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
         isOpen={Boolean(pendingDeleteTx)}
         detailLabel={
           pendingDeleteTx
-            ? `${pendingDeleteTx.categoryName} (${pendingDeleteTx.type === "expense" ? "-" : "+"}€${pendingDeleteTx.amount.toFixed(2)})`
+            ? `${translateCategoryName(pendingDeleteTx.categoryName, language)} (${pendingDeleteTx.type === "expense" ? "-" : "+"}€${pendingDeleteTx.amount.toFixed(2)})`
             : undefined
         }
         onCancel={() => setPendingDeleteTx(null)}
@@ -851,13 +870,14 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-800 dark:text-white">Експорт на спестявания</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Сваляне на транзакции в текстов (.txt) файл</p>
+                  <h3 className="text-base font-bold text-slate-800 dark:text-white">{t("savings.exportModal.title")}</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{t("savings.exportModal.subtitle")}</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsExportModalOpen(false)}
                 className="text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md cursor-pointer"
+                aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -866,7 +886,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-2">
-                  Изберете период за експорт:
+                  {t("savings.exportModal.scopeLabel")}
                 </label>
                 <div className="space-y-2">
                   <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors">
@@ -878,8 +898,8 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       className="text-emerald-600 focus:ring-emerald-500"
                     />
                     <div className="text-sm">
-                      <span className="font-medium text-slate-700 dark:text-slate-200 block">Всички транзакции</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">Пълна история на спестяванията</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeAll")}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{t("savings.exportModal.scopeAllDesc")}</span>
                     </div>
                   </label>
 
@@ -892,9 +912,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       className="text-emerald-600 focus:ring-emerald-500"
                     />
                     <div className="text-sm">
-                      <span className="font-medium text-slate-700 dark:text-slate-200 block">Текущ месец</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeCurrentMonth")}</span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">
-                        {new Date().toLocaleDateString("bg-BG", { month: "long" })} {new Date().getFullYear()}
+                        {formatFullMonthIndex(new Date().getMonth(), language)} {new Date().getFullYear()}
                       </span>
                     </div>
                   </label>
@@ -908,8 +928,10 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       className="text-emerald-600 focus:ring-emerald-500"
                     />
                     <div className="text-sm">
-                      <span className="font-medium text-slate-700 dark:text-slate-200 block">Текуща година</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">{currentYear} година</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeCurrentYear")}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {t("savings.exportModal.scopeCurrentYearDesc", { year: currentYear })}
+                      </span>
                     </div>
                   </label>
 
@@ -922,8 +944,8 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       className="text-emerald-600 focus:ring-emerald-500"
                     />
                     <div className="text-sm">
-                      <span className="font-medium text-slate-700 dark:text-slate-200 block">Конкретен диапазон от дати</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">Избор на начална и крайна дата</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeCustomRange")}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{t("savings.exportModal.scopeCustomRangeDesc")}</span>
                     </div>
                   </label>
                 </div>
@@ -933,7 +955,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 animate-in fade-in duration-150">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 block mb-1">От дата:</label>
+                      <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 block mb-1">{t("savings.exportModal.fromDateLabel")}</label>
                       <input
                         type="date"
                         value={exportStartDate}
@@ -942,7 +964,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 block mb-1">До дата:</label>
+                      <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 block mb-1">{t("savings.exportModal.toDateLabel")}</label>
                       <input
                         type="date"
                         value={exportEndDate}
@@ -955,9 +977,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
               )}
 
               <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex justify-between items-center">
-                <span>Включени транзакции:</span>
+                <span>{t("savings.exportModal.includedTransactionsLabel")}</span>
                 <span className="font-bold">
-                  {getFilteredSavingsTransactions().length} бр.
+                  {getFilteredSavingsTransactions().length} {t("common.pcs")}
                 </span>
               </div>
             </div>
@@ -967,7 +989,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 onClick={() => setIsExportModalOpen(false)}
                 className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               >
-                Отказ
+                {t("common.cancel")}
               </button>
               <button
                 onClick={handleExportTxt}
@@ -975,7 +997,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                Свали .txt файл
+                {t("savings.exportModal.downloadTxtBtn")}
               </button>
             </div>
           </div>

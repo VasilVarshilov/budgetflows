@@ -28,6 +28,7 @@ import { BackupRestoreSection } from "@/components/backup/BackupRestoreSection";
 import { BudgetManagementTab } from "@/components/budgets/BudgetManagementTab";
 import { AiAnalysisTab } from "@/components/analysis/AiAnalysisTab";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { ThemeProvider } from "@/utils/themeContext";
 import { CloudSyncProvider, useCloudSync } from "@/utils/cloudSyncContext";
@@ -36,10 +37,15 @@ import {
   BrandHeaderLockup,
   BrandSplashLockup,
   APP_NAME,
-  APP_TAGLINE,
 } from "@/components/brand/BrandLogo";
 import { AboutModal } from "@/components/brand/AboutModal";
 import { Cloud, DownloadCloud, Info, LogIn, Share2, UploadCloud, AlertTriangle } from "lucide-react";
+import {
+  I18nProvider,
+  useI18n,
+  formatLocalizedMonthYear,
+  formatLocalizedDateTime,
+} from "@/i18n";
 
 // Utils & Types
 import { getCurrentMonthBulgarian } from "@/utils/formatting";
@@ -87,22 +93,21 @@ import {
 
 type Tab = "dashboard" | "monthly" | "income" | "calendar" | "electricity" | "reports" | "savings" | "budgets" | "ai-analysis" | "backup";
 
-interface NavTabItem {
+interface NavTabConfig {
   id: Tab;
-  label: string;
-  shortLabel?: string;
-  description?: string;
+  labelKey: string;
+  descriptionKey: string;
   icon: React.ComponentType<{ className?: string }>;
   accentColor: string;
   drawerActiveClass: string;
   drawerIconClass: string;
 }
 
-const NAV_TABS: NavTabItem[] = [
+const NAV_TAB_CONFIGS: NavTabConfig[] = [
   {
     id: "dashboard",
-    label: "Табло",
-    description: "Обобщен преглед на финансите",
+    labelKey: "nav.dashboard",
+    descriptionKey: "nav.descriptions.dashboard",
     icon: LayoutDashboard,
     accentColor: "text-indigo-600 dark:text-indigo-400",
     drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
@@ -110,8 +115,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "monthly",
-    label: "Разходи",
-    description: "Повтарящи се и допълнителни разходи",
+    labelKey: "nav.monthly",
+    descriptionKey: "nav.descriptions.monthly",
     icon: Calendar,
     accentColor: "text-blue-600 dark:text-blue-400",
     drawerActiveClass: "bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 font-bold border border-blue-200 dark:border-blue-900",
@@ -119,8 +124,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "income",
-    label: "Приходи",
-    description: "Месечни приходи и шаблони",
+    labelKey: "nav.income",
+    descriptionKey: "nav.descriptions.income",
     icon: Banknote,
     accentColor: "text-emerald-600 dark:text-emerald-400",
     drawerActiveClass: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900",
@@ -128,8 +133,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "savings",
-    label: "Спестявания",
-    description: "Спестовен фонд и баланс",
+    labelKey: "nav.savings",
+    descriptionKey: "nav.descriptions.savings",
     icon: PiggyBank,
     accentColor: "text-emerald-600 dark:text-emerald-400",
     drawerActiveClass: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-200 dark:border-emerald-900",
@@ -137,8 +142,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "calendar",
-    label: "Календар",
-    description: "Финансов календар по дати",
+    labelKey: "nav.calendar",
+    descriptionKey: "nav.descriptions.calendar",
     icon: CalendarDays,
     accentColor: "text-indigo-600 dark:text-indigo-400",
     drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
@@ -146,8 +151,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "budgets",
-    label: "Бюджет",
-    description: "Месечен бюджет и контрол на разходите",
+    labelKey: "nav.budgets",
+    descriptionKey: "nav.descriptions.budgets",
     icon: Target,
     accentColor: "text-rose-600 dark:text-rose-400",
     drawerActiveClass: "bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 font-bold border border-rose-200 dark:border-rose-900",
@@ -155,8 +160,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "reports",
-    label: "Отчети",
-    description: "Месечни отчети и разпределение",
+    labelKey: "nav.reports",
+    descriptionKey: "nav.descriptions.reports",
     icon: PieChart,
     accentColor: "text-purple-600 dark:text-purple-400",
     drawerActiveClass: "bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-bold border border-purple-200 dark:border-purple-900",
@@ -164,8 +169,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "electricity",
-    label: "ТОК",
-    description: "Калкулатор и история на тока",
+    labelKey: "nav.electricity",
+    descriptionKey: "nav.descriptions.electricity",
     icon: Zap,
     accentColor: "text-amber-500 dark:text-amber-400",
     drawerActiveClass: "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold border border-amber-200 dark:border-amber-900",
@@ -173,8 +178,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "ai-analysis",
-    label: "AI Анализ",
-    description: "Автоматични финансови препоръки",
+    labelKey: "nav.aiAnalysis",
+    descriptionKey: "nav.descriptions.aiAnalysis",
     icon: Sparkles,
     accentColor: "text-amber-500 dark:text-amber-400",
     drawerActiveClass: "bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold border border-amber-200 dark:border-amber-900",
@@ -182,8 +187,8 @@ const NAV_TABS: NavTabItem[] = [
   },
   {
     id: "backup",
-    label: "Архив",
-    description: "Облачен архив & Google Drive",
+    labelKey: "nav.backup",
+    descriptionKey: "nav.descriptions.backup",
     icon: FolderArchive,
     accentColor: "text-slate-600 dark:text-slate-300",
     drawerActiveClass: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 font-bold border border-indigo-200 dark:border-indigo-900",
@@ -191,10 +196,11 @@ const NAV_TABS: NavTabItem[] = [
   },
 ];
 
-const MOBILE_PRIMARY_TABS = NAV_TABS.slice(0, 5);
-const MOBILE_MORE_TABS = NAV_TABS.slice(5);
+const MOBILE_PRIMARY_TABS = NAV_TAB_CONFIGS.slice(0, 5);
+const MOBILE_MORE_TABS = NAV_TAB_CONFIGS.slice(5);
 
 const AppContent: React.FC = () => {
+  const { language, t } = useI18n();
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
   const [pendingRecordTarget, setPendingRecordTarget] = useState<OpenRecordTarget | null>(null);
@@ -1122,8 +1128,8 @@ const AppContent: React.FC = () => {
               <Loader2 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 animate-spin shrink-0" />
               <span>
                 {isSwitchingAccount
-                  ? "Превключване на профил и зареждане на данни..."
-                  : "Зареждане на финансите..."}
+                  ? t("header.switchingProfile")
+                  : t("header.loadingFinances")}
               </span>
             </div>
           }
@@ -1134,11 +1140,12 @@ const AppContent: React.FC = () => {
 
   const handleShareApp = async () => {
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const tagline = t("brand.tagline");
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({
           title: APP_NAME,
-          text: `${APP_NAME} — ${APP_TAGLINE}`,
+          text: `${APP_NAME} — ${tagline}`,
           url: shareUrl,
         });
         return;
@@ -1148,7 +1155,7 @@ const AppContent: React.FC = () => {
     }
     try {
       if (typeof navigator !== "undefined" && navigator.clipboard && shareUrl) {
-        await navigator.clipboard.writeText(`${APP_NAME} — ${APP_TAGLINE}\n${shareUrl}`);
+        await navigator.clipboard.writeText(`${APP_NAME} — ${tagline}\n${shareUrl}`);
         setShareCopied(true);
         setTimeout(() => setShareCopied(false), 3000);
       }
@@ -1166,7 +1173,7 @@ const AppContent: React.FC = () => {
             <div className="flex items-center gap-2 min-w-0">
               <BrandHeaderLockup />
               <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap shrink-0">
-                {currentMonth}
+                {formatLocalizedMonthYear(currentMonth, language)}
               </span>
             </div>
 
@@ -1184,17 +1191,17 @@ const AppContent: React.FC = () => {
                         onClick={() => {
                           reconnectGoogleDrive().catch(() => setActiveTab("backup"));
                         }}
-                        title="Има несинхронизирани промени — натиснете за 1-клик синхронизация с Google Drive"
+                        title={t("header.unsyncedTooltip")}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-[11px] font-semibold text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
                       >
                         <UploadCloud className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                        <span className="hidden sm:inline">Синхронизирай</span>
+                        <span className="hidden sm:inline">{t("header.syncBtn")}</span>
                       </button>
                     )}
                   <button
                     type="button"
                     onClick={() => setActiveTab("backup")}
-                    title={`Google Drive: ${displayUser.email || "Свързан"}`}
+                    title={`Google Drive: ${displayUser.email || t("header.connectedLabel")}`}
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
                   >
                     {displayUser.photoURL ? (
@@ -1229,22 +1236,22 @@ const AppContent: React.FC = () => {
                       }`}
                       title={
                         !isOnline
-                          ? "Офлайн"
+                          ? t("header.cloudOfflineShort")
                           : isRestoringDriveSession
-                          ? "Възстановяване на Drive сесията..."
+                          ? t("header.driveRestoringSession")
                           : syncConflict
-                          ? "Открит е конфликт между локална и облачна версия"
+                          ? t("header.syncConflictTitle")
                           : driveSessionStatus === "needs_reauth"
-                          ? "Има несинхронизирани промени — подновете Drive достъпа"
+                          ? t("header.cloudNeedsReauth")
                           : syncStatus === "syncing"
-                          ? "Синхронизиране..."
+                          ? t("header.cloudSyncingShort")
                           : driveSessionStatus === "standby"
-                          ? "Сесията е активна • Синхронизирано с Google Drive"
+                          ? t("header.driveStandby")
                           : syncStatus === "synced"
-                          ? "Drive Connected ✅ • Синхронизирано"
+                          ? t("header.driveConnectedSynced")
                           : syncStatus === "failed"
-                          ? "Грешка при синхронизация"
-                          : "Drive Connected ✅"
+                          ? t("header.cloudError")
+                          : t("header.driveConnected")
                       }
                     />
                   </button>
@@ -1255,15 +1262,16 @@ const AppContent: React.FC = () => {
                   onClick={() => {
                     loginWithGoogle().catch(() => setActiveTab("backup"));
                   }}
-                  title="Вход с Google и облачна синхронизация"
+                  title={t("header.loginTooltip")}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
                 >
                   <LogIn className="w-3.5 h-3.5" />
-                  <span className="text-[11px] hidden sm:inline">Вход с Google</span>
-                  <span className="text-[11px] sm:hidden">Вход</span>
+                  <span className="text-[11px] hidden sm:inline">{t("header.signInWithGoogle")}</span>
+                  <span className="text-[11px] sm:hidden">{t("header.signInShort")}</span>
                 </button>
               )}
 
+              <LanguageSwitcher />
               <ThemeToggle />
 
               <NotificationCenter
@@ -1285,12 +1293,13 @@ const AppContent: React.FC = () => {
           {/* Row 2: Desktop Navigation (Hidden on mobile < md, visible on desktop >= md) */}
           <div className="py-2 hidden md:block">
             <nav
-              aria-label="Основна навигация"
+              aria-label={t("nav.desktopNavAria")}
               className="grid grid-cols-10 gap-1 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
             >
-              {NAV_TABS.map((tab) => {
+              {NAV_TAB_CONFIGS.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
+                const label = t(tab.labelKey);
                 return (
                   <button
                     key={tab.id}
@@ -1307,10 +1316,7 @@ const AppContent: React.FC = () => {
                         isActive ? tab.accentColor : "text-slate-500 dark:text-slate-400"
                       }`}
                     />
-                    <span className="truncate">
-                      <span className="hidden xl:inline">{tab.label}</span>
-                      <span className="xl:hidden">{tab.shortLabel || tab.label}</span>
-                    </span>
+                    <span className="truncate">{label}</span>
                   </button>
                 );
               })}
@@ -1430,7 +1436,7 @@ const AppContent: React.FC = () => {
             </span>
             <span aria-hidden="true">·</span>
             <span className="text-indigo-600 dark:text-indigo-400 font-medium">
-              {APP_TAGLINE}
+              {t("brand.tagline")}
             </span>
           </div>
           <div className="flex items-center gap-4">
@@ -1440,7 +1446,7 @@ const AppContent: React.FC = () => {
               className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-white font-medium transition-colors cursor-pointer"
             >
               <Info className="w-3.5 h-3.5" />
-              <span>За приложението</span>
+              <span>{t("header.aboutApp")}</span>
             </button>
             <button
               type="button"
@@ -1448,7 +1454,7 @@ const AppContent: React.FC = () => {
               className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors cursor-pointer"
             >
               <Share2 className="w-3.5 h-3.5" />
-              <span>{shareCopied ? "Копирано!" : "Сподели"}</span>
+              <span>{shareCopied ? t("header.copiedShort") : t("brand.share")}</span>
             </button>
           </div>
         </div>
@@ -1473,17 +1479,17 @@ const AppContent: React.FC = () => {
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                  Още функции
+                  {t("header.moreTitle")}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Допълнителни инструменти и настройки
+                  {t("header.moreSubtitle")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsMobileMoreOpen(false)}
                 className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                aria-label="Затвори менюто"
+                aria-label={t("header.closeMenuAria")}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1509,12 +1515,10 @@ const AppContent: React.FC = () => {
                         <Icon className="w-5 h-5" />
                       </div>
                       <div className="text-left">
-                        <span className="text-sm font-bold block">{tab.label}</span>
-                        {tab.description && (
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
-                            {tab.description}
-                          </span>
-                        )}
+                        <span className="text-sm font-bold block">{t(tab.labelKey)}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          {t(tab.descriptionKey)}
+                        </span>
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-400" />
@@ -1528,7 +1532,7 @@ const AppContent: React.FC = () => {
 
       {/* Mobile Bottom Navigation Bar (md:hidden) */}
       <nav
-        aria-label="Мобилна навигация"
+        aria-label={t("header.mobileNavBarAria")}
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg"
       >
         <div className="grid grid-cols-6 items-center h-16 px-1">
@@ -1548,7 +1552,7 @@ const AppContent: React.FC = () => {
               >
                 <Icon className="w-5 h-5 mb-0.5" />
                 <span className="text-[10px] tracking-tight truncate max-w-full px-0.5">
-                  {tab.shortLabel || tab.label}
+                  {t(tab.labelKey)}
                 </span>
               </button>
             );
@@ -1565,7 +1569,7 @@ const AppContent: React.FC = () => {
             }`}
           >
             <SlidersHorizontal className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] tracking-tight">Още</span>
+            <span className="text-[10px] tracking-tight">{t("nav.more")}</span>
           </button>
         </div>
       </nav>
@@ -1594,13 +1598,13 @@ const AppContent: React.FC = () => {
                   <div>
                     <h3 className="font-bold text-slate-900 dark:text-white text-base">
                       {syncConflict.reason === "fresh_device"
-                        ? "Открит е облачен архив в Google Drive"
+                        ? t("backup.conflictModal.freshTitle")
                         : syncConflict.reason === "cloud_newer"
-                        ? "Открита е по-нова версия в Google Drive"
-                        : "Различни промени локално и в Google Drive"}
+                        ? t("backup.conflictModal.cloudNewerTitle")
+                        : t("backup.conflictModal.divergedTitle")}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {user?.email || "Вашият Google акаунт"}
+                      {user?.email || t("backup.conflictModal.yourAccountFallback")}
                     </p>
                   </div>
                 </div>
@@ -1615,46 +1619,44 @@ const AppContent: React.FC = () => {
 
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                 {syncConflict.reason === "fresh_device"
-                  ? "На това устройство все още няма локални записи, но в Google Drive (appDataFolder) е наличен архив. За безопасност системата не презаписва данни автоматично."
-                  : "За да не загубите нито един локално добавен разход или запис от друго устройство, изберете кое действие да се приложи:"}
+                  ? t("backup.conflictModal.freshBody")
+                  : t("backup.conflictModal.divergedBody")}
               </p>
 
               {/* Version Comparison Summary */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
                   <div className="font-bold text-slate-800 dark:text-slate-200">
-                    Локална версия
+                    {t("backup.conflictModal.localVersionTitle")}
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     {syncConflict.localUpdatedAt
-                      ? new Date(syncConflict.localUpdatedAt).toLocaleString("bg-BG", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })
-                      : "Няма отбелязана промяна"}
+                      ? formatLocalizedDateTime(syncConflict.localUpdatedAt, language)
+                      : t("backup.conflictModal.noRecordedChange")}
                   </div>
                   <div className="mt-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300">
-                    Разходи: {syncConflict.localSummary.expensesCount} • Приходи:{" "}
-                    {syncConflict.localSummary.incomeCount}
+                    {t("backup.conflictModal.countsLine", {
+                      expenses: syncConflict.localSummary.expensesCount,
+                      incomes: syncConflict.localSummary.incomeCount,
+                    })}
                   </div>
                 </div>
 
                 <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70">
                   <div className="font-bold text-emerald-900 dark:text-emerald-200">
-                    Облачна версия (Drive)
+                    {t("backup.conflictModal.cloudVersionTitle")}
                   </div>
                   <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400 mt-0.5">
                     {syncConflict.cloudUpdatedAt
-                      ? new Date(syncConflict.cloudUpdatedAt).toLocaleString("bg-BG", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })
-                      : "Наличен архив"}
+                      ? formatLocalizedDateTime(syncConflict.cloudUpdatedAt, language)
+                      : t("backup.conflictModal.availableArchive")}
                   </div>
                   {syncConflict.cloudBackup && (
                     <div className="mt-1.5 text-[11px] font-medium text-emerald-900 dark:text-emerald-200">
-                      Разходи: {syncConflict.cloudBackup.summary.expensesCount} • Приходи:{" "}
-                      {syncConflict.cloudBackup.summary.incomeCount}
+                      {t("backup.conflictModal.countsLine", {
+                        expenses: syncConflict.cloudBackup.summary.expensesCount,
+                        incomes: syncConflict.cloudBackup.summary.incomeCount,
+                      })}
                     </div>
                   )}
                 </div>
@@ -1683,7 +1685,7 @@ const AppContent: React.FC = () => {
                     ) : (
                       <UploadCloud className="w-4 h-4" />
                     )}
-                    <span>Използвай локалните данни</span>
+                    <span>{t("backup.useLocalBtn")}</span>
                   </button>
                 )}
 
@@ -1702,8 +1704,8 @@ const AppContent: React.FC = () => {
                     <DownloadCloud className="w-4 h-4" />
                     <span>
                       {syncConflict.reason === "fresh_device"
-                        ? "Възстанови от Google Drive"
-                        : "Възстанови облачния архив (Merge)"}
+                        ? t("backup.conflictModal.restoreFromDrive")
+                        : t("backup.restoreMergeBtn")}
                     </span>
                   </button>
                 )}
@@ -1713,7 +1715,7 @@ const AppContent: React.FC = () => {
                   onClick={() => setIsGlobalRestoreModalOpen(true)}
                   className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
                 >
-                  Още опции (Replace / Преглед)
+                  {t("backup.conflictModal.moreOptions")}
                 </button>
               </div>
             </div>
@@ -1734,10 +1736,10 @@ const AppContent: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                      Открит е облачен архив в Google Drive
+                      {t("backup.conflictModal.freshTitle")}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {user?.email || "Вашият Google акаунт"}
+                      {user?.email || t("backup.conflictModal.yourAccountFallback")}
                     </p>
                   </div>
                 </div>
@@ -1751,11 +1753,14 @@ const AppContent: React.FC = () => {
               </div>
 
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                В това устройство все още няма заредени данни за този акаунт, но в Google Drive (<code>appDataFolder</code>) има запазен архив{" "}
-                {pendingRestoreOffer.fileInfo.modifiedTime
-                  ? `от ${new Date(pendingRestoreOffer.fileInfo.modifiedTime).toLocaleString("bg-BG", { dateStyle: "short", timeStyle: "short" })}`
-                  : ""}
-                . Желаете ли да възстановите данните си веднага?
+                {t("backup.conflictModal.restoreOfferBody", {
+                  datePart: pendingRestoreOffer.fileInfo.modifiedTime
+                    ? `${t("backup.conflictModal.ofDatePrefix")}${formatLocalizedDateTime(
+                        pendingRestoreOffer.fileInfo.modifiedTime,
+                        language
+                      )}`
+                    : "",
+                })}
               </p>
 
               <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5 pt-2">
@@ -1764,7 +1769,7 @@ const AppContent: React.FC = () => {
                   onClick={dismissRestoreOffer}
                   className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                 >
-                  По-късно
+                  {t("backup.conflictModal.laterBtn")}
                 </button>
                 <button
                   type="button"
@@ -1772,7 +1777,7 @@ const AppContent: React.FC = () => {
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer"
                 >
                   <DownloadCloud className="w-4 h-4" />
-                  <span>Възстанови от Google Drive</span>
+                  <span>{t("backup.conflictModal.restoreFromDrive")}</span>
                 </button>
               </div>
             </div>
@@ -1794,11 +1799,13 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <ThemeProvider>
-      <CloudSyncProvider>
-        <AppContent />
-      </CloudSyncProvider>
-    </ThemeProvider>
+    <I18nProvider>
+      <ThemeProvider>
+        <CloudSyncProvider>
+          <AppContent />
+        </CloudSyncProvider>
+      </ThemeProvider>
+    </I18nProvider>
   );
 };
 

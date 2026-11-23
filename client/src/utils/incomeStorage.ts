@@ -10,6 +10,13 @@ import {
   STORAGE_BASE_RECURRING_INCOMES,
   STORAGE_BASE_SETTINGS,
 } from "./userStorage";
+import {
+  formatShortMonthIndex,
+  getCurrentLanguage,
+  t,
+  translateWeekday,
+  type SupportedLanguage,
+} from "@/i18n";
 
 export const STORAGE_KEY_RECURRING_INCOMES = "HomeBudget_RecurringIncomes";
 export const STORAGE_KEY_APP_SETTINGS = "HomeBudget_Settings";
@@ -210,7 +217,8 @@ export interface DueExpectedIncome {
  */
 export function getDueExpectedIncomes(
   templates: RecurringIncomeTemplate[],
-  referenceDate: Date = new Date()
+  referenceDate: Date = new Date(),
+  lang: SupportedLanguage = getCurrentLanguage()
 ): DueExpectedIncome[] {
   const results: DueExpectedIncome[] = [];
 
@@ -227,32 +235,42 @@ export function getDueExpectedIncomes(
       occurrenceKey: cycle.occurrenceKey,
       dueDate: cycle.dueDate,
       dueDateIso: cycle.dueDateIso,
-      scheduleLabel: formatRecurrenceSchedule(tpl),
+      scheduleLabel: formatRecurrenceSchedule(tpl, lang),
     });
   }
 
   return results.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
 }
 
-export function formatFrequencyLabel(freq: RecurrenceFrequency): string {
+export function formatFrequencyLabel(
+  freq: RecurrenceFrequency,
+  lang: SupportedLanguage = getCurrentLanguage()
+): string {
   switch (freq) {
     case "weekly":
-      return "Седмичен";
+      return t("income.freqWeekly", undefined, lang);
     case "yearly":
-      return "Годишен";
+      return t("income.freqYearly", undefined, lang);
     case "monthly":
     default:
-      return "Месечен";
+      return t("income.freqMonthly", undefined, lang);
   }
 }
 
-export function formatRecurrenceSchedule(template: RecurringIncomeTemplate): string {
+export function formatRecurrenceSchedule(
+  template: RecurringIncomeTemplate,
+  lang: SupportedLanguage = getCurrentLanguage()
+): string {
   if (template.frequency === "weekly") {
     const dow =
       typeof template.dayOfWeek === "number"
         ? template.dayOfWeek
         : new Date(template.startDate + "T00:00:00").getDay();
-    return `Всяка седмица (${WEEKDAYS_BG[dow] || "Понеделник"})`;
+    return t(
+      "income.scheduleWeekly",
+      { day: translateWeekday(dow, false, lang) },
+      lang
+    );
   }
   if (template.frequency === "yearly") {
     const start = new Date(template.startDate + "T00:00:00");
@@ -263,11 +281,15 @@ export function formatRecurrenceSchedule(template: RecurringIncomeTemplate): str
         ? 0
         : start.getMonth();
     const d = template.dayOfMonth || (isNaN(start.getTime()) ? 1 : start.getDate());
-    return `Всяка година (${d} ${MONTHS_SHORT_BG[m] || ""})`;
+    return t(
+      "income.scheduleYearly",
+      { day: d, month: formatShortMonthIndex(m, lang) },
+      lang
+    );
   }
   const start = new Date(template.startDate + "T00:00:00");
   const d = template.dayOfMonth || (isNaN(start.getTime()) ? 1 : start.getDate());
-  return `Всеки месец (на ${d}-о число)`;
+  return t("income.scheduleMonthly", { day: d }, lang);
 }
 
 /**

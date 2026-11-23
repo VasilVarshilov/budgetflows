@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { BudgetStatus } from "@/utils/budgetStorage";
 import { AVAILABLE_ICONS_MAP, getCategoryBadgeClasses } from "@/utils/categoryStorage";
+import { translateBudgetName, useI18n } from "@/i18n";
 
 interface BudgetCardsCarouselProps {
   items: BudgetStatus[];
@@ -36,6 +37,7 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
   onResetOrder,
   renderCard,
 }) => {
+  const { t, language } = useI18n();
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [isReorderOpen, setIsReorderOpen] = useState(false);
   const [isDraggingMouse, setIsDraggingMouse] = useState(false);
@@ -331,7 +333,7 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
       onKeyDown={handleCarouselKeyDown}
       tabIndex={-1}
       aria-roledescription="carousel"
-      aria-label="Бюджети по категории"
+      aria-label={t("budgets.carousel.ariaLabel")}
     >
       {/* Horizontal Snap Track */}
       <div className="relative group">
@@ -354,12 +356,20 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
           {items.map((item, idx) => {
             const isActive = idx === activeIndex;
             const isNear = Math.abs(idx - activeIndex) <= 1;
+            const displayBudgetName = translateBudgetName(
+              item.budget.categoryName,
+              language
+            );
             return (
               <div
                 key={item.budget.id}
                 role="group"
                 aria-roledescription="slide"
-                aria-label={`${idx + 1} от ${items.length}: ${item.budget.categoryName}`}
+                aria-label={t("budgets.carousel.slideAria", {
+                  index: idx + 1,
+                  total: items.length,
+                  name: displayBudgetName,
+                })}
                 aria-hidden={!isActive}
                 className={`w-full shrink-0 snap-center snap-always ${
                   !isActive ? "max-h-[480px] overflow-hidden" : ""
@@ -378,7 +388,7 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
           type="button"
           onClick={() => canGoPrev && scrollToIndex(activeIndex - 1)}
           disabled={!canGoPrev}
-          aria-label="Предишен бюджет"
+          aria-label={t("budgets.carousel.prevAria")}
           className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-2xl bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-2xs"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -389,16 +399,23 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
           <div
             className="flex items-center justify-center gap-1 sm:gap-1.5 flex-wrap"
             role="navigation"
-            aria-label="Индикатори за бюджети"
+            aria-label={t("budgets.carousel.indicatorsAria")}
           >
             {items.map((item, idx) => {
               const isSelected = idx === activeIndex;
+              const displayBudgetName = translateBudgetName(
+                item.budget.categoryName,
+                language
+              );
               return (
                 <button
                   key={item.budget.id}
                   type="button"
                   onClick={() => scrollToIndex(idx)}
-                  aria-label={`Бюджет ${idx + 1}: ${item.budget.categoryName}`}
+                  aria-label={t("budgets.carousel.dotAria", {
+                    index: idx + 1,
+                    name: displayBudgetName,
+                  })}
                   aria-current={isSelected ? "page" : undefined}
                   className="min-h-[36px] min-w-[22px] sm:min-w-[24px] flex items-center justify-center cursor-pointer group/dot"
                 >
@@ -422,7 +439,7 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
           type="button"
           onClick={() => canGoNext && scrollToIndex(activeIndex + 1)}
           disabled={!canGoNext}
-          aria-label="Следващ бюджет"
+          aria-label={t("budgets.carousel.nextAria")}
           className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-2xl bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-2xs"
         >
           <ChevronRight className="w-5 h-5" />
@@ -436,10 +453,10 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
             type="button"
             onClick={() => setIsReorderOpen(true)}
             className="min-h-[38px] inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-[#16181d] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer whitespace-nowrap shadow-2xs"
-            title="Промени реда на бюджетните карти"
+            title={t("budgets.carousel.reorderTooltip")}
           >
             <ArrowUpDown className="w-3.5 h-3.5" />
-            <span>Подреди</span>
+            <span>{t("budgets.carousel.reorderBtn")}</span>
           </button>
         </div>
       )}
@@ -467,17 +484,17 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
                   id="reorder-budgets-title"
                   className="text-base font-bold text-slate-900 dark:text-white"
                 >
-                  Подреди бюджетите
+                  {t("budgets.carousel.reorderTitle")}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Изберете реда на бюджетните карти
+                  {t("budgets.carousel.reorderSubtitle")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsReorderOpen(false)}
                 className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                aria-label="Затвори"
+                aria-label={t("common.close")}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -488,6 +505,10 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
                 const isFirst = idx === 0;
                 const isLast = idx === items.length - 1;
                 const IconComp = AVAILABLE_ICONS_MAP[item.iconName] || Target;
+                const displayBudgetName = translateBudgetName(
+                  item.budget.categoryName,
+                  language
+                );
                 return (
                   <div
                     key={item.budget.id}
@@ -506,10 +527,13 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
                       </span>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                          {item.budget.categoryName}
+                          {displayBudgetName}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums truncate">
-                          Лимит: €{item.limit.toFixed(2)} · {item.percentage}%
+                          {t("budgets.carousel.limitPercentLine", {
+                            limit: item.limit.toFixed(2),
+                            pct: item.percentage,
+                          })}
                         </p>
                       </div>
                     </div>
@@ -519,7 +543,9 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
                         type="button"
                         disabled={isFirst}
                         onClick={() => moveBudgetInOrder(idx, -1)}
-                        aria-label={`Премести ${item.budget.categoryName} нагоре`}
+                        aria-label={t("budgets.carousel.moveUpAria", {
+                          name: displayBudgetName,
+                        })}
                         className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
                       >
                         <ArrowUp className="w-4 h-4" />
@@ -528,7 +554,9 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
                         type="button"
                         disabled={isLast}
                         onClick={() => moveBudgetInOrder(idx, 1)}
-                        aria-label={`Премести ${item.budget.categoryName} надолу`}
+                        aria-label={t("budgets.carousel.moveDownAria", {
+                          name: displayBudgetName,
+                        })}
                         className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
                       >
                         <ArrowDown className="w-4 h-4" />
@@ -546,7 +574,7 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
                 className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>По подразбиране</span>
+                <span>{t("budgets.carousel.restoreDefaultBtn")}</span>
               </button>
               <button
                 type="button"
@@ -554,7 +582,7 @@ export const BudgetCardsCarousel: React.FC<BudgetCardsCarouselProps> = ({
                 className="min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Готово</span>
+                <span>{t("common.done")}</span>
               </button>
             </div>
           </div>

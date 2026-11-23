@@ -11,6 +11,7 @@ import {
   STORAGE_BASE_MONTHLY,
 } from "./userStorage";
 import { isCompletedExpense } from "./expenseStatus";
+import { getCurrentLanguage, t, translateBudgetName } from "@/i18n/helpers";
 
 export const STORAGE_KEY_BUDGETS = "HomeBudget_Budgets";
 export const STORAGE_KEY_TOTAL_BUDGET = "HomeBudget_TotalMonthlyBudget";
@@ -1038,12 +1039,17 @@ export function calculateAllBudgetsStatus(
     categories
   );
 
+  const lang = getCurrentLanguage();
   const activeWarnings: string[] = [];
 
   // Exceeded monthly budget warning
   if (isTotalExceeded) {
     activeWarnings.push(
-      `Месечният бюджет е надвишен с €${totalOverspentAmount.toFixed(2)} (Monthly budget exceeded by €${totalOverspentAmount.toFixed(2)})`
+      t(
+        "dashboard.budgetControl.totalBudgetExceededMsg",
+        { amount: totalOverspentAmount.toFixed(2) },
+        lang
+      )
     );
   }
 
@@ -1063,7 +1069,14 @@ export function calculateAllBudgetsStatus(
 
     let warningMessage: string | null = null;
     if (isExceeded) {
-      warningMessage = `Бюджетът за ${b.categoryName} е надвишен с €${overspentAmount.toFixed(2)} (${b.categoryName} budget exceeded by €${overspentAmount.toFixed(2)})`;
+      warningMessage = t(
+        "dashboard.budgetControl.categoryBudgetExceededMsg",
+        {
+          category: translateBudgetName(b.categoryName, lang),
+          amount: overspentAmount.toFixed(2),
+        },
+        lang
+      );
       activeWarnings.push(warningMessage);
     }
 

@@ -25,6 +25,15 @@ import {
 } from "@/utils/comparisonStorage";
 import { isCompletedExpense } from "@/utils/expenseStatus";
 import { getCategoryColor, prepareCategoryChartData } from "@/utils/colors";
+import { useI18n } from "@/i18n";
+import {
+  RESOURCES,
+  formatLocalizedMonthYear,
+  getIntlLocale,
+  t as translateKey,
+  translateCategoryName,
+} from "@/i18n/helpers";
+import type { SupportedLanguage } from "@/i18n/types";
 
 interface AiChatSectionProps {
   monthlyData: Record<string, MonthlyRecord>;
@@ -50,15 +59,6 @@ interface MessageUiState {
   showChart: boolean;
   showAllRecords: boolean;
 }
-
-const SUGGESTED_QUESTIONS = [
-  "Какви плащания предстоят следващата седмица?",
-  "Какви приходи се очакват този месец?",
-  "Покажи предстоящите повтарящи се разходи.",
-  "Колко неразпределени спестявания имам?",
-  "Колко процента от аварийния фонд е изпълнен?",
-  "Коя категория ми струва най-много?",
-];
 
 function fmtEur(n: number): string {
   return `€${n.toFixed(2)}`;
@@ -121,7 +121,8 @@ function resolveActiveMonthKey(
 
 function deriveResponsePresentation(
   question: string,
-  res: AiChatResponse
+  res: AiChatResponse,
+  language: SupportedLanguage
 ): {
   title: string;
   heroValue?: string;
@@ -129,90 +130,92 @@ function deriveResponsePresentation(
   foundIn: string[];
 } {
   const qLower = question.toLowerCase();
+  const tr = (key: string, params?: Record<string, string | number>) =>
+    translateKey(key, params, language);
 
-  let title = "Финансов отговор";
+  let title = tr("ai.chat.titles.default");
   if (/emergency\s*fund|авариен\s*фонд|аварийния\s*фонд|авариен\s*резерв/.test(qLower)) {
-    title = "Авариен фонд";
+    title = tr("ai.chat.titles.emergencyFund");
   } else if (/unallocated|неразпределен|free\s*savings/.test(qLower)) {
-    title = "Неразпределени спестявания";
+    title = tr("ai.chat.titles.unallocated");
   } else if (/savings\s*goals?|jars?|цел[иа]?\s*(?:за\s+)?спестяван|касичк|saved\s+for|спестил\s+за/.test(qLower)) {
-    title = "Цели за спестяване";
+    title = tr("ai.chat.titles.savingsGoals");
   } else if (
     /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future|scheduled)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+|is\s+|are\s+|will\s+be\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending|scheduled|coming)|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|се\s+очаква|предсто|планиран))/.test(
       qLower
     )
   ) {
-    title = "Очаквани приходи";
+    title = tr("ai.chat.titles.expectedIncome");
   } else if (
     /(?:next\s*week|следващата\s*седмица|next\s*month|следващия\s*месец|coming\s*(?:payments?|expenses?)|предстоят)/.test(
       qLower
     )
   ) {
-    title = "Предстоящи плащания по календар";
+    title = tr("ai.chat.titles.upcomingCalendar");
   } else if (
     /(?:колко\s+ще\s+похарча|\bще\s+похарча\b|колко\s+се\s+очаква|очаквани\s+разходи|предвидени\s+разходи|expected\s+(?:to\s+)?spend|projected\s+spend)/.test(
       qLower
     )
   ) {
-    title = "Очаквани разходи";
+    title = tr("ai.chat.titles.expectedExpenses");
   } else if (
     /(?:планиран|предстоящ|предстои\s+да\s+плат|planned\s+(?:expense|payment)|upcoming\s+(?:expense|payment)|pending\s+(?:expense|payment)|(?:expenses?|payments?|разходи|плащания)\s+(?:are\s+)?(?:upcoming|planned|pending))/.test(
       qLower
     )
   ) {
-    title = "Предстоящи разходи";
+    title = tr("ai.chat.titles.upcomingExpenses");
   } else if (/цигар|cigaret|tobacco|iqos|heets|vape|тютюн/.test(qLower)) {
-    title = "Разходи за цигари";
+    title = tr("ai.chat.titles.cigarettes");
   } else if (/ток|електро|electric|kwh/.test(qLower)) {
-    title = "Разходи за електроенергия";
+    title = tr("ai.chat.titles.electricity");
   } else if (/спест|save|saved|savings/.test(qLower)) {
-    title = "Спестявания";
+    title = tr("ai.chat.titles.savings");
   } else if (/увелич|increas|more\s+than\s+last|спрямо\s+минал/.test(qLower)) {
-    title = "Увеличение по категории";
+    title = tr("ai.chat.titles.categoryIncrease");
   } else if (/най-бързо|раст|fastest|growing/.test(qLower)) {
-    title = "Най-бързо растящи разходи";
+    title = tr("ai.chat.titles.fastestGrowing");
   } else if (
     /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
     /(?:fixed|recurr|regular|периодич|повтарящ|фиксиран|постоян)/.test(qLower)
   ) {
-    title = "Повтарящи се приходи";
+    title = tr("ai.chat.titles.recurringIncome");
   } else if (
     /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
     /(?:additional|variable|extra|bonus|one-time|допълнител|променлив|извънред|еднократ)/.test(qLower)
   ) {
-    title = "Допълнителни приходи";
+    title = tr("ai.chat.titles.additionalIncome");
   } else if (
     /(?:additional|variable|extra|one-time|допълнител|променлив)/.test(qLower) &&
     /(?:разход|expense)/.test(qLower)
   ) {
-    title = "Допълнителни разходи";
+    title = tr("ai.chat.titles.additionalExpenses");
   } else if (/повтарящ|периодич|фиксиран|recurr|subscription/.test(qLower)) {
-    title = "Повтарящи се разходи";
+    title = tr("ai.chat.titles.recurringExpenses");
   } else if (/среден|средно|средния|average|avg/.test(qLower)) {
-    title = "Среден месечен разход";
+    title = tr("ai.chat.titles.avgMonthly");
   } else if (/коя\s+категория|категория.*най-много|which\s+category|highest\s+category/.test(qLower)) {
-    title = "Най-голяма категория разходи";
+    title = tr("ai.chat.titles.topCategory");
   } else if (/най-голям|най-голем|largest|biggest|highest/.test(qLower)) {
-    title = "Най-големи разходи";
+    title = tr("ai.chat.titles.largestExpenses");
   } else if (/бюджет|лимит|budget|limit/.test(qLower)) {
-    title = "Изпълнение на бюджета";
+    title = tr("ai.chat.titles.budgetExecution");
   } else if (/приход|заплат|доход|income|salary/.test(qLower)) {
-    title = "Приходи";
+    title = tr("ai.chat.titles.income");
   } else if (/lidl|лидл/i.test(qLower)) {
-    title = "Разходи в Lidl";
+    title = tr("ai.chat.titles.lidl");
   } else if (/kaufland|кауфланд/i.test(qLower)) {
-    title = "Разходи в Kaufland";
+    title = tr("ai.chat.titles.kaufland");
   } else if (/billa|билла|била/i.test(qLower)) {
-    title = "Разходи в Billa";
+    title = tr("ai.chat.titles.billa");
   } else if (/кафе|coffee|starbucks/i.test(qLower)) {
-    title = "Разходи за кафе";
+    title = tr("ai.chat.titles.coffee");
   } else if (/горив|бензин|дизел|fuel|omv|shell|lukoil/i.test(qLower)) {
-    title = "Разходи за гориво";
+    title = tr("ai.chat.titles.fuel");
   } else {
     const quotedTopic = res.answer.match(/„([^„“”"]+)["“”]|"([^"]+)"/);
     const extracted = quotedTopic?.[1] || quotedTopic?.[2];
     if (extracted && extracted.length < 40) {
-      title = `Разходи: ${extracted}`;
+      title = tr("ai.chat.titles.expensesTopic", { topic: extracted });
     }
   }
 
@@ -228,7 +231,8 @@ function deriveResponsePresentation(
   const uniqueSources: string[] = [];
   const seen = new Set<string>();
   for (const m of res.matchedExpenses) {
-    const label = (m.merchantOrCategory || m.categoryName || "").trim();
+    const rawLabel = (m.merchantOrCategory || m.categoryName || "").trim();
+    const label = rawLabel ? translateCategoryName(rawLabel, language) : "";
     if (label && !seen.has(label.toLowerCase())) {
       seen.add(label.toLowerCase());
       uniqueSources.push(label);
@@ -238,9 +242,17 @@ function deriveResponsePresentation(
 
   let heroSubtitle: string | undefined;
   if (res.matchedExpenses.length > 0 && /спест|save/.test(qLower)) {
-    heroSubtitle = `${res.matchedExpenses.length} ${res.matchedExpenses.length === 1 ? "трансакция" : "трансакции"}`;
+    heroSubtitle = `${res.matchedExpenses.length} ${
+      res.matchedExpenses.length === 1
+        ? tr("ai.chat.txSingular")
+        : tr("ai.chat.txPlural")
+    }`;
   } else if (res.matchedExpenses.length > 0) {
-    heroSubtitle = `${res.matchedExpenses.length} ${res.matchedExpenses.length === 1 ? "запис" : "записа"}`;
+    heroSubtitle = `${res.matchedExpenses.length} ${
+      res.matchedExpenses.length === 1
+        ? tr("common.entriesSingular")
+        : tr("common.entriesPlural")
+    }`;
   }
 
   return {
@@ -259,12 +271,15 @@ function runChatQuerySafely(
   rawQuestion: string,
   monthlyData: Record<string, MonthlyRecord>,
   globalSavings: IncomeItem[],
+  language: SupportedLanguage,
   currentMonth?: string
 ): {
   response: AiChatResponse;
   titleOverride?: string;
 } {
   const qLower = rawQuestion.toLowerCase();
+  const tr = (key: string, params?: Record<string, string | number>) =>
+    translateKey(key, params, language);
 
   // 1. Plural "най-големите" -> canonical "най-голям" so INTENT 6 triggers identically
   const normalizedForEngine = rawQuestion
@@ -276,7 +291,8 @@ function runChatQuerySafely(
     normalizedForEngine,
     monthlyData,
     globalSavings,
-    currentMonth
+    currentMonth,
+    language
   );
 
   // 2. Category-ranking prompt support when user asks "Коя категория ми струва най-много?"
@@ -313,32 +329,40 @@ function runChatQuerySafely(
 
     if (ranked.length > 0) {
       const top = ranked[0];
+      const topDisplay = translateCategoryName(top.cat, language);
       const share = grandTotal > 0 ? (top.sum / grandTotal) * 100 : 0;
       const periodLabel = hasAllKeyword
-        ? `Всички месеци (${targetEntries.length})`
-        : targetEntries[0]?.[0] || activeKey;
+        ? tr("ai.chat.allMonthsCount", { count: targetEntries.length })
+        : formatLocalizedMonthYear(targetEntries[0]?.[0] || activeKey, language);
 
       return {
-        titleOverride: "Най-голяма категория разходи",
+        titleOverride: tr("ai.chat.catRankTitle"),
         response: {
-          answer: `Най-много средства са изразходвани за „${top.cat}“ — ${fmtEur(top.sum)} (${share.toFixed(1)}% от разходите за периода).`,
+          answer: tr("ai.chat.catRankAnswer", {
+            category: topDisplay,
+            amount: fmtEur(top.sum),
+            share: share.toFixed(1),
+          }),
           calculation: ranked
             .slice(0, 4)
-            .map((r) => `${r.cat}: ${fmtEur(r.sum)}`)
+            .map((r) => `${translateCategoryName(r.cat, language)}: ${fmtEur(r.sum)}`)
             .join(" · "),
           timeRangeLabel: periodLabel,
           matchedExpenses: ranked.map((r, idx) => ({
             id: `cat_rank_${idx}_${r.cat}`,
             monthKey: periodLabel,
             date: grandTotal > 0 ? `${((r.sum / grandTotal) * 100).toFixed(1)}%` : "0%",
-            merchantOrCategory: r.cat,
-            categoryName: "Категория",
+            merchantOrCategory: translateCategoryName(r.cat, language),
+            categoryName: tr("ai.chat.catRankCategoryLabel"),
             expenseAmount: parseFloat(r.sum.toFixed(2)),
             matchedAmount: parseFloat(r.sum.toFixed(2)),
             matchedKind: "category",
             matchedSnippet:
               grandTotal > 0
-                ? `${((r.sum / grandTotal) * 100).toFixed(1)}% от общо ${fmtEur(grandTotal)}`
+                ? tr("ai.chat.catRankSnippet", {
+                    pct: ((r.sum / grandTotal) * 100).toFixed(1),
+                    total: fmtEur(grandTotal),
+                  })
                 : undefined,
           })),
           totalMatchedAmount: parseFloat(top.sum.toFixed(2)),
@@ -355,6 +379,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
   globalSavings,
   currentMonth,
 }) => {
+  const { t, language } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -424,12 +449,16 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
     response: AiChatResponse,
     titleOverride?: string
   ) => {
-    const nowTime = new Date().toLocaleTimeString("bg-BG", {
+    const nowTime = new Date().toLocaleTimeString(getIntlLocale(language), {
       hour: "2-digit",
       minute: "2-digit",
     });
 
-    const presentation = deriveResponsePresentation(displayQuestion, response);
+    const presentation = deriveResponsePresentation(
+      displayQuestion,
+      response,
+      language
+    );
     const uid = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     const userMsg: ChatMessage = {
@@ -463,6 +492,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
       q,
       monthlyData,
       globalSavings,
+      language,
       currentMonth
     );
 
@@ -484,6 +514,8 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
     const activeY = parseInt(parts[1] || String(new Date().getFullYear()), 10);
     const prev = getPreviousMonthAndYear(activeM, activeY);
     const prevKey = `${prev.prevMonth} ${prev.prevYear}`;
+    const activeLabel = formatLocalizedMonthYear(activeKey, language);
+    const prevLabel = formatLocalizedMonthYear(prevKey, language);
 
     const qLower = baseQuestion.toLowerCase();
     const isSpecificSubject =
@@ -501,16 +533,18 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
         .trim();
 
       const curRes = answerFinancialChatQuestion(
-        `${cleanedSubject} този месец`,
+        `${cleanedSubject} ${language === "en" ? "this month" : "този месец"}`,
         monthlyData,
         globalSavings,
-        activeKey
+        activeKey,
+        language
       );
       const prevRes = answerFinancialChatQuestion(
-        `${cleanedSubject} миналия месец`,
+        `${cleanedSubject} ${language === "en" ? "last month" : "миналия месец"}`,
         monthlyData,
         globalSavings,
-        activeKey
+        activeKey,
+        language
       );
 
       const curVal = curRes.totalMatchedAmount || 0;
@@ -522,45 +556,70 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
 
       const summary =
         diff === 0
-          ? `Без промяна спрямо ${prevKey}: ${fmtEur(curVal)} и в двата месеца.`
+          ? t("ai.chat.compareNoChange", {
+              prev: prevLabel,
+              curVal: fmtEur(curVal),
+            })
           : diff > 0
-          ? `Разходът през ${activeKey} (${fmtEur(curVal)}) е с ${fmtEur(diff)} (+${pct.toFixed(0)}%) по-висок спрямо ${prevKey} (${fmtEur(prevVal)}).`
-          : `Разходът през ${activeKey} (${fmtEur(curVal)}) е с ${fmtEur(Math.abs(diff))} (${pct.toFixed(0)}%) по-нисък спрямо ${prevKey} (${fmtEur(prevVal)}).`;
+          ? t("ai.chat.compareHigher", {
+              cur: activeLabel,
+              curVal: fmtEur(curVal),
+              diff: fmtEur(diff),
+              pct: pct.toFixed(0),
+              prev: prevLabel,
+              prevVal: fmtEur(prevVal),
+            })
+          : t("ai.chat.compareLower", {
+              cur: activeLabel,
+              curVal: fmtEur(curVal),
+              diff: fmtEur(Math.abs(diff)),
+              pct: pct.toFixed(0),
+              prev: prevLabel,
+              prevVal: fmtEur(prevVal),
+            });
 
       const comparisonResponse: AiChatResponse = {
         answer: summary,
-        calculation: `${prevKey}: ${fmtEur(prevVal)} → ${activeKey}: ${fmtEur(curVal)} (${sign}${fmtEur(diff)})`,
-        timeRangeLabel: `${prevKey} → ${activeKey}`,
+        calculation: `${prevLabel}: ${fmtEur(prevVal)} → ${activeLabel}: ${fmtEur(curVal)} (${sign}${fmtEur(diff)})`,
+        timeRangeLabel: `${prevLabel} → ${activeLabel}`,
         matchedExpenses: [
           {
             id: `cmp_cur_${Date.now()}`,
-            monthKey: activeKey,
-            date: activeKey,
-            merchantOrCategory: `${activeKey}`,
-            categoryName: "Текущ период",
+            monthKey: activeLabel,
+            date: activeLabel,
+            merchantOrCategory: activeLabel,
+            categoryName: t("ai.chat.compareCurPeriodLabel"),
             expenseAmount: curVal,
             matchedAmount: curVal,
             matchedKind: "category",
-            matchedSnippet: `${curRes.matchedExpenses.length} записа`,
+            matchedSnippet: t("ai.chat.compareRecordsCount", {
+              count: curRes.matchedExpenses.length,
+            }),
           },
           {
             id: `cmp_prev_${Date.now()}`,
-            monthKey: prevKey,
-            date: prevKey,
-            merchantOrCategory: `${prevKey}`,
-            categoryName: "Предходен месец",
+            monthKey: prevLabel,
+            date: prevLabel,
+            merchantOrCategory: prevLabel,
+            categoryName: t("ai.chat.comparePrevPeriodLabel"),
             expenseAmount: prevVal,
             matchedAmount: prevVal,
             matchedKind: "category",
-            matchedSnippet: `${prevRes.matchedExpenses.length} записа`,
+            matchedSnippet: t("ai.chat.compareRecordsCount", {
+              count: prevRes.matchedExpenses.length,
+            }),
           },
         ],
         totalMatchedAmount: parseFloat(Math.abs(diff).toFixed(2)),
       };
 
-      const titlePrefix = sourceMsg.title ? `${sourceMsg.title}: сравнение` : "Сравнение с миналия месец";
+      const titlePrefix = sourceMsg.title
+        ? t("ai.chat.compareTitleSuffix", { title: sourceMsg.title })
+        : t("ai.chat.compareTitleDefault");
       appendConversationTurn(
-        `Сравни „${sourceMsg.title || baseQuestion}“ с миналия месец`,
+        t("ai.chat.compareSamePrompt", {
+          subject: sourceMsg.title || baseQuestion,
+        }),
         comparisonResponse,
         titlePrefix
       );
@@ -568,7 +627,11 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
     }
 
     // Otherwise run the full MoM category comparison
-    handleSubmitChat("Кои категории се увеличиха спрямо миналия месец?");
+    handleSubmitChat(
+      language === "en"
+        ? "Which categories increased compared to last month?"
+        : "Кои категории се увеличиха спрямо миналия месец?"
+    );
   };
 
   const buildChartRows = (res: AiChatResponse) => {
@@ -591,7 +654,9 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
 
       const rawRows = Object.entries(grouped)
         .map(([label, info]) => ({
-          label,
+          label: groupByMonth
+            ? formatLocalizedMonthYear(label, language)
+            : translateCategoryName(label, language),
           value: parseFloat(info.value.toFixed(2)),
           color: getCategoryColor(info.categoryName),
         }))
@@ -613,7 +678,9 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
       { groupThresholdPercent: 3 }
     );
     return prepared.segments.map((seg) => ({
-      label: seg.name,
+      label: seg.isOthersGroup
+        ? t("charts.otherGroup")
+        : translateCategoryName(seg.name, language),
       value: seg.value,
       color: seg.color,
       percentage: seg.percentage,
@@ -623,14 +690,19 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
   const buildRecordsList = (res: AiChatResponse) => {
     if (res.matchedExpenses.length > 0) {
       return {
-        label: `Всички записи (${res.matchedExpenses.length})`,
+        label: t("ai.chat.allRecordsCount", {
+          count: res.matchedExpenses.length,
+        }),
         rows: res.matchedExpenses,
       };
     }
     const activeKey = resolveActiveMonthKey(monthlyData, currentMonth);
     const monthItems = getAllExpensesFromRecord(monthlyData[activeKey]);
     return {
-      label: `Разходи за ${activeKey} (${monthItems.length})`,
+      label: t("ai.chat.expensesForPeriodCount", {
+        period: formatLocalizedMonthYear(activeKey, language),
+        count: monthItems.length,
+      }),
       rows: monthItems,
     };
   };
@@ -642,7 +714,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
 
   return (
     <section
-      aria-label="AI Финансов Асистент"
+      aria-label={t("ai.chat.sectionAria")}
       className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs flex flex-col overflow-hidden transition-colors"
     >
       {/* Clean Minimal Top Bar */}
@@ -653,10 +725,14 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
           </div>
           <div className="min-w-0">
             <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base truncate">
-              Финансов AI Асистент
+              {t("ai.chat.welcomeTitle")}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-              {currentMonth ? `Активен период: ${currentMonth}` : "Разходи, приходи, бележки и спестявания"}
+              {currentMonth
+                ? t("ai.chat.activePeriod", {
+                    period: formatLocalizedMonthYear(currentMonth, language),
+                  })
+                : t("ai.chat.defaultSubtitle")}
             </p>
           </div>
         </div>
@@ -666,7 +742,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
           <button
             type="button"
             onClick={() => setMenuOpen((prev) => !prev)}
-            aria-label="Опции на чата"
+            aria-label={t("ai.chat.chatOptionsAria")}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
             className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -691,7 +767,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                 className="w-full px-3.5 py-2.5 text-left text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/70 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2.5 transition-colors cursor-pointer"
               >
                 <Trash2 className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                <span>Нов разговор</span>
+                <span>{t("ai.chat.newConversation")}</span>
               </button>
             </div>
           )}
@@ -711,14 +787,14 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
             </div>
 
             <h4 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight text-balance">
-              Анализирайте финансите си с AI
+              {t("ai.chat.emptyTitle")}
             </h4>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-lg mt-2 leading-relaxed">
-              Попитайте на български или английски за вашите разходи, касови бележки, категории, спестявания или сметки за ток.
+              {t("ai.chat.emptySubtitle")}
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-2xl mt-7 text-left">
-              {SUGGESTED_QUESTIONS.map((suggestion) => (
+              {RESOURCES[language].ai.chat.suggestedQuestions.map((suggestion: string) => (
                 <button
                   key={suggestion}
                   type="button"
@@ -770,7 +846,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                       <div>
                         <div className="flex items-center justify-between gap-3">
                           <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-                            {msg.title || "Финансов анализ"}
+                            {msg.title || t("ai.chat.fallbackTitle")}
                           </h4>
                           <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums shrink-0">
                             {msg.timestamp}
@@ -801,7 +877,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           {msg.foundIn && msg.foundIn.length > 0 && (
                             <div>
                               <span className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
-                                Открити в:
+                                {t("ai.chat.foundInLabel")}
                               </span>
                               <ul className="space-y-0.5 text-slate-800 dark:text-slate-100 font-medium">
                                 {msg.foundIn.map((source) => (
@@ -819,7 +895,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           {res?.timeRangeLabel && (
                             <div>
                               <span className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
-                                Период:
+                                {t("ai.chat.periodLabel")}
                               </span>
                               <span className="text-slate-800 dark:text-slate-100 font-semibold">
                                 {res.timeRangeLabel}
@@ -833,7 +909,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                       {state.showDetails && res && (
                         <div className="pt-3 border-t border-slate-200/70 dark:border-slate-700/60 space-y-2 text-xs">
                           <span className="block font-semibold text-slate-700 dark:text-slate-200">
-                            Детайлно обобщение
+                            {t("ai.chat.detailedSummary")}
                           </span>
                           <p className="text-slate-600 dark:text-slate-300 leading-relaxed tabular-nums">
                             {res.calculation}
@@ -841,11 +917,12 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           {res.matchedExpenses.length > 0 && (
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-500 dark:text-slate-400 pt-1 tabular-nums">
                               <span>
-                                Общо намерени: <strong className="text-slate-800 dark:text-slate-200">{res.matchedExpenses.length}</strong>
+                                {t("ai.chat.totalFound")}{" "}
+                                <strong className="text-slate-800 dark:text-slate-200">{res.matchedExpenses.length}</strong>
                               </span>
                               {typeof res.totalMatchedAmount === "number" && res.matchedExpenses.length > 1 && (
                                 <span>
-                                  Средно на запис:{" "}
+                                  {t("ai.chat.avgPerRecord")}{" "}
                                   <strong className="text-slate-800 dark:text-slate-200">
                                     {fmtEur(res.totalMatchedAmount / res.matchedExpenses.length)}
                                   </strong>
@@ -853,7 +930,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                               )}
                               {activePeriodTotal > 0 && typeof res.totalMatchedAmount === "number" && (
                                 <span>
-                                  Дял от месечните разходи:{" "}
+                                  {t("ai.chat.shareOfMonthly")}{" "}
                                   <strong className="text-slate-800 dark:text-slate-200">
                                     {Math.min(100, (res.totalMatchedAmount / activePeriodTotal) * 100).toFixed(1)}%
                                   </strong>
@@ -869,10 +946,13 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                         <div className="pt-3 border-t border-slate-200/70 dark:border-slate-700/60 space-y-2.5">
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-semibold text-slate-700 dark:text-slate-200">
-                              Разпределение по стойност
+                              {t("ai.chat.valueDistribution")}
                             </span>
                             <span className="text-slate-500 dark:text-slate-400 tabular-nums">
-                              {chartRows.length} {chartRows.length === 1 ? "елемент" : "елемента"}
+                              {chartRows.length}{" "}
+                              {chartRows.length === 1
+                                ? t("ai.chat.elementSingular")
+                                : t("ai.chat.elementPlural")}
                             </span>
                           </div>
                           <div className="space-y-2">
@@ -916,7 +996,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           </span>
                           {recordsBundle.rows.length === 0 ? (
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                              Няма записани разходи за този период.
+                              {t("ai.chat.noExpensesPeriod")}
                             </p>
                           ) : (
                             <div className="divide-y divide-slate-200/70 dark:divide-slate-700/60 bg-white dark:bg-slate-900/90 rounded-xl border border-slate-200/80 dark:border-slate-700/70 max-h-60 overflow-y-auto">
@@ -927,10 +1007,10 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                                 >
                                   <div className="min-w-0 flex-1">
                                     <div className="font-semibold text-slate-900 dark:text-white truncate">
-                                      {item.merchantOrCategory}
+                                      {translateCategoryName(item.merchantOrCategory, language)}
                                       <span className="font-normal text-slate-500 dark:text-slate-400">
-                                        {" "}· {item.categoryName}
-                                        {item.date ? ` · ${item.date}` : ""}
+                                        {" "}· {translateCategoryName(item.categoryName, language)}
+                                        {item.date ? ` · ${formatLocalizedMonthYear(item.date, language)}` : ""}
                                       </span>
                                     </div>
                                     {item.matchedSnippet && (
@@ -946,7 +1026,9 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                                     {item.matchedKind === "item" &&
                                       Math.abs(item.expenseAmount - item.matchedAmount) > 0.01 && (
                                         <span className="block text-[10px] text-slate-500 dark:text-slate-400">
-                                          бон {fmtEur(item.expenseAmount)}
+                                          {t("ai.chat.receiptTotalTag", {
+                                            amount: fmtEur(item.expenseAmount),
+                                          })}
                                         </span>
                                       )}
                                   </div>
@@ -969,7 +1051,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           }`}
                         >
                           <ListFilter className="w-3.5 h-3.5" />
-                          <span>Покажи детайли</span>
+                          <span>{t("ai.chat.showDetails")}</span>
                           {state.showDetails ? (
                             <ChevronUp className="w-3 h-3" />
                           ) : (
@@ -983,7 +1065,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           className="min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap cursor-pointer"
                         >
                           <GitCompareArrows className="w-3.5 h-3.5" />
-                          <span>Сравни с миналия месец</span>
+                          <span>{t("ai.chat.compareLastMonth")}</span>
                         </button>
 
                         <button
@@ -996,7 +1078,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           }`}
                         >
                           <BarChart3 className="w-3.5 h-3.5" />
-                          <span>Покажи графика</span>
+                          <span>{t("ai.chat.showChart")}</span>
                         </button>
 
                         <button
@@ -1009,7 +1091,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           }`}
                         >
                           <Receipt className="w-3.5 h-3.5" />
-                          <span>Покажи всички записи</span>
+                          <span>{t("ai.chat.showAllRecords")}</span>
                         </button>
                       </div>
                     </div>
@@ -1042,21 +1124,21 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                   handleSubmitChat();
                 }
               }}
-              placeholder="Попитайте нещо за вашите разходи, приходи, спестявания или статистики..."
-              aria-label="Попитайте нещо за вашите разходи, приходи, спестявания или статистики"
+              placeholder={t("ai.chat.inputPlaceholder")}
+              aria-label={t("ai.chat.inputPlaceholder")}
               className="flex-1 resize-none bg-transparent px-2.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-400 focus:outline-none max-h-32 leading-relaxed"
             />
             <button
               type="submit"
               disabled={!input.trim()}
-              aria-label="Изпрати въпрос"
+              aria-label={t("ai.chat.sendAria")}
               className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 dark:disabled:bg-slate-700 disabled:text-slate-400 dark:disabled:text-slate-500 text-white flex items-center justify-center shrink-0 transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
               <ArrowUp className="w-5 h-5" />
             </button>
           </div>
           <p className="hidden sm:block text-[11px] text-slate-400 dark:text-slate-500 mt-1.5 px-2">
-            Enter за изпращане · Shift+Enter за нов ред
+            {t("ai.chat.enterHint")}
           </p>
         </div>
       </form>
