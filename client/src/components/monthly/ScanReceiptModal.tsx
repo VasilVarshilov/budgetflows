@@ -816,6 +816,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [aiSourceBadge, setAiSourceBadge] = useState<string>(() => t("ocr.ocrAnalysisBadge"));
   const [aiUnavailable, setAiUnavailable] = useState<boolean>(false);
   const [aiFallbackReason, setAiFallbackReason] = useState<string | null>(null);
+  const [aiFallbackDetail, setAiFallbackDetail] = useState<string | null>(null);
   const [aiSucceeded, setAiSucceeded] = useState<boolean>(false);
   const [processingWarning, setProcessingWarning] = useState<string | null>(null);
   const [ocrLanguageInfo, setOcrLanguageInfo] = useState<{
@@ -938,6 +939,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setAiSourceBadge(t("ocr.ocrAnalysisBadge"));
     setAiUnavailable(false);
     setAiFallbackReason(null);
+    setAiFallbackDetail(null);
     setAiSucceeded(false);
     setProcessingWarning(null);
     setOcrLanguageInfo(null);
@@ -1002,6 +1004,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setConfidence("low");
       setAiUnavailable(false);
       setAiFallbackReason(null);
+      setAiFallbackDetail(null);
       setAiSucceeded(false);
       setAiSourceBadge(t("ocr.manualModeBadge"));
       setProcessingWarning(t("ocr.manualModeWarning"));
@@ -1118,6 +1121,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setStep("scanning");
     setAiUnavailable(false);
     setAiFallbackReason(null);
+    setAiFallbackDetail(null);
     setAiSucceeded(false);
     setProcessingWarning(null);
     setDateEditedByUser(false);
@@ -1270,7 +1274,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
 
     // 4. Gemini AI Enrichment (Prioritized for accuracy - waits patiently while AI processes)
-    const CLIENT_AI_TIMEOUT_MS = 105000; // 105s client ceiling (> server primary 45s + fallback 30s + retries)
+    const CLIENT_AI_TIMEOUT_MS = 150000; // 150s client ceiling (> 135s server total budget, 60s primary + 45s fallback)
     setScanStatusMessage(t("ocr.aiAnalyzingStatus"));
     clearAiStageTimers();
     aiStageTimersRef.current = [
@@ -1283,12 +1287,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         if (scanRunIdRef.current === runId) {
           setScanStatusMessage(t("ocr.aiProcessingDetailsStatus"));
         }
-      }, 18000),
+      }, 22000),
       setTimeout(() => {
         if (scanRunIdRef.current === runId) {
           setScanStatusMessage(t("ocr.aiContinuingStatus"));
         }
-      }, 42000),
+      }, 50000),
     ];
 
     const rawConfiguredApiUrl = String(import.meta.env.VITE_API_BASE_URL || "").trim();
@@ -1297,12 +1301,78 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       ? `${configuredApiBase}/api/ocr/receipt`
       : "/api/ocr/receipt";
 
-    const getFriendlyAiErrorMessage = (
-      errorCode?: string | null,
-      httpStatus?: number | null,
-      isTimeout?: boolean
-    ): string => {
+    const resolveAiFailureDetails = (params: {
+      errorCategory?: string | null;
+      errorCode?: string | null;
+      geminiErrorCode?: string | null;
+      workerErrorCode?: string | null;
+      httpStatus?: number | null;
+      modelAttempted?: string | null;
+      fallbackReason?: string | null;
+      timeoutReason?: string | null;
+      isTimeout?: boolean;
+      isOffline?: boolean;
+      attempts?: Array<{
+        model?: string;
+        attempt?: number;
+        httpStatus?: number | null;
+        errorCode?: string | null;
+        outcome?: string;
+        durationMs?: number;
+        detail?: string;
+      }>;
+    }): { category: string; friendlyMessage: string; technicalDetail: string } => {
+      const {
+        errorCategory,
+        errorCode,
+        geminiErrorCode,
+        workerErrorCode,
+        httpStatus,
+        modelAttempted,
+        fallbackReason,
+        timeoutReason,
+        isTimeout,
+        isOffline,
+        attempts,
+      } = params;
+
+      const attemptsSummary =
+        Array.isArray(attempts) && attempts.length > 0
+          ? attempts
+              .map(
+                (a) =>
+                  `${a.model || "?"}#${a.attempt ?? "?"}:${a.outcome || a.errorCode || "?"}(${a.httpStatus ?? "-"}${a.durationMs ? `,${a.durationMs}ms` : ""})`
+              )
+              .join(" -> ")
+          : null;
+
+      const detailParts: string[] = [];
+      if (modelAttempted) detailParts.push(modelAttempted);
+      if (httpStatus) detailParts.push(`HTTP ${httpStatus}`);
+      if (geminiErrorCode && geminiErrorCode !== "NONE") {
+        detailParts.push(geminiErrorCode);
+      } else if (workerErrorCode && workerErrorCode !== "NONE") {
+        detailParts.push(workerErrorCode);
+      } else if (errorCode && errorCode !== "NONE") {
+        detailParts.push(errorCode);
+      }
+
+      const shortCodeLabel = detailParts.join(" · ") || "Unknown error";
+      const rawReason = timeoutReason || fallbackReason || "";
+      const technicalDetail = [rawReason || shortCodeLabel, attemptsSummary ? `[${attemptsSummary}]` : ""]
+        .filter(Boolean)
+        .join(" ");
+
+      if (isOffline) {
+        return {
+          category: "network_error",
+          friendlyMessage: t("ocr.offlineAiErr"),
+          technicalDetail: technicalDetail || "navigator.onLine === false",
+        };
+      }
+
       if (
+        errorCategory === "timeout" ||
         isTimeout ||
         errorCode === "GEMINI_TIMEOUT" ||
         errorCode === "CLIENT_TIMEOUT" ||
@@ -1311,17 +1381,107 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         httpStatus === 504 ||
         httpStatus === 524
       ) {
-        return t("ocr.aiTimeoutErr");
+        return {
+          category: "timeout",
+          friendlyMessage: t("ocr.aiTimeoutErr"),
+          technicalDetail: technicalDetail || `Timeout (${shortCodeLabel})`,
+        };
       }
+
+      if (
+        errorCategory === "quota_limit" ||
+        errorCode === "RATE_LIMITED_429" ||
+        httpStatus === 429 ||
+        (geminiErrorCode && geminiErrorCode.includes("RESOURCE_EXHAUSTED"))
+      ) {
+        return {
+          category: "quota_limit",
+          friendlyMessage: t("ocr.aiQuotaErr"),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
+      }
+
+      if (
+        errorCategory === "parsing_error" ||
+        errorCode === "PARSE_ERROR" ||
+        errorCode === "INVALID_JSON" ||
+        errorCode === "NON_JSON_RESPONSE" ||
+        errorCode === "CLIENT_JSON_PARSE_ERROR" ||
+        errorCode === "REQUEST_SERIALIZATION_ERROR"
+      ) {
+        return {
+          category: "parsing_error",
+          friendlyMessage: t("ocr.aiParseErr", { detail: shortCodeLabel }),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
+      }
+
+      if (
+        errorCategory === "configuration_error" ||
+        errorCode === "NO_API_KEY" ||
+        errorCode === "AUTH_OR_REQUEST_401" ||
+        errorCode === "AUTH_OR_REQUEST_403" ||
+        httpStatus === 401 ||
+        httpStatus === 403
+      ) {
+        return {
+          category: "configuration_error",
+          friendlyMessage: t("ocr.aiConfigErr", { detail: shortCodeLabel }),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
+      }
+
+      if (
+        errorCategory === "network_error" ||
+        errorCode === "NETWORK_ERROR" ||
+        workerErrorCode === "UPSTREAM_FETCH_ERROR"
+      ) {
+        return {
+          category: "network_error",
+          friendlyMessage: t("ocr.aiNetworkErr"),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
+      }
+
+      if (errorCode === "EMPTY_RESPONSE") {
+        return {
+          category: "gemini_response_error",
+          friendlyMessage: t("ocr.aiEmptyResponseErr", { detail: shortCodeLabel }),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
+      }
+
+      if (
+        errorCategory === "gemini_response_error" ||
+        errorCode?.startsWith("HTTP_") ||
+        errorCode?.startsWith("AUTH_OR_REQUEST_") ||
+        errorCode === "MODEL_NOT_FOUND_404" ||
+        (geminiErrorCode && geminiErrorCode !== "NONE")
+      ) {
+        return {
+          category: "gemini_response_error",
+          friendlyMessage: t("ocr.aiResponseErr", { detail: shortCodeLabel }),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
+      }
+
       if (
         errorCode === "WORKER_EXCEPTION" ||
         errorCode === "SERVER_ERROR" ||
-        errorCode === "INVALID_JSON" ||
         (typeof httpStatus === "number" && httpStatus >= 500)
       ) {
-        return t("ocr.aiServerErr");
+        return {
+          category: "gemini_response_error",
+          friendlyMessage: t("ocr.aiServerErr", { detail: shortCodeLabel }),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
       }
-      return t("ocr.ocrFallbackReasonDefault");
+
+      return {
+        category: errorCategory || "gemini_response_error",
+        friendlyMessage: rawReason || t("ocr.aiResponseErr", { detail: shortCodeLabel }),
+        technicalDetail: technicalDetail || shortCodeLabel,
+      };
     };
 
     let currentStage: OcrPipelineStage = "REQUEST_CREATION";
@@ -1341,13 +1501,24 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       jsonPayloadBytes = new TextEncoder().encode(requestBodyStr).byteLength;
     } catch (serialErr: any) {
       clearAiStageTimers();
-      console.warn("[BudgetFlows OCR Network Diagnostics] Request serialization failed", {
-        stage: "REQUEST_CREATION",
-        error: serialErr?.message,
+      const failure = resolveAiFailureDetails({
+        errorCategory: "parsing_error",
+        errorCode: "REQUEST_SERIALIZATION_ERROR",
+        fallbackReason: serialErr?.message || "Failed to serialize receipt payload",
       });
+      console.warn("[Gemini OCR] Gemini fallback triggered", {
+        stage: "REQUEST_CREATION",
+        category: failure.category,
+        reason: failure.technicalDetail,
+      });
+      addDebugLog(
+        "gemini_res",
+        `[Gemini OCR] Gemini fallback triggered | category=${failure.category} | reason=${failure.technicalDetail}`
+      );
       if (scanRunIdRef.current !== runId) return;
       setAiUnavailable(true);
-      setAiFallbackReason(t("ocr.ocrFallbackReasonDefault"));
+      setAiFallbackReason(failure.friendlyMessage);
+      setAiFallbackDetail(failure.technicalDetail);
       setAiSucceeded(false);
       setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
       abortControllerRef.current = null;
@@ -1355,13 +1526,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       return;
     }
 
-    console.info("[BudgetFlows OCR Network Diagnostics] Request", {
+    console.info("[Gemini OCR] Gemini request start", {
       stage: "REQUEST_SEND",
       clientPlatform,
       requestOrigin,
       configuredApiUrl: rawConfiguredApiUrl || "(empty)",
       resolvedOcrUrl: ocrEndpoint,
       requestMethod,
+      timeoutBudgetMs: CLIENT_AI_TIMEOUT_MS,
       imageWidth: prepared.diagnostics.originalWidth,
       imageHeight: prepared.diagnostics.originalHeight,
       aiTransportWidth: prepared.aiWidth,
@@ -1375,7 +1547,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     });
     addDebugLog(
       "gemini_res",
-      `OCR Request (${clientPlatform}) | Origin=${requestOrigin || "(none)"} | URL=${ocrEndpoint} | Method=${requestMethod} | Image=${prepared.diagnostics.originalWidth}x${prepared.diagnostics.originalHeight} (AI=${prepared.aiWidth}x${prepared.aiHeight}) | MIME=${prepared.diagnostics.originalMimeType}->${prepared.mimeType} | Orig=${prepared.originalSize}B | Compressed=${prepared.compressedSizeBytes}B | Base64=${prepared.base64SizeChars} chars | JSON=${jsonPayloadBytes}B (${(jsonPayloadBytes / 1024).toFixed(1)} KB)`
+      `[Gemini OCR] Gemini request start (${clientPlatform}) | URL=${ocrEndpoint} | timeoutBudget=${CLIENT_AI_TIMEOUT_MS}ms | Image=${prepared.diagnostics.originalWidth}x${prepared.diagnostics.originalHeight} (AI=${prepared.aiWidth}x${prepared.aiHeight}) | JSON=${(jsonPayloadBytes / 1024).toFixed(1)} KB`
     );
 
     const sleepClient = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -1391,8 +1563,32 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         }
         const remainingBudgetMs = overallDeadlineMs - Date.now();
         if (remainingBudgetMs <= 2000) {
+          const timeoutFailure = resolveAiFailureDetails({
+            errorCategory: "timeout",
+            errorCode: "CLIENT_TIMEOUT",
+            isTimeout: true,
+            fallbackReason: `Client AI waiting budget (${CLIENT_AI_TIMEOUT_MS}ms) exhausted after ${Date.now() - geminiStart}ms`,
+          });
+          console.warn("[Gemini OCR] Gemini timeout", {
+            source: "client_budget",
+            elapsedMs: Date.now() - geminiStart,
+            timeoutLimitMs: CLIENT_AI_TIMEOUT_MS,
+          });
+          console.warn("[Gemini OCR] Gemini fallback triggered", {
+            category: timeoutFailure.category,
+            reason: timeoutFailure.technicalDetail,
+          });
+          addDebugLog(
+            "gemini_res",
+            `[Gemini OCR] Gemini timeout | elapsed=${Date.now() - geminiStart}ms | limit=${CLIENT_AI_TIMEOUT_MS}ms`
+          );
+          addDebugLog(
+            "gemini_res",
+            `[Gemini OCR] Gemini fallback triggered | category=${timeoutFailure.category} | reason=${timeoutFailure.technicalDetail}`
+          );
           setAiUnavailable(true);
-          setAiFallbackReason(getFriendlyAiErrorMessage("CLIENT_TIMEOUT", null, true));
+          setAiFallbackReason(timeoutFailure.friendlyMessage);
+          setAiFallbackDetail(timeoutFailure.technicalDetail);
           setAiSucceeded(false);
           setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
           break;
@@ -1433,7 +1629,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           const geminiElapsed = Date.now() - geminiStart;
           const finalRequestUrl = response.url || ocrEndpoint;
 
-          console.info("[BudgetFlows OCR Network Diagnostics] Response", {
+          console.info("[Gemini OCR] HTTP response received", {
             stage: "JSON_PARSE",
             clientPlatform,
             clientAttempt: clientAttempt + 1,
@@ -1448,7 +1644,41 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
           if (contentType.includes("application/json")) {
             currentStage = "JSON_PARSE";
-            const json = await response.json();
+            let json: any;
+            try {
+              json = await response.json();
+            } catch (jsonParseErr: any) {
+              const parseFailure = resolveAiFailureDetails({
+                errorCategory: "parsing_error",
+                errorCode: "CLIENT_JSON_PARSE_ERROR",
+                httpStatus: response.status,
+                fallbackReason: `Failed to decode JSON response body: ${jsonParseErr?.message || "Invalid JSON"}`,
+              });
+              console.warn("[Gemini OCR] Gemini error response", {
+                stage: "JSON_PARSE",
+                httpStatus: response.status,
+                errorCategory: parseFailure.category,
+                detail: parseFailure.technicalDetail,
+              });
+              console.warn("[Gemini OCR] Gemini fallback triggered", {
+                category: parseFailure.category,
+                reason: parseFailure.technicalDetail,
+              });
+              addDebugLog(
+                "gemini_res",
+                `[Gemini OCR] Gemini error response | stage=JSON_PARSE | HTTP=${response.status} | reason=${parseFailure.technicalDetail}`
+              );
+              addDebugLog(
+                "gemini_res",
+                `[Gemini OCR] Gemini fallback triggered | category=${parseFailure.category} | reason=${parseFailure.technicalDetail}`
+              );
+              setAiUnavailable(true);
+              setAiFallbackReason(parseFailure.friendlyMessage);
+              setAiFallbackDetail(parseFailure.technicalDetail);
+              setAiSucceeded(false);
+              setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
+              break;
+            }
             if (scanRunIdRef.current !== runId) {
               shouldMoveToReview = false;
               return;
@@ -1473,7 +1703,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
             addDebugLog(
               "gemini_res",
-              `Gemini response received (${clientPlatform}, attempt=${clientAttempt + 1}) <- Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | Request URL=${finalRequestUrl} | Upload=${uploadDurationMs}ms | HTTP Status=${json.httpStatus ?? response.status} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | WorkerTiming=(${workerTimingSummary})`,
+              `[Gemini OCR] Response (${clientPlatform}, attempt=${clientAttempt + 1}) | Stage=${json.failingStage || json.workerTiming?.stage || "CLIENT_RESPONSE"} | HTTP=${json.httpStatus ?? response.status} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | Elapsed=${geminiElapsed}ms | WorkerTiming=(${workerTimingSummary})`,
               json
             );
 
@@ -1800,14 +2030,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setSelectedBudgetCategoryId(matchingBudgetId);
           }
 
+          console.info("[Gemini OCR] Gemini request completed", {
+            modelUsed: json.modelUsed || "unknown",
+            durationMs: Date.now() - geminiStart,
+            httpStatus: json.httpStatus ?? response.status,
+            itemsCount: resolvedItems.length,
+            attempts: json.diagnostics?.attempts || [],
+          });
           addDebugLog(
             "gemini_res",
-            `Gemini parsing completed -> merchant="${cleanAiMerchant || localParsed.merchantName}" | items=${resolvedItems.length} | category="${enrichedCat.name}"`
+            `[Gemini OCR] Gemini request completed -> model="${json.modelUsed || "unknown"}" | durationMs=${Date.now() - geminiStart} | merchant="${cleanAiMerchant || localParsed.merchantName}" | items=${resolvedItems.length} | category="${enrichedCat.name}"`
           );
 
               setAiSucceeded(true);
               setAiUnavailable(false);
               setAiFallbackReason(null);
+              setAiFallbackDetail(null);
               setAiSourceBadge(json.modelUsed ? `AI (${json.modelUsed}) + OCR` : t("ocr.aiOcrAnalysisBadge"));
               break;
             } else {
@@ -1817,6 +2055,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 (resolvedWorkerErrorCode !== "NONE" ? "WORKER_PARSE" : "GEMINI_RESPONSE");
               const effectiveStatus = json.httpStatus ?? response.status;
               const technicalReason = json.fallbackReason || json.message || serverErrorCode;
+              const isServerTimeout =
+                json.errorCategory === "timeout" ||
+                serverErrorCode === "GEMINI_TIMEOUT" ||
+                effectiveStatus === 504 ||
+                effectiveStatus === 524;
               const isTransientWorkerFailure =
                 ["WORKER_EXCEPTION", "SERVER_ERROR", "HTTP_500", "HTTP_502", "HTTP_503", "HTTP_504"].includes(
                   resolvedWorkerErrorCode
@@ -1824,47 +2067,85 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 ["WORKER_EXCEPTION", "SERVER_ERROR"].includes(serverErrorCode) ||
                 (typeof effectiveStatus === "number" &&
                   effectiveStatus >= 500 &&
-                  serverErrorCode !== "GEMINI_TIMEOUT");
+                  !isServerTimeout);
 
-              console.warn("[BudgetFlows OCR Network Diagnostics] Server Fallback", {
-                failingStage: serverStage,
-                clientAttempt: clientAttempt + 1,
-                requestUrl: finalRequestUrl,
-                httpStatus: effectiveStatus,
-                workerErrorCode: resolvedWorkerErrorCode,
-                geminiErrorCode: resolvedGeminiErrorCode,
-                technicalReason,
-              });
-              addDebugLog(
-                "gemini_res",
-                `Gemini fallback (attempt=${clientAttempt + 1}) -> Failing Stage=${serverStage} | HTTP Status=${effectiveStatus} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | reason=${technicalReason}`
-              );
+              if (isServerTimeout) {
+                console.warn("[Gemini OCR] Gemini timeout", {
+                  source: "server",
+                  modelAttempted: json.modelAttempted,
+                  timeoutReason: json.timeoutReason || technicalReason,
+                  elapsedMs: Date.now() - geminiStart,
+                  attempts: json.diagnostics?.attempts || [],
+                });
+                addDebugLog(
+                  "gemini_res",
+                  `[Gemini OCR] Gemini timeout (server) | model=${json.modelAttempted || "?"} | reason=${json.timeoutReason || technicalReason}`
+                );
+              } else {
+                console.warn("[Gemini OCR] Gemini error response", {
+                  failingStage: serverStage,
+                  clientAttempt: clientAttempt + 1,
+                  requestUrl: finalRequestUrl,
+                  httpStatus: effectiveStatus,
+                  errorCategory: json.errorCategory || "gemini_response_error",
+                  workerErrorCode: resolvedWorkerErrorCode,
+                  geminiErrorCode: resolvedGeminiErrorCode,
+                  modelAttempted: json.modelAttempted || null,
+                  technicalReason,
+                  attempts: json.diagnostics?.attempts || [],
+                });
+                addDebugLog(
+                  "gemini_res",
+                  `[Gemini OCR] Gemini error response (attempt=${clientAttempt + 1}) | Stage=${serverStage} | Category=${json.errorCategory || "gemini_response_error"} | HTTP=${effectiveStatus} | Model=${json.modelAttempted || "?"} | WorkerCode=${resolvedWorkerErrorCode} | GeminiCode=${resolvedGeminiErrorCode} | reason=${technicalReason}`
+                );
+              }
 
               if (
                 isTransientWorkerFailure &&
                 clientAttempt < maxClientAttempts - 1 &&
-                overallDeadlineMs - Date.now() > 8000
+                overallDeadlineMs - Date.now() > 35000
               ) {
                 abortControllerRef.current = null;
                 setScanStatusMessage(t("ocr.aiRetryStatus"));
-                await sleepClient(1200);
+                await sleepClient(1800);
                 continue;
               }
 
-              setAiUnavailable(true);
-              setAiFallbackReason(
-                getFriendlyAiErrorMessage(
-                  resolvedWorkerErrorCode !== "NONE" ? resolvedWorkerErrorCode : resolvedGeminiErrorCode,
-                  effectiveStatus,
-                  serverErrorCode === "GEMINI_TIMEOUT"
-                )
+              const failure = resolveAiFailureDetails({
+                errorCategory: json.errorCategory,
+                errorCode:
+                  resolvedWorkerErrorCode !== "NONE"
+                    ? resolvedWorkerErrorCode
+                    : serverErrorCode,
+                geminiErrorCode: resolvedGeminiErrorCode,
+                workerErrorCode: resolvedWorkerErrorCode,
+                httpStatus: effectiveStatus,
+                modelAttempted: json.modelAttempted,
+                fallbackReason: json.fallbackReason || json.message,
+                timeoutReason: json.timeoutReason,
+                isTimeout: isServerTimeout,
+                attempts: json.diagnostics?.attempts,
+              });
+
+              console.warn("[Gemini OCR] Gemini fallback triggered", {
+                category: failure.category,
+                friendlyMessage: failure.friendlyMessage,
+                technicalDetail: failure.technicalDetail,
+              });
+              addDebugLog(
+                "gemini_res",
+                `[Gemini OCR] Gemini fallback triggered | category=${failure.category} | reason=${failure.technicalDetail}`
               );
+
+              setAiUnavailable(true);
+              setAiFallbackReason(failure.friendlyMessage);
+              setAiFallbackDetail(failure.technicalDetail);
               setAiSucceeded(false);
               setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
               break;
             }
           } else {
-            console.warn("[BudgetFlows OCR Network Diagnostics] Non-JSON Response", {
+            console.warn("[Gemini OCR] Gemini error response (Non-JSON)", {
               failingStage: "JSON_PARSE",
               clientAttempt: clientAttempt + 1,
               requestOrigin,
@@ -1874,22 +2155,38 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             });
             addDebugLog(
               "gemini_res",
-              `Gemini fallback (attempt=${clientAttempt + 1}) <- Failing Stage=JSON_PARSE | HTTP Status=${response.status} | ContentType=${contentType || "(empty)"}`
+              `[Gemini OCR] Gemini error response (attempt=${clientAttempt + 1}) | Stage=JSON_PARSE | HTTP=${response.status} | Non-JSON ContentType=${contentType || "(empty)"}`
             );
 
             if (
               response.status >= 500 &&
               clientAttempt < maxClientAttempts - 1 &&
-              overallDeadlineMs - Date.now() > 8000
+              overallDeadlineMs - Date.now() > 35000
             ) {
               abortControllerRef.current = null;
               setScanStatusMessage(t("ocr.aiRetryStatus"));
-              await sleepClient(1200);
+              await sleepClient(1800);
               continue;
             }
 
+            const nonJsonFailure = resolveAiFailureDetails({
+              errorCategory: "parsing_error",
+              errorCode: "NON_JSON_RESPONSE",
+              httpStatus: response.status,
+              fallbackReason: `Expected application/json from ${finalRequestUrl} but received ${contentType || "empty content-type"} (HTTP ${response.status})`,
+            });
+            console.warn("[Gemini OCR] Gemini fallback triggered", {
+              category: nonJsonFailure.category,
+              reason: nonJsonFailure.technicalDetail,
+            });
+            addDebugLog(
+              "gemini_res",
+              `[Gemini OCR] Gemini fallback triggered | category=${nonJsonFailure.category} | reason=${nonJsonFailure.technicalDetail}`
+            );
+
             setAiUnavailable(true);
-            setAiFallbackReason(getFriendlyAiErrorMessage(null, response.status, false));
+            setAiFallbackReason(nonJsonFailure.friendlyMessage);
+            setAiFallbackDetail(nonJsonFailure.technicalDetail);
             setAiSucceeded(false);
             setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
             break;
@@ -1913,50 +2210,77 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
           const failedClientStage: OcrPipelineStage =
             currentStage === "JSON_PARSE" ? "JSON_PARSE" : "REQUEST_SEND";
+          const totalElapsedMs = Date.now() - geminiStart;
 
-          console.warn("[BudgetFlows OCR Network Diagnostics] Request Failed", {
-            clientPlatform,
-            clientAttempt: clientAttempt + 1,
-            failingStage: failedClientStage,
-            requestOrigin,
-            requestUrl: ocrEndpoint,
-            requestMethod,
-            jsonPayloadBytes,
-            uploadDurationMs,
-            isAbort,
-            didClientTimeout,
-            isOffline,
-            errorName: gErr?.name,
-            errorMessage: gErr?.message,
-          });
-
-          addDebugLog(
-            "gemini_res",
-            `Gemini failed (${clientPlatform}, attempt=${clientAttempt + 1}) <- Stage=${failedClientStage} | Upload=${uploadDurationMs}ms | JSON=${jsonPayloadBytes}B | reason=${gErr?.message || "Network error"}`
-          );
+          if (didClientTimeout || isAbort) {
+            console.warn("[Gemini OCR] Gemini timeout", {
+              source: "client_abort",
+              clientPlatform,
+              clientAttempt: clientAttempt + 1,
+              elapsedMs: totalElapsedMs,
+              timeoutLimitMs: CLIENT_AI_TIMEOUT_MS,
+              requestUrl: ocrEndpoint,
+            });
+            addDebugLog(
+              "gemini_res",
+              `[Gemini OCR] Gemini timeout (client) | elapsed=${totalElapsedMs}ms | limit=${CLIENT_AI_TIMEOUT_MS}ms | URL=${ocrEndpoint}`
+            );
+          } else {
+            console.warn("[Gemini OCR] Gemini error response (Network/Fetch Exception)", {
+              clientPlatform,
+              clientAttempt: clientAttempt + 1,
+              failingStage: failedClientStage,
+              requestOrigin,
+              requestUrl: ocrEndpoint,
+              requestMethod,
+              jsonPayloadBytes,
+              uploadDurationMs,
+              isOffline,
+              errorName: gErr?.name,
+              errorMessage: gErr?.message,
+            });
+            addDebugLog(
+              "gemini_res",
+              `[Gemini OCR] Gemini error response (${clientPlatform}, attempt=${clientAttempt + 1}) | Stage=${failedClientStage} | Upload=${uploadDurationMs}ms | offline=${isOffline} | reason=${gErr?.message || "Network error"}`
+            );
+          }
 
           if (
             !isAbort &&
             !isOffline &&
             clientAttempt < maxClientAttempts - 1 &&
-            overallDeadlineMs - Date.now() > 8000
+            overallDeadlineMs - Date.now() > 35000
           ) {
             abortControllerRef.current = null;
             setScanStatusMessage(t("ocr.aiRetryStatus"));
-            await sleepClient(1200);
+            await sleepClient(1800);
             continue;
           }
 
-          setAiUnavailable(true);
-          setAiFallbackReason(
-            isOffline
-              ? t("ocr.offlineAiErr")
-              : getFriendlyAiErrorMessage(
-                  didClientTimeout || isAbort ? "CLIENT_TIMEOUT" : "NETWORK_ERROR",
-                  null,
-                  didClientTimeout || isAbort
-                )
+          const netFailure = resolveAiFailureDetails({
+            errorCategory: didClientTimeout || isAbort ? "timeout" : "network_error",
+            errorCode: didClientTimeout || isAbort ? "CLIENT_TIMEOUT" : "NETWORK_ERROR",
+            isTimeout: didClientTimeout || isAbort,
+            isOffline,
+            fallbackReason:
+              didClientTimeout || isAbort
+                ? `Client request aborted after ${totalElapsedMs}ms (limit ${CLIENT_AI_TIMEOUT_MS}ms)`
+                : gErr?.message || "Network fetch failed",
+          });
+
+          console.warn("[Gemini OCR] Gemini fallback triggered", {
+            category: netFailure.category,
+            friendlyMessage: netFailure.friendlyMessage,
+            technicalDetail: netFailure.technicalDetail,
+          });
+          addDebugLog(
+            "gemini_res",
+            `[Gemini OCR] Gemini fallback triggered | category=${netFailure.category} | reason=${netFailure.technicalDetail}`
           );
+
+          setAiUnavailable(true);
+          setAiFallbackReason(netFailure.friendlyMessage);
+          setAiFallbackDetail(netFailure.technicalDetail);
           setAiSucceeded(false);
           setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
           break;
@@ -2818,7 +3142,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               {aiUnavailable && !aiSucceeded && (
                 <div className="p-3.5 bg-amber-50/80 dark:bg-slate-800/90 border border-amber-300 dark:border-amber-700/70 rounded-2xl flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
                   <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="space-y-0.5">
+                  <div className="space-y-1 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <strong className="text-slate-900 dark:text-white">{t("ocr.ocrFallbackTitle")}</strong>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
@@ -2826,8 +3150,19 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                       </span>
                     </div>
                     <div>
-                      <strong className="text-slate-900 dark:text-white">{t("ocr.ocrFallbackDone")}</strong>{" "}
-                      <span>{aiFallbackReason || t("ocr.ocrFallbackReasonDefault")} {t("ocr.ocrFallbackLocalNote")}</span>
+                      <strong className="text-slate-900 dark:text-white">{t("ocr.aiReasonLabel")}</strong>{" "}
+                      <span className="font-medium text-amber-900 dark:text-amber-200">
+                        {aiFallbackReason || t("ocr.ocrFallbackReasonDefault")}
+                      </span>
+                    </div>
+                    {aiFallbackDetail && (
+                      <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400 break-words bg-amber-100/50 dark:bg-slate-900/70 px-2.5 py-1.5 rounded-lg border border-amber-200/70 dark:border-slate-700/80">
+                        <span className="font-sans font-semibold">{t("ocr.aiDetailsLabel")} </span>
+                        {aiFallbackDetail}
+                      </div>
+                    )}
+                    <div className="text-[11px] text-slate-600 dark:text-slate-400">
+                      {t("ocr.ocrFallbackDone")} {t("ocr.ocrFallbackLocalNote")}
                     </div>
                   </div>
                 </div>

@@ -4,12 +4,50 @@ export const GEMINI_RECEIPT_MODELS = [
 ] as const;
 
 const MODEL_TIMEOUT_MS: Record<string, number> = {
-  "gemini-4-hydrogen": 45000,
-  "gemini-3.1-flash-lite": 30000,
+  "gemini-4-hydrogen": 60000,
+  "gemini-3.1-flash-lite": 45000,
 };
+
+const SERVER_TOTAL_BUDGET_MS = 135000;
+
+export type GeminiFailureCategory =
+  | "timeout"
+  | "quota_limit"
+  | "network_error"
+  | "gemini_response_error"
+  | "parsing_error"
+  | "configuration_error"
+  | "client_error";
+
+export interface GeminiAttemptDiagnostic {
+  model: string;
+  attempt: number;
+  timeoutMs: number;
+  startedAt: string;
+  durationMs: number;
+  httpStatus: number | null;
+  upstreamStatus: string | null;
+  errorCode: string | null;
+  finishReason: string | null;
+  outcome: "success" | "timeout" | "http_error" | "empty_response" | "parse_error" | "network_error";
+  detail: string;
+}
+
+export interface GeminiDiagnosticsSummary {
+  requestId: string;
+  startedAt: string;
+  totalDurationMs: number;
+  errorCategory?: GeminiFailureCategory;
+  fallbackTriggerReason?: string | null;
+  attempts: GeminiAttemptDiagnostic[];
+}
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createRequestId(): string {
+  return `ocr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export interface GeminiReceiptItem {
@@ -44,12 +82,14 @@ export interface GeminiReceiptAnalysisResponse {
         modelUsed: string;
         httpStatus: number;
         durationMs: number;
+        diagnostics: GeminiDiagnosticsSummary;
         data: GeminiReceiptData;
       }
     | {
         success: false;
         error: string;
         errorCode: string;
+        errorCategory: GeminiFailureCategory;
         workerErrorCode?: string | null;
         geminiErrorCode?: string | null;
         timeoutReason?: string | null;
@@ -58,6 +98,7 @@ export interface GeminiReceiptAnalysisResponse {
         modelAttempted: string | null;
         fallbackReason: string;
         message: string;
+        diagnostics?: GeminiDiagnosticsSummary;
       };
 }
 
@@ -122,6 +163,9 @@ export async function analyzeReceiptWithGemini(input: {
   ocrText?: unknown;
 }): Promise<GeminiReceiptAnalysisResponse> {
   const reqStart = Date.now();
+  const startedAtIso = new Date(reqStart).toISOString();
+  const requestId = createRequestId();
+  const attempts: GeminiAttemptDiagnostic[] = [];
 
   try {
     const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
@@ -136,14 +180,14 @@ export async function analyzeReceiptWithGemini(input: {
         : "image/jpeg";
 
     console.log(
-      `[Gemini OCR] Request received | apiKeyPresent=${Boolean(apiKey)} | hasImage=${Boolean(cleanBase64)} | imageBase64Chars=${cleanBase64.length} | ocrTextChars=${ocrTextStr.length}`
+      `[Gemini OCR] Gemini request start | requestId=${requestId} | apiKeyPresent=${Boolean(apiKey)} | hasImage=${Boolean(cleanBase64)} | imageBase64Chars=${cleanBase64.length} | ocrTextChars=${ocrTextStr.length}`
     );
 
     if (!apiKey) {
       const fallbackReason =
         "Invalid or missing API key (GEMINI_API_KEY not configured on server)";
       console.warn(
-        `[Gemini OCR] Fallback -> errorCode=NO_API_KEY | reason="${fallbackReason}"`
+        `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=configuration_error | errorCode=NO_API_KEY | reason="${fallbackReason}"`
       );
       return {
         status: 200,
@@ -151,31 +195,55 @@ export async function analyzeReceiptWithGemini(input: {
           success: false,
           error: "NO_API_KEY",
           errorCode: "NO_API_KEY",
+          errorCategory: "configuration_error",
           workerErrorCode: "MISSING_GEMINI_API_KEY",
           geminiErrorCode: "NO_API_KEY",
           timeoutReason: null,
+          failingStage: "GEMINI_REQUEST",
           httpStatus: null,
           modelAttempted: null,
           fallbackReason,
           message: "Gemini API key is not configured. Falling back to local OCR.",
+          diagnostics: {
+            requestId,
+            startedAt: startedAtIso,
+            totalDurationMs: Date.now() - reqStart,
+            errorCategory: "configuration_error",
+            fallbackTriggerReason: fallbackReason,
+            attempts,
+          },
         },
       };
     }
 
     if (!cleanBase64 && !ocrTextStr) {
+      const missingReason = "No image or OCR text provided";
+      console.warn(
+        `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=client_error | errorCode=MISSING_DATA | reason="${missingReason}"`
+      );
       return {
         status: 400,
         body: {
           success: false,
           error: "MISSING_DATA",
           errorCode: "MISSING_DATA",
+          errorCategory: "client_error",
           workerErrorCode: "MISSING_REQUEST_DATA",
           geminiErrorCode: "NOT_REACHED",
           timeoutReason: null,
+          failingStage: "WORKER_PARSE",
           httpStatus: 400,
           modelAttempted: null,
-          fallbackReason: "No image or OCR text provided",
+          fallbackReason: missingReason,
           message: "No image or OCR text provided.",
+          diagnostics: {
+            requestId,
+            startedAt: startedAtIso,
+            totalDurationMs: Date.now() - reqStart,
+            errorCategory: "client_error",
+            fallbackTriggerReason: missingReason,
+            attempts,
+          },
         },
       };
     }
@@ -193,6 +261,7 @@ export async function analyzeReceiptWithGemini(input: {
 
     let lastHttpStatus: number | null = null;
     let lastErrorCode = "API_ERROR";
+    let lastErrorCategory: GeminiFailureCategory = "gemini_response_error";
     let lastGeminiErrorCode: string | null = null;
     let lastTimeoutReason: string | null = null;
     let lastErrorDetail = "";
@@ -202,7 +271,7 @@ export async function analyzeReceiptWithGemini(input: {
       const modelName = GEMINI_RECEIPT_MODELS[mIdx];
       const hasFallbackModel = mIdx < GEMINI_RECEIPT_MODELS.length - 1;
       lastModelAttempted = modelName;
-      const perModelTimeoutMs = MODEL_TIMEOUT_MS[modelName] ?? 35000;
+      const baseModelTimeoutMs = MODEL_TIMEOUT_MS[modelName] ?? 45000;
       const maxAttemptsForModel = 2;
 
       const generationConfig: Record<string, any> =
@@ -216,13 +285,24 @@ export async function analyzeReceiptWithGemini(input: {
             };
 
       for (let attempt = 0; attempt < maxAttemptsForModel; attempt++) {
-        const hasRetryOnSameModel = attempt < maxAttemptsForModel - 1;
+        const remainingServerBudgetMs = SERVER_TOTAL_BUDGET_MS - (Date.now() - reqStart);
+        if (remainingServerBudgetMs < 5000) {
+          console.warn(
+            `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=timeout | reason="Server total budget (${SERVER_TOTAL_BUDGET_MS}ms) exhausted before attempt ${attempt + 1} of ${modelName}"`
+          );
+          break;
+        }
+        const perModelTimeoutMs = Math.min(baseModelTimeoutMs, Math.max(5000, remainingServerBudgetMs - 1000));
+        const hasRetryOnSameModel =
+          attempt < maxAttemptsForModel - 1 && remainingServerBudgetMs - perModelTimeoutMs > 10000;
+        const attemptStart = Date.now();
+        const attemptStartedAt = new Date(attemptStart).toISOString();
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), perModelTimeoutMs);
 
         try {
           console.log(
-            `[Gemini OCR] Gemini request started | model=${modelName} | attempt=${attempt + 1}/${maxAttemptsForModel} | timeoutMs=${perModelTimeoutMs}`
+            `[Gemini OCR] Gemini request start | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1}/${maxAttemptsForModel} | timeoutMs=${perModelTimeoutMs} | remainingBudgetMs=${remainingServerBudgetMs}`
           );
           const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
@@ -242,9 +322,10 @@ export async function analyzeReceiptWithGemini(input: {
 
           clearTimeout(timeoutId);
           lastHttpStatus = response.status;
+          const attemptDurationMs = Date.now() - attemptStart;
           const elapsed = Date.now() - reqStart;
           console.log(
-            `[Gemini OCR] Gemini response received | model=${modelName} | attempt=${attempt + 1} | status=${response.status} | durationMs=${elapsed}`
+            `[Gemini OCR] Gemini response received | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | status=${response.status} | attemptDurationMs=${attemptDurationMs} | totalElapsedMs=${elapsed}`
           );
 
           if (!response.ok) {
@@ -259,81 +340,158 @@ export async function analyzeReceiptWithGemini(input: {
               // Raw text fallback
             }
             lastErrorDetail = (upstreamMessage || errText).slice(0, 300);
-            lastTimeoutReason =
-              response.status === 504 || upstreamStatus === "DEADLINE_EXCEEDED"
-                ? `Gemini API returned HTTP ${response.status} (${upstreamStatus || "DEADLINE_EXCEEDED"})`
-                : null;
+            const isUpstreamTimeout =
+              response.status === 504 || upstreamStatus === "DEADLINE_EXCEEDED";
+            lastTimeoutReason = isUpstreamTimeout
+              ? `Gemini API returned HTTP ${response.status} (${upstreamStatus || "DEADLINE_EXCEEDED"}) after ${attemptDurationMs}ms on ${modelName}`
+              : null;
 
             if (response.status === 404) {
               lastErrorCode = "MODEL_NOT_FOUND_404";
+              lastErrorCategory = "gemini_response_error";
               lastGeminiErrorCode = upstreamStatus || "MODEL_NOT_FOUND_404";
+              attempts.push({
+                model: modelName,
+                attempt: attempt + 1,
+                timeoutMs: perModelTimeoutMs,
+                startedAt: attemptStartedAt,
+                durationMs: attemptDurationMs,
+                httpStatus: response.status,
+                upstreamStatus,
+                errorCode: lastErrorCode,
+                finishReason: null,
+                outcome: "http_error",
+                detail: lastErrorDetail,
+              });
               console.warn(
-                `[Gemini OCR] Model ${modelName} returned 404, checking next fallback model:`,
-                lastErrorDetail
+                `[Gemini OCR] Gemini error response | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | httpStatus=404 | code=${lastErrorCode} | upstreamStatus=${upstreamStatus || "none"} | detail=${lastErrorDetail}`
               );
+              if (hasFallbackModel) {
+                console.warn(
+                  `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | fromModel=${modelName} | toModel=${GEMINI_RECEIPT_MODELS[mIdx + 1]} | reason="HTTP 404 (${lastErrorDetail})"`
+                );
+              }
               break; // move immediately to fallback model
             }
 
+            const isAuthError =
+              response.status === 401 ||
+              response.status === 403 ||
+              upstreamStatus === "PERMISSION_DENIED" ||
+              upstreamStatus === "UNAUTHENTICATED" ||
+              /API_KEY_INVALID|API key not valid/i.test(lastErrorDetail);
             const isNonRetryableAuthOrPayload =
               response.status === 400 || response.status === 401 || response.status === 403;
 
-            if (response.status === 429) {
+            if (response.status === 429 || upstreamStatus === "RESOURCE_EXHAUSTED") {
               lastErrorCode = "RATE_LIMITED_429";
+              lastErrorCategory = "quota_limit";
+            } else if (isUpstreamTimeout) {
+              lastErrorCode = `HTTP_${response.status}`;
+              lastErrorCategory = "timeout";
+            } else if (isAuthError) {
+              lastErrorCode = `AUTH_OR_REQUEST_${response.status}`;
+              lastErrorCategory = "configuration_error";
             } else if (isNonRetryableAuthOrPayload) {
               lastErrorCode = `AUTH_OR_REQUEST_${response.status}`;
+              lastErrorCategory = "gemini_response_error";
             } else {
               lastErrorCode = `HTTP_${response.status}`;
+              lastErrorCategory = "gemini_response_error";
             }
             lastGeminiErrorCode = upstreamStatus
               ? `${lastErrorCode} (${upstreamStatus})`
               : lastErrorCode;
 
+            attempts.push({
+              model: modelName,
+              attempt: attempt + 1,
+              timeoutMs: perModelTimeoutMs,
+              startedAt: attemptStartedAt,
+              durationMs: attemptDurationMs,
+              httpStatus: response.status,
+              upstreamStatus,
+              errorCode: lastErrorCode,
+              finishReason: null,
+              outcome: isUpstreamTimeout ? "timeout" : "http_error",
+              detail: lastErrorDetail,
+            });
+
             console.warn(
-              `[Gemini OCR] API error <- model=${modelName} | attempt=${attempt + 1} | code=${lastErrorCode} | geminiStatus=${upstreamStatus || "none"} | body=${lastErrorDetail}`
+              `[Gemini OCR] Gemini error response | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | httpStatus=${response.status} | category=${lastErrorCategory} | code=${lastErrorCode} | geminiStatus=${upstreamStatus || "none"} | body=${lastErrorDetail}`
             );
 
             if (isNonRetryableAuthOrPayload) {
+              const reason = `Gemini rejected request (HTTP ${response.status}${upstreamStatus ? ` / ${upstreamStatus}` : ""}): ${lastErrorDetail || "Invalid API key or request payload"}`;
+              console.warn(
+                `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=${lastErrorCategory} | model=${modelName} | reason="${reason}"`
+              );
               return {
                 status: 200,
                 body: {
                   success: false,
                   error: lastErrorCode,
                   errorCode: lastErrorCode,
+                  errorCategory: lastErrorCategory,
                   workerErrorCode: null,
                   geminiErrorCode: lastGeminiErrorCode,
                   timeoutReason: lastTimeoutReason,
                   failingStage: "GEMINI_RESPONSE",
                   httpStatus: response.status,
                   modelAttempted: modelName,
-                  fallbackReason: `Gemini rejected request (HTTP ${response.status}${upstreamStatus ? ` / ${upstreamStatus}` : ""}): ${lastErrorDetail || "Invalid API key or request payload"}`,
+                  fallbackReason: reason,
                   message: `Gemini returned status ${response.status} (${lastGeminiErrorCode}). Using local OCR.`,
+                  diagnostics: {
+                    requestId,
+                    startedAt: startedAtIso,
+                    totalDurationMs: Date.now() - reqStart,
+                    errorCategory: lastErrorCategory,
+                    fallbackTriggerReason: reason,
+                    attempts,
+                  },
                 },
               };
             }
 
             // Retryable HTTP error (429 or 5xx): retry on same model with backoff, then try fallback model
             if (hasRetryOnSameModel) {
-              const backoffMs = response.status === 429 ? 1600 : 1200;
+              const backoffMs = response.status === 429 ? 2000 : 1500;
               await sleepMs(backoffMs);
               continue;
             }
             if (hasFallbackModel) {
+              console.warn(
+                `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | fromModel=${modelName} | toModel=${GEMINI_RECEIPT_MODELS[mIdx + 1]} | reason="HTTP ${response.status} (${lastErrorDetail})"`
+              );
               break; // try next model
             }
+            const reason = `Gemini API HTTP ${response.status}${upstreamStatus ? ` (${upstreamStatus})` : ""}: ${lastErrorDetail || "Unknown error"}`;
+            console.warn(
+              `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=${lastErrorCategory} | model=${modelName} | reason="${reason}"`
+            );
             return {
               status: 200,
               body: {
                 success: false,
                 error: lastErrorCode,
                 errorCode: lastErrorCode,
+                errorCategory: lastErrorCategory,
                 workerErrorCode: null,
                 geminiErrorCode: lastGeminiErrorCode,
                 timeoutReason: lastTimeoutReason,
                 failingStage: "GEMINI_RESPONSE",
                 httpStatus: response.status,
                 modelAttempted: modelName,
-                fallbackReason: `Gemini API HTTP ${response.status}${upstreamStatus ? ` (${upstreamStatus})` : ""}: ${lastErrorDetail || "Unknown error"}`,
+                fallbackReason: reason,
                 message: `Gemini returned status ${response.status} (${lastGeminiErrorCode}). Using local OCR.`,
+                diagnostics: {
+                  requestId,
+                  startedAt: startedAtIso,
+                  totalDurationMs: Date.now() - reqStart,
+                  errorCategory: lastErrorCategory,
+                  fallbackTriggerReason: reason,
+                  attempts,
+                },
               },
             };
           }
@@ -353,23 +511,46 @@ export async function analyzeReceiptWithGemini(input: {
           const finishReason = result.candidates?.[0]?.finishReason || "UNKNOWN";
           if (!rawContent) {
             const emptyReason = `Empty response text from ${modelName} (finishReason=${finishReason})`;
-            console.warn(
-              `[Gemini OCR] Empty response -> model=${modelName} | attempt=${attempt + 1} | reason="${emptyReason}"`
-            );
             lastErrorCode = "EMPTY_RESPONSE";
+            lastErrorCategory = "gemini_response_error";
             lastGeminiErrorCode = `EMPTY_RESPONSE (${finishReason})`;
             lastErrorDetail = emptyReason;
+            attempts.push({
+              model: modelName,
+              attempt: attempt + 1,
+              timeoutMs: perModelTimeoutMs,
+              startedAt: attemptStartedAt,
+              durationMs: attemptDurationMs,
+              httpStatus: response.status,
+              upstreamStatus: null,
+              errorCode: lastErrorCode,
+              finishReason,
+              outcome: "empty_response",
+              detail: emptyReason,
+            });
+            console.warn(
+              `[Gemini OCR] Gemini error response | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | code=EMPTY_RESPONSE | finishReason=${finishReason}`
+            );
             if (hasRetryOnSameModel) {
               await sleepMs(700);
               continue;
             }
-            if (hasFallbackModel) break;
+            if (hasFallbackModel) {
+              console.warn(
+                `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | fromModel=${modelName} | toModel=${GEMINI_RECEIPT_MODELS[mIdx + 1]} | reason="${emptyReason}"`
+              );
+              break;
+            }
+            console.warn(
+              `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=${lastErrorCategory} | model=${modelName} | reason="${emptyReason}"`
+            );
             return {
               status: 200,
               body: {
                 success: false,
                 error: "EMPTY_RESPONSE",
                 errorCode: "EMPTY_RESPONSE",
+                errorCategory: "gemini_response_error",
                 workerErrorCode: null,
                 geminiErrorCode: lastGeminiErrorCode,
                 timeoutReason: null,
@@ -378,6 +559,14 @@ export async function analyzeReceiptWithGemini(input: {
                 modelAttempted: modelName,
                 fallbackReason: emptyReason,
                 message: "No content returned from Gemini. Using local OCR.",
+                diagnostics: {
+                  requestId,
+                  startedAt: startedAtIso,
+                  totalDurationMs: Date.now() - reqStart,
+                  errorCategory: "gemini_response_error",
+                  fallbackTriggerReason: emptyReason,
+                  attempts,
+                },
               },
             };
           }
@@ -402,24 +591,46 @@ export async function analyzeReceiptWithGemini(input: {
             }
             if (!parsedData) {
               const parseReason = `Invalid JSON returned by ${modelName} (finishReason=${finishReason}, len=${rawContent.length})`;
-              console.warn(
-                `[Gemini OCR] Failed to parse JSON (attempt ${attempt + 1}):`,
-                rawContent.slice(0, 300)
-              );
               lastErrorCode = "PARSE_ERROR";
+              lastErrorCategory = "parsing_error";
               lastGeminiErrorCode = `PARSE_ERROR (${finishReason})`;
               lastErrorDetail = parseReason;
+              attempts.push({
+                model: modelName,
+                attempt: attempt + 1,
+                timeoutMs: perModelTimeoutMs,
+                startedAt: attemptStartedAt,
+                durationMs: attemptDurationMs,
+                httpStatus: response.status,
+                upstreamStatus: null,
+                errorCode: lastErrorCode,
+                finishReason,
+                outcome: "parse_error",
+                detail: parseReason,
+              });
+              console.warn(
+                `[Gemini OCR] Gemini error response | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | code=PARSE_ERROR | finishReason=${finishReason} | preview=${rawContent.slice(0, 300)}`
+              );
               if (hasRetryOnSameModel) {
                 await sleepMs(700);
                 continue;
               }
-              if (hasFallbackModel) break;
+              if (hasFallbackModel) {
+                console.warn(
+                  `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | fromModel=${modelName} | toModel=${GEMINI_RECEIPT_MODELS[mIdx + 1]} | reason="${parseReason}"`
+                );
+                break;
+              }
+              console.warn(
+                `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=${lastErrorCategory} | model=${modelName} | reason="${parseReason}"`
+              );
               return {
                 status: 200,
                 body: {
                   success: false,
                   error: "PARSE_ERROR",
                   errorCode: "PARSE_ERROR",
+                  errorCategory: "parsing_error",
                   workerErrorCode: null,
                   geminiErrorCode: lastGeminiErrorCode,
                   timeoutReason: null,
@@ -428,6 +639,14 @@ export async function analyzeReceiptWithGemini(input: {
                   modelAttempted: modelName,
                   fallbackReason: parseReason,
                   message: "Failed to parse Gemini response. Using local OCR.",
+                  diagnostics: {
+                    requestId,
+                    startedAt: startedAtIso,
+                    totalDurationMs: Date.now() - reqStart,
+                    errorCategory: "parsing_error",
+                    fallbackTriggerReason: parseReason,
+                    attempts,
+                  },
                 },
               };
             }
@@ -527,8 +746,24 @@ export async function analyzeReceiptWithGemini(input: {
                 : "",
           };
 
+          const totalDurationMs = Date.now() - reqStart;
+          const completedAttemptDurationMs = Date.now() - attemptStart;
+          attempts.push({
+            model: modelName,
+            attempt: attempt + 1,
+            timeoutMs: perModelTimeoutMs,
+            startedAt: attemptStartedAt,
+            durationMs: completedAttemptDurationMs,
+            httpStatus: response.status,
+            upstreamStatus: null,
+            errorCode: null,
+            finishReason,
+            outcome: "success",
+            detail: `Extracted ${normalizedItems.length} items, total=${normalizedData.totalAmount}`,
+          });
+
           console.log(
-            `[Gemini OCR] Gemini parsing completed | model=${modelName} | attempt=${attempt + 1} | durationMs=${Date.now() - reqStart} | merchant="${normalizedData.merchantName}" | address="${normalizedData.address || ""}" | date="${normalizedData.date}" | total=${normalizedData.totalAmount} | items=${normalizedItems.length} | category="${normalizedData.suggestedCategory}"`
+            `[Gemini OCR] Gemini request completed | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | status=${response.status} | durationMs=${totalDurationMs} | finishReason=${finishReason} | merchant="${normalizedData.merchantName}" | address="${normalizedData.address || ""}" | date="${normalizedData.date}" | total=${normalizedData.totalAmount} | items=${normalizedItems.length} | category="${normalizedData.suggestedCategory}"`
           );
 
           return {
@@ -537,24 +772,53 @@ export async function analyzeReceiptWithGemini(input: {
               success: true,
               modelUsed: modelName,
               httpStatus: response.status,
-              durationMs: Date.now() - reqStart,
+              durationMs: totalDurationMs,
+              diagnostics: {
+                requestId,
+                startedAt: startedAtIso,
+                totalDurationMs,
+                attempts,
+              },
               data: normalizedData,
             },
           };
         } catch (fetchErr: any) {
           clearTimeout(timeoutId);
+          const attemptDurationMs = Date.now() - attemptStart;
           const isAbort = fetchErr?.name === "AbortError";
           lastErrorCode = isAbort ? "GEMINI_TIMEOUT" : "NETWORK_ERROR";
+          lastErrorCategory = isAbort ? "timeout" : "network_error";
           lastGeminiErrorCode = lastErrorCode;
           lastTimeoutReason = isAbort
-            ? `Server-side Gemini fetch timed out after ${perModelTimeoutMs}ms (model=${modelName})`
+            ? `Server-side Gemini fetch timed out after ${perModelTimeoutMs}ms (model=${modelName}, attempt=${attempt + 1})`
             : null;
           lastErrorDetail = isAbort
             ? `Gemini timeout after ${perModelTimeoutMs}ms (model=${modelName})`
             : fetchErr?.message || String(fetchErr);
-          console.warn(
-            `[Gemini OCR] Request exception <- model=${modelName} | attempt=${attempt + 1} | code=${lastErrorCode} | detail=${lastErrorDetail}`
-          );
+
+          attempts.push({
+            model: modelName,
+            attempt: attempt + 1,
+            timeoutMs: perModelTimeoutMs,
+            startedAt: attemptStartedAt,
+            durationMs: attemptDurationMs,
+            httpStatus: lastHttpStatus,
+            upstreamStatus: null,
+            errorCode: lastErrorCode,
+            finishReason: null,
+            outcome: isAbort ? "timeout" : "network_error",
+            detail: lastErrorDetail,
+          });
+
+          if (isAbort) {
+            console.warn(
+              `[Gemini OCR] Gemini timeout | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | timeoutMs=${perModelTimeoutMs} | elapsedMs=${Date.now() - reqStart}`
+            );
+          } else {
+            console.warn(
+              `[Gemini OCR] Gemini error response | requestId=${requestId} | model=${modelName} | attempt=${attempt + 1} | code=${lastErrorCode} | detail=${lastErrorDetail}`
+            );
+          }
 
           // On non-timeout transient network error, retry once on same model after brief backoff
           if (!isAbort && hasRetryOnSameModel) {
@@ -563,24 +827,40 @@ export async function analyzeReceiptWithGemini(input: {
           }
           // Otherwise break to try fallback model (or finish if no fallback model left)
           if (hasFallbackModel) {
+            console.warn(
+              `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | fromModel=${modelName} | toModel=${GEMINI_RECEIPT_MODELS[mIdx + 1]} | reason="${lastErrorDetail}"`
+            );
             break;
           }
+          const finalReason = isAbort
+            ? lastTimeoutReason || "Gemini timeout"
+            : `${lastErrorCode}: ${lastErrorDetail}`;
+          console.warn(
+            `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=${lastErrorCategory} | model=${modelName} | reason="${finalReason}"`
+          );
           return {
             status: 200,
             body: {
               success: false,
               error: lastErrorCode,
               errorCode: lastErrorCode,
+              errorCategory: lastErrorCategory,
               workerErrorCode: isAbort ? null : "UPSTREAM_FETCH_ERROR",
               geminiErrorCode: lastGeminiErrorCode,
               timeoutReason: lastTimeoutReason,
               failingStage: "GEMINI_REQUEST",
               httpStatus: lastHttpStatus,
               modelAttempted: modelName,
-              fallbackReason: isAbort
-                ? lastTimeoutReason || "Gemini timeout"
-                : `${lastErrorCode}: ${lastErrorDetail}`,
+              fallbackReason: finalReason,
               message: "Gemini analysis timed out or failed. Using local OCR.",
+              diagnostics: {
+                requestId,
+                startedAt: startedAtIso,
+                totalDurationMs: Date.now() - reqStart,
+                errorCategory: lastErrorCategory,
+                fallbackTriggerReason: finalReason,
+                attempts,
+              },
             },
           };
         }
@@ -589,7 +869,7 @@ export async function analyzeReceiptWithGemini(input: {
 
     const exhaustedReason = `All Gemini models failed (last=${lastModelAttempted}, status=${lastHttpStatus ?? "none"}): ${lastErrorDetail}`;
     console.warn(
-      `[Gemini OCR] Fallback -> errorCode=${lastErrorCode} | reason="${exhaustedReason}"`
+      `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=${lastErrorCategory} | errorCode=${lastErrorCode} | reason="${exhaustedReason}"`
     );
     return {
       status: 200,
@@ -597,6 +877,7 @@ export async function analyzeReceiptWithGemini(input: {
         success: false,
         error: lastErrorCode,
         errorCode: lastErrorCode,
+        errorCategory: lastErrorCategory,
         workerErrorCode: null,
         geminiErrorCode: lastGeminiErrorCode || lastErrorCode,
         timeoutReason: lastTimeoutReason,
@@ -610,12 +891,20 @@ export async function analyzeReceiptWithGemini(input: {
         modelAttempted: lastModelAttempted,
         fallbackReason: exhaustedReason,
         message: `Gemini returned status ${lastHttpStatus ?? "error"}. Using local OCR.`,
+        diagnostics: {
+          requestId,
+          startedAt: startedAtIso,
+          totalDurationMs: Date.now() - reqStart,
+          errorCategory: lastErrorCategory,
+          fallbackTriggerReason: exhaustedReason,
+          attempts,
+        },
       },
     };
   } catch (err: any) {
+    const unexpectedReason = err?.message || "Unexpected server error";
     console.warn(
-      "[Gemini OCR] Unexpected server failure:",
-      err?.message || err
+      `[Gemini OCR] Gemini fallback triggered | requestId=${requestId} | category=gemini_response_error | errorCode=SERVER_ERROR | reason="${unexpectedReason}"`
     );
     return {
       status: 200,
@@ -623,14 +912,23 @@ export async function analyzeReceiptWithGemini(input: {
         success: false,
         error: "SERVER_ERROR",
         errorCode: "SERVER_ERROR",
+        errorCategory: "gemini_response_error",
         workerErrorCode: "SERVER_ERROR",
         geminiErrorCode: "NOT_REACHED",
         timeoutReason: null,
         failingStage: "GEMINI_REQUEST",
         httpStatus: 500,
         modelAttempted: null,
-        fallbackReason: err?.message || "Unexpected server error",
+        fallbackReason: unexpectedReason,
         message: "Gemini analysis timed out or failed. Using local OCR.",
+        diagnostics: {
+          requestId,
+          startedAt: startedAtIso,
+          totalDurationMs: Date.now() - reqStart,
+          errorCategory: "gemini_response_error",
+          fallbackTriggerReason: unexpectedReason,
+          attempts,
+        },
       },
     };
   }

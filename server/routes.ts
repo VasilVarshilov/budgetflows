@@ -146,7 +146,7 @@ export async function registerRoutes(
     }
   });
 
-  // OCR Receipt analysis endpoint using shared Gemini helper (gemini-3.1-flash-lite / gemini-4-hydrogen)
+  // OCR Receipt analysis endpoint using shared Gemini helper (gemini-4-hydrogen / gemini-3.1-flash-lite)
   app.post("/api/ocr/receipt", async (req, res) => {
     const { imageBase64, mimeType, ocrText } = req.body || {};
     const result = await analyzeReceiptWithGemini({
@@ -164,6 +164,7 @@ export async function registerRoutes(
       success: false,
       error: "METHOD_NOT_ALLOWED",
       errorCode: "METHOD_NOT_ALLOWED",
+      errorCategory: "client_error",
       httpStatus: 405,
       fallbackReason: `Method ${req.method} not allowed on /api/ocr/receipt (POST required)`,
       message: "Use POST /api/ocr/receipt.",
@@ -176,6 +177,7 @@ export async function registerRoutes(
       success: false,
       error: "ROUTE_NOT_FOUND",
       errorCode: "ROUTE_NOT_FOUND",
+      errorCategory: "client_error",
       httpStatus: 404,
       fallbackReason: `Route not found: ${req.method} ${req.originalUrl}`,
       message: `API route not found: ${req.method} ${req.originalUrl}`,
