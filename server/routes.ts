@@ -5,7 +5,7 @@ import fs from "fs";
 import path from "path";
 import {
   analyzeReceiptWithGemini,
-  GEMINI_RECEIPT_MODELS,
+  resolveGeminiReceiptModels,
 } from "../shared/receiptOcrGemini";
 
 function normalizeFirebaseConfig(raw: Record<string, string | undefined>) {
@@ -97,7 +97,7 @@ export async function registerRoutes(
   app.use("/api", (req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
     if (req.method === "OPTIONS") {
       return res.status(204).end();
     }
@@ -105,12 +105,54 @@ export async function registerRoutes(
   });
 
   // Safe diagnostic endpoint to verify API reachability & GEMINI_API_KEY presence (without exposing secrets)
-  app.get("/api/ocr/health", (_req, res) => {
+  app.get("/api/ocr/health", async (req, res) => {
+    const backupModels =
+      process.env.GEMINI_BACKUP_MODELS || process.env.GEMINI_RECEIPT_BACKUP_MODELS;
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    let discoveredModels: Array<{
+      name: string;
+      displayName?: string;
+      supportedGenerationMethods?: string[];
+      inputTokenLimit?: number;
+      outputTokenLimit?: number;
+    }> | undefined;
+    let discoverError: string | undefined;
+
+    if (req.query?.discover === "1" && apiKey) {
+      try {
+        const listRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`,
+          { headers: { "User-Agent": "aistudio-build" } }
+        );
+        const listJson: any = await listRes.json();
+        if (listRes.ok && Array.isArray(listJson?.models)) {
+          discoveredModels = listJson.models
+            .filter((m: any) =>
+              Array.isArray(m?.supportedGenerationMethods) &&
+              m.supportedGenerationMethods.includes("generateContent")
+            )
+            .map((m: any) => ({
+              name: String(m.name || "").replace(/^models\//, ""),
+              displayName: m.displayName,
+              supportedGenerationMethods: m.supportedGenerationMethods,
+              inputTokenLimit: m.inputTokenLimit,
+              outputTokenLimit: m.outputTokenLimit,
+            }));
+        } else {
+          discoverError = listJson?.error?.message || `HTTP ${listRes.status}`;
+        }
+      } catch (err: any) {
+        discoverError = err?.message || "Failed to query models";
+      }
+    }
+
     return res.json({
       ok: true,
       service: "receipt-ocr-gemini",
-      hasApiKey: Boolean(process.env.GEMINI_API_KEY),
-      models: GEMINI_RECEIPT_MODELS,
+      hasApiKey: Boolean(apiKey),
+      models: resolveGeminiReceiptModels(backupModels),
+      ...(discoveredModels ? { discoveredModels } : {}),
+      ...(discoverError ? { discoverError } : {}),
     });
   });
 
@@ -146,16 +188,71 @@ export async function registerRoutes(
     }
   });
 
-  // OCR Receipt analysis endpoint using shared Gemini helper (gemini-4-hydrogen / gemini-3.1-flash-lite)
+  // OCR Receipt analysis endpoint using shared 2-pass Gemini multi-model fallback chain + configured GEMINI_BACKUP_MODELS
   app.post("/api/ocr/receipt", async (req, res) => {
-    const { imageBase64, mimeType, ocrText } = req.body || {};
-    const result = await analyzeReceiptWithGemini({
-      apiKey: process.env.GEMINI_API_KEY,
-      imageBase64,
-      mimeType,
-      ocrText,
+    const { imageBase64, mimeType, ocrText, stream } = req.body || {};
+    const acceptHeader = String(req.headers.accept || "").toLowerCase();
+    const wantsStream =
+      acceptHeader.includes("text/event-stream") ||
+      req.query?.stream === "1" ||
+      stream === true;
+    const backupModels =
+      process.env.GEMINI_BACKUP_MODELS || process.env.GEMINI_RECEIPT_BACKUP_MODELS;
+
+    if (!wantsStream) {
+      const result = await analyzeReceiptWithGemini({
+        apiKey: process.env.GEMINI_API_KEY,
+        backupModels,
+        imageBase64,
+        mimeType,
+        ocrText,
+      });
+      return res.status(result.status).json(result.body);
+    }
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const abortController = new AbortController();
+    let streamClosed = false;
+    res.on("close", () => {
+      if (!res.writableEnded) {
+        streamClosed = true;
+        abortController.abort();
+      }
     });
-    return res.status(result.status).json(result.body);
+
+    const keepaliveInterval = setInterval(() => {
+      if (!streamClosed && !res.writableEnded) {
+        res.write(": keepalive\n\n");
+      }
+    }, 15000);
+
+    try {
+      const result = await analyzeReceiptWithGemini({
+        apiKey: process.env.GEMINI_API_KEY,
+        backupModels,
+        imageBase64,
+        mimeType,
+        ocrText,
+        abortSignal: abortController.signal,
+        onProgress: (event) => {
+          if (!streamClosed && !res.writableEnded) {
+            res.write(`event: progress\ndata: ${JSON.stringify(event)}\n\n`);
+          }
+        },
+      });
+
+      if (!streamClosed && !res.writableEnded) {
+        res.write(`event: result\ndata: ${JSON.stringify(result.body)}\n\n`);
+        res.end();
+      }
+    } finally {
+      clearInterval(keepaliveInterval);
+    }
   });
 
   // Ensure unsupported HTTP methods on /api/ocr/receipt return JSON 405 instead of falling through to HTML catch-all

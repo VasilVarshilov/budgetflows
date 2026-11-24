@@ -1,10 +1,12 @@
 import {
   analyzeReceiptWithGemini,
-  GEMINI_RECEIPT_MODELS,
+  resolveGeminiReceiptModels,
 } from "../../shared/receiptOcrGemini";
 
 export interface Env {
   GEMINI_API_KEY?: string;
+  GEMINI_BACKUP_MODELS?: string;
+  GEMINI_RECEIPT_BACKUP_MODELS?: string;
   ALLOWED_ORIGIN?: string;
 }
 
@@ -390,7 +392,9 @@ export default {
             allowedOrigin: cors.allowedOrigin,
             requestOrigin: cors.requestOrigin,
             corsOriginAccepted: cors.isOriginAllowed,
-            models: GEMINI_RECEIPT_MODELS,
+            models: resolveGeminiReceiptModels(
+              env.GEMINI_BACKUP_MODELS || env.GEMINI_RECEIPT_BACKUP_MODELS
+            ),
             recentPreflights,
             recentRequests: recentRequestLogs,
           },
@@ -453,6 +457,8 @@ export default {
         currentStage = "GEMINI_REQUEST";
         const result = await analyzeReceiptWithGemini({
           apiKey: env.GEMINI_API_KEY,
+          backupModels:
+            env.GEMINI_BACKUP_MODELS || env.GEMINI_RECEIPT_BACKUP_MODELS,
           imageBase64: body?.imageBase64,
           mimeType: body?.mimeType,
           ocrText: body?.ocrText,

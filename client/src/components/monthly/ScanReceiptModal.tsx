@@ -59,6 +59,10 @@ import {
 import { loadBudgets, findMatchingBudgetCategoryId } from "@/utils/budgetStorage";
 import { useI18n } from "@/i18n";
 import { translateBudgetName, translateCategoryName } from "@/i18n/helpers";
+import {
+  GEMINI_RECEIPT_MODELS,
+  type GeminiProgressEvent,
+} from "@shared/receiptOcrGemini";
 
 export interface OCRReceiptResult {
   merchantName: string;
@@ -815,9 +819,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [confirmMismatchOverride, setConfirmMismatchOverride] = useState<boolean>(false);
   const [aiSourceBadge, setAiSourceBadge] = useState<string>(() => t("ocr.ocrAnalysisBadge"));
   const [aiUnavailable, setAiUnavailable] = useState<boolean>(false);
+  const [aiFallbackMode, setAiFallbackMode] = useState<"quota_limit" | "temporary" | "general">("general");
   const [aiFallbackReason, setAiFallbackReason] = useState<string | null>(null);
   const [aiFallbackDetail, setAiFallbackDetail] = useState<string | null>(null);
   const [aiSucceeded, setAiSucceeded] = useState<boolean>(false);
+  const [aiProgress, setAiProgress] = useState<{
+    active: boolean;
+    pass: number;
+    attempt: number;
+    total: number;
+  } | null>(null);
   const [processingWarning, setProcessingWarning] = useState<string | null>(null);
   const [ocrLanguageInfo, setOcrLanguageInfo] = useState<{
     requested: string;
@@ -938,9 +949,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setConfirmMismatchOverride(false);
     setAiSourceBadge(t("ocr.ocrAnalysisBadge"));
     setAiUnavailable(false);
+    setAiFallbackMode("general");
     setAiFallbackReason(null);
     setAiFallbackDetail(null);
     setAiSucceeded(false);
+    setAiProgress(null);
     setProcessingWarning(null);
     setOcrLanguageInfo(null);
     setShowAddItemForm(false);
@@ -959,6 +972,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const handleCancelScan = useCallback(() => {
     scanRunIdRef.current += 1;
     abortActiveAiRequest();
+    setAiProgress(null);
     setErrorMessage(null);
     setScanStatusMessage(t("ocr.initScannerStatus"));
     setStep("upload");
@@ -1003,9 +1017,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setDate((prev) => prev || new Date().toISOString().split("T")[0]);
       setConfidence("low");
       setAiUnavailable(false);
+      setAiFallbackMode("general");
       setAiFallbackReason(null);
       setAiFallbackDetail(null);
       setAiSucceeded(false);
+      setAiProgress(null);
       setAiSourceBadge(t("ocr.manualModeBadge"));
       setProcessingWarning(t("ocr.manualModeWarning"));
       setStep("review");
@@ -1120,9 +1136,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
     setStep("scanning");
     setAiUnavailable(false);
+    setAiFallbackMode("general");
     setAiFallbackReason(null);
     setAiFallbackDetail(null);
     setAiSucceeded(false);
+    setAiProgress(null);
     setProcessingWarning(null);
     setDateEditedByUser(false);
     setShowAddItemForm(false);
@@ -1274,22 +1292,29 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     }
 
     // 4. Gemini AI Enrichment (Prioritized for accuracy - waits patiently while AI processes)
-    const CLIENT_AI_TIMEOUT_MS = 150000; // 150s client ceiling (> 135s server total budget, 60s primary + 45s fallback)
+    const CLIENT_AI_TIMEOUT_MS = 195000; // 195s client ceiling (> 180s server multi-model fallback budget)
+    let hasStreamedProgress = false;
+    setAiProgress({
+      active: true,
+      pass: 1,
+      attempt: 1,
+      total: GEMINI_RECEIPT_MODELS.length,
+    });
     setScanStatusMessage(t("ocr.aiAnalyzingStatus"));
     clearAiStageTimers();
     aiStageTimersRef.current = [
       setTimeout(() => {
-        if (scanRunIdRef.current === runId) {
+        if (scanRunIdRef.current === runId && !hasStreamedProgress) {
           setScanStatusMessage(t("ocr.aiWaitingAccuracyStatus"));
         }
       }, 6000),
       setTimeout(() => {
-        if (scanRunIdRef.current === runId) {
+        if (scanRunIdRef.current === runId && !hasStreamedProgress) {
           setScanStatusMessage(t("ocr.aiProcessingDetailsStatus"));
         }
       }, 22000),
       setTimeout(() => {
-        if (scanRunIdRef.current === runId) {
+        if (scanRunIdRef.current === runId && !hasStreamedProgress) {
           setScanStatusMessage(t("ocr.aiContinuingStatus"));
         }
       }, 50000),
@@ -1312,16 +1337,29 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       timeoutReason?: string | null;
       isTimeout?: boolean;
       isOffline?: boolean;
+      quotaDiagnostics?: Array<{
+        model?: string;
+        quotaMetric?: string | null;
+        quotaId?: string | null;
+        quotaValue?: string | null;
+        message?: string;
+      }>;
       attempts?: Array<{
         model?: string;
         attempt?: number;
         httpStatus?: number | null;
+        upstreamStatus?: string | null;
         errorCode?: string | null;
         outcome?: string;
         durationMs?: number;
         detail?: string;
       }>;
-    }): { category: string; friendlyMessage: string; technicalDetail: string } => {
+    }): {
+      category: string;
+      fallbackMode: "quota_limit" | "temporary" | "general";
+      friendlyMessage: string;
+      technicalDetail: string;
+    } => {
       const {
         errorCategory,
         errorCode,
@@ -1333,6 +1371,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         timeoutReason,
         isTimeout,
         isOffline,
+        quotaDiagnostics,
         attempts,
       } = params;
 
@@ -1363,9 +1402,46 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         .filter(Boolean)
         .join(" ");
 
+      const has429Attempt =
+        Array.isArray(attempts) &&
+        attempts.some(
+          (a) =>
+            a.httpStatus === 429 ||
+            a.errorCode === "RATE_LIMITED_429" ||
+            a.upstreamStatus === "RESOURCE_EXHAUSTED"
+        );
+      const hasQuotaDiagnostic =
+        Array.isArray(quotaDiagnostics) &&
+        quotaDiagnostics.some(
+          (q) =>
+            Boolean(q.quotaId || q.quotaMetric) ||
+            /RESOURCE_EXHAUSTED|quota|limit/i.test(q.message || "")
+        );
+      const matchesQuotaText =
+        /\b429\b|RESOURCE_EXHAUSTED|RATE_LIMITED_429|Daily quota reached|Request limit reached|GenerateRequestsPerDay|GenerateContentInputTokensPerModelPerDay|quota_limit|Quota exceeded/i.test(
+          `${rawReason} ${geminiErrorCode || ""} ${errorCode || ""}`
+        );
+
+      if (
+        errorCategory === "quota_limit" ||
+        errorCode === "RATE_LIMITED_429" ||
+        httpStatus === 429 ||
+        hasQuotaDiagnostic ||
+        matchesQuotaText ||
+        has429Attempt
+      ) {
+        return {
+          category: "quota_limit",
+          fallbackMode: "quota_limit",
+          friendlyMessage: t("ocr.aiQuotaErr"),
+          technicalDetail: technicalDetail || shortCodeLabel,
+        };
+      }
+
       if (isOffline) {
         return {
           category: "network_error",
+          fallbackMode: "temporary",
           friendlyMessage: t("ocr.offlineAiErr"),
           technicalDetail: technicalDetail || "navigator.onLine === false",
         };
@@ -1383,20 +1459,21 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       ) {
         return {
           category: "timeout",
+          fallbackMode: "temporary",
           friendlyMessage: t("ocr.aiTimeoutErr"),
           technicalDetail: technicalDetail || `Timeout (${shortCodeLabel})`,
         };
       }
 
       if (
-        errorCategory === "quota_limit" ||
-        errorCode === "RATE_LIMITED_429" ||
-        httpStatus === 429 ||
-        (geminiErrorCode && geminiErrorCode.includes("RESOURCE_EXHAUSTED"))
+        errorCategory === "network_error" ||
+        errorCode === "NETWORK_ERROR" ||
+        workerErrorCode === "UPSTREAM_FETCH_ERROR"
       ) {
         return {
-          category: "quota_limit",
-          friendlyMessage: t("ocr.aiQuotaErr"),
+          category: "network_error",
+          fallbackMode: "temporary",
+          friendlyMessage: t("ocr.aiNetworkErr"),
           technicalDetail: technicalDetail || shortCodeLabel,
         };
       }
@@ -1411,7 +1488,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       ) {
         return {
           category: "parsing_error",
-          friendlyMessage: t("ocr.aiParseErr", { detail: shortCodeLabel }),
+          fallbackMode: "general",
+          friendlyMessage: t("ocr.aiParseErr"),
           technicalDetail: technicalDetail || shortCodeLabel,
         };
       }
@@ -1426,19 +1504,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       ) {
         return {
           category: "configuration_error",
-          friendlyMessage: t("ocr.aiConfigErr", { detail: shortCodeLabel }),
-          technicalDetail: technicalDetail || shortCodeLabel,
-        };
-      }
-
-      if (
-        errorCategory === "network_error" ||
-        errorCode === "NETWORK_ERROR" ||
-        workerErrorCode === "UPSTREAM_FETCH_ERROR"
-      ) {
-        return {
-          category: "network_error",
-          friendlyMessage: t("ocr.aiNetworkErr"),
+          fallbackMode: "general",
+          friendlyMessage: t("ocr.aiConfigErr"),
           technicalDetail: technicalDetail || shortCodeLabel,
         };
       }
@@ -1446,7 +1513,8 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       if (errorCode === "EMPTY_RESPONSE") {
         return {
           category: "gemini_response_error",
-          friendlyMessage: t("ocr.aiEmptyResponseErr", { detail: shortCodeLabel }),
+          fallbackMode: "temporary",
+          friendlyMessage: t("ocr.aiEmptyResponseErr"),
           technicalDetail: technicalDetail || shortCodeLabel,
         };
       }
@@ -1456,30 +1524,23 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         errorCode?.startsWith("HTTP_") ||
         errorCode?.startsWith("AUTH_OR_REQUEST_") ||
         errorCode === "MODEL_NOT_FOUND_404" ||
-        (geminiErrorCode && geminiErrorCode !== "NONE")
-      ) {
-        return {
-          category: "gemini_response_error",
-          friendlyMessage: t("ocr.aiResponseErr", { detail: shortCodeLabel }),
-          technicalDetail: technicalDetail || shortCodeLabel,
-        };
-      }
-
-      if (
         errorCode === "WORKER_EXCEPTION" ||
         errorCode === "SERVER_ERROR" ||
+        (geminiErrorCode && geminiErrorCode !== "NONE") ||
         (typeof httpStatus === "number" && httpStatus >= 500)
       ) {
         return {
           category: "gemini_response_error",
-          friendlyMessage: t("ocr.aiServerErr", { detail: shortCodeLabel }),
+          fallbackMode: "temporary",
+          friendlyMessage: t("ocr.aiServerErr"),
           technicalDetail: technicalDetail || shortCodeLabel,
         };
       }
 
       return {
         category: errorCategory || "gemini_response_error",
-        friendlyMessage: rawReason || t("ocr.aiResponseErr", { detail: shortCodeLabel }),
+        fallbackMode: "general",
+        friendlyMessage: t("ocr.aiResponseErr"),
         technicalDetail: technicalDetail || shortCodeLabel,
       };
     };
@@ -1497,6 +1558,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         imageBase64: prepared.base64,
         mimeType: prepared.mimeType,
         ocrText: ocrRawText,
+        stream: true,
       });
       jsonPayloadBytes = new TextEncoder().encode(requestBodyStr).byteLength;
     } catch (serialErr: any) {
@@ -1517,6 +1579,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       );
       if (scanRunIdRef.current !== runId) return;
       setAiUnavailable(true);
+      setAiFallbackMode(failure.fallbackMode);
       setAiFallbackReason(failure.friendlyMessage);
       setAiFallbackDetail(failure.technicalDetail);
       setAiSucceeded(false);
@@ -1587,6 +1650,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             `[Gemini OCR] Gemini fallback triggered | category=${timeoutFailure.category} | reason=${timeoutFailure.technicalDetail}`
           );
           setAiUnavailable(true);
+          setAiFallbackMode(timeoutFailure.fallbackMode);
           setAiFallbackReason(timeoutFailure.friendlyMessage);
           setAiFallbackDetail(timeoutFailure.technicalDetail);
           setAiSucceeded(false);
@@ -1613,72 +1677,219 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             mode: "cors",
             credentials: "omit",
             cache: "no-store",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream, application/json",
+            },
             signal: controller.signal,
             body: requestBodyStr,
           });
 
           uploadDurationMs = Math.round(performance.now() - uploadStartMs);
-          clearTimeout(timeoutTimer);
           if (scanRunIdRef.current !== runId) {
+            clearTimeout(timeoutTimer);
             shouldMoveToReview = false;
             return;
           }
 
           const contentType = response.headers.get("content-type") || "";
-          const geminiElapsed = Date.now() - geminiStart;
           const finalRequestUrl = response.url || ocrEndpoint;
 
-          console.info("[Gemini OCR] HTTP response received", {
-            stage: "JSON_PARSE",
-            clientPlatform,
-            clientAttempt: clientAttempt + 1,
-            requestOrigin,
-            requestUrl: finalRequestUrl,
-            requestMethod,
-            responseStatus: response.status,
-            responseContentType: contentType || "(empty)",
-            uploadDurationMs,
-            durationMs: geminiElapsed,
-          });
+          const isEventStream = contentType.includes("text/event-stream") && Boolean(response.body);
+          const isJsonResponse = contentType.includes("application/json");
 
-          if (contentType.includes("application/json")) {
+          if (isEventStream || isJsonResponse) {
             currentStage = "JSON_PARSE";
-            let json: any;
-            try {
-              json = await response.json();
-            } catch (jsonParseErr: any) {
-              const parseFailure = resolveAiFailureDetails({
-                errorCategory: "parsing_error",
-                errorCode: "CLIENT_JSON_PARSE_ERROR",
-                httpStatus: response.status,
-                fallbackReason: `Failed to decode JSON response body: ${jsonParseErr?.message || "Invalid JSON"}`,
-              });
-              console.warn("[Gemini OCR] Gemini error response", {
-                stage: "JSON_PARSE",
-                httpStatus: response.status,
-                errorCategory: parseFailure.category,
-                detail: parseFailure.technicalDetail,
-              });
-              console.warn("[Gemini OCR] Gemini fallback triggered", {
-                category: parseFailure.category,
-                reason: parseFailure.technicalDetail,
-              });
-              addDebugLog(
-                "gemini_res",
-                `[Gemini OCR] Gemini error response | stage=JSON_PARSE | HTTP=${response.status} | reason=${parseFailure.technicalDetail}`
-              );
-              addDebugLog(
-                "gemini_res",
-                `[Gemini OCR] Gemini fallback triggered | category=${parseFailure.category} | reason=${parseFailure.technicalDetail}`
-              );
-              setAiUnavailable(true);
-              setAiFallbackReason(parseFailure.friendlyMessage);
-              setAiFallbackDetail(parseFailure.technicalDetail);
-              setAiSucceeded(false);
-              setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
-              break;
+            let json: any = null;
+            if (isEventStream && response.body) {
+              try {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let sseBuffer = "";
+                const processSseFrame = (rawFrame: string) => {
+                  const normalized = rawFrame.replace(/\r\n/g, "\n");
+                  const lines = normalized.split("\n");
+                  let eventName = "message";
+                  const dataLines: string[] = [];
+                  for (const line of lines) {
+                    if (!line || line.startsWith(":")) continue;
+                    if (line.startsWith("event:")) {
+                      eventName = line.slice(6).trim();
+                    } else if (line.startsWith("data:")) {
+                      dataLines.push(line.slice(5).trimStart());
+                    }
+                  }
+                  if (dataLines.length === 0) return;
+                  const payload = JSON.parse(dataLines.join("\n"));
+                  if (eventName === "progress") {
+                    const ev = payload as GeminiProgressEvent;
+                    hasStreamedProgress = true;
+                    clearAiStageTimers();
+                    if (scanRunIdRef.current !== runId) return;
+                    const totalModels = Math.max(
+                      1,
+                      ev.totalModels || GEMINI_RECEIPT_MODELS.length
+                    );
+                    const currentAttempt = Math.max(1, ev.attemptIndex || 1);
+                    const passNum = Math.max(1, ev.pass || 1);
+                    if (
+                      ev.type === "start" ||
+                      (ev.type === "attempt" && passNum === 1 && currentAttempt <= 1)
+                    ) {
+                      setAiProgress({
+                        active: true,
+                        pass: 1,
+                        attempt: 1,
+                        total: totalModels,
+                      });
+                      setScanStatusMessage(t("ocr.aiAnalyzingStatus"));
+                    } else if (ev.type === "attempt") {
+                      setAiProgress({
+                        active: true,
+                        pass: passNum,
+                        attempt: currentAttempt,
+                        total: totalModels,
+                      });
+                      setScanStatusMessage(t("ocr.aiInProgressStatus"));
+                      addDebugLog(
+                        "gemini_res",
+                        `[Gemini OCR] Attempting model ${ev.model} (pass=${passNum}, attempt ${currentAttempt}/${totalModels})`
+                      );
+                    } else if (ev.type === "attempt_failed") {
+                      addDebugLog(
+                        "gemini_res",
+                        `[Gemini OCR] Model ${ev.model} failed (pass=${passNum}, attempt ${currentAttempt}/${totalModels}) -> ${ev.errorCode || `HTTP_${ev.httpStatus ?? "?"}`}`
+                      );
+                    }
+                  } else if (eventName === "result") {
+                    json = payload;
+                  }
+                };
+
+                while (true) {
+                  const { value, done } = await reader.read();
+                  if (scanRunIdRef.current !== runId) {
+                    try {
+                      await reader.cancel();
+                    } catch {
+                      // ignore
+                    }
+                    clearTimeout(timeoutTimer);
+                    shouldMoveToReview = false;
+                    return;
+                  }
+                  if (value) {
+                    sseBuffer += decoder.decode(value, { stream: true });
+                    let sepIdx: number;
+                    while ((sepIdx = sseBuffer.search(/\r?\n\r?\n/)) !== -1) {
+                      const frame = sseBuffer.slice(0, sepIdx);
+                      const sepLen = sseBuffer.slice(sepIdx).startsWith("\r\n\r\n") ? 4 : 2;
+                      sseBuffer = sseBuffer.slice(sepIdx + sepLen);
+                      if (frame.trim()) {
+                        processSseFrame(frame);
+                      }
+                    }
+                  }
+                  if (done) {
+                    sseBuffer += decoder.decode();
+                    if (sseBuffer.trim()) {
+                      processSseFrame(sseBuffer);
+                    }
+                    break;
+                  }
+                }
+              } catch (sseErr: any) {
+                clearTimeout(timeoutTimer);
+                if (sseErr?.name === "AbortError" || didClientTimeout) {
+                  throw sseErr;
+                }
+                const streamParseFailure = resolveAiFailureDetails({
+                  errorCategory: "parsing_error",
+                  errorCode: "CLIENT_JSON_PARSE_ERROR",
+                  httpStatus: response.status,
+                  fallbackReason: `Failed to read SSE progress stream: ${sseErr?.message || "Invalid stream"}`,
+                });
+                console.warn("[Gemini OCR] Gemini fallback triggered", {
+                  category: streamParseFailure.category,
+                  reason: streamParseFailure.technicalDetail,
+                });
+                setAiUnavailable(true);
+                setAiFallbackMode(streamParseFailure.fallbackMode);
+                setAiFallbackReason(streamParseFailure.friendlyMessage);
+                setAiFallbackDetail(streamParseFailure.technicalDetail);
+                setAiSucceeded(false);
+                setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
+                break;
+              }
+              if (!json) {
+                clearTimeout(timeoutTimer);
+                const missingResultFailure = resolveAiFailureDetails({
+                  errorCategory: "network_error",
+                  errorCode: "NETWORK_ERROR",
+                  httpStatus: response.status,
+                  fallbackReason: "SSE stream ended without a final result event",
+                });
+                setAiUnavailable(true);
+                setAiFallbackMode(missingResultFailure.fallbackMode);
+                setAiFallbackReason(missingResultFailure.friendlyMessage);
+                setAiFallbackDetail(missingResultFailure.technicalDetail);
+                setAiSucceeded(false);
+                setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
+                break;
+              }
+            } else {
+              try {
+                json = await response.json();
+              } catch (jsonParseErr: any) {
+                clearTimeout(timeoutTimer);
+                const parseFailure = resolveAiFailureDetails({
+                  errorCategory: "parsing_error",
+                  errorCode: "CLIENT_JSON_PARSE_ERROR",
+                  httpStatus: response.status,
+                  fallbackReason: `Failed to decode JSON response body: ${jsonParseErr?.message || "Invalid JSON"}`,
+                });
+                console.warn("[Gemini OCR] Gemini error response", {
+                  stage: "JSON_PARSE",
+                  httpStatus: response.status,
+                  errorCategory: parseFailure.category,
+                  detail: parseFailure.technicalDetail,
+                });
+                console.warn("[Gemini OCR] Gemini fallback triggered", {
+                  category: parseFailure.category,
+                  reason: parseFailure.technicalDetail,
+                });
+                addDebugLog(
+                  "gemini_res",
+                  `[Gemini OCR] Gemini error response | stage=JSON_PARSE | HTTP=${response.status} | reason=${parseFailure.technicalDetail}`
+                );
+                addDebugLog(
+                  "gemini_res",
+                  `[Gemini OCR] Gemini fallback triggered | category=${parseFailure.category} | reason=${parseFailure.technicalDetail}`
+                );
+                setAiUnavailable(true);
+                setAiFallbackMode(parseFailure.fallbackMode);
+                setAiFallbackReason(parseFailure.friendlyMessage);
+                setAiFallbackDetail(parseFailure.technicalDetail);
+                setAiSucceeded(false);
+                setAiSourceBadge(t("ocr.localOcrFallbackBadge"));
+                break;
+              }
             }
+
+            clearTimeout(timeoutTimer);
+            const geminiElapsed = Date.now() - geminiStart;
+            console.info("[Gemini OCR] HTTP response received", {
+              stage: "JSON_PARSE",
+              clientPlatform,
+              clientAttempt: clientAttempt + 1,
+              requestOrigin,
+              requestUrl: finalRequestUrl,
+              requestMethod,
+              responseStatus: response.status,
+              responseContentType: contentType || "(empty)",
+              uploadDurationMs,
+              durationMs: geminiElapsed,
+            });
             if (scanRunIdRef.current !== runId) {
               shouldMoveToReview = false;
               return;
@@ -2100,8 +2311,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 );
               }
 
+              const serverAlreadyTriedModels =
+                Array.isArray(json.diagnostics?.attempts) && json.diagnostics.attempts.length > 0;
               if (
                 isTransientWorkerFailure &&
+                !serverAlreadyTriedModels &&
                 clientAttempt < maxClientAttempts - 1 &&
                 overallDeadlineMs - Date.now() > 35000
               ) {
@@ -2124,20 +2338,23 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 fallbackReason: json.fallbackReason || json.message,
                 timeoutReason: json.timeoutReason,
                 isTimeout: isServerTimeout,
+                quotaDiagnostics: json.diagnostics?.quotaDiagnostics,
                 attempts: json.diagnostics?.attempts,
               });
 
               console.warn("[Gemini OCR] Gemini fallback triggered", {
                 category: failure.category,
+                fallbackMode: failure.fallbackMode,
                 friendlyMessage: failure.friendlyMessage,
                 technicalDetail: failure.technicalDetail,
               });
               addDebugLog(
                 "gemini_res",
-                `[Gemini OCR] Gemini fallback triggered | category=${failure.category} | reason=${failure.technicalDetail}`
+                `[Gemini OCR] Gemini fallback triggered | category=${failure.category} | mode=${failure.fallbackMode} | reason=${failure.technicalDetail}`
               );
 
               setAiUnavailable(true);
+              setAiFallbackMode(failure.fallbackMode);
               setAiFallbackReason(failure.friendlyMessage);
               setAiFallbackDetail(failure.technicalDetail);
               setAiSucceeded(false);
@@ -2145,6 +2362,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               break;
             }
           } else {
+            clearTimeout(timeoutTimer);
             console.warn("[Gemini OCR] Gemini error response (Non-JSON)", {
               failingStage: "JSON_PARSE",
               clientAttempt: clientAttempt + 1,
@@ -2185,6 +2403,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             );
 
             setAiUnavailable(true);
+            setAiFallbackMode(nonJsonFailure.fallbackMode);
             setAiFallbackReason(nonJsonFailure.friendlyMessage);
             setAiFallbackDetail(nonJsonFailure.technicalDetail);
             setAiSucceeded(false);
@@ -2279,6 +2498,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           );
 
           setAiUnavailable(true);
+          setAiFallbackMode(netFailure.fallbackMode);
           setAiFallbackReason(netFailure.friendlyMessage);
           setAiFallbackDetail(netFailure.technicalDetail);
           setAiSucceeded(false);
@@ -2289,6 +2509,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     } finally {
       clearAiStageTimers();
       abortControllerRef.current = null;
+      setAiProgress(null);
       if (shouldMoveToReview && scanRunIdRef.current === runId) {
         setStep("review");
       }
@@ -2666,6 +2887,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     receiptItems.length > 0 &&
     receiptTotalDisplay > 0 &&
     liveValidation.isMismatch;
+  const hasSevereMismatch =
+    !isPartialSelection &&
+    receiptTotalDisplay > 0 &&
+    (liveValidation.differencePercent > 10 ||
+      (receiptItems.length === 0 && aiUnavailable && !aiSucceeded));
 
   // Scanner Quality Indicators & Data-Only Warnings (independent from AI availability)
   const cleanMerchantStr = merchantName.trim();
@@ -2695,8 +2921,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     dataWarnings.push(t("ocr.errMissingItemsWarn"));
   }
   if (hasFullReceiptMismatch) {
+    const mismatchHeadline = hasSevereMismatch
+      ? aiUnavailable && !aiSucceeded
+        ? t("ocr.severeMismatchAiUnavailableTitle")
+        : t("ocr.severeMismatchTitle")
+      : t("ocr.mismatchTitle");
     dataWarnings.push(
-      `${t("ocr.mismatchTitle")} ${t("ocr.mismatchDetails", {
+      `${mismatchHeadline} ${t("ocr.mismatchDetails", {
         receiptTotal: formatDisplayPrice(receiptTotalDisplay),
         itemsTotal: formatDisplayPrice(itemsFullSum),
         diff: formatDisplayPrice(liveValidation.difference),
@@ -2710,6 +2941,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     isTotalDetected &&
     isItemsDetected &&
     !hasFullReceiptMismatch &&
+    !hasSevereMismatch &&
     !processingWarning;
 
   // Save confirmed expense
@@ -3056,9 +3288,22 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   <RefreshCw className="w-5 h-5 animate-spin" />
                   <span className="font-bold text-base sm:text-lg">{t("ocr.scanningTitle")}</span>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300">
                   {scanStatusMessage}
                 </p>
+                {aiProgress?.active && (aiProgress.attempt > 1 || aiProgress.pass > 1) && (
+                  <p className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
+                    {aiProgress.pass > 1
+                      ? t("ocr.aiRetryAttemptProgress", {
+                          current: aiProgress.attempt,
+                          total: aiProgress.total,
+                        })
+                      : t("ocr.aiAttemptProgress", {
+                          current: aiProgress.attempt,
+                          total: aiProgress.total,
+                        })}
+                  </p>
+                )}
                 <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 pt-1">
                   <Clock className="w-3.5 h-3.5" />
                   <span>{t("ocr.timeElapsed", { seconds: scanElapsedSeconds })}</span>
@@ -3103,18 +3348,38 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   </span>
                 </div>
               ) : (
-                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-2xl flex items-start gap-3 text-amber-800 dark:text-amber-200 text-xs sm:text-sm">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div
+                  className={`p-3.5 rounded-2xl flex items-start gap-3 text-xs sm:text-sm border ${
+                    hasSevereMismatch
+                      ? "bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200"
+                      : "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/80 text-amber-800 dark:text-amber-200"
+                  }`}
+                >
+                  <AlertTriangle
+                    className={`w-5 h-5 shrink-0 mt-0.5 ${
+                      hasSevereMismatch
+                        ? "text-rose-600 dark:text-rose-400"
+                        : "text-amber-600 dark:text-amber-400"
+                    }`}
+                  />
                   <div className="space-y-1 flex-1">
                     <div className="flex items-center justify-between flex-wrap gap-1.5">
                       <span className="font-bold">{t("ocr.warningBannerTitle")}</span>
-                      <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 font-semibold rounded-full text-[10px] text-amber-800 dark:text-amber-200">
+                      <span
+                        className={`px-2 py-0.5 font-semibold rounded-full text-[10px] ${
+                          hasSevereMismatch
+                            ? "bg-rose-100 dark:bg-rose-900/70 text-rose-900 dark:text-rose-200"
+                            : "bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200"
+                        }`}
+                      >
                         {t("ocr.sourceLabel")} {aiSourceBadge}
                       </span>
                     </div>
                     <ul className="list-disc list-inside space-y-0.5 text-xs">
                       {dataWarnings.map((w, idx) => (
-                        <li key={idx}>{w}</li>
+                        <li key={idx} className={hasSevereMismatch ? "font-semibold" : undefined}>
+                          {w}
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -3142,28 +3407,31 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               {aiUnavailable && !aiSucceeded && (
                 <div className="p-3.5 bg-amber-50/80 dark:bg-slate-800/90 border border-amber-300 dark:border-amber-700/70 rounded-2xl flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
                   <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1 min-w-0 flex-1">
+                  <div className="space-y-1.5 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <strong className="text-slate-900 dark:text-white">{t("ocr.ocrFallbackTitle")}</strong>
+                      <strong className="text-slate-900 dark:text-white">
+                        {aiFallbackMode === "quota_limit"
+                          ? t("ocr.quotaFallbackLine1")
+                          : aiFallbackMode === "temporary"
+                          ? t("ocr.tempFallbackLine1")
+                          : t("ocr.generalFallbackLine1")}
+                      </strong>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
                         {t("ocr.ocrFallbackBadge")}
                       </span>
                     </div>
-                    <div>
-                      <strong className="text-slate-900 dark:text-white">{t("ocr.aiReasonLabel")}</strong>{" "}
-                      <span className="font-medium text-amber-900 dark:text-amber-200">
-                        {aiFallbackReason || t("ocr.ocrFallbackReasonDefault")}
-                      </span>
-                    </div>
-                    {aiFallbackDetail && (
-                      <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400 break-words bg-amber-100/50 dark:bg-slate-900/70 px-2.5 py-1.5 rounded-lg border border-amber-200/70 dark:border-slate-700/80">
-                        <span className="font-sans font-semibold">{t("ocr.aiDetailsLabel")} </span>
-                        {aiFallbackDetail}
-                      </div>
-                    )}
-                    <div className="text-[11px] text-slate-600 dark:text-slate-400">
-                      {t("ocr.ocrFallbackDone")} {t("ocr.ocrFallbackLocalNote")}
-                    </div>
+                    <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed">
+                      {aiFallbackMode === "quota_limit"
+                        ? t("ocr.quotaFallbackLine2")
+                        : aiFallbackMode === "temporary"
+                        ? t("ocr.tempFallbackLine2")
+                        : t("ocr.generalFallbackLine2")}
+                    </p>
+                    <p className="text-[11px] font-medium text-amber-900 dark:text-amber-200">
+                      {aiFallbackMode === "quota_limit"
+                        ? t("ocr.quotaFallbackLine3")
+                        : t("ocr.generalFallbackLine3")}
+                    </p>
                   </div>
                 </div>
               )}
@@ -3233,12 +3501,16 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
                   <div
                     className={`p-2 rounded-xl border flex items-center gap-2 ${
-                      isItemsDetected
+                      isItemsDetected && !hasSevereMismatch
                         ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200"
+                        : hasSevereMismatch
+                        ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/80 text-rose-900 dark:text-rose-200"
                         : "bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200"
                     }`}
                   >
-                    <span className="text-sm shrink-0">{isItemsDetected ? "✅" : "⚠️"}</span>
+                    <span className="text-sm shrink-0">
+                      {isItemsDetected && !hasSevereMismatch ? "✅" : "⚠️"}
+                    </span>
                     <div className="min-w-0">
                       <span className="text-[10px] uppercase font-bold block opacity-75">{t("ocr.itemsTitle")}</span>
                       <span className="font-bold truncate block">
@@ -3778,13 +4050,25 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     )}
 
                     {hasFullReceiptMismatch && (
-                      <div className="p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-200 space-y-2">
+                      <div className="p-3.5 bg-rose-50 dark:bg-rose-950/50 border-2 border-rose-300 dark:border-rose-700 rounded-xl text-xs text-rose-900 dark:text-rose-200 space-y-2">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
                           <div className="space-y-1">
-                            <span className="font-bold block">
-                              {t("ocr.mismatchTitle")}
-                            </span>
+                            {hasSevereMismatch ? (
+                              <div className="font-bold space-y-0.5">
+                                {aiUnavailable && !aiSucceeded && (
+                                  <span className="block">
+                                    {t("ocr.severeMismatchAiUnavailableLine1")}
+                                  </span>
+                                )}
+                                <span className="block">{t("ocr.severeMismatchLine2")}</span>
+                                <span className="block">{t("ocr.severeMismatchLine3")}</span>
+                              </div>
+                            ) : (
+                              <span className="font-bold block">
+                                {t("ocr.mismatchTitle")}
+                              </span>
+                            )}
                             <p className="text-[11px] leading-relaxed">
                               {t("ocr.mismatchDetails", {
                                 receiptTotal: formatDisplayPrice(receiptTotalDisplay),
@@ -3801,7 +4085,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                             </p>
                           </div>
                         </div>
-                        <label className="flex items-center gap-2 pt-1 border-t border-rose-200 dark:border-rose-800/60 cursor-pointer select-none font-semibold text-[11px]">
+                        <label className="flex items-center gap-2 pt-1.5 border-t border-rose-200 dark:border-rose-800/60 cursor-pointer select-none font-semibold text-[11px]">
                           <input
                             type="checkbox"
                             checked={confirmMismatchOverride}
