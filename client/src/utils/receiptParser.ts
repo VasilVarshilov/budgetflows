@@ -570,6 +570,7 @@ function isReceiptHeaderLineForItems(line: string, preferredCurrency: string = "
     /^(?:WELCOME|THANK\s*YOU|ДОБРЕ\s*ДОШЛИ|БЛАГОДАРИМ|МЕРСИ|ПРИЯТЕН\s*ДЕН)/,
     /\bBG\s*\d{8,11}\b/i,
     /(ЕИК|EIK|БУЛСТАТ|BULSTAT|ИН\s*ПО\s*ДДС|ДДС\s*№|ДДС\s*N|VAT\s*№|VAT\s*NO|ИН:|ИД\.?\s*№)/,
+    /(?:^|[^а-яА-Яa-zA-Z])(?:ЕООД|ООД|ЕАД|GMBH|LLC|LTD)(?:$|[^а-яА-Яa-zA-Z])/i,
     /(?:^|\s)(?:ФУ|ФП|ЗД|ДТ|УНП|НРА|ТД)(?:$|[\s:№N#\-\d])/,
     /(КАСА\s*№?|КАСИЕР|ОПЕРАТОР|БОН\s*№|ЧЕК\s*№|ПОС\s*ТЕРМИНАЛ|ТЕРМИНАЛ\s*№|ОБ\.?\s*№|МАГАЗИН\s*№|ОБ\.?\s*МЯСТО)/,
     /^\s*(?:ГР[.,]|УЛ[.,]|БУЛ[.,]|Ж\.К[.,]|ОБЛ[.,]|ОБЩ[.,])(?:\s|$)/,
@@ -1551,8 +1552,11 @@ export function extractItems(
     if (sourceLineIdx !== undefined && pendingLineQuantities.has(sourceLineIdx)) {
       const pq = pendingLineQuantities.get(sourceLineIdx)!;
       pendingLineQuantities.delete(sourceLineIdx);
-      const checkPrice = item.originalPrice ?? item.price;
-      if (getQtyPriceMatchError(pq.expectedTotal, checkPrice) !== null) {
+      const checkOrig = item.originalPrice ?? item.price;
+      const matchesPrice =
+        getQtyPriceMatchError(pq.expectedTotal, checkOrig) !== null ||
+        (item.originalPrice !== undefined && getQtyPriceMatchError(pq.expectedTotal, item.price) !== null);
+      if (matchesPrice) {
         if (pq.isDiscreteCount && item.quantity === 1) {
           item.quantity = pq.qty;
         } else if (!pq.isDiscreteCount && pq.unitLabel && !item.name.includes(pq.unitLabel)) {
@@ -1956,9 +1960,22 @@ export function extractItems(
           // Tie at equal distance & equal price error: check if immediate next item has its own trailing qty row
           if (a.kind !== b.kind) {
             const nextCand = a.kind === "next" ? a : b;
-            const afterNextIdx = (nextCand.endIndex ?? i + 1) + 1;
+            let probeIdx = (nextCand.endIndex ?? i + 1) + 1;
+            let skippedNoise = 0;
+            while (
+              probeIdx < lines.length &&
+              skippedNoise < 2 &&
+              (/^\d{8,14}$/.test(lines[probeIdx].trim()) ||
+                isSeparatorOrHeaderNoise(lines[probeIdx]) ||
+                extractPromoHeaderLabel(lines[probeIdx]) !== null)
+            ) {
+              probeIdx++;
+              skippedNoise++;
+            }
             const afterNextMatch =
-              afterNextIdx < lines.length ? lines[afterNextIdx].match(qtyCalculationOnlyRegex) : null;
+              probeIdx < lines.length
+                ? lines[probeIdx].match(qtyCalculationOnlyRegex) || lines[probeIdx].match(qtyCalculationWithTotalRegex)
+                : null;
             if (afterNextMatch && nextCand.nextPrice) {
               const afterQty = parseFloat(afterNextMatch[1].replace(",", "."));
               const afterUnit = parsePrice(afterNextMatch[2]);
@@ -2021,6 +2038,71 @@ export function extractItems(
           }
           consumedLineIndices.add(i);
           continue;
+        }
+
+        // Handle "QTY x UNIT_PRICE TOTAL" printed ABOVE an unpriced product name line
+        if (qtyLineMatch && !winner && upcomingCandidates.length === 0) {
+          const totalLinePrice = parsePrice(qtyLineMatch[3]);
+          if (totalLinePrice && totalLinePrice > 0 && totalLinePrice < 50000) {
+            let probeIdx = i + 1;
+            while (
+              probeIdx < lines.length &&
+              (/^\d{8,14}$/.test(lines[probeIdx].trim()) ||
+                isSeparatorOrHeaderNoise(lines[probeIdx]))
+            ) {
+              probeIdx++;
+            }
+            if (probeIdx < lines.length) {
+              const nextNameLine = lines[probeIdx];
+              const nextIsBoundary =
+                isTotalsOrPaymentBoundaryLine(nextNameLine) ||
+                isNonItemSummaryOrMetaLine(nextNameLine) ||
+                isReceiptHeaderLineForItems(nextNameLine, preferredCurrency) ||
+                extractDiscountAmount(nextNameLine, preferredCurrency) > 0 ||
+                qtyCalculationOnlyRegex.test(nextNameLine) ||
+                qtyCalculationWithTotalRegex.test(nextNameLine) ||
+                Boolean(extractTrailingItemPrice(nextNameLine, preferredCurrency)) ||
+                standalonePriceLineRegex.test(nextNameLine);
+
+              if (!nextIsBoundary && /[а-яА-Яa-zA-Z]{2,}/.test(nextNameLine)) {
+                let afterNameIdx = probeIdx + 1;
+                while (
+                  afterNameIdx < lines.length &&
+                  (/^\d{8,14}$/.test(lines[afterNameIdx].trim()) ||
+                    isSeparatorOrHeaderNoise(lines[afterNameIdx]))
+                ) {
+                  afterNameIdx++;
+                }
+                const afterHasOwnPrice =
+                  afterNameIdx < lines.length &&
+                  standalonePriceLineRegex.test(lines[afterNameIdx]);
+
+                if (!afterHasOwnPrice) {
+                  const unitLabelMatch = isWeightOrVolume
+                    ? line.match(/^[*#•\s]*\(?(\d+(?:[.,]\d+)?\s*(?:кг|л|гр|мл|kg|l|g|ml))(?=$|[^а-яА-Яa-zA-Z])/i)
+                    : null;
+                  const mathMatchesTotal =
+                    getQtyPriceMatchError(expectedTotal, totalLinePrice) !== null;
+                  const formatted = formatReadableItemName(nextNameLine);
+                  const displayName =
+                    unitLabelMatch && mathMatchesTotal
+                      ? `${formatted} (${unitLabelMatch[1].trim()})`
+                      : formatted;
+                  if (displayName.length >= 2 && !isStrayFiscalOrAddressName(displayName)) {
+                    flushPendingName();
+                    pushExtractedItem({
+                      name: displayName,
+                      price: totalLinePrice,
+                      quantity: isDiscreteCount && mathMatchesTotal ? rawQty : 1,
+                    });
+                    consumedLineIndices.add(i);
+                    consumedLineIndices.add(probeIdx);
+                    continue;
+                  }
+                }
+              }
+            }
+          }
         }
 
         // Price consistency did not match nearby candidates yet -> defer to post-extraction nearby pass without misassigning
@@ -2322,7 +2404,12 @@ export function extractItems(
         if (dist > 4) continue;
         const it = items[idx];
         if (row.isDiscreteCount && it.quantity !== 1) continue;
-        const err = getQtyPriceMatchError(row.expectedTotal, it.originalPrice ?? it.price);
+        const origErr = getQtyPriceMatchError(row.expectedTotal, it.originalPrice ?? it.price);
+        const finalErr =
+          origErr === null && it.originalPrice !== undefined
+            ? getQtyPriceMatchError(row.expectedTotal, it.price)
+            : null;
+        const err = origErr !== null ? origErr : finalErr !== null ? finalErr + 0.006 : null;
         if (err !== null) {
           candidates.push({ idx, err, dist });
         }
@@ -3331,6 +3418,7 @@ export function reconcileReceiptItemQuantities<
     qty: number;
     unitVal: number;
     expectedTotal: number;
+    lineIndex?: number;
     approxFrac: number;
     wrongHintIdx?: number;
     used: boolean;
@@ -3348,6 +3436,7 @@ export function reconcileReceiptItemQuantities<
         qty: q,
         unitVal: u,
         expectedTotal: q * u,
+        lineIndex: li,
         approxFrac: lines.length > 1 ? li / (lines.length - 1) : 0.5,
         used: false,
       });
@@ -3406,13 +3495,31 @@ export function reconcileReceiptItemQuantities<
     return Math.min(e1, e2);
   };
 
-  const tokenizeName = (n: string): string[] =>
-    toLatinMatchForm(n)
+  const translitBgToLatin = (n: string): string => {
+    const map: Record<string, string> = {
+      а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ж: "zh", з: "z",
+      и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p",
+      р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch",
+      ш: "sh", щ: "sht", ъ: "a", ь: "", ю: "yu", я: "ya",
+    };
+    return n
       .toLowerCase()
+      .split("")
+      .map((ch) => map[ch] ?? ch)
+      .join("");
+  };
+
+  const tokenizeName = (n: string): string[] =>
+    transliterateCyrillicTokens(n)
       .replace(/[^a-z0-9]+/g, " ")
       .trim()
       .split(/\s+/)
       .filter((t) => t.length >= 2);
+
+  function transliterateCyrillicTokens(n: string): string {
+    // Handle both genuine Cyrillic words and mixed Latin/Cyrillic OCR homoglyphs safely
+    return translitBgToLatin(repairCyrillicWordTokens(n, /[а-яА-Я]/.test(n)));
+  }
 
   const hasNameOverlap = (a: string, b: string): boolean => {
     const tokA = tokenizeName(a);
@@ -3427,9 +3534,100 @@ export function reconcileReceiptItemQuantities<
     return matches >= Math.min(tokA.length, tokB.length, 2) && matches / Math.min(tokA.length, tokB.length) >= 0.5;
   };
 
-  const result = items.map((it) => ({ ...it }));
+  const result = items.map((it) => ({ ...it })) as Array<
+    T & {
+      discount?: number;
+      discountLabel?: string;
+    }
+  >;
 
-  // Step 0: Validate any item-level unitPrice reported by AI (e.g. Gemini saw "3.000 x 0.79" on "ТОАЛЕТНА ХАРТИЯ 4.99"):
+  const effPriceOf = (it: { finalPrice?: number; price: number }): number =>
+    Number((it.finalPrice ?? it.price) || 0);
+
+  // Pre-Step A: Detect & repair price/quantity swaps or shifts caused by AI grouping errors
+  // when local OCR items matched the exact same products and the exact same price multiset.
+  const applyLocalItemPricesAndQty = (targetIdx: number, src: ExtractedReceiptItem) => {
+    const target = result[targetIdx];
+    const targetEff = effPriceOf(src);
+    target.price = targetEff;
+    if (src.discount && src.discount > 0 && src.originalPrice !== undefined) {
+      target.originalPrice = src.originalPrice;
+      target.discount = src.discount;
+      target.finalPrice = src.finalPrice ?? targetEff;
+      if (src.discountLabel) target.discountLabel = src.discountLabel;
+    } else {
+      delete target.originalPrice;
+      delete target.discount;
+      delete target.finalPrice;
+      delete target.discountLabel;
+    }
+    target.quantity = src.quantity && src.quantity >= 1 ? src.quantity : 1;
+    if (target.unitPrice !== undefined) {
+      if (
+        target.quantity <= 1 ||
+        getItemCandidatePriceError(target.quantity * target.unitPrice, target) === null
+      ) {
+        delete target.unitPrice;
+      }
+    }
+  };
+
+  const sameLength = localItems.length === result.length;
+
+  if (sameLength && localItems.length >= 2) {
+    const misalignedIndices: number[] = [];
+    for (let i = 0; i < result.length; i++) {
+      const gItem = result[i];
+      const lItem = localItems[i];
+      if (!hasNameOverlap(gItem.name, lItem.name)) continue;
+      if (Math.abs(effPriceOf(gItem) - effPriceOf(lItem)) > 0.02) {
+        misalignedIndices.push(i);
+      }
+    }
+    if (misalignedIndices.length >= 2) {
+      const gPrices = misalignedIndices.map((idx) => effPriceOf(result[idx])).sort((a, b) => a - b);
+      const lPrices = misalignedIndices.map((idx) => effPriceOf(localItems[idx])).sort((a, b) => a - b);
+      const multisetMatches = gPrices.every((p, idx) => Math.abs(p - lPrices[idx]) <= 0.03);
+      if (multisetMatches) {
+        for (const idx of misalignedIndices) {
+          applyLocalItemPricesAndQty(idx, localItems[idx]);
+        }
+      }
+    }
+  } else if (localItems.length >= 2 && result.length >= 2) {
+    // Order-preserving alignment when item counts differ elsewhere on the receipt
+    const paired: Array<{ rIdx: number; lIdx: number }> = [];
+    let searchStart = 0;
+    for (let rIdx = 0; rIdx < result.length; rIdx++) {
+      for (let lIdx = searchStart; lIdx < localItems.length; lIdx++) {
+        if (hasNameOverlap(result[rIdx].name, localItems[lIdx].name)) {
+          paired.push({ rIdx, lIdx });
+          searchStart = lIdx + 1;
+          break;
+        }
+      }
+    }
+    for (let p = 0; p < paired.length; p++) {
+      if (Math.abs(effPriceOf(result[paired[p].rIdx]) - effPriceOf(localItems[paired[p].lIdx])) <= 0.02) {
+        continue;
+      }
+      // Check small local swap/shift window (size 2..4) starting at p
+      for (let wLen = 2; wLen <= 4 && p + wLen <= paired.length; wLen++) {
+        const win = paired.slice(p, p + wLen);
+        const rWinPrices = win.map((w) => effPriceOf(result[w.rIdx])).sort((a, b) => a - b);
+        const lWinPrices = win.map((w) => effPriceOf(localItems[w.lIdx])).sort((a, b) => a - b);
+        if (rWinPrices.every((val, k) => Math.abs(val - lWinPrices[k]) <= 0.03)) {
+          for (const w of win) {
+            applyLocalItemPricesAndQty(w.rIdx, localItems[w.lIdx]);
+          }
+          p += wLen - 1;
+          break;
+        }
+      }
+    }
+  }
+
+  // Step 0: Validate any item-level unitPrice reported by AI (e.g. AI attached "3.000 x 0.79" to a €4.99 item):
   // If quantity * unitPrice does NOT match item price, reset quantity=1 and register the calculation row for true product matching.
   for (let i = 0; i < result.length; i++) {
     const it = result[i];
@@ -3455,9 +3653,7 @@ export function reconcileReceiptItemQuantities<
     }
   }
 
-  const sameLength = localItems.length === result.length;
-
-  // Step 1: Transfer verified multi-quantities from local OCR to Gemini items
+  // Step 1: Transfer verified multi-quantities from local OCR to AI items
   // and reset any AI quantity that contradicts local OCR + standalone OCR qty*unitPrice math.
   if (sameLength) {
     for (let i = 0; i < result.length; i++) {
@@ -3487,7 +3683,6 @@ export function reconcileReceiptItemQuantities<
           }
         }
       } else if ((gItem.quantity || 1) > 1 && (lItem.quantity || 1) === 1) {
-        // Even if Gemini discounted/adjusted the price (e.g. 2.04 -> 0.64), still validate against standalone qty rows
         const matchingRow = standaloneQtyRows.some(
           (row) => row.qty === gItem.quantity && getItemCandidatePriceError(row.expectedTotal, gItem) !== null
         );
@@ -3514,8 +3709,42 @@ export function reconcileReceiptItemQuantities<
     }
   }
 
+  // Locate approximate OCR line indices for result items so Step 2 tie-breaks use true OCR position
+  // rather than full-receipt line fraction (which is skewed by long headers/footers).
+  const itemOcrLineIdx: number[] = new Array(result.length).fill(-1);
+  if (lines.length > 0) {
+    let cursor = 0;
+    for (let rIdx = 0; rIdx < result.length; rIdx++) {
+      for (let li = cursor; li < lines.length; li++) {
+        if (hasNameOverlap(result[rIdx].name, lines[li])) {
+          itemOcrLineIdx[rIdx] = li;
+          cursor = li + 1;
+          break;
+        }
+      }
+    }
+  }
+
+  const estimateOcrTargetIndex = (lineIdx: number | undefined): number | null => {
+    if (lineIdx === undefined) return null;
+    const known = itemOcrLineIdx
+      .map((ocrLi, rIdx) => ({ ocrLi, rIdx }))
+      .filter((x) => x.ocrLi >= 0);
+    if (known.length === 0) return null;
+    let bestIdx = known[0].rIdx;
+    let bestDist = Math.abs(known[0].ocrLi - lineIdx);
+    for (const k of known) {
+      const d = Math.abs(k.ocrLi - lineIdx);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = k.rIdx;
+      }
+    }
+    return bestIdx;
+  };
+
   // Step 2: Enforce price-consistency for every standalone qty x unitPrice row in OCR / Gemini,
-  // prioritizing exact price match over proximity and never leaving a contradicting quantity attached.
+  // prioritizing exact price match over proximity (supports both qty-before and qty-after items).
   const claimedIndices = new Set<number>();
 
   for (const row of standaloneQtyRows) {
@@ -3572,8 +3801,11 @@ export function reconcileReceiptItemQuantities<
           : row.wrongHintIdx !== undefined
           ? row.wrongHintIdx
           : -1;
+      const ocrTargetIdx = estimateOcrTargetIndex(row.lineIndex);
       const targetPos =
-        anchorIdx >= 0
+        ocrTargetIdx !== null
+          ? ocrTargetIdx
+          : anchorIdx >= 0
           ? anchorIdx
           : Math.round(row.approxFrac * Math.max(0, result.length - 1));
 
@@ -3583,7 +3815,7 @@ export function reconcileReceiptItemQuantities<
         return Math.abs(a.idx - targetPos) - Math.abs(b.idx - targetPos);
       });
       const chosen = exactMatchCandidates[0];
-      if (anchorIdx < 0 || Math.abs(chosen.idx - anchorIdx) <= 6 || chosen.err <= 0.01) {
+      if (anchorIdx < 0 || Math.abs(chosen.idx - targetPos) <= 6 || chosen.err <= 0.01) {
         result[chosen.idx].quantity = row.qty;
         claimedIndices.add(chosen.idx);
         row.used = true;

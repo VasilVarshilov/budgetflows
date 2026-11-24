@@ -95,17 +95,20 @@ Important rules for Bulgarian & international receipts (especially long 15-30 it
 - "expectedItemsCount": Integer count if printed on receipt (e.g. "17 АРТИКУЛА", "ITEMS SOLD: 17"), otherwise null.
 - "currency": Bulgaria uses the Euro (€, EUR). Always return "€" for Bulgarian receipts (including dual-display receipts), or "$" / "£" only if explicitly printed in USD or GBP. Never return "лв." or "BGN", and never convert prices — extract the exact EUR printed values.
 - "items": CRITICAL — Do NOT truncate, sample, or skip any purchased items. Extract EVERY single item line from top to bottom until Subtotal/Total/VAT/Payment! On a 17-item receipt, return all 17 items so the sum of item "price" matches totalAmount. Fix garbled Cyrillic/Latin OCR letters using the receipt image and raw OCR text (e.g. ПРЯСНО МЛЯКО, ХЛЯБ БЯЛ, СИРЕНЕ, ДОМАТИ), merge multi-line wrapped product names into one readable item name, extract exact integer quantity ("quantity": 2 for "2 x Coca Cola" or "2 x 2.40  4.80"; default 1), optional "unitPrice" when printed (e.g. 0.15 for "4.000 x 0.15"), and the final line price ("price").
-  * LIDL / MULTI-QUANTITY BLOCK GROUPING RULE (CRITICAL): On Lidl and Bulgarian receipts, a standalone calculation line "QTY x UNIT_PRICE" (e.g. "4.000 x 0.15" or "3.000 x 0.79") sits ABOVE the product it belongs to:
-      ШАМП.ПРОТ.ПЪРХ.ЛИМ   2.04   --> item 1: name="ШАМП.ПРОТ.ПЪРХ.ЛИМ", quantity=1, price=2.04
-      4.000 x 0.15
-      BIOSET КАНЕЛА МЛЯНА  0.60   --> item 2: name="BIOSET КАНЕЛА МЛЯНА", quantity=4, unitPrice=0.15, price=0.60 (because 4 * 0.15 = 0.60)
-      ТОАЛЕТНА ХАРТИЯ      3.06   --> item 3: name="ТОАЛЕТНА ХАРТИЯ", quantity=1, price=3.06
-      3.000 x 0.79
-      МОРКОВИ В МРЕЖА      2.37   --> item 4: name="МОРКОВИ В МРЕЖА", quantity=3, unitPrice=0.79, price=2.37 (because 3 * 0.79 = 2.37)
-    NEVER attach a "QTY x UNIT_PRICE" row to the preceding product block (e.g. never put quantity=4 or price=0.60 on "ШАМП.ПРОТ.ПЪРХ.ЛИМ", and never put quantity=3 or price=2.37 on "ТОАЛЕТНА ХАРТИЯ")! NEVER shift product prices up or down across rows. ALWAYS compute qty * unitPrice and assign "quantity" and "unitPrice" ONLY to the FOLLOWING (or math-matching) product whose ITEM_TOTAL equals qty * unitPrice!
-  * DISCOUNTS (e.g. Lidl "#Lidl Plus промоция" / "ОТСТЪПКИ 1,02-" / "-1.02" / "ОТСТЪПКА"): NEVER output a discount line as a standalone item! Instead, attach it directly to the PRECEDING item: set "originalPrice" to the item's printed pre-discount price (e.g. 3.06), "discount" to the positive discount amount (e.g. 1.02), "finalPrice" and "price" BOTH to originalPrice - discount (e.g. 2.04), and "discountLabel" (e.g. "Lidl Plus" or "Отстъпка"). If an item has no discount, omit discount fields or leave discount=0.
+  * GENERIC QUANTITY CALCULATION & PRICE-LOCK RULE (CRITICAL): Different stores place standalone calculation rows "QTY x UNIT_PRICE" (e.g. "4.000 x 0.15", "3.000 x 0.79", "2 x 0.40") either BEFORE (above) or AFTER (below) the product they belong to. NEVER guess by fixed direction ("always previous" or "always next") and NEVER move or swap product line totals ("price") between adjacent items! Keep every product's printed line total strictly paired with its own product name. For every standalone "QTY x UNIT_PRICE" row:
+      1) Compute EXPECTED_TOTAL = QTY * UNIT_PRICE.
+      2) Inspect nearby products (both above and below) and assign "quantity" and "unitPrice" ONLY to the product whose printed total (or pre-discount originalPrice) equals EXPECTED_TOTAL (within ±0.02).
+      Example A (calculation line BEFORE its product):
+        Item 1 name + 2.04  --> price=2.04, quantity=1
+        4.000 x 0.15        --> 4 * 0.15 = 0.60, matches Item 2!
+        Item 2 name + 0.60  --> price=0.60, quantity=4, unitPrice=0.15
+      Example B (calculation line AFTER its product):
+        Item 1 name + 0.80  --> price=0.80, quantity=2, unitPrice=0.40
+        2 x 0.40            --> 2 * 0.40 = 0.80, matches Item 1!
+        Item 2 name + 0.95  --> price=0.95, quantity=1
+  * DISCOUNTS (e.g. "#Lidl Plus промоция" / "ОТСТЪПКИ 1,02-" / "-1.02" / "ОТСТЪПКА"): NEVER output a discount line as a standalone item! Instead, attach it directly to the PRECEDING item: set "originalPrice" to the item's printed pre-discount price (e.g. 3.06), "discount" to the positive discount amount (e.g. 1.02), "finalPrice" and "price" BOTH to originalPrice - discount (e.g. 2.04), and "discountLabel" (e.g. "Lidl Plus" or "Отстъпка"). If an item has no discount, omit discount fields or leave discount=0.
   * Strip trailing tax group letters (А, Б, В, Г, A, B, C, D). NEVER include ДДС/VAT, В БРОЙ, КАРТА, РЕСТО, or ОБЩО rows as items.
-- "quantityLines": List EVERY standalone "qty x unitPrice" calculation row visible on the receipt in top-to-bottom order (e.g. ["4.000 x 0.15", "3.000 x 0.79"]), or [] if none.
+- "quantityLines": List EVERY standalone "qty x unitPrice" calculation row visible on the receipt in top-to-bottom order (e.g. ["4.000 x 0.15", "2 x 0.40"]), or [] if none.
 - "notesFormatted": Multi-line list, one item per line strictly formatted as "<quantity> x <Item Name> - <currency><price>" (e.g. "2 x Coca Cola - €4.80\\n1 x Хляб бял - €1.20"). Never put all items on a single line.
 - "suggestedCategory": Lidl/Kaufland/Billa/Fantastico/T Market/Metro -> "храна"; Shell/OMV/Lukoil/Eko/Rompetrol -> "гориво"; Happy/Raffy/KFC/McDonald's -> "ресторант"; Cinema City/Kino Arena -> "кино"; Lilly/DM -> "козметика"; Sopharmacy/Subra -> "аптека".
 - Raw OCR text hint (may contain Cyrillic/Latin OCR artifacts): ${ocrText ? JSON.stringify(ocrText.slice(0, 6000)) : "None"}

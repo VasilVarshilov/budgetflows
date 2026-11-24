@@ -1542,7 +1542,14 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setDate(rawAiDate);
             setDetectedDate(rawAiDate);
             setDateFallbackReason(null);
-            setWarnings((prev) => prev.filter((w) => !w.includes("Датата") && !w.includes("Не е открита дата")));
+            setWarnings((prev) =>
+              prev.filter(
+                (w) =>
+                  !w.includes("Датата") &&
+                  !w.includes("Не е открита дата") &&
+                  !w.toLowerCase().includes("receipt date was not detected")
+              )
+            );
             addDebugLog("parsed_date", `AI (Gemini) detected date: "${rawAiDate}" | Final date: "${rawAiDate}"`);
           } else {
             addDebugLog(

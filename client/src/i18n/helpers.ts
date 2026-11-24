@@ -287,10 +287,11 @@ export function formatLocalizedDate(
 ): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString(
-    getIntlLocale(lang),
-    options ?? { day: "2-digit", month: "2-digit", year: "numeric" }
-  );
+  const defaultOptions: Intl.DateTimeFormatOptions =
+    lang === "en"
+      ? { month: "short", day: "numeric", year: "numeric" }
+      : { day: "2-digit", month: "2-digit", year: "numeric" };
+  return date.toLocaleDateString(getIntlLocale(lang), options ?? defaultOptions);
 }
 
 export function formatLocalizedDateTime(

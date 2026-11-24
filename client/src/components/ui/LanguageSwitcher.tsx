@@ -57,7 +57,7 @@ export const LanguageSwitcher: React.FC = () => {
         <div
           role="menu"
           aria-label={t("language.menuTitle")}
-          className="absolute right-0 top-full mt-2 w-48 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150"
+          className="absolute right-0 top-full mt-2 w-52 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150"
         >
           <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
             {t("language.menuTitle")}
@@ -81,10 +81,14 @@ export const LanguageSwitcher: React.FC = () => {
                       : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/80"
                   }`}
                 >
-                  <span className="flex items-center gap-2.5">
+                  <span className="flex items-center gap-2">
                     <span className="text-base leading-none" aria-hidden="true">
                       {option.flag}
                     </span>
+                    <span className="font-bold uppercase tracking-wide text-xs opacity-80">
+                      {option.code}
+                    </span>
+                    <span className="text-slate-400 dark:text-slate-500">—</span>
                     <span>{option.nativeName}</span>
                   </span>
                   {isSelected && (
