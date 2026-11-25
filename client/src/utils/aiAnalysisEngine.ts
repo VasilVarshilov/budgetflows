@@ -50,6 +50,38 @@ export interface FinancialHealthScore {
   monthlySavingsPotential: number; // in EUR
 }
 
+export type AiMetricId =
+  | "healthScore"
+  | "savingsRate"
+  | "runwayMonths"
+  | "monthlySavingsPotential";
+
+export interface MetricBreakdownInput {
+  label: string;
+  value: string;
+}
+
+export interface MetricBreakdownStep {
+  label: string;
+  detail: string;
+  delta?: string;
+  tone?: "positive" | "negative" | "neutral";
+}
+
+export interface MetricExplanationData {
+  id: AiMetricId;
+  title: string;
+  displayValue: string;
+  badgeText?: string;
+  formula: string;
+  inputsUsed: MetricBreakdownInput[];
+  calculationSteps: MetricBreakdownStep[];
+  interpretation: string;
+  recommendations: string[];
+  targetActionTab?: "budgets" | "savings" | "monthly" | "income";
+  targetActionLabel?: string;
+}
+
 export interface FullAnalysisResult {
   healthScore: FinancialHealthScore;
   totalExpensesAnalyzed: number;
@@ -58,6 +90,7 @@ export interface FullAnalysisResult {
   monthsAnalyzedCount: number;
   insights: FinancialInsight[];
   topRecommendations: FinancialInsight[];
+  metricBreakdowns: Record<AiMetricId, MetricExplanationData>;
 }
 
 export function translateHealthRating(
@@ -245,31 +278,194 @@ export function generateLocalFinancialAnalysis(
 
   // Calculate Health Score (0-100)
   let healthScoreVal = 50;
-  if (savingsRate >= 20) healthScoreVal += 20;
-  else if (savingsRate >= 10) healthScoreVal += 10;
-  else if (avgMonthlyExpenses > avgMonthlyIncome && avgMonthlyExpenses > 0) healthScoreVal -= 20;
+  const healthScoreFactors: MetricBreakdownStep[] = [
+    {
+      label: isEn ? "Baseline score" : "Базова начална стойност",
+      detail: isEn ? "Standard starting index before financial adjustments" : "Стандартна отправна точка преди корекциите",
+      delta: "50",
+      tone: "neutral",
+    },
+  ];
 
-  if (runwayMonths >= 6) healthScoreVal += 20;
-  else if (runwayMonths >= 3) healthScoreVal += 10;
-  else if (runwayMonths < 1) healthScoreVal -= 15;
+  if (savingsRate >= 20) {
+    healthScoreVal += 20;
+    healthScoreFactors.push({
+      label: isEn ? "Savings rate (≥ 20%)" : "Норма на спестяване (≥ 20%)",
+      detail: isEn
+        ? `Strong savings rate of ${savingsRate.toFixed(1)}% meets the ≥ 20% benchmark.`
+        : `Отлична норма на спестяване от ${savingsRate.toFixed(1)}% (праг ≥ 20%).`,
+      delta: "+20",
+      tone: "positive",
+    });
+  } else if (savingsRate >= 10) {
+    healthScoreVal += 10;
+    healthScoreFactors.push({
+      label: isEn ? "Savings rate (10% – 19.9%)" : "Норма на спестяване (10% – 19.9%)",
+      detail: isEn
+        ? `Moderate savings rate of ${savingsRate.toFixed(1)}% gives a partial bonus.`
+        : `Умерена норма на спестяване от ${savingsRate.toFixed(1)}% (праг ≥ 10%).`,
+      delta: "+10",
+      tone: "positive",
+    });
+  } else if (avgMonthlyExpenses > avgMonthlyIncome && avgMonthlyExpenses > 0) {
+    healthScoreVal -= 20;
+    healthScoreFactors.push({
+      label: isEn ? "Monthly deficit (expenses > income)" : "Месечен дефицит (разходи > приходи)",
+      detail: isEn
+        ? `Avg monthly expenses (€${avgMonthlyExpenses.toFixed(2)}) exceed avg income (€${avgMonthlyIncome.toFixed(2)}).`
+        : `Средните месечни разходи (€${avgMonthlyExpenses.toFixed(2)}) надвишават средния доход (€${avgMonthlyIncome.toFixed(2)}).`,
+      delta: "-20",
+      tone: "negative",
+    });
+  } else {
+    healthScoreFactors.push({
+      label: isEn ? "Savings rate (< 10%)" : "Норма на спестяване (< 10%)",
+      detail: isEn
+        ? `Current savings rate is ${savingsRate.toFixed(1)}% (no bonus applied).`
+        : `Текущата норма на спестяване е ${savingsRate.toFixed(1)}% (без бонус точки).`,
+      delta: "0",
+      tone: "neutral",
+    });
+  }
+
+  if (runwayMonths >= 6) {
+    healthScoreVal += 20;
+    healthScoreFactors.push({
+      label: isEn ? "Emergency buffer (≥ 6 months)" : "Авариен фонд (≥ 6 месеца)",
+      detail: isEn
+        ? `Savings cover ${runwayMonths} months of expenses (full 6+ month safety cushion).`
+        : `Спестяванията покриват ${runwayMonths} месеца разходи (пълен буфер ≥ 6 мес.).`,
+      delta: "+20",
+      tone: "positive",
+    });
+  } else if (runwayMonths >= 3) {
+    healthScoreVal += 10;
+    healthScoreFactors.push({
+      label: isEn ? "Emergency buffer (3 – 5.9 months)" : "Авариен фонд (3 – 5.9 месеца)",
+      detail: isEn
+        ? `Savings cover ${runwayMonths} months of expenses (solid 3+ month cushion).`
+        : `Спестяванията покриват ${runwayMonths} месеца разходи (стабилен буфер ≥ 3 мес.).`,
+      delta: "+10",
+      tone: "positive",
+    });
+  } else if (runwayMonths < 1) {
+    healthScoreVal -= 15;
+    healthScoreFactors.push({
+      label: isEn ? "Low emergency buffer (< 1 month)" : "Нисък авариен фонд (< 1 месец)",
+      detail: isEn
+        ? `Current buffer covers ${runwayMonths} months of expenses (below 1 month minimum).`
+        : `Текущият буфер покрива ${runwayMonths} месеца разходи (под минимума от 1 месец).`,
+      delta: "-15",
+      tone: "negative",
+    });
+  } else {
+    healthScoreFactors.push({
+      label: isEn ? "Emergency buffer (1 – 2.9 months)" : "Авариен фонд (1 – 2.9 месеца)",
+      detail: isEn
+        ? `Buffer covers ${runwayMonths} months (aim for ≥ 3 months for +10 points).`
+        : `Буферът покрива ${runwayMonths} месеца (при ≥ 3 месеца носи +10 точки).`,
+      delta: "0",
+      tone: "neutral",
+    });
+  }
 
   if (totalMonthlyBudget > 0 && avgMonthlyExpenses > 0) {
     if (avgMonthlyExpenses <= totalMonthlyBudget) {
       healthScoreVal += 10;
+      healthScoreFactors.push({
+        label: isEn ? "Overall budget compliance" : "Спазване на общия месечен бюджет",
+        detail: isEn
+          ? `Avg spend (€${avgMonthlyExpenses.toFixed(2)}) stays within €${totalMonthlyBudget.toFixed(2)} limit.`
+          : `Средният разход (€${avgMonthlyExpenses.toFixed(2)}) е в рамките на лимита от €${totalMonthlyBudget.toFixed(2)}.`,
+        delta: "+10",
+        tone: "positive",
+      });
     } else {
       healthScoreVal -= 15;
+      healthScoreFactors.push({
+        label: isEn ? "Overall budget exceeded" : "Превишен общ месечен бюджет",
+        detail: isEn
+          ? `Avg spend (€${avgMonthlyExpenses.toFixed(2)}) exceeds €${totalMonthlyBudget.toFixed(2)} limit.`
+          : `Средният разход (€${avgMonthlyExpenses.toFixed(2)}) надвишава лимита от €${totalMonthlyBudget.toFixed(2)}.`,
+        delta: "-15",
+        tone: "negative",
+      });
     }
+  } else {
+    healthScoreFactors.push({
+      label: isEn ? "Overall monthly budget" : "Общ месечен бюджет",
+      detail: isEn
+        ? totalMonthlyBudget <= 0
+          ? "No overall monthly budget configured yet (+10 when within limit)."
+          : "No expenses recorded yet to evaluate against the monthly limit."
+        : totalMonthlyBudget <= 0
+        ? "Не е зададен общ месечен бюджет (при спазване носи +10 точки)."
+        : "Все още няма отчетени разходи за сравнение с лимита.",
+      delta: "0",
+      tone: "neutral",
+    });
   }
+
   if (exceededCategoryBudgets.length > 0) {
-    healthScoreVal -= Math.min(10, exceededCategoryBudgets.length * 3);
+    const catPenalty = Math.min(10, exceededCategoryBudgets.length * 3);
+    healthScoreVal -= catPenalty;
+    healthScoreFactors.push({
+      label: isEn ? "Exceeded category budgets" : "Превишени бюджети по категории",
+      detail: isEn
+        ? `${exceededCategoryBudgets.length} category budget(s) exceeded (−3 pts each, capped at −10).`
+        : `${exceededCategoryBudgets.length} надвишени категории (−3 т. на категория, макс. −10).`,
+      delta: `-${catPenalty}`,
+      tone: "negative",
+    });
   }
+
   if (activeGoals.length > 0 && totalGoalTarget > 0 && (totalExpenses > 0 || totalIncome > 0 || currentSavingsBalance > 0)) {
     const goalProgressPct = (totalGoalAllocated / totalGoalTarget) * 100;
-    if (goalProgressPct >= 80) healthScoreVal += 5;
-    else if (goalProgressPct >= 40) healthScoreVal += 2;
-    else if (goalProgressPct < 20) healthScoreVal -= 3;
+    if (goalProgressPct >= 80) {
+      healthScoreVal += 5;
+      healthScoreFactors.push({
+        label: isEn ? "Savings goals progress (≥ 80%)" : "Напредък по спестовни цели (≥ 80%)",
+        detail: isEn
+          ? `${goalProgressPct.toFixed(0)}% funded across ${activeGoals.length} active goal(s).`
+          : `Постигнати ${goalProgressPct.toFixed(0)}% по ${activeGoals.length} активни цели.`,
+        delta: "+5",
+        tone: "positive",
+      });
+    } else if (goalProgressPct >= 40) {
+      healthScoreVal += 2;
+      healthScoreFactors.push({
+        label: isEn ? "Savings goals progress (40% – 79%)" : "Напредък по спестовни цели (40% – 79%)",
+        detail: isEn
+          ? `${goalProgressPct.toFixed(0)}% funded across ${activeGoals.length} active goal(s).`
+          : `Постигнати ${goalProgressPct.toFixed(0)}% по ${activeGoals.length} активни цели.`,
+        delta: "+2",
+        tone: "positive",
+      });
+    } else if (goalProgressPct < 20) {
+      healthScoreVal -= 3;
+      healthScoreFactors.push({
+        label: isEn ? "Savings goals progress (< 20%)" : "Напредък по спестовни цели (< 20%)",
+        detail: isEn
+          ? `Only ${goalProgressPct.toFixed(0)}% funded toward €${totalGoalTarget.toFixed(0)} target.`
+          : `Заделени са ${goalProgressPct.toFixed(0)}% от целта €${totalGoalTarget.toFixed(0)}.`,
+        delta: "-3",
+        tone: "negative",
+      });
+    }
   }
+
+  const rawHealthScoreVal = healthScoreVal;
   healthScoreVal = Math.min(100, Math.max(10, healthScoreVal));
+  if (rawHealthScoreVal !== healthScoreVal) {
+    healthScoreFactors.push({
+      label: isEn ? "Scale bounds (10 – 100)" : "Ограничение на скалата (10 – 100)",
+      detail: isEn
+        ? `Raw sum (${rawHealthScoreVal}) clamped to [10, 100].`
+        : `Суровият резултат (${rawHealthScoreVal}) е ограничен в интервала [10, 100].`,
+      delta: `= ${healthScoreVal}`,
+      tone: "neutral",
+    });
+  }
 
   let healthRating: "Отличен" | "Добър" | "Задоволителен" | "Нужда от оптимизация" = "Добър";
   if (healthScoreVal >= 80) healthRating = "Отличен";
@@ -280,6 +476,7 @@ export function generateLocalFinancialAnalysis(
   // Insights generation container
   const insights: FinancialInsight[] = [];
   let potentialMonthlySavings = 0;
+  const savingsPotentialParts: MetricBreakdownStep[] = [];
 
   // ----------------------------------------------------
   // 1. SPENDING ANALYSIS & REDUCTION SUGGESTIONS
@@ -297,6 +494,16 @@ export function generateLocalFinancialAnalysis(
     if (topCatPct >= 35) {
       const suggestReduction = Math.round(monthlyTopSpend * 0.15);
       potentialMonthlySavings += suggestReduction;
+      savingsPotentialParts.push({
+        label: isEn
+          ? `15% optimization in “${topCatDisplay}”`
+          : `15% оптимизация в „${topCatDisplay}“`,
+        detail: isEn
+          ? `Top category accounts for ${topCatPct}% of expenses (€${monthlyTopSpend.toFixed(2)}/mo × 15%).`
+          : `Водещата категория заема ${topCatPct}% от разходите (€${monthlyTopSpend.toFixed(2)}/мес × 15%).`,
+        delta: `+€${suggestReduction}`,
+        tone: "positive",
+      });
 
       insights.push({
         id: "spending_top_heavy",
@@ -350,6 +557,16 @@ export function generateLocalFinancialAnalysis(
     if (diningPct > 15 || diningMonthly > 120) {
       const diningSavings = Math.round(diningMonthly * 0.25);
       potentialMonthlySavings += diningSavings;
+      savingsPotentialParts.push({
+        label: isEn
+          ? "25% trim on dining & entertainment"
+          : "25% оптимизация на заведения и развлечения",
+        detail: isEn
+          ? `Avg dining/leisure spend is €${diningMonthly.toFixed(2)}/mo (${diningPct.toFixed(1)}% of expenses × 25%).`
+          : `Средно за заведения/забавления: €${diningMonthly.toFixed(2)}/мес (${diningPct.toFixed(1)}% от разходите × 25%).`,
+        delta: `+€${diningSavings}`,
+        tone: "positive",
+      });
 
       insights.push({
         id: "spending_dining_out",
@@ -525,6 +742,16 @@ export function generateLocalFinancialAnalysis(
   if (savingsRate < 10 && avgMonthlyIncome > 0) {
     const boostSavings = Math.round(avgMonthlyIncome * 0.1);
     potentialMonthlySavings += boostSavings;
+    savingsPotentialParts.push({
+      label: isEn
+        ? "10% monthly income savings shift"
+        : "10% целево пренасочване от дохода",
+      detail: isEn
+        ? `Savings rate (${savingsRate.toFixed(1)}%) is below 10% (10% of €${avgMonthlyIncome.toFixed(2)}/mo income).`
+        : `Нормата на спестяване (${savingsRate.toFixed(1)}%) е под 10% (10% от €${avgMonthlyIncome.toFixed(2)}/мес доход).`,
+      delta: `+€${boostSavings}`,
+      tone: "positive",
+    });
 
     insights.push({
       id: "savings_rate_low",
@@ -563,6 +790,16 @@ export function generateLocalFinancialAnalysis(
     if (nightRatio < 30) {
       const elecSavings = Math.round(avgElecCost * 0.12);
       potentialMonthlySavings += elecSavings;
+      savingsPotentialParts.push({
+        label: isEn
+          ? "12% electricity night-tariff shift"
+          : "12% икономия от нощна тарифа за ток",
+        detail: isEn
+          ? `Night usage is ${nightRatio}% (< 30%) on an avg €${avgElecCost.toFixed(2)} electricity bill (× 12%).`
+          : `Нощната консумация е ${nightRatio}% (< 30%) при средна сметка €${avgElecCost.toFixed(2)} (× 12%).`,
+        delta: `+€${elecSavings}`,
+        tone: "positive",
+      });
 
       insights.push({
         id: "elec_night_tariff_opportunity",
@@ -722,6 +959,18 @@ export function generateLocalFinancialAnalysis(
   }
 
   potentialMonthlySavings += budgetOverspendPotential;
+  if (budgetOverspendPotential > 0) {
+    savingsPotentialParts.push({
+      label: isEn
+        ? "Eliminating monthly/category budget overspend"
+        : "Премахване на преразхода по бюджети",
+      detail: isEn
+        ? `Bringing actual spending back within your configured monthly/category limits.`
+        : `Връщане на текущите разходи в рамките на зададените месечни и категорийни лимити.`,
+      delta: `+€${budgetOverspendPotential}`,
+      tone: "positive",
+    });
+  }
 
   if (activeGoals.length > 0 && totalGoalTarget > 0) {
     const progressPct = Math.round((totalGoalAllocated / totalGoalTarget) * 100);
@@ -884,7 +1133,18 @@ export function generateLocalFinancialAnalysis(
   ) {
     const avgMonthlyVariable =
       monthsCount > 0 ? totalVariableExpenses / monthsCount : totalVariableExpenses;
-    potentialMonthlySavings += Math.round(avgMonthlyVariable * 0.1);
+    const varOptimization = Math.round(avgMonthlyVariable * 0.1);
+    potentialMonthlySavings += varOptimization;
+    savingsPotentialParts.push({
+      label: isEn
+        ? "10% variable expense optimization"
+        : "10% оптимизация на променливите разходи",
+      detail: isEn
+        ? `Estimated 10% trim across average variable spending (€${avgMonthlyVariable.toFixed(2)}/mo).`
+        : `Очаквана 10% икономия от средните допълнителни разходи (€${avgMonthlyVariable.toFixed(2)}/мес).`,
+      delta: `+€${varOptimization}`,
+      tone: "positive",
+    });
   }
 
   if (
@@ -895,8 +1155,355 @@ export function generateLocalFinancialAnalysis(
       1,
       Math.round((avgMonthlyExpenses > 0 ? avgMonthlyExpenses : avgMonthlyIncome) * 0.1)
     );
-    potentialMonthlySavings += Math.min(Math.round(totalGoalRemaining / 12), goalPotentialCap);
+    const goalContribution = Math.min(Math.round(totalGoalRemaining / 12), goalPotentialCap);
+    potentialMonthlySavings += goalContribution;
+    savingsPotentialParts.push({
+      label: isEn
+        ? "Active savings goals pace"
+        : "Темп за активните спестовни цели",
+      detail: isEn
+        ? `Monthly allocation needed toward €${totalGoalRemaining.toFixed(2)} remaining goal target (capped at 10%).`
+        : `Месечен резерв за оставащите €${totalGoalRemaining.toFixed(2)} по целите (до 10% от базата).`,
+      delta: `+€${goalContribution}`,
+      tone: "positive",
+    });
   }
+
+  const roundedSavingsRate = parseFloat(savingsRate.toFixed(1));
+  const finalPotentialMonthlySavings = Math.max(0, Math.round(potentialMonthlySavings));
+  const avgNetMonthlySurplus = avgMonthlyIncome - avgMonthlyExpenses;
+  const recommended3MoFund = avgMonthlyExpenses * 3;
+  const recommended6MoFund = avgMonthlyExpenses * 6;
+  const effectiveMonthsDenominator = monthsCount > 0 ? monthsCount : 1;
+
+  const metricBreakdowns: Record<AiMetricId, MetricExplanationData> = {
+    healthScore: {
+      id: "healthScore",
+      title: isEn ? "Financial Health Index" : "Финансов здравен индекс",
+      displayValue: `${healthScoreVal}/100`,
+      badgeText: translateHealthRating(healthRating, lang),
+      formula: isEn
+        ? "50 (Base) ± Savings Rate (±20) ± Emergency Buffer (±20/-15) ± Budget Limit (+10/-15) − Category Overspend (up to -10) ± Savings Goals (+5/-3), clamped 10–100"
+        : "50 (База) ± Норма на спестяване (±20) ± Авариен буфер (±20/-15) ± Общ бюджет (+10/-15) − Надвишени категории (до -10) ± Цели (+5/-3), скала 10–100",
+      inputsUsed: [
+        {
+          label: isEn ? "Months analyzed" : "Анализирани месеци",
+          value: `${monthsCount}`,
+        },
+        {
+          label: isEn ? "Savings rate" : "Норма на спестяване",
+          value: `${roundedSavingsRate}%`,
+        },
+        {
+          label: isEn ? "Emergency buffer" : "Авариен фонд",
+          value: isEn ? `${runwayMonths} mo.` : `${runwayMonths} мес.`,
+        },
+        {
+          label: isEn ? "Monthly budget limit" : "Общ месечен бюджет",
+          value:
+            totalMonthlyBudget > 0
+              ? `€${totalMonthlyBudget.toFixed(2)}`
+              : isEn
+              ? "Not set"
+              : "Не е зададен",
+        },
+        {
+          label: isEn ? "Exceeded category budgets" : "Надвишени категорийни бюджети",
+          value: `${exceededCategoryBudgets.length}`,
+        },
+      ],
+      calculationSteps: healthScoreFactors,
+      interpretation:
+        healthScoreVal >= 80
+          ? isEn
+            ? "Excellent financial resilience: strong savings discipline, healthy emergency coverage, and controlled spending."
+            : "Отлична финансова стабилност: силна спестовна дисциплина, стабилен буфер и контролирани разходи."
+          : healthScoreVal >= 65
+          ? isEn
+            ? "Good financial balance with clear headroom to strengthen reserves or tighten budget caps."
+            : "Добър финансов баланс с ясен потенциал за подсилване на резерва или оптимизиране на лимитите."
+          : healthScoreVal >= 45
+          ? isEn
+            ? "Fair status: some areas such as savings buffer or budget adherence are pulling the score down."
+            : "Задоволително състояние: отделни показатели като аварийния буфер или спазването на бюджета понижават индекса."
+          : isEn
+          ? "Needs optimization: expenses are close to or above income and/or emergency coverage is critically low."
+          : "Нужда от оптимизация: разходите се доближават или надвишават приходите и/или аварийният резерв е критично нисък.",
+      recommendations: [
+        ...(savingsRate < 20
+          ? [
+              isEn
+                ? `Raising your savings rate to ≥ 20% adds up to +20 points to your index.`
+                : `Достигането на норма на спестяване ≥ 20% носи до +20 точки към индекса.`,
+            ]
+          : []),
+        ...(runwayMonths < 6
+          ? [
+              isEn
+                ? `Growing your emergency buffer to 3 months adds +10 points (and +20 points at 6 months).`
+                : `Увеличаването на аварийния фонд до 3 месеца носи +10 точки (и +20 точки при 6 месеца).`,
+            ]
+          : []),
+        ...(totalMonthlyBudget <= 0 || exceededCategoryBudgets.length > 0 || (totalMonthlyBudget > 0 && avgMonthlyExpenses > totalMonthlyBudget)
+          ? [
+              isEn
+                ? `Configure and stay within monthly and category budgets for up to +10 bonus points.`
+                : `Задайте и спазвайте месечния и категорийните бюджети за до +10 бонус точки.`,
+            ]
+          : []),
+        ...(healthScoreVal >= 80
+          ? [
+              isEn
+                ? "Maintain your current rhythm and periodically review savings goals."
+                : "Поддържайте текущия ритъм и актуализирайте спестовните си цели периодично.",
+            ]
+          : []),
+      ],
+      targetActionTab: "budgets",
+      targetActionLabel: isEn ? "Open Budgets" : "Към Бюджети",
+    },
+    savingsRate: {
+      id: "savingsRate",
+      title: isEn ? "Savings Rate" : "Норма на спестяване",
+      displayValue: `${roundedSavingsRate}%`,
+      badgeText:
+        avgMonthlyIncome > 0
+          ? `${savingsRate >= savingsTargetPercent ? "✓ " : ""}${isEn ? "Target" : "Цел"}: ${savingsTargetPercent}%`
+          : undefined,
+      formula: isEn
+        ? "((Avg Monthly Income − Avg Monthly Expenses) ÷ Avg Monthly Income) × 100  [clamped 0% – 100%]"
+        : "((Среден месечен приход − Среден месечен разход) ÷ Среден месечен приход) × 100  [в интервала 0% – 100%]",
+      inputsUsed: [
+        {
+          label: isEn ? "Total completed income" : "Общо реализирани приходи",
+          value: `€${totalIncome.toFixed(2)}`,
+        },
+        {
+          label: isEn ? "Total completed expenses" : "Общо приключени разходи",
+          value: `€${totalExpenses.toFixed(2)}`,
+        },
+        {
+          label: isEn ? "Months analyzed" : "Анализирани месеци",
+          value: `${monthsCount}`,
+        },
+        {
+          label: isEn ? "Configured target" : "Заложена целева норма",
+          value: `${savingsTargetPercent}%`,
+        },
+      ],
+      calculationSteps: [
+        {
+          label: isEn ? "Average monthly income" : "Среден месечен приход",
+          detail: `€${totalIncome.toFixed(2)} ÷ ${effectiveMonthsDenominator} = €${avgMonthlyIncome.toFixed(2)}`,
+          delta: `€${avgMonthlyIncome.toFixed(2)}`,
+          tone: "neutral",
+        },
+        {
+          label: isEn ? "Average monthly expenses" : "Среден месечен разход",
+          detail: `€${totalExpenses.toFixed(2)} ÷ ${effectiveMonthsDenominator} = €${avgMonthlyExpenses.toFixed(2)}`,
+          delta: `€${avgMonthlyExpenses.toFixed(2)}`,
+          tone: "neutral",
+        },
+        {
+          label: isEn ? "Average monthly net surplus" : "Среден месечен нетен остатък",
+          detail: `€${avgMonthlyIncome.toFixed(2)} − €${avgMonthlyExpenses.toFixed(2)}`,
+          delta: `${avgNetMonthlySurplus >= 0 ? "+" : "-"}€${Math.abs(avgNetMonthlySurplus).toFixed(2)}`,
+          tone: avgNetMonthlySurplus > 0 ? "positive" : avgNetMonthlySurplus < 0 ? "negative" : "neutral",
+        },
+        {
+          label: isEn ? "Resulting savings rate" : "Изчислена норма на спестяване",
+          detail:
+            avgMonthlyIncome > 0
+              ? `(€${avgNetMonthlySurplus.toFixed(2)} ÷ €${avgMonthlyIncome.toFixed(2)}) × 100`
+              : isEn
+              ? "No recorded income yet, so savings rate defaults to 0%."
+              : "Все още няма въведени приходи, поради което стойността е 0%.",
+          delta: `${roundedSavingsRate}%`,
+          tone: roundedSavingsRate >= 15 ? "positive" : roundedSavingsRate === 0 ? "negative" : "neutral",
+        },
+      ],
+      interpretation:
+        avgMonthlyIncome <= 0
+          ? isEn
+            ? "Add your completed monthly income so the engine can calculate what share of income remains unspent."
+            : "Добавете реализираните си приходи, за да може системата да изчисли какъв дял от дохода остава за спестяване."
+          : roundedSavingsRate >= 20
+          ? isEn
+            ? `Strong surplus: you retain ${roundedSavingsRate}% of income each month (exceeding the 20% rule-of-thumb).`
+            : `Отличен резултат: запазвате ${roundedSavingsRate}% от приходите си всеки месец (над правилото за 20%).`
+          : roundedSavingsRate >= 10
+          ? isEn
+            ? `Moderate surplus at ${roundedSavingsRate}%. Lifting it toward 20% builds wealth and emergency reserves twice as fast.`
+            : `Умерена норма от ${roundedSavingsRate}%. Покачването към 20% ускорява двойно натрупването на резерв и цели.`
+          : isEn
+          ? `Low savings rate (${roundedSavingsRate}%): almost all monthly income is absorbed by current expenses.`
+          : `Ниска норма на спестяване (${roundedSavingsRate}%): почти целият месечен доход се поема от текущите разходи.`,
+      recommendations: [
+        isEn
+          ? `At €${avgMonthlyIncome.toFixed(2)} avg monthly income, a ${savingsTargetPercent}% target equals €${((avgMonthlyIncome * savingsTargetPercent) / 100).toFixed(2)}/mo.`
+          : `При среден доход €${avgMonthlyIncome.toFixed(2)} целта от ${savingsTargetPercent}% се равнява на €${((avgMonthlyIncome * savingsTargetPercent) / 100).toFixed(2)}/мес.`,
+        isEn
+          ? "Note: Only completed income and completed expenses from your monthly records enter this formula (separate transfers to Savings do not distort income)."
+          : "Важно: Във формулата участват само приключените приходи и разходи по месеци.",
+      ],
+      targetActionTab: "income",
+      targetActionLabel: isEn ? "Review Income" : "Към Приходи",
+    },
+    runwayMonths: {
+      id: "runwayMonths",
+      title: isEn ? "Emergency Savings Buffer" : "Авариен спестовен фонд",
+      displayValue: isEn ? `${runwayMonths} mo.` : `${runwayMonths} мес.`,
+      badgeText:
+        runwayMonths >= 6
+          ? isEn
+            ? "Optimal (6+ mo.)"
+            : "Оптимален (6+ мес.)"
+          : runwayMonths >= 3
+          ? isEn
+            ? "Stable (3+ mo.)"
+            : "Стабилен (3+ мес.)"
+          : isEn
+          ? "Needs buildup"
+          : "Нужда от попълване",
+      formula: isEn
+        ? "Current Total Savings Balance ÷ Avg Monthly Expenses"
+        : "Текущ баланс на спестяванията ÷ Среден месечен разход",
+      inputsUsed: [
+        {
+          label: isEn ? "Total savings balance" : "Текущ спестовен баланс",
+          value: `€${currentSavingsBalance.toFixed(2)}`,
+        },
+        {
+          label: isEn ? "Average monthly expenses" : "Среден месечен разход",
+          value: `€${avgMonthlyExpenses.toFixed(2)}`,
+        },
+        {
+          label: isEn ? "Recommended 3-mo target" : "Препоръчителна 3-мес. цел",
+          value: `€${recommended3MoFund.toFixed(2)}`,
+        },
+        {
+          label: isEn ? "Optimal 6-mo target" : "Оптимална 6-мес. цел",
+          value: `€${recommended6MoFund.toFixed(2)}`,
+        },
+      ],
+      calculationSteps: [
+        {
+          label: isEn ? "Net savings available" : "Налични нето спестявания",
+          detail: isEn
+            ? "Sum of all deposits minus withdrawals in your Savings ledger"
+            : "Сума на всички вноски минус тегления в модул „Спестявания“",
+          delta: `€${currentSavingsBalance.toFixed(2)}`,
+          tone: currentSavingsBalance > 0 ? "positive" : "negative",
+        },
+        {
+          label: isEn ? "Monthly burn baseline" : "База месечен разход",
+          detail: `€${totalExpenses.toFixed(2)} ÷ ${effectiveMonthsDenominator}`,
+          delta: `€${avgMonthlyExpenses.toFixed(2)}/мес`,
+          tone: "neutral",
+        },
+        {
+          label: isEn ? "Coverage duration" : "Покритие в месеци",
+          detail:
+            avgMonthlyExpenses > 0
+              ? `€${currentSavingsBalance.toFixed(2)} ÷ €${avgMonthlyExpenses.toFixed(2)}`
+              : currentSavingsBalance > 0
+              ? isEn
+                ? "Positive savings with €0 expenses defaults to 12 months."
+                : "При положителни спестявания и €0 разходи се приема база 12 месеца."
+              : isEn
+              ? "No savings balance or expenses recorded yet."
+              : "Все още няма записани спестявания или разходи.",
+          delta: isEn ? `${runwayMonths} mo.` : `${runwayMonths} мес.`,
+          tone: runwayMonths >= 3 ? "positive" : "negative",
+        },
+      ],
+      interpretation:
+        runwayMonths >= 6
+          ? isEn
+            ? `Your savings cover ${runwayMonths} months of regular living expenses — meeting the full 6-month gold standard.`
+            : `Натрупаните спестявания покриват ${runwayMonths} месеца обичайни разходи — пълно покритие над препоръчителния праг от 6 месеца.`
+          : runwayMonths >= 3
+          ? isEn
+            ? `You have a solid ${runwayMonths}-month buffer. Adding €${Math.max(0, recommended6MoFund - currentSavingsBalance).toFixed(0)} reaches the 6-month benchmark.`
+            : `Разполагате със стабилен буфер за ${runwayMonths} месеца. Още €${Math.max(0, recommended6MoFund - currentSavingsBalance).toFixed(0)} ще достигнат оптимума от 6 месеца.`
+          : isEn
+            ? `Your buffer covers ${runwayMonths} months. Reaching a 3-month reserve (€${recommended3MoFund.toFixed(0)}) needs €${Math.max(0, recommended3MoFund - currentSavingsBalance).toFixed(0)} more.`
+            : `Буферът ви покрива ${runwayMonths} месеца. За достигане на минималния 3-месечен резерв (€${recommended3MoFund.toFixed(0)}) са нужни още €${Math.max(0, recommended3MoFund - currentSavingsBalance).toFixed(0)}.`,
+      recommendations: [
+        isEn
+          ? "Keep 3–6 months of core expenses liquid before tying up extra cash in illiquid assets."
+          : "Поддържайте поне 3 до 6 месеца основни разходи в ликвиден резерв.",
+        ...(activeGoals.length > 0
+          ? [
+              isEn
+                ? `Active savings goals progress: €${totalGoalAllocated.toFixed(2)} allocated of €${totalGoalTarget.toFixed(2)} target.`
+                : `Напредък по активни цели: заделени €${totalGoalAllocated.toFixed(2)} от общо €${totalGoalTarget.toFixed(2)}.`,
+            ]
+          : []),
+      ],
+      targetActionTab: "savings",
+      targetActionLabel: isEn ? "Open Savings" : "Към Спестявания",
+    },
+    monthlySavingsPotential: {
+      id: "monthlySavingsPotential",
+      title: isEn ? "Savings Potential" : "Потенциал за икономия",
+      displayValue: `~€${finalPotentialMonthlySavings}`,
+      badgeText: isEn ? "per month" : "на месец",
+      formula: isEn
+        ? "Sum of triggered optimization opportunities (Top Category 15% + Dining 25% + Low Savings Shift 10% + Night Electricity 12% + Budget Overspend + Variable/Goal Pace)"
+        : "Сума на активните възможности за оптимизация (Водеща категория 15% + Заведения 25% + Доход 10% + Нощен ток 12% + Преразход по бюджети + Цели/Променливи)",
+      inputsUsed: [
+        {
+          label: isEn ? "Top category" : "Водеща категория",
+          value: topCategory
+            ? `${translateCategoryName(topCategory[0], lang)} (${Math.round((topCategory[1] / Math.max(1, totalExpenses)) * 100)}%)`
+            : isEn
+            ? "None"
+            : "Няма",
+        },
+        {
+          label: isEn ? "Budget overspend" : "Преразход по бюджети",
+          value: `€${budgetOverspendPotential.toFixed(0)}`,
+        },
+        {
+          label: isEn ? "Electricity records" : "Отчети за ток",
+          value: `${electricityHistory.length}`,
+        },
+        {
+          label: isEn ? "Active savings goals remaining" : "Остатък по активни цели",
+          value: `€${totalGoalRemaining.toFixed(2)}`,
+        },
+      ],
+      calculationSteps:
+        savingsPotentialParts.length > 0
+          ? savingsPotentialParts
+          : [
+              {
+                label: isEn ? "No active optimization triggers" : "Няма активни сигнали за оптимизация",
+                detail: isEn
+                  ? "None of the spending concentration, overspend, tariff, or goal rules currently require extra monthly cuts."
+                  : "Към момента няма превишени бюджети, свръхконцентрация на разходи или неоптимизирана тарифа.",
+                delta: "€0",
+                tone: "neutral",
+              },
+            ],
+      interpretation:
+        finalPotentialMonthlySavings > 0
+          ? isEn
+            ? `Based on your real transactions, budgets, electricity bills, and active goals, you can realistically free up ~€${finalPotentialMonthlySavings}/mo.`
+            : `На база реалните ви разходи, бюджети, сметки за ток и активни цели можете реалистично да освободите ~€${finalPotentialMonthlySavings}/мес.`
+          : isEn
+          ? "Your tracked expenses, budgets, and tariff ratios currently look balanced with €0 estimated excess leakage."
+          : "Отчетените разходи, бюджети и тарифи в момента са добре балансирани без изявени излишни течове (€0).",
+      recommendations: [
+        isEn
+          ? "Adjusting category budgets, dining frequency, or shifting appliances to nighttime electricity updates this potential automatically."
+          : "Всяка промяна в бюджетите, навиците за хранене навън, сметките за ток или спестовните цели преизчислява този потенциал автоматично.",
+      ],
+      targetActionTab: "budgets",
+      targetActionLabel: isEn ? "Adjust Budgets" : "Настрой Бюджети",
+    },
+  };
 
   // Ensure we have top recommendations prioritized
   const sortedByPriority = [...insights].sort((a, b) => {
@@ -919,9 +1526,9 @@ export function generateLocalFinancialAnalysis(
     healthScore: {
       score: healthScoreVal,
       rating: healthRating,
-      savingsRate: parseFloat(savingsRate.toFixed(1)),
+      savingsRate: roundedSavingsRate,
       runwayMonths,
-      monthlySavingsPotential: Math.max(0, Math.round(potentialMonthlySavings)),
+      monthlySavingsPotential: finalPotentialMonthlySavings,
     },
     totalExpensesAnalyzed: parseFloat(totalExpenses.toFixed(2)),
     totalIncomeAnalyzed: parseFloat(totalIncome.toFixed(2)),
@@ -929,5 +1536,6 @@ export function generateLocalFinancialAnalysis(
     monthsAnalyzedCount: monthsCount,
     insights: sortedByPriority,
     topRecommendations,
+    metricBreakdowns,
   };
 }

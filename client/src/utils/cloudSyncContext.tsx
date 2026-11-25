@@ -237,9 +237,17 @@ interface CloudSyncContextType {
   triggerAutoSync: () => void;
 }
 
-const CloudSyncContext = createContext<CloudSyncContextType | undefined>(
-  undefined
-);
+const CLOUD_SYNC_CONTEXT_SYMBOL = Symbol.for("budgetflows.CloudSyncContext");
+const cloudSyncContextStore = globalThis as Record<
+  symbol,
+  React.Context<CloudSyncContextType | undefined> | undefined
+>;
+
+const CloudSyncContext =
+  cloudSyncContextStore[CLOUD_SYNC_CONTEXT_SYMBOL] ??
+  (cloudSyncContextStore[CLOUD_SYNC_CONTEXT_SYMBOL] = createContext<
+    CloudSyncContextType | undefined
+  >(undefined));
 
 export const CloudSyncProvider: React.FC<{
   children: React.ReactNode;

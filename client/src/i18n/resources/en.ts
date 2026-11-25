@@ -161,6 +161,39 @@ export const en: TranslationShape<TranslationSchema> = {
       driveSync: "Secure local storage & Google Drive backup",
       analytics: "Financial calendar, electricity calculator & AI analysis",
     },
+    aboutIntro:
+      "Hello, I'm Vasil Varshilov, the creator of Budget Force 365.",
+    aboutDescription:
+      "This app was created to make managing personal and household finances, tracking expenses, and planning savings easier.",
+    feedbackTitle: "Bug Reports & Feature Requests",
+    feedbackLine1: "Found a bug or have an idea for a new feature?",
+    feedbackLine2: "Send a description to:",
+    feedbackEmail: "vasil.varshilov@yahoo.com",
+    feedbackLine3:
+      "I would be happy to review all suggestions and feedback.",
+    supportMenu: "Support me",
+    support: {
+      dialogAria: "Support Budget Force 365 development",
+      title: "Support the App",
+      subtitle: "An independent project built with care",
+      greeting: "Hello,",
+      body1:
+        "This app was created as a personal project to help make managing personal and household budgets clearer and easier.",
+      body2:
+        "If you find it helpful and valuable, I would be grateful for your support toward its continued development.",
+      appreciation: "Every contribution helps the growth of Budget Force 365.",
+      revolutTitle: "Buy Vasil a coffee here:",
+      revolutHandle: "@vasilvarshilov",
+      revolutBtn: "Support via Revolut",
+      qrTitle: "Scan the QR code",
+      qrSubtitle: "Point your phone camera or tap to enlarge",
+      qrTapToZoom: "Tap to enlarge",
+      qrZoomAria: "Enlarged Revolut QR code",
+      qrAlt: "Revolut QR code to support @vasilvarshilov",
+      signoffThanks: "Thank you!",
+      signoffRegards: "Best regards,",
+      authorName: "Vasil Varshilov",
+    },
   },
   notifications: {
     title: "Notifications",
@@ -1666,6 +1699,15 @@ export const en: TranslationShape<TranslationSchema> = {
     noInsightsTitle: "Not enough data for analysis yet",
     noInsightsDesc:
       "Add expenses and income for the current month to receive personalized financial insights.",
+    clickForDetailsHint: "Tap for details",
+    metricModal: {
+      subtitle: "Detailed metric explanation",
+      formulaLabel: "Formula used",
+      inputsLabel: "Inputs used",
+      breakdownLabel: "Calculation breakdown",
+      interpretationLabel: "What this score means",
+      recommendationsLabel: "How to improve this metric",
+    },
     chat: {
       welcomeTitle: "Financial AI Assistant",
       welcomeSubtitle:

@@ -49,7 +49,16 @@ interface I18nContextValue {
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const I18nContext = createContext<I18nContextValue | null>(null);
+const I18N_CONTEXT_SYMBOL = Symbol.for("budgetflows.I18nContext");
+const i18nContextStore = globalThis as Record<
+  symbol,
+  React.Context<I18nContextValue | null> | undefined
+>;
+
+const I18nContext =
+  i18nContextStore[I18N_CONTEXT_SYMBOL] ??
+  (i18nContextStore[I18N_CONTEXT_SYMBOL] =
+    createContext<I18nContextValue | null>(null));
 
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({
   children,

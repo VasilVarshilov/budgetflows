@@ -158,6 +158,39 @@ export const bg = {
       driveSync: "Сигурен локален контрол и Google Drive архив",
       analytics: "Финансов календар, ток калкулатор и AI анализ",
     },
+    aboutIntro:
+      "Здравейте, аз съм Васил Вършилов и съм създателят на Budget Force 365.",
+    aboutDescription:
+      "Това приложение е създадено с цел да помага за по-лесното управление на личните и семейните финанси, контрол на разходите и планиране на спестяванията.",
+    feedbackTitle: "Докладване на проблеми и предложения",
+    feedbackLine1: "Открихте бъг или имате идея за нова функционалност?",
+    feedbackLine2: "Изпратете описание на:",
+    feedbackEmail: "vasil.varshilov@yahoo.com",
+    feedbackLine3:
+      "Ще се радвам да разгледам всички предложения и обратна връзка.",
+    supportMenu: "Подкрепи ме",
+    support: {
+      dialogAria: "Подкрепи развитието на Budget Force 365",
+      title: "Подкрепи развитието на приложението",
+      subtitle: "Личен проект, създаден с грижа и внимание",
+      greeting: "Здравейте,",
+      body1:
+        "Това приложение е създадено като личен проект с цел да помага за по-лесно и ясно управление на личния и семейния бюджет.",
+      body2:
+        "Ако ви е полезно и ви носи стойност, ще се радвам да подкрепите развитието му.",
+      appreciation: "Всяка подкрепа помага за развитието на Budget Force 365.",
+      revolutTitle: "Почерпете Васил от тук:",
+      revolutHandle: "@vasilvarshilov",
+      revolutBtn: "Подкрепи чрез Revolut",
+      qrTitle: "Сканирай QR кода",
+      qrSubtitle: "Насочете камерата на телефона или натиснете за уголемяване",
+      qrTapToZoom: "Натисни за уголемяване",
+      qrZoomAria: "Увеличен изглед на Revolut QR код",
+      qrAlt: "Revolut QR код за подкрепа на @vasilvarshilov",
+      signoffThanks: "Благодаря Ви!",
+      signoffRegards: "Поздрави,",
+      authorName: "Васил Вършилов",
+    },
   },
   notifications: {
     title: "Известия",
@@ -1662,6 +1695,15 @@ export const bg = {
     noInsightsTitle: "Все още няма достатъчно данни за анализ",
     noInsightsDesc:
       "Добавете разходи и приходи за текущия месец, за да получите персонализирани финансови насоки.",
+    clickForDetailsHint: "Натиснете за детайли",
+    metricModal: {
+      subtitle: "Детайлно обяснение на показателя",
+      formulaLabel: "Използвана формула",
+      inputsLabel: "Използвани данни",
+      breakdownLabel: "Стъпки на изчисление",
+      interpretationLabel: "Какво означава резултатът",
+      recommendationsLabel: "Как да подобрите показателя",
+    },
     chat: {
       welcomeTitle: "Финансов AI Асистент",
       welcomeSubtitle:

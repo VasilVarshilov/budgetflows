@@ -12,7 +12,17 @@ interface ThemeContextType {
   toggleTheme: () => void;
 }
 
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+const THEME_CONTEXT_SYMBOL = Symbol.for("budgetflows.ThemeContext");
+const themeContextStore = globalThis as Record<
+  symbol,
+  React.Context<ThemeContextType | undefined> | undefined
+>;
+
+const ThemeContext =
+  themeContextStore[THEME_CONTEXT_SYMBOL] ??
+  (themeContextStore[THEME_CONTEXT_SYMBOL] = createContext<
+    ThemeContextType | undefined
+  >(undefined));
 
 function getSystemTheme(): "light" | "dark" {
   if (typeof window === "undefined") return "light";

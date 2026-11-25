@@ -41,7 +41,8 @@ import {
   APP_TAGLINE,
 } from "@/components/brand/BrandLogo";
 import { AboutModal } from "@/components/brand/AboutModal";
-import { Cloud, DownloadCloud, Info, LogIn, Share2, UploadCloud, AlertTriangle } from "lucide-react";
+import { SupportModal } from "@/components/brand/SupportModal";
+import { Cloud, Coffee, DownloadCloud, Info, LogIn, Share2, UploadCloud, AlertTriangle } from "lucide-react";
 import {
   I18nProvider,
   useI18n,
@@ -211,6 +212,7 @@ const AppContent: React.FC = () => {
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isGlobalRestoreModalOpen, setIsGlobalRestoreModalOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [minSplashElapsed, setMinSplashElapsed] = useState(false);
   const mainContentRef = useRef<HTMLElement | null>(null);
@@ -1441,7 +1443,7 @@ const AppContent: React.FC = () => {
               {APP_TAGLINE}
             </span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-4">
             <button
               type="button"
               onClick={() => setIsAboutOpen(true)}
@@ -1452,8 +1454,16 @@ const AppContent: React.FC = () => {
             </button>
             <button
               type="button"
+              onClick={() => setIsSupportOpen(true)}
+              className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300 hover:text-amber-700 dark:hover:text-amber-200 font-semibold transition-colors cursor-pointer"
+            >
+              <Coffee className="w-3.5 h-3.5" />
+              <span>{t("brand.supportMenu")}</span>
+            </button>
+            <button
+              type="button"
               onClick={handleShareApp}
-              className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium transition-colors cursor-pointer"
             >
               <Share2 className="w-3.5 h-3.5" />
               <span>{shareCopied ? t("header.copiedShort") : t("brand.share")}</span>
@@ -1462,7 +1472,18 @@ const AppContent: React.FC = () => {
         </div>
       </footer>
 
-      <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
+      <AboutModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+        onOpenSupport={() => {
+          setIsAboutOpen(false);
+          setIsSupportOpen(true);
+        }}
+      />
+      <SupportModal
+        isOpen={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+      />
 
       {/* Mobile "More" Drawer / Sheet (md:hidden) */}
       {isMobileMoreOpen && (
@@ -1527,6 +1548,42 @@ const AppContent: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMoreOpen(false);
+                  setIsAboutOpen(true);
+                }}
+                className="min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
+              >
+                <Info className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{t("header.aboutApp")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMoreOpen(false);
+                  setIsSupportOpen(true);
+                }}
+                className="min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-amber-400/20 dark:bg-amber-400/15 border border-amber-400/50 dark:border-amber-400/40 text-amber-700 dark:text-amber-300 text-xs font-bold cursor-pointer"
+              >
+                <Coffee className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{t("brand.supportMenu")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMoreOpen(false);
+                  handleShareApp();
+                }}
+                className="min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 text-xs font-semibold cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{t("brand.share")}</span>
+              </button>
             </div>
           </div>
         </div>

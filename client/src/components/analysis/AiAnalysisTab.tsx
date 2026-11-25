@@ -20,6 +20,12 @@ import {
   Layers,
   Banknote,
   PieChart as PieChartIcon,
+  Info,
+  X,
+  Calculator,
+  Database,
+  ListChecks,
+  ChevronRight,
 } from "lucide-react";
 import { MonthlyRecord, IncomeItem } from "@/types";
 import {
@@ -27,6 +33,7 @@ import {
   FinancialInsight,
   InsightPriority,
   translateHealthRating,
+  AiMetricId,
 } from "@/utils/aiAnalysisEngine";
 import { isCompletedExpense } from "@/utils/expenseStatus";
 import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
@@ -56,6 +63,18 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [summaryScope, setSummaryScope] = useState<"current" | "all">("current");
   const [analysisRevision, setAnalysisRevision] = useState(0);
+  const [selectedMetricId, setSelectedMetricId] = useState<AiMetricId | null>(null);
+
+  useEffect(() => {
+    if (!selectedMetricId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedMetricId(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedMetricId]);
 
   useEffect(() => {
     const bumpRevision = () => setAnalysisRevision((v) => v + 1);
@@ -241,10 +260,19 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
 
         {/* Financial Health Scorecard Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-8 pt-6 border-t border-white/10 min-w-0">
-          <div className="min-w-0 overflow-hidden bg-white/5 border border-white/10 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs">
-            <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug">
-              {t("ai.healthScoreTitle")}
-            </span>
+          <button
+            type="button"
+            onClick={() => setSelectedMetricId("healthScore")}
+            aria-label={`${t("ai.healthScoreTitle")} — ${t("ai.clickForDetailsHint")}`}
+            title={t("ai.clickForDetailsHint")}
+            className="group min-w-0 overflow-hidden bg-white/5 hover:bg-white/12 border border-white/10 hover:border-sky-300/40 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs text-left transition-all cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+          >
+            <div className="flex items-start justify-between gap-1.5 min-w-0">
+              <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug min-w-0">
+                {t("ai.healthScoreTitle")}
+              </span>
+              <Info className="w-3.5 h-3.5 text-slate-400 group-hover:text-sky-300 shrink-0 mt-0.5 transition-colors" />
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 mt-1.5 min-w-0">
               <div className="inline-flex items-baseline gap-1 shrink-0">
                 <span className="text-2xl sm:text-3xl font-black text-white tabular-nums">
@@ -256,12 +284,21 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 {translateHealthRating(analysis.healthScore.rating, language)}
               </span>
             </div>
-          </div>
+          </button>
 
-          <div className="min-w-0 overflow-hidden bg-white/5 border border-white/10 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs">
-            <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug">
-              {t("ai.savingsRateTitle")}
-            </span>
+          <button
+            type="button"
+            onClick={() => setSelectedMetricId("savingsRate")}
+            aria-label={`${t("ai.savingsRateTitle")} — ${t("ai.clickForDetailsHint")}`}
+            title={t("ai.clickForDetailsHint")}
+            className="group min-w-0 overflow-hidden bg-white/5 hover:bg-white/12 border border-white/10 hover:border-sky-300/40 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs text-left transition-all cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+          >
+            <div className="flex items-start justify-between gap-1.5 min-w-0">
+              <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug min-w-0">
+                {t("ai.savingsRateTitle")}
+              </span>
+              <Info className="w-3.5 h-3.5 text-slate-400 group-hover:text-sky-300 shrink-0 mt-0.5 transition-colors" />
+            </div>
             <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 mt-1.5 min-w-0">
               <span className="text-2xl sm:text-3xl font-black text-white tabular-nums break-all">
                 {analysis.healthScore.savingsRate}%
@@ -270,12 +307,21 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 {t("ai.ofIncomeLabel")}
               </span>
             </div>
-          </div>
+          </button>
 
-          <div className="min-w-0 overflow-hidden bg-white/5 border border-white/10 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs">
-            <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug">
-              {t("ai.emergencyReserveTitle")}
-            </span>
+          <button
+            type="button"
+            onClick={() => setSelectedMetricId("runwayMonths")}
+            aria-label={`${t("ai.emergencyReserveTitle")} — ${t("ai.clickForDetailsHint")}`}
+            title={t("ai.clickForDetailsHint")}
+            className="group min-w-0 overflow-hidden bg-white/5 hover:bg-white/12 border border-white/10 hover:border-sky-300/40 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs text-left transition-all cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+          >
+            <div className="flex items-start justify-between gap-1.5 min-w-0">
+              <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug min-w-0">
+                {t("ai.emergencyReserveTitle")}
+              </span>
+              <Info className="w-3.5 h-3.5 text-slate-400 group-hover:text-sky-300 shrink-0 mt-0.5 transition-colors" />
+            </div>
             <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 mt-1.5 min-w-0">
               <span className="text-2xl sm:text-3xl font-black text-white tabular-nums break-all">
                 {analysis.healthScore.runwayMonths}
@@ -284,12 +330,21 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 {t("ai.monthsBufferSuffix")}
               </span>
             </div>
-          </div>
+          </button>
 
-          <div className="min-w-0 overflow-hidden bg-white/5 border border-white/10 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs">
-            <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug">
-              {t("ai.savingsPotentialTitle")}
-            </span>
+          <button
+            type="button"
+            onClick={() => setSelectedMetricId("monthlySavingsPotential")}
+            aria-label={`${t("ai.savingsPotentialTitle")} — ${t("ai.clickForDetailsHint")}`}
+            title={t("ai.clickForDetailsHint")}
+            className="group min-w-0 overflow-hidden bg-white/5 hover:bg-white/12 border border-white/10 hover:border-emerald-300/40 p-3 sm:p-3.5 rounded-2xl backdrop-blur-xs text-left transition-all cursor-pointer active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
+            <div className="flex items-start justify-between gap-1.5 min-w-0">
+              <span className="text-[11px] font-medium text-slate-300 block break-words leading-snug min-w-0">
+                {t("ai.savingsPotentialTitle")}
+              </span>
+              <Info className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-300 shrink-0 mt-0.5 transition-colors" />
+            </div>
             <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 mt-1.5 min-w-0">
               <span className="text-2xl sm:text-3xl font-black text-emerald-400 tabular-nums break-all">
                 ~€{analysis.healthScore.monthlySavingsPotential}
@@ -298,7 +353,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 {t("ai.perMonthSuffix")}
               </span>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -610,6 +665,186 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Detailed Metric Explanation Modal */}
+      {selectedMetricId && analysis.metricBreakdowns[selectedMetricId] && (() => {
+        const detail = analysis.metricBreakdowns[selectedMetricId];
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-label={detail.title}
+            onClick={() => setSelectedMetricId(null)}
+          >
+            <div
+              className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full max-h-[88vh] flex flex-col overflow-hidden animate-in zoom-in-95"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3 bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-900 text-white shrink-0">
+                <div className="min-w-0">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-300 block">
+                    {t("ai.metricModal.subtitle")}
+                  </span>
+                  <h3 className="text-base sm:text-lg font-extrabold text-white mt-0.5 break-words">
+                    {detail.title}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <span className="text-2xl font-black text-emerald-400 tabular-nums">
+                      {detail.displayValue}
+                    </span>
+                    {detail.badgeText && (
+                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-white/10 text-indigo-100 border border-white/15">
+                        {detail.badgeText}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMetricId(null)}
+                  aria-label={t("common.close")}
+                  className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs sm:text-sm min-w-0">
+                {/* Formula */}
+                <div className="rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-900/70 p-3.5 min-w-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 mb-1.5">
+                    <Calculator className="w-3.5 h-3.5 shrink-0" />
+                    <span>{t("ai.metricModal.formulaLabel")}</span>
+                  </div>
+                  <p className="text-xs font-mono text-slate-800 dark:text-slate-200 break-words leading-relaxed">
+                    {detail.formula}
+                  </p>
+                </div>
+
+                {/* Inputs Used */}
+                <div className="space-y-2 min-w-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <Database className="w-3.5 h-3.5 shrink-0 text-indigo-500" />
+                    <span>{t("ai.metricModal.inputsLabel")}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 min-w-0">
+                    {detail.inputsUsed.map((inp, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 p-2.5 min-w-0"
+                      >
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 block break-words">
+                          {inp.label}
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white break-words block mt-0.5 tabular-nums">
+                          {inp.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Calculation Steps */}
+                <div className="space-y-2 min-w-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <ListChecks className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                    <span>{t("ai.metricModal.breakdownLabel")}</span>
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    {detail.calculationSteps.map((step, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-start justify-between gap-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 p-3 min-w-0"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-slate-900 dark:text-white text-xs break-words">
+                            {step.label}
+                          </div>
+                          <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5 break-words leading-relaxed">
+                            {step.detail}
+                          </div>
+                        </div>
+                        {step.delta && (
+                          <span
+                            className={`shrink-0 px-2 py-0.5 rounded-md text-[11px] font-bold tabular-nums ${
+                              step.tone === "positive"
+                                ? "bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300"
+                                : step.tone === "negative"
+                                ? "bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300"
+                                : "bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                            }`}
+                          >
+                            {step.delta}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Interpretation */}
+                <div className="rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/60 p-3.5 min-w-0">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 mb-1">
+                    {t("ai.metricModal.interpretationLabel")}
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed break-words">
+                    {detail.interpretation}
+                  </p>
+                </div>
+
+                {/* Recommendations */}
+                {detail.recommendations.length > 0 && (
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <Lightbulb className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                      <span>{t("ai.metricModal.recommendationsLabel")}</span>
+                    </div>
+                    <ul className="space-y-1.5 min-w-0">
+                      {detail.recommendations.map((rec, idx) => (
+                        <li
+                          key={idx}
+                          className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300 leading-relaxed break-words"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                          <span className="min-w-0 flex-1">{rec}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2 bg-slate-50/70 dark:bg-slate-900/90 shrink-0">
+                {detail.targetActionTab && onNavigateTab && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = detail.targetActionTab;
+                      setSelectedMetricId(null);
+                      if (target) onNavigateTab(target);
+                    }}
+                    className="min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <span>{detail.targetActionLabel}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedMetricId(null)}
+                  className="min-h-[40px] inline-flex items-center justify-center px-4 py-2 rounded-xl bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  {t("common.close")}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
