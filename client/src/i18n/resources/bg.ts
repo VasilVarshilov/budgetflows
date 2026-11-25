@@ -143,7 +143,7 @@ export const bg = {
     lightWord: "светла",
   },
   brand: {
-    tagline: "Нека Бюджетната сила бъде с теб.",
+    tagline: "May the Budget Force be with you.",
     description:
       "Интелигентно приложение за управление на семейния бюджет, контрол на разходите и планиране на спестяванията.",
     aboutTitle: "За приложението",

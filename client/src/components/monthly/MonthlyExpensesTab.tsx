@@ -129,6 +129,7 @@ import {
   translateBudgetName,
   formatLocalizedDate,
 } from "@/i18n";
+import { MONTHS_BG } from "@/utils/comparisonStorage";
 
 // Map за иконките, поддържащ всички налични иконки и AI предложения
 const ICON_MAP: Record<string, any> = AVAILABLE_ICONS_MAP;
@@ -1750,40 +1751,106 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     }
   }, [editingExpenseId, filteredExpenses, safePage, PAGE_SIZE]);
 
-  // Available months list for switcher if provided
-  const recordedMonthKeys = Object.keys(allMonthlyData || {});
+  // Available months list for filter toolbar (only months that have stored records, newest first)
+  const recordedMonthKeys = useMemo(() => {
+    return Object.keys(allMonthlyData || {}).sort((a, b) => {
+      const pa = parseMonthKeyToYearMonth(a);
+      const pb = parseMonthKeyToYearMonth(b);
+      if (!pa && !pb) return a.localeCompare(b);
+      if (!pa) return 1;
+      if (!pb) return -1;
+      if (pb.year !== pa.year) return pb.year - pa.year;
+      return pb.monthIndex - pa.monthIndex;
+    });
+  }, [allMonthlyData]);
+
+  // Selectable months for header switcher (includes recorded months + previous months so user can inspect/add history)
+  const selectableMonthKeys = useMemo(() => {
+    const keys = new Set<string>(recordedMonthKeys);
+    if (currentMonth) keys.add(currentMonth);
+
+    const now = new Date();
+    const anchors: { year: number; monthIndex: number; count: number }[] = [
+      { year: now.getFullYear(), monthIndex: now.getMonth(), count: 24 },
+    ];
+    const parsedCur = parseMonthKeyToYearMonth(currentMonth);
+    if (parsedCur) {
+      anchors.push({ year: parsedCur.year, monthIndex: parsedCur.monthIndex, count: 12 });
+    }
+
+    for (const anchor of anchors) {
+      for (let i = 0; i < anchor.count; i++) {
+        const d = new Date(anchor.year, anchor.monthIndex - i, 1);
+        keys.add(`${MONTHS_BG[d.getMonth()]} ${d.getFullYear()}`);
+      }
+    }
+
+    return Array.from(keys).sort((a, b) => {
+      const pa = parseMonthKeyToYearMonth(a);
+      const pb = parseMonthKeyToYearMonth(b);
+      if (!pa && !pb) return a.localeCompare(b);
+      if (!pa) return 1;
+      if (!pb) return -1;
+      if (pb.year !== pa.year) return pb.year - pa.year;
+      return pb.monthIndex - pa.monthIndex;
+    });
+  }, [recordedMonthKeys, currentMonth]);
+
+  const shiftMonth = (delta: number) => {
+    if (!onMonthChange) return;
+    const parsed = parseMonthKeyToYearMonth(currentMonth);
+    if (!parsed) return;
+    const target = new Date(parsed.year, parsed.monthIndex + delta, 1);
+    onMonthChange(`${MONTHS_BG[target.getMonth()]} ${target.getFullYear()}`);
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Top Header & Actions Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors">
-        <div>
-          <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
             <h2 className="text-xl font-bold text-slate-800 dark:text-white">
               {t("expenses.pageTitle")}
             </h2>
 
-            {/* Month Badge or Switcher */}
-            {onMonthChange && recordedMonthKeys.length > 1 ? (
-              <div className="relative inline-block ml-1">
-                <select
-                  value={currentMonth}
-                  onChange={(e) => onMonthChange(e.target.value)}
-                  className="appearance-none bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 font-semibold text-xs rounded-full pl-3 pr-7 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
+            {/* Month Switcher (supports previous & future months) */}
+            {onMonthChange ? (
+              <div className="inline-flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-0.5 border border-slate-200/70 dark:border-slate-700/70 max-w-full">
+                <button
+                  type="button"
+                  onClick={() => shiftMonth(-1)}
+                  className="min-h-[32px] min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  title={t("income.prevMonth")}
+                  aria-label={t("income.prevMonth")}
                 >
-                  {recordedMonthKeys.map((m) => (
-                    <option key={m} value={m}>
-                      {formatLocalizedMonthYear(m, language)}
-                    </option>
-                  ))}
-                  {!recordedMonthKeys.includes(currentMonth) && (
-                    <option value={currentMonth}>
-                      {formatLocalizedMonthYear(currentMonth, language)}
-                    </option>
-                  )}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="relative inline-flex items-center">
+                  <select
+                    value={currentMonth}
+                    onChange={(e) => onMonthChange(e.target.value)}
+                    aria-label={t("expenses.pageTitle")}
+                    className="appearance-none bg-transparent hover:bg-white/60 dark:hover:bg-slate-700/60 dark:text-slate-100 text-slate-800 font-semibold text-xs rounded-lg pl-2.5 pr-6 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
+                  >
+                    {selectableMonthKeys.map((m) => (
+                      <option key={m} value={m} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                        {formatLocalizedMonthYear(m, language)}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => shiftMonth(1)}
+                  className="min-h-[32px] min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  title={t("income.nextMonth")}
+                  aria-label={t("income.nextMonth")}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             ) : (
               <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 ml-1 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 px-2.5 py-0.5 rounded-full">

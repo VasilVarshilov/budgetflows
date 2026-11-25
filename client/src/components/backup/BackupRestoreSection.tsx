@@ -32,6 +32,7 @@ import { GoogleAuthCard } from "@/components/auth/GoogleAuthCard";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
 import {
   APP_NAME,
+  APP_TAGLINE,
   BrandMark,
 } from "@/components/brand/BrandLogo";
 import { useI18n } from "@/i18n";
@@ -708,7 +709,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
               {t("brand.description")}
             </p>
             <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-              {t("brand.tagline")}
+              {APP_TAGLINE}
             </p>
           </div>
         </div>

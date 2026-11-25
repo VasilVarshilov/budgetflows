@@ -1943,7 +1943,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
   const score = aiAnalysis.healthScore.score;
 
   return (
-    <div className="rounded-3xl bg-white dark:bg-[#16181d] border border-slate-200/90 dark:border-slate-800/90 p-5 sm:p-6 shadow-xs space-y-5">
+    <div className="rounded-3xl bg-white dark:bg-[#16181d] border border-slate-200/90 dark:border-slate-800/90 p-5 sm:p-6 shadow-xs space-y-5 overflow-hidden min-w-0">
       <CardHeader
         title={meta.title}
         periodLabel={currentPeriodLabel}
@@ -1951,17 +1951,17 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         onToggleViewMode={onToggleViewMode}
         {...headerToggleProps}
         rightBadge={
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 shrink-0">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{translateHealthRating(aiAnalysis.healthScore.rating, language)}</span>
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 max-w-full whitespace-normal break-words">
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span className="break-words">{translateHealthRating(aiAnalysis.healthScore.rating, language)}</span>
           </span>
         }
       />
 
-      <div className="flex items-end justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-end justify-between gap-3 min-w-0">
+        <div className="min-w-0">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-1">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+            <Sparkles className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
             <span>{t("dashboard.ai.healthIndex")}</span>
           </span>
           <p className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums text-slate-900 dark:text-white">
@@ -1971,29 +1971,29 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             </span>
           </p>
         </div>
-        <div className="text-right shrink-0">
+        <div className="text-left sm:text-right min-w-0 max-w-full">
           <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums block">
             +{aiAnalysis.healthScore.monthlySavingsPotential.toFixed(0)}{" "}
             {t("dashboard.ai.perMonthUnit")}
           </span>
-          <span className="text-[11px] text-slate-400 dark:text-slate-500">
+          <span className="text-[11px] text-slate-400 dark:text-slate-500 break-words">
             {t("dashboard.ai.savingsPotential")}
           </span>
         </div>
       </div>
 
       {/* Compact Metrics Strip */}
-      <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-100 dark:border-slate-800/80">
-        <div>
-          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
+      <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-100 dark:border-slate-800/80 min-w-0">
+        <div className="min-w-0">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block break-words">
             {t("dashboard.ai.insightsCount")}
           </span>
           <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tabular-nums mt-0.5 block">
             {aiAnalysis.insights.length} {t("common.pcs")}
           </span>
         </div>
-        <div>
-          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
+        <div className="min-w-0">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block break-words">
             {t("dashboard.ai.anomaliesCount")}
           </span>
           <span
@@ -2006,8 +2006,8 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
             {anomalyCount} {t("common.pcs")}
           </span>
         </div>
-        <div className="text-right">
-          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
+        <div className="text-right min-w-0">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block break-words">
             {t("dashboard.ai.bufferMonths")}
           </span>
           <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tabular-nums mt-0.5 block">
@@ -2018,21 +2018,21 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
 
       {/* Top Suggestions or Expanded Full AiRecommendationsSection */}
       {!isExpanded ? (
-        <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800/80 min-w-0">
           {topSuggestions.length > 0 ? (
             topSuggestions.map((rec) => (
-              <div key={rec.id} className="py-2.5 space-y-1">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white leading-snug">
+              <div key={rec.id} className="py-2.5 space-y-1 min-w-0">
+                <div className="flex flex-wrap items-start justify-between gap-2 min-w-0">
+                  <p className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white leading-snug break-words min-w-0 flex-1">
                     {rec.title}
                   </p>
                   {rec.impact && (
-                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap shrink-0 tabular-nums">
+                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 break-words max-w-full tabular-nums">
                       {rec.impact}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 break-words">
                   {rec.actionableTip || rec.description}
                 </p>
               </div>

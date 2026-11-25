@@ -38,6 +38,7 @@ import {
   BrandSplashLockup,
   APP_NAME,
   APP_PRODUCTION_URL,
+  APP_TAGLINE,
 } from "@/components/brand/BrandLogo";
 import { AboutModal } from "@/components/brand/AboutModal";
 import { Cloud, DownloadCloud, Info, LogIn, Share2, UploadCloud, AlertTriangle } from "lucide-react";
@@ -1141,7 +1142,7 @@ const AppContent: React.FC = () => {
 
   const handleShareApp = async () => {
     const shareUrl = APP_PRODUCTION_URL;
-    const tagline = t("brand.tagline");
+    const tagline = APP_TAGLINE;
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({
@@ -1437,7 +1438,7 @@ const AppContent: React.FC = () => {
             </span>
             <span aria-hidden="true">·</span>
             <span className="text-indigo-600 dark:text-indigo-400 font-medium">
-              {t("brand.tagline")}
+              {APP_TAGLINE}
             </span>
           </div>
           <div className="flex items-center gap-4">

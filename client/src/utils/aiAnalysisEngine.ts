@@ -1,8 +1,13 @@
 import { MonthlyRecord, IncomeItem, ExpenseItem } from "@/types";
 import { getStoredElectricityHistory } from "./electricityStorage";
-import { loadBudgets } from "./budgetStorage";
+import { calculateAllBudgetsStatus, loadBudgets } from "./budgetStorage";
 import { computeMonthToMonthComparison, MONTHS_BG } from "./comparisonStorage";
 import { loadAppSettings } from "./incomeStorage";
+import { parseMonthKeyToYearMonth } from "./recurrenceEngine";
+import {
+  computeSavingsAllocationSummary,
+  loadSavingsGoals,
+} from "./savingsGoalsStorage";
 import { isCompletedExpense, isRecordCompleted } from "./expenseStatus";
 import {
   formatLocalizedMonthYear,
@@ -186,20 +191,83 @@ export function generateLocalFinancialAnalysis(
       ? 12
       : 0;
 
+  const savingsGoals = loadSavingsGoals();
+  const savingsAllocation = computeSavingsAllocationSummary(
+    globalSavings,
+    savingsGoals,
+    monthlyData
+  );
+  const activeGoals = savingsAllocation.activeGoals;
+  const totalGoalTarget = activeGoals.reduce((sum, g) => sum + Math.max(0, g.targetAmount), 0);
+  const totalGoalAllocated = activeGoals.reduce(
+    (sum, g) => sum + Math.min(Math.max(0, g.allocatedAmount), Math.max(0, g.targetAmount)),
+    0
+  );
+  const totalGoalRemaining = Math.max(0, totalGoalTarget - totalGoalAllocated);
+
+  // Pick the best reference monthly record for category budget evaluation
+  const nowRef = new Date();
+  const currentMonthKey = `${MONTHS_BG[nowRef.getMonth()]} ${nowRef.getFullYear()}`;
+  const hasCompletedExpenses = (rec?: MonthlyRecord): boolean => {
+    if (!rec?.expenses) return false;
+    const fixed = Array.isArray(rec.expenses.fixed_expenses) ? rec.expenses.fixed_expenses : [];
+    const add = Array.isArray(rec.expenses.additional_expenses) ? rec.expenses.additional_expenses : [];
+    return [...fixed, ...add].some((e) => isCompletedExpense(e) && (e.amount || 0) > 0);
+  };
+  const sortedMonthKeysDesc = Object.keys(monthlyData || {}).sort((a, b) => {
+    const pa = parseMonthKeyToYearMonth(a);
+    const pb = parseMonthKeyToYearMonth(b);
+    if (!pa && !pb) return a.localeCompare(b);
+    if (!pa) return 1;
+    if (!pb) return -1;
+    if (pb.year !== pa.year) return pb.year - pa.year;
+    return pb.monthIndex - pa.monthIndex;
+  });
+  const latestMonthWithExpensesKey =
+    (hasCompletedExpenses(monthlyData[currentMonthKey]) ? currentMonthKey : undefined) ||
+    sortedMonthKeysDesc.find((k) => hasCompletedExpenses(monthlyData[k])) ||
+    sortedMonthKeysDesc[0];
+  const budgetEvalRecord = latestMonthWithExpensesKey
+    ? monthlyData[latestMonthWithExpensesKey]
+    : undefined;
+  const budgetStatus = calculateAllBudgetsStatus(
+    budgetEvalRecord,
+    totalMonthlyBudget,
+    categoryBudgets
+  );
+  const exceededCategoryBudgets = budgetStatus.categoryStatuses.filter(
+    (c) => c.isExceeded && c.overspentAmount > 0
+  );
+  const categoryOverspendTotal = exceededCategoryBudgets.reduce(
+    (sum, c) => sum + c.overspentAmount,
+    0
+  );
+
   // Calculate Health Score (0-100)
   let healthScoreVal = 50;
   if (savingsRate >= 20) healthScoreVal += 20;
   else if (savingsRate >= 10) healthScoreVal += 10;
-  else if (savingsRate < 0) healthScoreVal -= 20;
+  else if (avgMonthlyExpenses > avgMonthlyIncome && avgMonthlyExpenses > 0) healthScoreVal -= 20;
 
   if (runwayMonths >= 6) healthScoreVal += 20;
   else if (runwayMonths >= 3) healthScoreVal += 10;
   else if (runwayMonths < 1) healthScoreVal -= 15;
 
-  if (totalMonthlyBudget > 0 && avgMonthlyExpenses <= totalMonthlyBudget) {
-    healthScoreVal += 10;
-  } else if (totalMonthlyBudget > 0 && avgMonthlyExpenses > totalMonthlyBudget) {
-    healthScoreVal -= 15;
+  if (totalMonthlyBudget > 0 && avgMonthlyExpenses > 0) {
+    if (avgMonthlyExpenses <= totalMonthlyBudget) {
+      healthScoreVal += 10;
+    } else {
+      healthScoreVal -= 15;
+    }
+  }
+  if (exceededCategoryBudgets.length > 0) {
+    healthScoreVal -= Math.min(10, exceededCategoryBudgets.length * 3);
+  }
+  if (activeGoals.length > 0 && totalGoalTarget > 0 && (totalExpenses > 0 || totalIncome > 0 || currentSavingsBalance > 0)) {
+    const goalProgressPct = (totalGoalAllocated / totalGoalTarget) * 100;
+    if (goalProgressPct >= 80) healthScoreVal += 5;
+    else if (goalProgressPct >= 40) healthScoreVal += 2;
+    else if (goalProgressPct < 20) healthScoreVal -= 3;
   }
   healthScoreVal = Math.min(100, Math.max(10, healthScoreVal));
 
@@ -574,11 +642,13 @@ export function generateLocalFinancialAnalysis(
   // ----------------------------------------------------
   // 5. TREND ANALYSIS & BUDGET OPTIMIZATION ADVICE
   // ----------------------------------------------------
-  if (totalMonthlyBudget > 0) {
+  let budgetOverspendPotential = 0;
+  if (totalMonthlyBudget > 0 && avgMonthlyExpenses > 0) {
     const budgetPct = Math.round((avgMonthlyExpenses / totalMonthlyBudget) * 100);
 
     if (budgetPct > 100) {
       const overspent = Math.round(avgMonthlyExpenses - totalMonthlyBudget);
+      budgetOverspendPotential = Math.max(budgetOverspendPotential, overspent);
       insights.push({
         id: "budget_over_limit",
         type: "recommendation",
@@ -618,6 +688,75 @@ export function generateLocalFinancialAnalysis(
         metricValue: isEn ? `€${surplus}/mo` : `€${surplus}/мес`,
       });
     }
+  }
+
+  if (exceededCategoryBudgets.length > 0) {
+    const roundedCatOverspend = Math.round(categoryOverspendTotal);
+    budgetOverspendPotential = Math.max(budgetOverspendPotential, roundedCatOverspend);
+    const topExceeded = [...exceededCategoryBudgets].sort(
+      (a, b) => b.overspentAmount - a.overspentAmount
+    )[0];
+    const topBudgetLabel = topExceeded.budget.categoryName;
+
+    insights.push({
+      id: "budget_categories_over_limit",
+      type: "recommendation",
+      category: "trend",
+      priority: "high",
+      title: isEn
+        ? `Category budget exceeded: ${topBudgetLabel} (+€${topExceeded.overspentAmount.toFixed(0)})`
+        : `Надвишен бюджет по категория: ${topBudgetLabel} (+€${topExceeded.overspentAmount.toFixed(0)})`,
+      description: isEn
+        ? `${exceededCategoryBudgets.length} category budget(s) exceeded their limit by a combined €${categoryOverspendTotal.toFixed(2)}.`
+        : `${exceededCategoryBudgets.length} бюджетни категории надвишават лимита си с общо €${categoryOverspendTotal.toFixed(2)}.`,
+      impact: isEn
+        ? `Cut overspend: ~€${roundedCatOverspend}/mo`
+        : `Ограничаване на преразхода: ~€${roundedCatOverspend}/мес`,
+      actionableTip: isEn
+        ? `Trim spending in “${topBudgetLabel}” or rebalance category limits in the Budgets tab.`
+        : `Намалете разходите в „${topBudgetLabel}“ или преразпределете лимитите в секция „Бюджети“.`,
+      metricLabel: isEn ? "Exceeded categories" : "Превишени категории",
+      metricValue: `${exceededCategoryBudgets.length}`,
+      isTopRecommendation: true,
+    });
+  }
+
+  potentialMonthlySavings += budgetOverspendPotential;
+
+  if (activeGoals.length > 0 && totalGoalTarget > 0) {
+    const progressPct = Math.round((totalGoalAllocated / totalGoalTarget) * 100);
+    const suggestedMonthlyGoal = Math.round(totalGoalRemaining / 6);
+    insights.push({
+      id: "savings_goals_progress",
+      type: "savings",
+      category: "savings",
+      priority: totalGoalRemaining > 0 ? "opportunity" : "low",
+      title: isEn
+        ? totalGoalRemaining > 0
+          ? `Savings goals at ${progressPct}% (€${totalGoalRemaining.toFixed(0)} remaining)`
+          : "All active savings goals fully funded"
+        : totalGoalRemaining > 0
+        ? `Цели за спестяване на ${progressPct}% (остават €${totalGoalRemaining.toFixed(0)})`
+        : "Всички активни спестовни цели са достигнати",
+      description: isEn
+        ? `Allocated €${totalGoalAllocated.toFixed(2)} toward €${totalGoalTarget.toFixed(2)} across ${activeGoals.length} active goal(s).`
+        : `Заделени са €${totalGoalAllocated.toFixed(2)} от общо €${totalGoalTarget.toFixed(2)} по ${activeGoals.length} активни цели.`,
+      impact:
+        totalGoalRemaining > 0
+          ? isEn
+            ? `Goal pace: ~€${suggestedMonthlyGoal}/mo`
+            : `Нужен темп: ~€${suggestedMonthlyGoal}/мес`
+          : undefined,
+      actionableTip: isEn
+        ? totalGoalRemaining > 0
+          ? `Allocating ~€${suggestedMonthlyGoal}/mo keeps you on track to complete your active goals in 6 months.`
+          : "Great discipline — consider adding a new goal or investing surplus funds."
+        : totalGoalRemaining > 0
+        ? `Отделянето на ~€${suggestedMonthlyGoal}/мес ще покрие остатъка по целите ви в рамките на 6 месеца.`
+        : "Отлична дисциплина — добавете нова цел или насочете свободния ресурс към инвестиции.",
+      metricLabel: isEn ? "Goals funded" : "Покритие на цели",
+      metricValue: `${progressPct}%`,
+    });
   }
 
   // ----------------------------------------------------
@@ -739,6 +878,26 @@ export function generateLocalFinancialAnalysis(
     });
   }
 
+  if (
+    totalVariableExpenses > 0 &&
+    potentialMonthlySavings === 0
+  ) {
+    const avgMonthlyVariable =
+      monthsCount > 0 ? totalVariableExpenses / monthsCount : totalVariableExpenses;
+    potentialMonthlySavings += Math.round(avgMonthlyVariable * 0.1);
+  }
+
+  if (
+    totalGoalRemaining > 0 &&
+    (avgMonthlyExpenses > 0 || avgMonthlyIncome > 0)
+  ) {
+    const goalPotentialCap = Math.max(
+      1,
+      Math.round((avgMonthlyExpenses > 0 ? avgMonthlyExpenses : avgMonthlyIncome) * 0.1)
+    );
+    potentialMonthlySavings += Math.min(Math.round(totalGoalRemaining / 12), goalPotentialCap);
+  }
+
   // Ensure we have top recommendations prioritized
   const sortedByPriority = [...insights].sort((a, b) => {
     const priorityWeight: Record<InsightPriority, number> = {
@@ -762,7 +921,7 @@ export function generateLocalFinancialAnalysis(
       rating: healthRating,
       savingsRate: parseFloat(savingsRate.toFixed(1)),
       runwayMonths,
-      monthlySavingsPotential: Math.max(50, potentialMonthlySavings),
+      monthlySavingsPotential: Math.max(0, Math.round(potentialMonthlySavings)),
     },
     totalExpensesAnalyzed: parseFloat(totalExpenses.toFixed(2)),
     totalIncomeAnalyzed: parseFloat(totalIncome.toFixed(2)),

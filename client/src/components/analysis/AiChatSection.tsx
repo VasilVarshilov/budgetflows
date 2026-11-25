@@ -841,11 +841,11 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                   </div>
 
                   <div className="flex-1 min-w-0 space-y-2">
-                    <div className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/70 rounded-2xl rounded-tl-sm p-4 sm:p-5 space-y-4">
+                    <div className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/70 rounded-2xl rounded-tl-sm p-3.5 sm:p-5 space-y-4 overflow-hidden min-w-0">
                       {/* Answer Heading + Highlighted Total */}
-                      <div>
-                        <div className="flex items-center justify-between gap-3">
-                          <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+                          <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-300 break-words min-w-0">
                             {msg.title || t("ai.chat.fallbackTitle")}
                           </h4>
                           <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums shrink-0">
@@ -854,35 +854,35 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                         </div>
 
                         {msg.heroValue && (
-                          <div className="flex items-baseline gap-2.5 mt-1.5">
-                            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight tabular-nums">
+                          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 mt-1.5 min-w-0">
+                            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight tabular-nums break-all">
                               {msg.heroValue}
                             </span>
                             {msg.heroSubtitle && (
-                              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                              <span className="text-xs font-medium text-slate-500 dark:text-slate-400 break-words">
                                 {msg.heroSubtitle}
                               </span>
                             )}
                           </div>
                         )}
 
-                        <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-2">
+                        <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-2 break-words">
                           {res?.answer || msg.text}
                         </p>
                       </div>
 
                       {/* Found In + Clean Period Metadata */}
                       {((msg.foundIn && msg.foundIn.length > 0) || res?.timeRangeLabel) && (
-                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-700/60 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-700/60 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs min-w-0">
                           {msg.foundIn && msg.foundIn.length > 0 && (
-                            <div>
+                            <div className="min-w-0">
                               <span className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
                                 {t("ai.chat.foundInLabel")}
                               </span>
                               <ul className="space-y-0.5 text-slate-800 dark:text-slate-100 font-medium">
                                 {msg.foundIn.map((source) => (
-                                  <li key={source} className="flex items-center gap-1.5">
-                                    <span className="text-indigo-500 dark:text-indigo-400" aria-hidden="true">
+                                  <li key={source} className="flex items-center gap-1.5 min-w-0">
+                                    <span className="text-indigo-500 dark:text-indigo-400 shrink-0" aria-hidden="true">
                                       •
                                     </span>
                                     <span className="truncate">{source}</span>
@@ -893,11 +893,11 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
                           )}
 
                           {res?.timeRangeLabel && (
-                            <div>
+                            <div className="min-w-0">
                               <span className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
                                 {t("ai.chat.periodLabel")}
                               </span>
-                              <span className="text-slate-800 dark:text-slate-100 font-semibold">
+                              <span className="text-slate-800 dark:text-slate-100 font-semibold break-words block">
                                 {res.timeRangeLabel}
                               </span>
                             </div>
@@ -907,11 +907,11 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
 
                       {/* Expandable Details Breakdown */}
                       {state.showDetails && res && (
-                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-700/60 space-y-2 text-xs">
+                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-700/60 space-y-2 text-xs min-w-0">
                           <span className="block font-semibold text-slate-700 dark:text-slate-200">
                             {t("ai.chat.detailedSummary")}
                           </span>
-                          <p className="text-slate-600 dark:text-slate-300 leading-relaxed tabular-nums">
+                          <p className="text-slate-600 dark:text-slate-300 leading-relaxed tabular-nums break-words">
                             {res.calculation}
                           </p>
                           {res.matchedExpenses.length > 0 && (

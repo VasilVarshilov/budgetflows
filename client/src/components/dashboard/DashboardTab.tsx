@@ -900,7 +900,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   // AI Financial Analysis for top recommendations
   const aiAnalysis = useMemo(() => {
     return generateLocalFinancialAnalysis(monthlyData, globalSavings, language);
-  }, [monthlyData, globalSavings, budgetsRevision, language]);
+  }, [
+    monthlyData,
+    globalSavings,
+    budgetsRevision,
+    savingsGoalsRevision,
+    electricityRevision,
+    savingsTargetPercent,
+    language,
+  ]);
 
   // Read-only Electricity History & Savings Goals summary for Dashboard cards
   const electricityHistory = useMemo(() => {
@@ -932,7 +940,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 {t("dashboard.welcomeTitle", { appName: APP_NAME })}
               </h2>
               <p className="text-xs sm:text-sm font-semibold text-indigo-100">
-                {t("brand.tagline") || APP_TAGLINE}
+                {APP_TAGLINE}
               </p>
               <p className="text-xs text-indigo-100/90 pt-0.5">
                 {t("dashboard.welcomeDesc")}
