@@ -48,6 +48,7 @@ import {
   toLatinMatchForm,
   isValidCalendarDate,
   extractReceiptAddressFromText,
+  isValidReceiptAddressCandidate,
   reconcileReceiptItemQuantities,
 } from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
@@ -2184,19 +2185,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
           const aiRawAddress =
             typeof gData.address === "string" ? gData.address.trim() : "";
-          const isValidDirectAiAddress = (rawAddr: string): boolean => {
-            if (!rawAddr || rawAddr.length < 5) return false;
-            const letters = rawAddr.match(/[а-яА-Яa-zA-Z]/g) || [];
-            if (letters.length < 3) return false;
-            if (/(?:ЕООД|ООД|ЕАД|ЕИК|БУЛСТАТ|BG\s*\d{8,11}|СЕДАЛИЩЕ|ЮРИДИЧЕСКИ\s+АДРЕС)/i.test(rawAddr)) {
-              return false;
-            }
-            return true;
-          };
           const aiAddressCandidate =
             (aiRawAddress
               ? extractReceiptAddressFromText(aiRawAddress) ||
-                (isValidDirectAiAddress(aiRawAddress) ? aiRawAddress : undefined)
+                (isValidReceiptAddressCandidate(aiRawAddress)
+                  ? aiRawAddress
+                  : undefined)
               : undefined) ||
             (typeof gData.rawText === "string"
               ? extractReceiptAddressFromText(gData.rawText)

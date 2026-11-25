@@ -361,6 +361,7 @@ export function repairCyrillicWordTokens(
       if (!token || /^\s+$/.test(token)) return token;
       if (unitOrCodeToken.test(token)) return token; // Measurements like 500г, 1.5л untouched
       if (/^АИ\d+$/i.test(token)) return token; // Fuel grade АИ95 untouched
+      if (/^\d+-[а-яА-Яa-zA-Z]{1,4}[.,;:]*$/i.test(token)) return token; // Ordinals like 6-ти, 3-ти untouched
 
       const hasCyrChar = /[а-яА-Я]/.test(token);
       const upperStrip = token.replace(/[^A-Za-zА-Яа-я]/g, "").toUpperCase();
@@ -2669,30 +2670,298 @@ function normalizeAddressOcrPrefixes(raw: string): string {
     repaired
       .replace(/[#*_~|]+/g, " ")
       .replace(/\s+/g, " ")
-      // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (dot/comma/missing-space & Cyrillic/Latin lookalikes)
+      // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (strictly guarded against random Latin noise)
       .replace(
-        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)[гrт][рp](?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z]{3,})/gi,
+        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)гр(?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z]{3,})/gi,
         "$1гр. "
       )
       .replace(
-        /(^|[\s,;:(])[уy][лnп](?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)[гrт][рp](?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{3,})/gi,
+        "$1гр. "
+      )
+      .replace(
+        /(^|[\s,;:(])ул(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
         "$1ул. "
       )
       .replace(
-        /(^|[\s,;:(])[б6][уy]л(?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        /(^|[\s,;:(])[уy][лnп](?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,})/gi,
+        "$1ул. "
+      )
+      .replace(
+        /(^|[\s,;:(])бул(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
         "$1бул. "
       )
       .replace(
-        /(^|[\s,;:(])ж\s*[.,]?\s*к(?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z0-9])/gi,
+        /(^|[\s,;:(])[б6][уy]л(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,})/gi,
+        "$1бул. "
+      )
+      .replace(
+        /(^|[\s,;:(])ж\s*[.,]?\s*к(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
         "$1ж.к. "
       )
-      .replace(/(^|[\s,;:(])кв\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1кв. ")
-      .replace(/(^|[\s,;:(])пл\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9])/gi, "$1пл. ")
+      .replace(/(^|[\s,;:(])кв\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9]{2,})/gi, "$1кв. ")
+      .replace(/(^|[\s,;:(])пл\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9]{2,})/gi, "$1пл. ")
       .replace(/(^|[\s,;:(])бл\s*[.,]\s*(?=\d)/gi, "$1бл. ")
       .replace(/(^|[\s,;:(])с\s*[.,]\s*(?=[А-Яа-я]{3,})/gi, "$1с. ")
       .replace(/\s+/g, " ")
       .trim()
   );
+}
+
+const ADDRESS_INDICATOR_TOKENS = new Set([
+  "гр.", "гр", "с.", "ул.", "ул", "улица", "бул.", "бул", "булевард",
+  "ж.к.", "ж.к", "жк.", "жк", "кв.", "кв", "квартал", "пл.", "пл", "площад",
+  "бл.", "бл", "блок", "вх.", "вх", "ет.", "ет", "ап.", "ап",
+  "обл.", "обл", "общ.", "общ", "п.к.", "п.к", "шосе", "местност", "алея",
+  "номер", "str.", "str", "st.", "st", "street", "blvd.", "blvd", "boulevard",
+  "ave.", "ave", "avenue", "rd.", "rd", "road", "sq.", "lane", "dr.",
+]);
+
+const ADDRESS_ROMAN_NUMERALS = new Set([
+  "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
+]);
+
+const ADDRESS_ALLOWED_SHORT_WORDS = new Set([
+  "и", "в", "на", "от", "до", "за", "по", "с", "при", "над", "под", "край", "к", "у",
+  "св", "пл", "тц", "бц", "дг", "оу", "су",
+]);
+
+/**
+ * Checks that an address candidate contains at least one genuine Bulgarian/English address indicator
+ * (e.g. гр., с., ул., бул., ж.к., кв., пл., шосе, местност, бл. <N>, номер <N>, №<N>, or English street keywords).
+ */
+export function hasValidAddressIndicator(text: string): boolean {
+  const trimmed = (text || "").replace(/\s+/g, " ").trim();
+  if (!trimmed) return false;
+  // Reject product weights like "400 гр." / "500 г"
+  if (/\d+(?:[.,]\d+)?\s*(?:гр|г|кг|мл|л)\.?(?:\s|$)/i.test(trimmed)) {
+    return false;
+  }
+
+  // Settlement prefix must be followed by an actual >=3-letter settlement name (not digits or 1-2 char scrap)
+  if (/(?:^|[\s,;:(])(?:гр\.|с\.)\s+(?![0-9])[А-Яа-яA-Za-z]{3,}/i.test(trimmed)) {
+    return true;
+  }
+  // Street / boulevard / quarter / square / area prefix followed by >=2 letters or digit
+  if (
+    /(?:^|[\s,;:(])(?:ул\.|улица|бул\.|булевард|ж\.к\.|жк\.|кв\.|квартал|пл\.|площад|шосе|местност|алея)\s*(?=[А-Яа-яA-Za-z0-9]{2,}|\d)/i.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
+  if (
+    /(?:^|[\s,;:(])(?:ул|бул)\s+(?=[А-Яа-яA-Za-z]{3,}|\d)/i.test(trimmed)
+  ) {
+    return true;
+  }
+  // Block / street number indicators must attach to digits (so standalone "No" never passes as "номер")
+  if (
+    /(?:^|[\s,;:(])(?:бл\.|блок)\s*\d+/i.test(trimmed) ||
+    /(?:^|[\s,;:(])(?:номер\s+\d+|№\s*\d+|N[°o.]\s*\d+)/i.test(trimmed)
+  ) {
+    return true;
+  }
+  // English street keywords / suffixes
+  if (
+    /\b\d{1,5}[a-zA-Z]?\s+[A-Za-z][A-Za-z\s.'-]{2,}\s+(?:St\.?|Str\.?|Street|Blvd\.?|Boulevard|Ave\.?|Avenue|Rd\.?|Road|Sq\.?|Lane|Dr\.?)\b/i.test(
+      trimmed
+    ) ||
+    /(?:^|[\s,;:(])(?:str\.|blvd\.|boulevard|street|avenue|ave\.|road|rd\.)(?=\s|$|,)/i.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detects OCR garbage, random short-token soup, mixed-script corruption,
+ * duplicate address prefixes, and non-address metadata lines.
+ */
+export function isCorruptedAddressText(text: string): boolean {
+  const trimmed = (text || "").replace(/\s+/g, " ").trim();
+  if (!trimmed || trimmed.length < 5) return true;
+
+  const allLetters = trimmed.match(/[а-яА-Яa-zA-Z]/g) || [];
+  if (allLetters.length < 4) return true;
+
+  // Reject ellipsis, stray unlabelled colons, or non-address OCR noise symbols
+  if (
+    /\.{2,}/.test(trimmed) ||
+    /[|~^<>{}\[\]=@$%*]/.test(trimmed) ||
+    /(?:^|\s):(?:\s|$)/.test(trimmed) ||
+    (trimmed.match(/:/g) || []).length >= 1
+  ) {
+    return true;
+  }
+
+  // Reject legal/HQ/fiscal lines & product weights
+  const cyr = toCyrillicMatchForm(trimmed);
+  if (
+    /(?:^|[^А-ЯA-Z])(?:ЕООД|ООД|ЕАД|КД|СД|EOOD|OOD|EAD|GMBH|LLC|LTD)(?:$|[^А-ЯA-Z])/i.test(cyr) ||
+    /(?:ЕИК|EIK|БУЛСТАТ|BULSTAT|BG\s*\d{8,11}|СЕДАЛИЩЕ|ЮРИДИЧЕСКИ\s+АДРЕС|ДАНЪЧЕН\s+АДРЕС|ФИСКАЛЕН\s+БОН|КАСОВА\s+БЕЛЕЖКА)/i.test(
+      cyr
+    ) ||
+    /\d+(?:[.,]\d+)?\s*(?:гр|г|кг|мл|л)\.?(?:\s|$)/i.test(trimmed)
+  ) {
+    return true;
+  }
+
+  // Reject repeated/duplicate identical address prefixes in the same string (e.g. "ж.к. ... ж.к.")
+  const prefixCounts = new Map<string, number>();
+  const prefixMatches =
+    trimmed.match(
+      /(?:^|[\s,;:(])(гр\.|с\.|ул\.|бул\.|ж\.к\.|жк\.|кв\.|пл\.)(?=\s|$)/gi
+    ) || [];
+  for (const rawPref of prefixMatches) {
+    const key = rawPref
+      .replace(/^[\s,;:(]+/, "")
+      .toLowerCase()
+      .replace("жк.", "ж.к.");
+    const next = (prefixCounts.get(key) || 0) + 1;
+    prefixCounts.set(key, next);
+    if (next >= 2) return true;
+  }
+
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  let consecutiveShort = 0;
+  let maxConsecutiveShort = 0;
+  let consecutiveAnyShort = 0;
+  let maxConsecutiveAnyShort = 0;
+  let shortScrapCount = 0;
+  let singleLetterScrapCount = 0;
+  let contentAlphaCount = 0;
+  let meaningfulWordsCount = 0;
+  let strongWordsCount = 0;
+  let shortLatinCount = 0;
+  let shortCyrCount = 0;
+  let hasCyrillicWord = false;
+  let hasLatinWord = false;
+
+  for (const tok of tokens) {
+    const stripped = tok.replace(/^[,;()"'„“«»]+|[,;()"'„“«»]+$/g, "");
+    if (!stripped) continue;
+
+    // Check normalized address prefix tokens
+    const strippedLower = stripped.toLowerCase();
+    if (
+      ADDRESS_INDICATOR_TOKENS.has(strippedLower) ||
+      ADDRESS_INDICATOR_TOKENS.has(`${strippedLower}.`)
+    ) {
+      consecutiveShort = 0;
+      consecutiveAnyShort = 0;
+      continue;
+    }
+
+    // Pure numbers, №33, house numbers like 115А / 115A, ordinals like 3-ти / 6-ти
+    if (
+      /^[№#]?\d+[а-яА-Яa-zA-Z]?$/.test(stripped) ||
+      /^\d+(?:-[а-яА-Яa-zA-Z]{1,4})?$/.test(stripped) ||
+      /^№\s*\d*$/i.test(stripped)
+    ) {
+      consecutiveShort = 0;
+      consecutiveAnyShort = 0;
+      continue;
+    }
+
+    const alphaOnly = stripped.replace(/[^а-яА-Яa-zA-Z]/g, "");
+    if (!alphaOnly) {
+      // Isolated punctuation token (e.g. ":", "-", "/")
+      if (stripped.length <= 2) {
+        consecutiveAnyShort++;
+        maxConsecutiveAnyShort = Math.max(maxConsecutiveAnyShort, consecutiveAnyShort);
+      }
+      continue;
+    }
+
+    const hasCyr = /[а-яА-Я]/.test(alphaOnly);
+    const hasLat = /[a-zA-Z]/.test(alphaOnly);
+    // Reject mixed Cyrillic+Latin inside a single word
+    if (hasCyr && hasLat) {
+      return true;
+    }
+
+    if (hasCyr) hasCyrillicWord = true;
+    if (hasLat) hasLatinWord = true;
+
+    const alphaLower = alphaOnly.toLowerCase();
+    const isDottedInitial = /^[а-яА-Яa-zA-Z]{1,2}\.$/.test(stripped);
+    const isAllowedPrepositionOrRoman =
+      ADDRESS_LOWER_PREPOSITIONS.has(alphaLower) ||
+      ADDRESS_ALLOWED_SHORT_WORDS.has(alphaLower) ||
+      ADDRESS_ROMAN_NUMERALS.has(alphaLower);
+
+    contentAlphaCount++;
+
+    if (alphaOnly.length <= 2) {
+      if (hasLat && !ADDRESS_ROMAN_NUMERALS.has(alphaLower)) shortLatinCount++;
+      if (hasCyr && !ADDRESS_LOWER_PREPOSITIONS.has(alphaLower)) shortCyrCount++;
+
+      if (isDottedInitial || isAllowedPrepositionOrRoman) {
+        consecutiveShort = 0;
+        consecutiveAnyShort++;
+        maxConsecutiveAnyShort = Math.max(maxConsecutiveAnyShort, consecutiveAnyShort);
+      } else {
+        shortScrapCount++;
+        if (alphaOnly.length === 1) singleLetterScrapCount++;
+        consecutiveShort++;
+        consecutiveAnyShort++;
+        maxConsecutiveShort = Math.max(maxConsecutiveShort, consecutiveShort);
+        maxConsecutiveAnyShort = Math.max(maxConsecutiveAnyShort, consecutiveAnyShort);
+      }
+      continue;
+    }
+
+    // Alphabetic token of length >= 3
+    consecutiveShort = 0;
+    consecutiveAnyShort = 0;
+
+    const hasVowel = /[аеиоуъюяАЕИОУЪЮЯaeiouyAEIOUY]/.test(alphaOnly);
+    if (hasVowel) {
+      meaningfulWordsCount++;
+      if (alphaOnly.length >= 4 || KNOWN_BG_CITIES.has(alphaLower)) {
+        strongWordsCount++;
+      }
+    }
+  }
+
+  // Reject mixed-script short-token soup (e.g. Latin 1-2 char OCR noise mixed with Cyrillic)
+  if (hasCyrillicWord && shortLatinCount >= 2) return true;
+  if (hasLatinWord && shortCyrCount >= 2) return true;
+
+  // Reject sequences of meaningless short abbreviations
+  if (maxConsecutiveShort >= 3 || maxConsecutiveAnyShort >= 4) return true;
+  if (singleLetterScrapCount >= 3) return true;
+
+  // Reject lines dominated by short scrap tokens
+  if (
+    shortScrapCount >= 3 &&
+    contentAlphaCount > 0 &&
+    shortScrapCount / contentAlphaCount > 0.45
+  ) {
+    return true;
+  }
+
+  // Require at least one coherent address name word (or valid block+number with meaningful word)
+  if (meaningfulWordsCount === 0) return true;
+  if (strongWordsCount === 0 && shortScrapCount >= 2) return true;
+
+  return false;
+}
+
+/**
+ * Full strict validation gate for any extracted or AI-provided receipt location address.
+ * Ensures at least one valid address indicator is present and rejects OCR garbage.
+ */
+export function isValidReceiptAddressCandidate(text?: string | null): boolean {
+  if (!text || typeof text !== "string") return false;
+  const normalized = normalizeAddressOcrPrefixes(text);
+  if (!hasValidAddressIndicator(normalized)) return false;
+  if (isCorruptedAddressText(normalized)) return false;
+  return true;
 }
 
 function formatAddressCasing(text: string): string {
@@ -2923,15 +3192,23 @@ function isDisqualifiedAddressLine(line: string): boolean {
     /[€$£]|(?:^|\s)(?:лв\.?|BGN|EUR)(?:\s|$)/i,
   ];
 
-  return (
+  if (
     rejectRes.some((re) => re.test(trimmed)) ||
     rejectRes.some((re) => re.test(cyr)) ||
     rejectRes.some((re) => re.test(lat))
-  );
+  ) {
+    return true;
+  }
+
+  if (isCorruptedAddressText(trimmed)) {
+    return true;
+  }
+
+  return false;
 }
 
 const STREET_INDICATOR_RE =
-  /(?:^|[\s,;:(])(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|местност|шосе|улица|булевард|квартал|площад|ул\s+|бул\s+|str\.?|st\.?|blvd\.?|boulevard|street|ave\.?|avenue|rd\.?|road|zh\.k\.?|ul\.?|bul\.?|ulitsa|bulevard|shose|shosse|chaussee)(?:\s|$)/i;
+  /(?:^|[\s,;:(])(?:ул\.|бул\.|ж\.к\.|жк\.|кв\.|пл\.|местност|шосе|улица|булевард|квартал|площад|ул\s+|бул\s+|str\.?|st\.?|blvd\.?|boulevard|street|ave\.?|avenue|rd\.?|road|zh\.k\.?|ul\.?|bul\.?|ulitsa|bulevard|shose|shosse|chaussee)(?:\s|$)/i;
 
 function hasStreetIndicator(line: string): boolean {
   if (STREET_INDICATOR_RE.test(line)) return true;
@@ -2974,7 +3251,8 @@ function parseStandaloneCityLine(line: string): ParsedCityLine | null {
     const wordLower = formattedName.toLowerCase();
     if (
       /^(?:бон|ддс|еик|сума|общо|каса|тест|брой|бр)$/i.test(wordLower) ||
-      formattedName.length < 3
+      formattedName.length < 3 ||
+      !/[аеиоуъюяАЕИОУЪЮЯaeiouyAEIOUY]/.test(formattedName)
     ) {
       return null;
     }
@@ -3002,10 +3280,11 @@ function parseStandaloneCityLine(line: string): ParsedCityLine | null {
 function splitSingleLineAddress(line: string): {
   street?: string;
   city?: ParsedCityLine;
+  cityFirst?: boolean;
 } | null {
   // Pattern 1: "гр. Пловдив, бул. България 123" or "гр. Пловдив бул. България 123"
   const cityFirstMatch = line.match(
-    /^(?:\d{4}\s+)?(гр\.|с\.)\s+([А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{1,}(?:\s+[А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{1,})?)\s*[,;]?\s+((?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|местност|шосе|str\.?|st\.?|blvd\.?|ave\.?).+)$/i
+    /^(?:\d{4}\s+)?(гр\.|с\.)\s+([А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,}(?:\s+[А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,})?)\s*[,;]?\s+((?:ул\.|бул\.|ж\.к\.|жк\.|кв\.|пл\.|местност|шосе|str\.?|st\.?|blvd\.?|ave\.?).+)$/i
   );
   if (cityFirstMatch) {
     const prefix = cityFirstMatch[1].toLowerCase();
@@ -3019,6 +3298,7 @@ function splitSingleLineAddress(line: string): {
         isVillage,
         hasExplicitPrefix: true,
       },
+      cityFirst: true,
     };
   }
 
@@ -3028,10 +3308,11 @@ function splitSingleLineAddress(line: string): {
     const left = line.slice(0, lastComma).trim();
     const right = line.slice(lastComma + 1).trim();
     const parsedRightCity = parseStandaloneCityLine(right);
-    if (parsedRightCity && left.length >= 3) {
+    if (parsedRightCity && left.length >= 3 && hasStreetIndicator(left)) {
       return {
         street: formatAddressCasing(left),
         city: parsedRightCity,
+        cityFirst: false,
       };
     }
     const parsedLeftCity = parseStandaloneCityLine(left);
@@ -3039,6 +3320,7 @@ function splitSingleLineAddress(line: string): {
       return {
         street: formatAddressCasing(right),
         city: parsedLeftCity,
+        cityFirst: true,
       };
     }
   }
@@ -3052,6 +3334,7 @@ function splitSingleLineAddress(line: string): {
       return {
         street: formatAddressCasing(right),
         city: parsedLeftCity,
+        cityFirst: true,
       };
     }
   }
@@ -3071,6 +3354,7 @@ function splitSingleLineAddress(line: string): {
         isVillage,
         hasExplicitPrefix: true,
       },
+      cityFirst: false,
     };
   }
 
@@ -3079,9 +3363,9 @@ function splitSingleLineAddress(line: string): {
 
 /**
  * Extracts a reliable store/branch address from receipt header lines.
- * Combines split city + street lines (e.g. "гр. Пловдив" + "бул. България 123" -> "бул. България 123, Пловдив"),
- * prioritizes actual store/branch location over company HQ/legal entity/VAT registration addresses,
- * and avoids false positives on product weights ("400 гр.") or fiscal IDs.
+ * Combines split city + street lines (e.g. "гр. Пловдив" + "бул. Източен №33" -> "гр. Пловдив, бул. Източен №33"),
+ * prioritizes actual store/branch location blocks ("Store Name -> Address") over company HQ/legal entity/VAT registration addresses,
+ * and rejects OCR garbage / random short-token lines or product weights ("400 гр.").
  */
 export function extractReceiptAddress(
   lines: string[],
@@ -3117,6 +3401,7 @@ export function extractReceiptAddress(
 
   interface LineInfo {
     index: number;
+    raw: string;
     cleaned: string;
     hasExplicitAddressLabel: boolean;
     hasBranchContext: boolean;
@@ -3126,7 +3411,7 @@ export function extractReceiptAddress(
     disqualified: boolean;
     cityOnly: ParsedCityLine | null;
     isStreet: boolean;
-    singleLineSplit: { street?: string; city?: ParsedCityLine } | null;
+    singleLineSplit: { street?: string; city?: ParsedCityLine; cityFirst?: boolean } | null;
   }
 
   const parsedHeader: LineInfo[] = [];
@@ -3148,10 +3433,13 @@ export function extractReceiptAddress(
       !disqualified &&
       !cityOnly &&
       (hasStreetIndicator(cleaned) ||
-        (hasExplicitAddressLabel && /[а-яА-Яa-zA-Z]{3,}/.test(cleaned)));
+        (hasExplicitAddressLabel &&
+          hasValidAddressIndicator(cleaned) &&
+          !isCorruptedAddressText(cleaned)));
 
     parsedHeader.push({
       index: i,
+      raw,
       cleaned,
       hasExplicitAddressLabel,
       hasBranchContext,
@@ -3187,6 +3475,18 @@ export function extractReceiptAddress(
     return false;
   };
 
+  // Detect a clean Store/Merchant Name line immediately preceding the address block (e.g. "ЛИДЛ ПЛОВДИВ 180" -> "гр. Пловдив" -> "бул. Източен №33")
+  const hasPrecedingStoreHeader = (blockStartIdx: number): boolean => {
+    if (blockStartIdx <= 0 || blockStartIdx > 14) return false;
+    const prev = parsedHeader[blockStartIdx - 1];
+    if (!prev || prev.hasHqContext || prev.hasTaxIdContext) return false;
+    if (prev.cityOnly || prev.isStreet || prev.singleLineSplit) return false;
+    if (isNonMerchantMetadataLine(prev.raw)) return false;
+    const cleanedPrev = cleanMerchantName(prev.raw);
+    if (!/[а-яА-Яa-zA-Z]{3,}/.test(cleanedPrev)) return false;
+    return true;
+  };
+
   const getNearbyBranchCityHint = (idx: number): string | undefined => {
     for (let j = idx; j >= Math.max(0, idx - 3); j--) {
       if (parsedHeader[j]?.hasHqContext && j < idx) break;
@@ -3220,6 +3520,7 @@ export function extractReceiptAddress(
     explicitLabel: boolean
   ): number => {
     const branchNear = hasNearbyBranchContext(idx);
+    const storeHeaderBlock = (hasStreet || hasCity) && hasPrecedingStoreHeader(idx);
     const hqNear = hasNearbyHqContext(idx);
     const isPostTaxStoreSection =
       firstTaxIdIdx >= 0 && idx > firstTaxIdIdx && !parsedHeader[idx]?.hasHqContext;
@@ -3231,9 +3532,15 @@ export function extractReceiptAddress(
     if (!hasStreet && hasCity) score = 20;
     if (explicitLabel) score += 15;
     if (branchNear) score += 35;
+    if (storeHeaderBlock && !hqNear) score += 20;
     if (isPostTaxStoreSection && !hqNear) score += 15;
     if (hqNear && !branchNear) score -= 45;
     return score;
+  };
+
+  const pushValidatedCandidate = (cand: AddressCandidate) => {
+    if (!isValidReceiptAddressCandidate(cand.address)) return;
+    candidates.push(cand);
   };
 
   // Pass 1: Single-line full addresses & multi-line street+city combinations
@@ -3242,8 +3549,14 @@ export function extractReceiptAddress(
     if (cur.disqualified) continue;
 
     if (cur.singleLineSplit?.street && cur.singleLineSplit?.city) {
-      const addr = `${cur.singleLineSplit.street}, ${cur.singleLineSplit.city.city}`;
-      candidates.push({
+      const cityLabel =
+        cur.singleLineSplit.city.hasExplicitPrefix && !cur.singleLineSplit.city.isVillage
+          ? `гр. ${cur.singleLineSplit.city.city}`
+          : cur.singleLineSplit.city.city;
+      const addr = cur.singleLineSplit.cityFirst
+        ? `${cityLabel}, ${cur.singleLineSplit.street}`
+        : `${cur.singleLineSplit.street}, ${cityLabel}`;
+      pushValidatedCandidate({
         address: addr,
         score: scoreCandidate(
           i,
@@ -3317,8 +3630,15 @@ export function extractReceiptAddress(
 
       if (pairedCity && pairedIdx >= 0) {
         usedCityIndices.add(pairedIdx);
-        const addr = `${formattedStreet}, ${pairedCity.city}`;
-        candidates.push({
+        const cityLabel =
+          pairedCity.hasExplicitPrefix && !pairedCity.isVillage
+            ? `гр. ${pairedCity.city}`
+            : pairedCity.city;
+        const addr =
+          pairedIdx < i && pairedCity.hasExplicitPrefix
+            ? `${cityLabel}, ${formattedStreet}`
+            : `${formattedStreet}, ${cityLabel}`;
+        pushValidatedCandidate({
           address: addr,
           score: scoreCandidate(
             Math.min(i, pairedIdx),
@@ -3332,7 +3652,7 @@ export function extractReceiptAddress(
       } else {
         const branchCity = getNearbyBranchCityHint(i);
         const addr = branchCity ? `${formattedStreet}, ${branchCity}` : formattedStreet;
-        candidates.push({
+        pushValidatedCandidate({
           address: addr,
           score: scoreCandidate(
             i,
@@ -3358,7 +3678,7 @@ export function extractReceiptAddress(
     const label = cur.cityOnly.isVillage
       ? cur.cityOnly.city
       : `гр. ${cur.cityOnly.city}`;
-    candidates.push({
+    pushValidatedCandidate({
       address: label,
       score: scoreCandidate(i, false, true, "", cur.hasExplicitAddressLabel),
       rule: `Explicit city indicator at line #${i + 1}`,
@@ -3371,8 +3691,7 @@ export function extractReceiptAddress(
   const best = candidates[0];
   if (!best || best.score < 20) return {};
 
-  const letterCount = (best.address.match(/[а-яА-Яa-zA-Z]/g) || []).length;
-  if (best.address.length < 5 || letterCount < 3) return {};
+  if (!isValidReceiptAddressCandidate(best.address)) return {};
 
   return {
     address: best.address,
