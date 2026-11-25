@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Check, Share2, X } from "lucide-react";
-import { APP_NAME, BrandMark } from "./BrandLogo";
+import { APP_NAME, APP_PRODUCTION_URL, BrandMark } from "./BrandLogo";
 import { useI18n } from "@/i18n";
 
 interface AboutModalProps {
@@ -17,8 +17,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
   const tagline = t("brand.tagline");
 
   const handleShareApp = async () => {
-    const shareUrl =
-      typeof window !== "undefined" ? window.location.origin : "";
+    const shareUrl = APP_PRODUCTION_URL;
     const shareData = {
       title: APP_NAME,
       text: `${APP_NAME} — ${tagline}`,

@@ -5,6 +5,7 @@ export const APP_SHORT_NAME = "Budget 365";
 export const APP_TAGLINE = "May the Budget Force be with you.";
 export const APP_DESCRIPTION =
   "Personal Finance Management powered by smart budgeting, planning and insights.";
+export const APP_PRODUCTION_URL = "https://vasilvarshilov.github.io/budgetflows/";
 
 export type BrandLogoVariant = "adaptive" | "light" | "dark" | "appIcon";
 export type BrandLogoDetail = "auto" | "full" | "compact";

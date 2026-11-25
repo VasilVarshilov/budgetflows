@@ -37,6 +37,7 @@ import {
   BrandHeaderLockup,
   BrandSplashLockup,
   APP_NAME,
+  APP_PRODUCTION_URL,
 } from "@/components/brand/BrandLogo";
 import { AboutModal } from "@/components/brand/AboutModal";
 import { Cloud, DownloadCloud, Info, LogIn, Share2, UploadCloud, AlertTriangle } from "lucide-react";
@@ -1139,7 +1140,7 @@ const AppContent: React.FC = () => {
   }
 
   const handleShareApp = async () => {
-    const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const shareUrl = APP_PRODUCTION_URL;
     const tagline = t("brand.tagline");
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
