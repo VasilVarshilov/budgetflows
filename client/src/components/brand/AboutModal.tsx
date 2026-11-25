@@ -86,11 +86,8 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
             </p>
           </div>
 
-          {/* Personal Intro & Description */}
+          {/* Description */}
           <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-            <p className="font-semibold text-slate-800 dark:text-slate-100">
-              {t("brand.aboutIntro")}
-            </p>
             <p>{t("brand.aboutDescription")}</p>
           </div>
 

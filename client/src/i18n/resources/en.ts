@@ -161,8 +161,6 @@ export const en: TranslationShape<TranslationSchema> = {
       driveSync: "Secure local storage & Google Drive backup",
       analytics: "Financial calendar, electricity calculator & AI analysis",
     },
-    aboutIntro:
-      "Hello, I'm Vasil Varshilov, the creator of Budget Force 365.",
     aboutDescription:
       "This app was created to make managing personal and household finances, tracking expenses, and planning savings easier.",
     feedbackTitle: "Bug Reports & Feature Requests",
@@ -174,9 +172,8 @@ export const en: TranslationShape<TranslationSchema> = {
     supportMenu: "Support me",
     support: {
       dialogAria: "Support Budget Force 365 development",
-      title: "Support the App",
+      title: "Support me!",
       subtitle: "An independent project built with care",
-      greeting: "Hello,",
       body1:
         "This app was created as a personal project to help make managing personal and household budgets clearer and easier.",
       body2:
@@ -733,6 +730,13 @@ export const en: TranslationShape<TranslationSchema> = {
   expenses: {
     pageTitle: "Monthly Expenses",
     pageSubtitle: "Track recurring and additional payments",
+    monthPicker: {
+      title: "Select Month",
+      openAria: "Open month picker",
+      prevYear: "Previous year",
+      nextYear: "Next year",
+      currentMonthBtn: "Current",
+    },
     scanReceiptBtn: "Scan Receipt",
     scanReceiptLongBtn: "Scan receipt",
     scanReceiptTooltip: "Scan a receipt via camera or file",

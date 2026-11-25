@@ -96,6 +96,7 @@ import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 import { ScanReceiptModal } from "@/components/monthly/ScanReceiptModal";
+import { MonthPickerControl } from "@/components/monthly/MonthPickerControl";
 import {
   AVAILABLE_ICONS_MAP,
   loadStoredCategories,
@@ -1764,38 +1765,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     });
   }, [allMonthlyData]);
 
-  // Selectable months for header switcher (includes recorded months + previous months so user can inspect/add history)
-  const selectableMonthKeys = useMemo(() => {
-    const keys = new Set<string>(recordedMonthKeys);
-    if (currentMonth) keys.add(currentMonth);
-
-    const now = new Date();
-    const anchors: { year: number; monthIndex: number; count: number }[] = [
-      { year: now.getFullYear(), monthIndex: now.getMonth(), count: 24 },
-    ];
-    const parsedCur = parseMonthKeyToYearMonth(currentMonth);
-    if (parsedCur) {
-      anchors.push({ year: parsedCur.year, monthIndex: parsedCur.monthIndex, count: 12 });
-    }
-
-    for (const anchor of anchors) {
-      for (let i = 0; i < anchor.count; i++) {
-        const d = new Date(anchor.year, anchor.monthIndex - i, 1);
-        keys.add(`${MONTHS_BG[d.getMonth()]} ${d.getFullYear()}`);
-      }
-    }
-
-    return Array.from(keys).sort((a, b) => {
-      const pa = parseMonthKeyToYearMonth(a);
-      const pb = parseMonthKeyToYearMonth(b);
-      if (!pa && !pb) return a.localeCompare(b);
-      if (!pa) return 1;
-      if (!pb) return -1;
-      if (pb.year !== pa.year) return pb.year - pa.year;
-      return pb.monthIndex - pa.monthIndex;
-    });
-  }, [recordedMonthKeys, currentMonth]);
-
   const shiftMonth = (delta: number) => {
     if (!onMonthChange) return;
     const parsed = parseMonthKeyToYearMonth(currentMonth);
@@ -1817,41 +1786,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
             {/* Month Switcher (supports previous & future months) */}
             {onMonthChange ? (
-              <div className="inline-flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-0.5 border border-slate-200/70 dark:border-slate-700/70 max-w-full">
-                <button
-                  type="button"
-                  onClick={() => shiftMonth(-1)}
-                  className="min-h-[32px] min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                  title={t("income.prevMonth")}
-                  aria-label={t("income.prevMonth")}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="relative inline-flex items-center">
-                  <select
-                    value={currentMonth}
-                    onChange={(e) => onMonthChange(e.target.value)}
-                    aria-label={t("expenses.pageTitle")}
-                    className="appearance-none bg-transparent hover:bg-white/60 dark:hover:bg-slate-700/60 dark:text-slate-100 text-slate-800 font-semibold text-xs rounded-lg pl-2.5 pr-6 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
-                  >
-                    {selectableMonthKeys.map((m) => (
-                      <option key={m} value={m} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
-                        {formatLocalizedMonthYear(m, language)}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => shiftMonth(1)}
-                  className="min-h-[32px] min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                  title={t("income.nextMonth")}
-                  aria-label={t("income.nextMonth")}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+              <MonthPickerControl
+                currentMonth={currentMonth}
+                onMonthChange={onMonthChange}
+                onShiftMonth={shiftMonth}
+              />
             ) : (
               <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 ml-1 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 px-2.5 py-0.5 rounded-full">
                 {formatLocalizedMonthYear(currentMonth, language)}

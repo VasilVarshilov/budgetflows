@@ -92,9 +92,6 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
 
             {/* Personal Message */}
             <div className="space-y-2 text-xs sm:text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-              <p className="font-semibold text-slate-900 dark:text-white">
-                {t("brand.support.greeting")}
-              </p>
               <p>{t("brand.support.body1")}</p>
               <p>{t("brand.support.body2")}</p>
             </div>

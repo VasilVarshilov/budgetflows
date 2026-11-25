@@ -1275,8 +1275,8 @@ const AppContent: React.FC = () => {
                 </button>
               )}
 
-              <LanguageSwitcher />
               <ThemeToggle />
+              <LanguageSwitcher />
 
               <NotificationCenter
                 store={notificationsStore}
