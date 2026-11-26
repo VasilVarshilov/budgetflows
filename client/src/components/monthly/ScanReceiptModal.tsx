@@ -20,13 +20,6 @@ import {
   Store,
   ZoomIn,
   ZoomOut,
-  ListChecks,
-  CheckSquare,
-  Square,
-  Plus,
-  Pencil,
-  Trash2,
-  Save,
 } from "lucide-react";
 import {
   ExpenseCategory,
@@ -40,6 +33,7 @@ import {
   LocationPickerField,
   DetectedLocationOption,
 } from "@/components/common/LocationPickerField";
+import { ReceiptItemsEditor } from "@/components/monthly/ReceiptItemsEditor";
 import {
   normalizeLocation,
   buildReceiptLocationSelection,
@@ -66,6 +60,9 @@ import {
   parseExpenseNote,
   splitReceiptItemsWithSelection,
   mergeAdjacentSplitReceiptItems,
+  isTipReceiptItem,
+  isDiscountReceiptItem,
+  formatSignedCurrency,
 } from "@/utils/expenseFormatter";
 import { loadBudgets, findMatchingBudgetCategoryId } from "@/utils/budgetStorage";
 import { useI18n } from "@/i18n";
@@ -767,8 +764,14 @@ function matchCategory(
 
 const TIP_ITEM_NAME = "Бакшиш";
 
-function isTipReceiptItem(item: Pick<ReceiptItemDetail, "name">): boolean {
-  return item.name.trim().toLowerCase() === "бакшиш";
+function formatSignedReceiptNotes(
+  items: ReceiptItemDetail[],
+  currency: string = "€"
+): string {
+  return formatReceiptNotes(items, currency).replace(
+    /([$€£])-(\d)/g,
+    "-$1$2"
+  );
 }
 
 export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
@@ -849,20 +852,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     psmMode: string;
   } | null>(null);
 
-  // Manual Item Addition & Inline Editing State
-  const [showAddItemForm, setShowAddItemForm] = useState<boolean>(false);
-  const [newItemName, setNewItemName] = useState<string>("");
-  const [newItemQuantity, setNewItemQuantity] = useState<string>("1");
-  const [newItemPrice, setNewItemPrice] = useState<string>("");
-  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
-  const [editItemName, setEditItemName] = useState<string>("");
-  const [editItemQuantity, setEditItemQuantity] = useState<string>("1");
-  const [editItemPrice, setEditItemPrice] = useState<string>("");
-
   // Tip Modal State
   const [showTipModal, setShowTipModal] = useState<boolean>(false);
   const [tipInputAmount, setTipInputAmount] = useState<string>("");
   const [tipError, setTipError] = useState<string | null>(null);
+
+  // Manual Discount Modal State
+  const [showDiscountModal, setShowDiscountModal] = useState<boolean>(false);
+  const [discountInputAmount, setDiscountInputAmount] = useState<string>("");
+  const [discountError, setDiscountError] = useState<string | null>(null);
 
   const [scanElapsedSeconds, setScanElapsedSeconds] = useState<number>(0);
 
@@ -969,14 +967,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setAiProgress(null);
     setProcessingWarning(null);
     setOcrLanguageInfo(null);
-    setShowAddItemForm(false);
-    setNewItemName("");
-    setNewItemQuantity("1");
-    setNewItemPrice("");
-    setEditingItemIndex(null);
     setShowTipModal(false);
     setTipInputAmount("");
     setTipError(null);
+    setShowDiscountModal(false);
+    setDiscountInputAmount("");
+    setDiscountError(null);
     setScanElapsedSeconds(0);
     onClose();
   }, [abortActiveAiRequest, imageMeta, onClose, t]);
@@ -1056,20 +1052,29 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
       const selectedItems = itemsList.filter((_, idx) => nextSelected.has(idx));
       const allSelected = selectedItems.length === itemsList.length;
+      const sum = parseFloat(
+        selectedItems
+          .reduce((acc, item) => acc + (item.finalPrice ?? item.price), 0)
+          .toFixed(2)
+      );
+      const hasNegativeDiscount = itemsList.some(isDiscountReceiptItem);
 
       // Recalculate live total
       if (selectedItems.length === 0) {
         setAmount("0.00");
-      } else if (allSelected && fullReceiptTotal > 0) {
+      } else if (
+        allSelected &&
+        fullReceiptTotal > 0 &&
+        (!hasNegativeDiscount || Math.abs(sum - fullReceiptTotal) <= 0.05)
+      ) {
         setAmount(fullReceiptTotal.toFixed(2));
       } else {
-        const sum = selectedItems.reduce((acc, item) => acc + (item.finalPrice ?? item.price), 0);
-        setAmount(sum.toFixed(2));
+        setAmount(Math.max(0, sum).toFixed(2));
       }
 
       // Regenerate clean multi-line notes using ONLY selected items in detected currency
       const activeCurrency = currencyOverride || receiptCurrency || "€";
-      const generatedNotes = formatReceiptNotes(selectedItems, activeCurrency);
+      const generatedNotes = formatSignedReceiptNotes(selectedItems, activeCurrency);
       setNotes(generatedNotes);
       setErrorMessage(null);
     },
@@ -1156,11 +1161,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setAiProgress(null);
     setProcessingWarning(null);
     setDateEditedByUser(false);
-    setShowAddItemForm(false);
-    setEditingItemIndex(null);
     setShowTipModal(false);
     setTipInputAmount("");
     setTipError(null);
+    setShowDiscountModal(false);
+    setDiscountInputAmount("");
+    setDiscountError(null);
     setSplitBillEnabled(false);
     locationEditedByUserRef.current = false;
     setLocation(undefined);
@@ -2704,7 +2710,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       merchantName,
       prevSelectedItems
     ).plainNote;
-    const formattedItems = formatReceiptNotes(nextSelectedItems, activeCurrency);
+    const formattedItems = formatSignedReceiptNotes(nextSelectedItems, activeCurrency);
     if (existingPlainNote && formattedItems) {
       return `${existingPlainNote}\n${formattedItems}`;
     }
@@ -2735,7 +2741,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setReceiptItems(splitItems);
       setSelectedItemIndices(nextSelected);
       setDetectedItemsCount(splitItems.length);
-      setEditingItemIndex(null);
       setErrorMessage(null);
 
       const nextSelectedItems = splitItems.filter((_, idx) => nextSelected.has(idx));
@@ -2766,7 +2771,6 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
       setReceiptItems(restoredItems);
       setSelectedItemIndices(restoredSelected);
       setDetectedItemsCount(restoredItems.length);
-      setEditingItemIndex(null);
       setErrorMessage(null);
 
       const nextSelectedItems = restoredItems.filter((_, idx) => restoredSelected.has(idx));
@@ -2800,10 +2804,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
     const selectedItems = nextItems.filter((_, idx) => nextSelected.has(idx));
     const selectedSum = parseFloat(
-      selectedItems.reduce((sum, it) => sum + it.price, 0).toFixed(2)
+      selectedItems
+        .reduce((sum, it) => sum + (it.finalPrice ?? it.price), 0)
+        .toFixed(2)
     );
     const activeCurrency = receiptCurrency || "€";
-    setNotes(formatReceiptNotes(selectedItems, activeCurrency));
+    setNotes(formatSignedReceiptNotes(selectedItems, activeCurrency));
 
     const effectiveTotal = getEffectiveReceiptTotal(nextItems, detectedTotal);
     if (nextItems.length === 0) {
@@ -2818,7 +2824,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     ) {
       setAmount(effectiveTotal.toFixed(2));
     } else {
-      setAmount(selectedSum.toFixed(2));
+      setAmount(Math.max(0, selectedSum).toFixed(2));
     }
   };
 
@@ -2872,98 +2878,47 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setTipError(null);
   };
 
-  // Step 4: Add manual item
-  const handleAddManualItem = () => {
-    const cleanName = newItemName.trim();
-    const parsedQty = Math.max(1, Math.round(parseFloat(newItemQuantity.replace(",", ".")) || 1));
-    const parsedPrice = parseFloat(newItemPrice.replace(",", "."));
-    if (!cleanName) {
-      setErrorMessage(t("ocr.errEmptyItemName"));
+  const handleOpenDiscountModal = () => {
+    setDiscountError(null);
+    setDiscountInputAmount("");
+    setShowDiscountModal(true);
+  };
+
+  const handleSaveDiscount = () => {
+    const parsedDiscount = parseFloat(discountInputAmount.replace(",", "."));
+    if (isNaN(parsedDiscount) || parsedDiscount <= 0) {
+      setDiscountError(t("ocr.discountInvalidError"));
       return;
     }
-    if (isNaN(parsedPrice) || parsedPrice <= 0) {
-      setErrorMessage(t("ocr.errInvalidItemPrice"));
-      return;
-    }
+
+    const cleanDiscount = parseFloat(parsedDiscount.toFixed(2));
+    const hadItemsBeforeDiscount = receiptItems.length > 0;
+    const prevAmountNum = parseFloat(amount) || 0;
 
     const nextItems: ReceiptItemDetail[] = [
       ...receiptItems,
-      { name: cleanName, quantity: parsedQty, price: parseFloat(parsedPrice.toFixed(2)) },
+      {
+        name: t("ocr.discountWord"),
+        quantity: 1,
+        price: parseFloat((-cleanDiscount).toFixed(2)),
+      },
     ];
     const nextSelected = new Set(selectedItemIndices);
     nextSelected.add(nextItems.length - 1);
+
     commitItemsMutation(nextItems, nextSelected);
 
-    setNewItemName("");
-    setNewItemQuantity("1");
-    setNewItemPrice("");
-    setShowAddItemForm(false);
-  };
-
-  // Step 5: Start / Save / Delete inline edited item
-  const handleStartEditItem = (idx: number) => {
-    const target = receiptItems[idx];
-    if (!target) return;
-    setEditingItemIndex(idx);
-    setEditItemName(target.name);
-    setEditItemQuantity(String(target.quantity && target.quantity >= 1 ? target.quantity : 1));
-    setEditItemPrice(target.price.toFixed(2));
-    setErrorMessage(null);
-  };
-
-  const handleSaveEditItem = (idx: number) => {
-    const cleanName = editItemName.trim();
-    const parsedQty = Math.max(1, Math.round(parseFloat(editItemQuantity.replace(",", ".")) || 1));
-    const parsedPrice = parseFloat(editItemPrice.replace(",", "."));
-    if (!cleanName) {
-      setErrorMessage(t("ocr.errEmptyItemName"));
-      return;
-    }
-    if (isNaN(parsedPrice) || parsedPrice <= 0) {
-      setErrorMessage(t("ocr.errInvalidItemPrice"));
-      return;
+    if (!hadItemsBeforeDiscount && prevAmountNum > 0) {
+      setAmount(Math.max(0, prevAmountNum - cleanDiscount).toFixed(2));
     }
 
-    const nextItems = receiptItems.map((it, i) => {
-      if (i !== idx) return it;
-      const nextPrice = parseFloat(parsedPrice.toFixed(2));
-      if (it.originalPrice && it.originalPrice > nextPrice) {
-        return {
-          ...it,
-          name: cleanName,
-          quantity: parsedQty,
-          price: nextPrice,
-          finalPrice: nextPrice,
-          discount: parseFloat((it.originalPrice - nextPrice).toFixed(2)),
-        };
-      }
-      return {
-        name: cleanName,
-        quantity: parsedQty,
-        price: nextPrice,
-      };
-    });
-    commitItemsMutation(nextItems, new Set(selectedItemIndices));
-    setEditingItemIndex(null);
-  };
-
-  const handleDeleteItem = (idx: number) => {
-    const nextItems = receiptItems.filter((_, i) => i !== idx);
-    const nextSelected = new Set<number>();
-    selectedItemIndices.forEach((selectedIdx) => {
-      if (selectedIdx < idx) nextSelected.add(selectedIdx);
-      else if (selectedIdx > idx) nextSelected.add(selectedIdx - 1);
-    });
-    if (editingItemIndex === idx) {
-      setEditingItemIndex(null);
-    } else if (editingItemIndex !== null && editingItemIndex > idx) {
-      setEditingItemIndex(editingItemIndex - 1);
-    }
-    commitItemsMutation(nextItems, nextSelected);
+    setShowDiscountModal(false);
+    setDiscountInputAmount("");
+    setDiscountError(null);
   };
 
   const formatDisplayPrice = (val: number) =>
-    `${receiptCurrency || "€"}${val.toFixed(2)}`;
+    formatSignedCurrency(val, receiptCurrency || "€");
 
   // Computed receipt totals, Selection Mode total, and >5% consistency validation
   const itemsFullSum = parseFloat(
@@ -2971,6 +2926,15 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   );
   const attachedDiscountSum = parseFloat(
     receiptItems.reduce((sum, item) => sum + (item.discount || 0), 0).toFixed(2)
+  );
+  const negativeDiscountItems = receiptItems.filter(isDiscountReceiptItem);
+  const negativeDiscountSum = parseFloat(
+    negativeDiscountItems
+      .reduce((sum, item) => sum + Math.abs(item.finalPrice ?? item.price), 0)
+      .toFixed(2)
+  );
+  const totalDiscountSum = parseFloat(
+    (attachedDiscountSum + negativeDiscountSum).toFixed(2)
   );
   const activeTipSum = parseFloat(
     receiptItems
@@ -2984,14 +2948,11 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const selectedItemsList = receiptItems.filter((_, idx) => selectedItemIndices.has(idx));
   const isPartialSelection =
     receiptItems.length > 0 && selectedItemIndices.size < receiptItems.length;
-  const selectedItemsSum = parseFloat(
-    selectedItemsList.reduce((sum, item) => sum + (item.finalPrice ?? item.price), 0).toFixed(2)
-  );
 
   const liveAmountNum = parseFloat(amount) || 0;
   const liveUnattachedDiscount = Math.max(
     0,
-    parseFloat((detectedDiscount - attachedDiscountSum).toFixed(2))
+    parseFloat((detectedDiscount - totalDiscountSum).toFixed(2))
   );
   const liveValidation = validateReceiptTotals(
     isPartialSelection ? selectedItemsList : receiptItems,
@@ -3781,450 +3742,38 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Interactive Receipt Items Selection, Inline Editing & Manual Item Addition */}
-                  <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-                          <ListChecks className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                          <span>{t("ocr.receiptItemsHeader", { count: receiptItems.length })}</span>
-                        </h4>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
-                          {t("ocr.receiptItemsSub")}
-                        </p>
-                      </div>
-                      <div className="flex items-center flex-wrap gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddItemForm((prev) => !prev);
-                            setEditingItemIndex(null);
-                          }}
-                          className="min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>{t("ocr.addManualItemBtn")}</span>
-                        </button>
-                        {receiptItems.length > 0 && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={handleSelectAllItems}
-                              disabled={selectedItemIndices.size === receiptItems.length}
-                              className="min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1 cursor-pointer"
-                            >
-                              <CheckSquare className="w-3.5 h-3.5" />
-                              <span>{t("ocr.selectAllBtn")}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleDeselectAllItems}
-                              disabled={selectedItemIndices.size === 0}
-                              className="min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 disabled:opacity-45 disabled:cursor-not-allowed transition-colors flex items-center gap-1 cursor-pointer"
-                            >
-                              <Square className="w-3.5 h-3.5" />
-                              <span>{t("ocr.clearAllBtn")}</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Item-List Operations: Split Bill + Add Tip */}
-                    <div className="space-y-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-                      {receiptItems.length > 0 && (
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={splitBillEnabled}
-                          onClick={() => handleToggleSplitBill(!splitBillEnabled)}
-                          className="inline-flex items-center justify-between gap-4 px-3.5 py-2 rounded-xl bg-slate-50/90 dark:bg-slate-800/75 border border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer select-none min-h-[40px]"
-                        >
-                          <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                            {t("ocr.splitBillLabel")}
-                          </span>
-                          <span
-                            aria-hidden="true"
-                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                              splitBillEnabled
-                                ? "bg-indigo-600"
-                                : "bg-slate-300 dark:bg-slate-700"
-                            }`}
-                          >
-                            <span
-                              className={`inline-block h-4.5 w-4.5 transform rounded-full bg-white shadow-xs transition-transform ${
-                                splitBillEnabled ? "translate-x-5.5" : "translate-x-1"
-                              }`}
-                            />
-                          </span>
-                        </button>
-                      )}
-
-                      <div className={receiptItems.length > 0 ? "pt-1.5 border-t border-slate-100 dark:border-slate-800/80" : ""}>
-                        <button
-                          type="button"
-                          onClick={handleOpenTipModal}
-                          className="min-h-[38px] w-full sm:w-auto px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 transition-colors flex items-center justify-center sm:justify-start gap-2 cursor-pointer shadow-2xs active:scale-[0.99]"
-                        >
-                          <span aria-hidden="true">💰</span>
-                          <span>{t("ocr.addTipLabel")}</span>
-                          {existingTipItem && (
-                            <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-200/80 dark:bg-amber-800/80 text-amber-950 dark:text-amber-100 tabular-nums">
-                              {formatDisplayPrice(existingTipItem.finalPrice ?? existingTipItem.price)}
-                            </span>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Step 4: Manual Add Item Inline Form */}
-                    {showAddItemForm && (
-                      <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2.5">
-                        <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">
-                          {t("ocr.newItemHeader")}
-                        </span>
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                          <div className="sm:col-span-6">
-                            <input
-                              type="text"
-                              value={newItemName}
-                              onChange={(e) => setNewItemName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  handleAddManualItem();
-                                }
-                              }}
-                              placeholder={t("ocr.newItemNamePlaceholder")}
-                              className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
-                              autoFocus
-                            />
-                          </div>
-                          <div className="sm:col-span-3">
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={newItemQuantity}
-                              onChange={(e) => setNewItemQuantity(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  handleAddManualItem();
-                                }
-                              }}
-                              placeholder={t("ocr.qtyPlaceholder")}
-                              className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                          </div>
-                          <div className="sm:col-span-3">
-                            <input
-                              type="number"
-                              min="0.01"
-                              step="0.01"
-                              value={newItemPrice}
-                              onChange={(e) => setNewItemPrice(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  handleAddManualItem();
-                                }
-                              }}
-                              placeholder={t("ocr.pricePlaceholder", { currency: receiptCurrency || "€" })}
-                              className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowAddItemForm(false)}
-                            className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                          >
-                            {t("common.cancel")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleAddManualItem}
-                            className="px-3.5 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>{t("common.add")}</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Items Checklist + Step 5 Inline Editing */}
-                    {receiptItems.length === 0 ? (
-                      <div className="py-4 px-3 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center text-xs text-slate-600 dark:text-slate-300">
-                        {t("ocr.noItemsAutoHint")}
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5 max-h-72 overflow-y-auto pr-0.5">
-                        {receiptItems.map((item, idx) => {
-                          const isChecked = selectedItemIndices.has(idx);
-                          const isEditing = editingItemIndex === idx;
-
-                          if (isEditing) {
-                            return (
-                              <div
-                                key={`edit-${idx}`}
-                                className="p-2.5 rounded-xl border-2 border-indigo-400 dark:border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 space-y-2"
-                              >
-                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                                  <input
-                                    type="text"
-                                    value={editItemName}
-                                    onChange={(e) => setEditItemName(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        handleSaveEditItem(idx);
-                                      }
-                                    }}
-                                    placeholder={t("ocr.editItemNamePlaceholder")}
-                                    className="sm:col-span-6 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
-                                    autoFocus
-                                  />
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    value={editItemQuantity}
-                                    onChange={(e) => setEditItemQuantity(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        handleSaveEditItem(idx);
-                                      }
-                                    }}
-                                    placeholder={t("ocr.qtyPlaceholder")}
-                                    className="sm:col-span-3 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
-                                  />
-                                  <input
-                                    type="number"
-                                    min="0.01"
-                                    step="0.01"
-                                    value={editItemPrice}
-                                    onChange={(e) => setEditItemPrice(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        handleSaveEditItem(idx);
-                                      }
-                                    }}
-                                    placeholder={t("ocr.editPricePlaceholder")}
-                                    className="sm:col-span-3 px-2.5 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
-                                  />
-                                </div>
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingItemIndex(null)}
-                                    className="px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                                  >
-                                    {t("common.cancel")}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSaveEditItem(idx)}
-                                    className="px-3 py-1 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Save className="w-3 h-3" />
-                                    <span>{t("common.save")}</span>
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div
-                              key={`${idx}-${item.name}`}
-                              className={`min-h-[46px] flex items-center justify-between gap-2 px-3 py-2 rounded-xl border transition-all ${
-                                isChecked
-                                  ? "bg-indigo-50/70 dark:bg-indigo-950/35 border-indigo-300 dark:border-indigo-700/80 text-slate-900 dark:text-white shadow-2xs"
-                                  : "bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 opacity-75 hover:opacity-100"
-                              }`}
-                            >
-                              <label className="flex items-start gap-2.5 min-w-0 flex-1 cursor-pointer select-none">
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => handleToggleReceiptItem(idx)}
-                                  className="w-4.5 h-4.5 mt-0.5 rounded-md border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <span
-                                    className={`block text-xs sm:text-sm font-semibold truncate ${
-                                      !isChecked ? "line-through" : ""
-                                    }`}
-                                  >
-                                    {isTipReceiptItem(item) ? (
-                                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-xs font-bold">
-                                        <span aria-hidden="true">💰</span>
-                                        <span>{language === "bg" ? item.name : t("expenses.tipLabel").replace(/:$/, "")}</span>
-                                      </span>
-                                    ) : (
-                                      <>
-                                        {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : "1 x "}
-                                        {item.name}
-                                      </>
-                                    )}
-                                  </span>
-                                  {item.discount && item.discount > 0 && item.originalPrice !== undefined && (
-                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
-                                      <span className="text-slate-500 dark:text-slate-400 line-through">
-                                        {formatDisplayPrice(item.originalPrice)}
-                                      </span>
-                                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                                        -{formatDisplayPrice(item.discount)} {item.discountLabel || t("ocr.discountWord")}
-                                      </span>
-                                      <span className="text-slate-600 dark:text-slate-300 font-medium">
-                                        {t("ocr.finalItemPrice", { price: formatDisplayPrice(item.finalPrice ?? item.price) })}
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              </label>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <div className="text-right mr-1">
-                                  {item.discount && item.discount > 0 && item.originalPrice !== undefined && (
-                                    <span className="block text-[10px] text-slate-400 dark:text-slate-500 line-through tabular-nums leading-none mb-0.5">
-                                      {formatDisplayPrice(item.originalPrice)}
-                                    </span>
-                                  )}
-                                  <span
-                                    className={`text-xs sm:text-sm font-extrabold tabular-nums ${
-                                      isChecked
-                                        ? "text-indigo-700 dark:text-indigo-300"
-                                        : "text-slate-500 dark:text-slate-400 line-through"
-                                    }`}
-                                  >
-                                    {formatDisplayPrice(item.finalPrice ?? item.price)}
-                                  </span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartEditItem(idx)}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
-                                  title={t("ocr.editItemTooltip")}
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteItem(idx)}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 hover:bg-rose-100/70 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
-                                  title={t("ocr.removeItemTooltip")}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Live Item Counts & Selected/Items Totals */}
-                    {receiptItems.length > 0 && (
-                      <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2 text-xs">
-                        <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                          <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                            {expectedItemsCount
-                              ? t("ocr.expectedItemsCountLabel", { count: expectedItemsCount })
-                              : t("ocr.selectedItemsLabel")}
-                          </span>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {t("ocr.selectedOfTotalItems", {
-                              selected: selectedItemIndices.size,
-                              total: receiptItems.length,
-                            })}
-                          </span>
-                        </div>
-                        <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                          <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-semibold">
-                            {isPartialSelection ? t("ocr.selectedTotalLabel") : t("ocr.itemsTotalLabel")}
-                          </span>
-                          <span className="font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
-                            {formatDisplayPrice(isPartialSelection ? selectedItemsSum : itemsFullSum)}
-                          </span>
-                          {!isPartialSelection && attachedDiscountSum > 0 && (
-                            <span className="block text-[10px] font-semibold text-emerald-700/90 dark:text-emerald-300/90 tabular-nums">
-                              {t("ocr.discountsPrefix")} -{formatDisplayPrice(attachedDiscountSum)}
-                            </span>
-                          )}
-                        </div>
-                        <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                          <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-semibold">
-                            {t("ocr.meterReceiptTotal")}
-                          </span>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {formatDisplayPrice(receiptTotalDisplay)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {hasFullReceiptMismatch && (
-                      <div className="p-3.5 bg-rose-50 dark:bg-rose-950/50 border-2 border-rose-300 dark:border-rose-700 rounded-xl text-xs text-rose-900 dark:text-rose-200 space-y-2">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
-                          <div className="space-y-1">
-                            {hasSevereMismatch ? (
-                              <div className="font-bold space-y-0.5">
-                                {aiUnavailable && !aiSucceeded && (
-                                  <span className="block">
-                                    {t("ocr.severeMismatchAiUnavailableLine1")}
-                                  </span>
-                                )}
-                                <span className="block">{t("ocr.severeMismatchLine2")}</span>
-                                <span className="block">{t("ocr.severeMismatchLine3")}</span>
-                              </div>
-                            ) : (
-                              <span className="font-bold block">
-                                {t("ocr.mismatchTitle")}
-                              </span>
-                            )}
-                            <p className="text-[11px] leading-relaxed">
-                              {t("ocr.mismatchDetails", {
-                                receiptTotal: formatDisplayPrice(receiptTotalDisplay),
-                                itemsTotal: formatDisplayPrice(itemsFullSum),
-                                diff: formatDisplayPrice(liveValidation.difference),
-                                pct: liveValidation.differencePercent.toFixed(1),
-                              })}
-                              {expectedItemsCount
-                                ? t("ocr.mismatchItemsCount", {
-                                    detected: receiptItems.length,
-                                    expected: expectedItemsCount,
-                                  })
-                                : ""}
-                            </p>
-                          </div>
-                        </div>
-                        <label className="flex items-center gap-2 pt-1.5 border-t border-rose-200 dark:border-rose-800/60 cursor-pointer select-none font-semibold text-[11px]">
-                          <input
-                            type="checkbox"
-                            checked={confirmMismatchOverride}
-                            onChange={(e) => setConfirmMismatchOverride(e.target.checked)}
-                            className="w-4 h-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500 cursor-pointer"
-                          />
-                          <span>
-                            {t("ocr.mismatchConfirmLabel")}
-                          </span>
-                        </label>
-                      </div>
-                    )}
-
-                    {receiptItems.length > 0 && selectedItemIndices.size === 0 && (
-                      <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <span>{t("ocr.selectOneItemWarning")}</span>
-                      </div>
-                    )}
-                  </div>
+                  {/* Interactive Receipt Items Selection, Inline Editing, Tip, Discount & Manual Item Addition */}
+                  <ReceiptItemsEditor
+                    mode="scanReview"
+                    items={receiptItems}
+                    selectedIndices={selectedItemIndices}
+                    currency={receiptCurrency || "€"}
+                    onChangeItems={(nextItems, nextSelected) =>
+                      commitItemsMutation(nextItems, nextSelected)
+                    }
+                    onValidationError={(msg) => setErrorMessage(msg)}
+                    onToggleItem={handleToggleReceiptItem}
+                    onSelectAll={handleSelectAllItems}
+                    onDeselectAll={handleDeselectAllItems}
+                    splitBillEnabled={splitBillEnabled}
+                    onToggleSplitBill={handleToggleSplitBill}
+                    onOpenTipModal={handleOpenTipModal}
+                    existingTipItem={existingTipItem}
+                    onOpenDiscountModal={handleOpenDiscountModal}
+                    negativeDiscountCount={negativeDiscountItems.length}
+                    negativeDiscountSum={negativeDiscountSum}
+                    attachedDiscountSum={attachedDiscountSum}
+                    expectedItemsCount={expectedItemsCount}
+                    receiptTotalDisplay={receiptTotalDisplay}
+                    hasFullReceiptMismatch={hasFullReceiptMismatch}
+                    hasSevereMismatch={hasSevereMismatch}
+                    aiUnavailable={aiUnavailable}
+                    aiSucceeded={aiSucceeded}
+                    mismatchDifference={liveValidation.difference}
+                    mismatchPercent={liveValidation.differencePercent}
+                    confirmMismatchOverride={confirmMismatchOverride}
+                    onConfirmMismatchOverrideChange={setConfirmMismatchOverride}
+                  />
 
                   {/* Category Selector */}
                   <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 shadow-2xs space-y-1.5">
@@ -4546,6 +4095,96 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 type="button"
                 onClick={handleSaveTip}
                 className="min-h-[42px] px-5 py-2 text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors shadow-sm cursor-pointer active:scale-95"
+              >
+                {t("common.add")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Discount Input Sub-Modal */}
+      {showDiscountModal && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discount-modal-title"
+          onClick={() => setShowDiscountModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h4
+                id="discount-modal-title"
+                className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2"
+              >
+                <span aria-hidden="true">🏷</span>
+                <span>{t("ocr.discountModalTitle")}</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowDiscountModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
+                aria-label={t("common.close")}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                {t("ocr.discountAmountLabel", { currency: receiptCurrency || "€" })}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                  {receiptCurrency || "€"}
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={discountInputAmount}
+                  onChange={(e) => {
+                    setDiscountInputAmount(e.target.value);
+                    if (discountError) setDiscountError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSaveDiscount();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setShowDiscountModal(false);
+                    }
+                  }}
+                  className="w-full pl-9 pr-3.5 py-3 text-lg font-extrabold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none transition-all placeholder:text-slate-400"
+                  autoFocus
+                />
+              </div>
+              {discountError && (
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                  {discountError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowDiscountModal(false)}
+                className="min-h-[42px] px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDiscount}
+                className="min-h-[42px] px-5 py-2 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors shadow-sm cursor-pointer active:scale-95"
               >
                 {t("common.add")}
               </button>

@@ -57,8 +57,15 @@ import {
   RepeatFrequency,
   OpenRecordTarget,
   TransactionLocation,
+  ReceiptItemDetail,
 } from "@/types";
-import { parseExpenseNote } from "@/utils/expenseFormatter";
+import {
+  parseExpenseNote,
+  formatSignedCurrency,
+  isDiscountReceiptItem,
+  isTipReceiptItem,
+} from "@/utils/expenseFormatter";
+import { formatReceiptNotes } from "@/utils/receiptParser";
 import {
   isCompletedExpense,
   isPlannedExpense,
@@ -67,6 +74,7 @@ import {
 } from "@/utils/expenseStatus";
 import { LocationCard } from "@/components/common/LocationCard";
 import { LocationPickerField } from "@/components/common/LocationPickerField";
+import { ReceiptItemsEditor } from "@/components/monthly/ReceiptItemsEditor";
 import { normalizeLocation } from "@/utils/locationUtils";
 import {
   buildScheduleFieldsForRepeat,
@@ -548,6 +556,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const [expenseLocation, setExpenseLocation] = useState<TransactionLocation | undefined>(
     undefined
   );
+  const [manualExpenseItems, setManualExpenseItems] = useState<ReceiptItemDetail[]>([]);
+  const [manualAmountLocked, setManualAmountLocked] = useState(false);
 
   // Edit Variable Expense State
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -979,6 +989,33 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       targetMonthKey
     );
 
+    const cleanManualItems: ReceiptItemDetail[] = manualExpenseItems.map((it) => ({
+      name: it.name,
+      price: it.finalPrice ?? it.price,
+      quantity: it.quantity && it.quantity >= 1 ? it.quantity : 1,
+      ...(it.discount && it.discount > 0 && it.originalPrice !== undefined
+        ? {
+            originalPrice: it.originalPrice,
+            discount: it.discount,
+            finalPrice: it.finalPrice ?? it.price,
+            ...(it.discountLabel ? { discountLabel: it.discountLabel } : {}),
+          }
+        : {}),
+    }));
+    const itemsFormattedNote =
+      cleanManualItems.length > 0
+        ? formatReceiptNotes(cleanManualItems, "€").replace(
+            /([$€£])-(\d)/g,
+            "-$1$2"
+          )
+        : "";
+    const cleanUserNote = note.trim();
+    const combinedNote = cleanUserNote
+      ? itemsFormattedNote
+        ? `${cleanUserNote}\n${itemsFormattedNote}`
+        : cleanUserNote
+      : itemsFormattedNote || undefined;
+
     const newExpense: ExpenseItem = {
       id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
       categoryId: selectedCategory.id,
@@ -988,7 +1025,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryId: selectedBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsedAmount,
-      note: note.trim() || undefined,
+      receiptItems: cleanManualItems.length > 0 ? cleanManualItems : undefined,
+      note: combinedNote,
       ...(normalizedLocation ? { location: normalizedLocation } : {}),
       date: dateKeyToStableIso(safeDateKey),
       expectedDate: safeDateKey,
@@ -1045,6 +1083,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     setExpenseSchedule({});
     setExpenseCompleted(true);
     setExpenseLocation(undefined);
+    setManualExpenseItems([]);
+    setManualAmountLocked(false);
+  };
+
+  const handleManualExpenseItemsChange = (nextItems: ReceiptItemDetail[]) => {
+    setManualExpenseItems(nextItems);
+    if (!manualAmountLocked) {
+      if (nextItems.length === 0) {
+        setAmount("");
+      } else {
+        const itemsSum = parseFloat(
+          nextItems
+            .reduce((sum, it) => sum + (it.finalPrice ?? it.price), 0)
+            .toFixed(2)
+        );
+        setAmount(itemsSum > 0 ? itemsSum.toFixed(2) : "");
+      }
+    }
   };
 
   const handleDeleteExpense = (id: string) => {
@@ -1936,7 +1992,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             <InputGroup
               label={t("expenses.amountEurInputLabel")}
               value={amount}
-              onChange={setAmount}
+              onChange={(val) => {
+                setAmount(val);
+                setManualAmountLocked(val.trim().length > 0);
+              }}
               placeholder="0.00"
             />
           </div>
@@ -1997,6 +2056,29 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             </div>
           </div>
 
+          {/* Optional Manual Receipt Items Section (Reuses Scan Review Item Workflow) */}
+          <ReceiptItemsEditor
+            mode="manualExpense"
+            items={manualExpenseItems}
+            onChangeItems={(nextItems) => handleManualExpenseItemsChange(nextItems)}
+            currency="€"
+            showSyncAmountAction={
+              manualAmountLocked &&
+              manualExpenseItems.length > 0 &&
+              Math.abs(
+                (parseDecimalInput(amount) || 0) -
+                  manualExpenseItems.reduce(
+                    (sum, it) => sum + (it.finalPrice ?? it.price),
+                    0
+                  )
+              ) > 0.01
+            }
+            onRequestSyncAmount={(itemsSum) => {
+              setAmount(itemsSum.toFixed(2));
+              setManualAmountLocked(false);
+            }}
+          />
+
           <RecurrenceCompletionRows
             repeat={expenseRepeat}
             onRepeatChange={setExpenseRepeat}
@@ -2026,7 +2108,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
               {t("expenses.addExpenseBtn")}
             </button>
             <button
-              onClick={() => setIsAddingExpense(false)}
+              onClick={() => {
+                setIsAddingExpense(false);
+                setManualExpenseItems([]);
+                setManualAmountLocked(false);
+              }}
               className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-semibold transition-colors"
             >
               {t("common.cancel")}
@@ -3077,10 +3163,10 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                               {parsedReceipt.items.map((item, idx) => {
                                 const curSym = parsedReceipt.currencySymbol || "€";
                                 const fmtItemPrice = (val: number) =>
-                                  curSym === "$" || curSym === "€" || curSym === "£"
-                                    ? `${curSym}${val.toFixed(2)}`
-                                    : `${val.toFixed(2)} ${curSym}`;
+                                  formatSignedCurrency(val, curSym);
                                 const netPrice = item.finalPrice ?? item.price;
+                                const isNegDiscount = isDiscountReceiptItem(item);
+                                const isTip = isTipReceiptItem(item);
                                 const hasDisc =
                                   Boolean(item.discount && item.discount > 0 && item.originalPrice !== undefined);
                                 return (
@@ -3090,8 +3176,26 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                   >
                                     <div className="min-w-0 flex-1">
                                       <span className="block break-words leading-tight">
-                                        • {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : ""}
-                                        {item.name}
+                                        {isNegDiscount ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100/80 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 font-semibold">
+                                            <span aria-hidden="true">🏷</span>
+                                            <span>
+                                              {item.quantity && item.quantity > 1
+                                                ? `${item.quantity} x ${item.name}`
+                                                : item.name}
+                                            </span>
+                                          </span>
+                                        ) : isTip ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100/80 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 font-semibold">
+                                            <span aria-hidden="true">💰</span>
+                                            <span>{item.name}</span>
+                                          </span>
+                                        ) : (
+                                          <>
+                                            • {item.quantity && item.quantity >= 1 ? `${item.quantity} x ` : ""}
+                                            {item.name}
+                                          </>
+                                        )}
                                       </span>
                                       {hasDisc && item.originalPrice !== undefined && item.discount !== undefined && (
                                         <div className="mt-0.5 pl-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
@@ -3113,7 +3217,13 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                                           {fmtItemPrice(item.originalPrice)}
                                         </span>
                                       )}
-                                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                      <span
+                                        className={`font-semibold ${
+                                          isNegDiscount
+                                            ? "text-emerald-700 dark:text-emerald-400"
+                                            : "text-slate-900 dark:text-slate-100"
+                                        }`}
+                                      >
                                         {fmtItemPrice(netPrice)}
                                       </span>
                                     </div>
@@ -3123,12 +3233,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                             </ul>
                           ) : (
                             <div className="text-xs text-slate-500 dark:text-slate-400 italic">
-                              • {parsedReceipt.items[0].quantity && parsedReceipt.items[0].quantity >= 1 ? `${parsedReceipt.items[0].quantity} x ` : ""}{parsedReceipt.items[0].name} (
-                              {parsedReceipt.currencySymbol === "$" ||
-                              parsedReceipt.currencySymbol === "€" ||
-                              parsedReceipt.currencySymbol === "£"
-                                ? `${parsedReceipt.currencySymbol}${(parsedReceipt.items[0].finalPrice ?? parsedReceipt.items[0].price).toFixed(2)}`
-                                : `${(parsedReceipt.items[0].finalPrice ?? parsedReceipt.items[0].price).toFixed(2)} ${parsedReceipt.currencySymbol || "€"}`}
+                              {isDiscountReceiptItem(parsedReceipt.items[0]) ? "🏷 " : "• "}
+                              {parsedReceipt.items[0].quantity && parsedReceipt.items[0].quantity >= 1 && !isDiscountReceiptItem(parsedReceipt.items[0])
+                                ? `${parsedReceipt.items[0].quantity} x `
+                                : ""}
+                              {parsedReceipt.items[0].name} (
+                              {formatSignedCurrency(
+                                parsedReceipt.items[0].finalPrice ?? parsedReceipt.items[0].price,
+                                parsedReceipt.currencySymbol || "€"
+                              )}
                               ) {t("expenses.collapsedItemsMore", { count: parsedReceipt.items.length - 1 })}
                             </div>
                           )}

@@ -21,7 +21,7 @@ import {
   Receipt,
   StickyNote,
 } from "lucide-react";
-import { parseExpenseNote } from "@/utils/expenseFormatter";
+import { parseExpenseNote, formatSignedCurrency, isDiscountReceiptItem } from "@/utils/expenseFormatter";
 import { MonthlyRecord, BudgetConfig, ExpenseCategory } from "@/types";
 import {
   loadBudgets,
@@ -995,12 +995,27 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
                                 {hasSubItems && (
                                   <div className="pt-1 mt-1 border-t border-slate-200/50 dark:border-slate-700/50 space-y-0.5">
-                                    {exp.receiptItems!.slice(0, 3).map((sub, sIdx) => (
-                                      <div key={sIdx} className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                                        <span className="truncate max-w-[140px]">• {sub.quantity && sub.quantity >= 1 ? `${sub.quantity} x ` : ""}{sub.name}</span>
-                                        <span className="tabular-nums">€{sub.price.toFixed(2)}</span>
-                                      </div>
-                                    ))}
+                                    {exp.receiptItems!.slice(0, 3).map((sub, sIdx) => {
+                                      const isDiscount = isDiscountReceiptItem(sub);
+                                      const itemVal = sub.finalPrice ?? sub.price;
+                                      return (
+                                        <div
+                                          key={sIdx}
+                                          className={`flex items-center justify-between text-[10px] ${
+                                            isDiscount
+                                              ? "text-emerald-700 dark:text-emerald-400 font-medium"
+                                              : "text-slate-500 dark:text-slate-400"
+                                          }`}
+                                        >
+                                          <span className="truncate max-w-[140px]">
+                                            {isDiscount ? "🏷 " : "• "}
+                                            {!isDiscount && sub.quantity && sub.quantity >= 1 ? `${sub.quantity} x ` : ""}
+                                            {sub.name}
+                                          </span>
+                                          <span className="tabular-nums">{formatSignedCurrency(itemVal, "€")}</span>
+                                        </div>
+                                      );
+                                    })}
                                     {exp.receiptItems!.length > 3 && (
                                       <span className="text-[9px] text-indigo-600 dark:text-indigo-400 block">
                                         {t("budgets.moreItemsInNote", {

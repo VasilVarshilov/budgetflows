@@ -12,8 +12,27 @@ export interface ParsedExpenseNote {
   currencySymbol?: string;
 }
 
+export function isTipReceiptItem(item: Pick<ReceiptItemDetail, "name">): boolean {
+  return item.name.trim().toLowerCase() === "бакшиш";
+}
+
+export function isDiscountReceiptItem(
+  item: Pick<ReceiptItemDetail, "price" | "finalPrice">
+): boolean {
+  return Number(item.finalPrice ?? item.price) < 0;
+}
+
+export function formatSignedCurrency(val: number, currency: string = "€"): string {
+  const sym = currency === "лв." || currency === "BGN" ? "€" : currency || "€";
+  const sign = val < 0 ? "-" : "";
+  const absStr = Math.abs(val).toFixed(2);
+  return sym === "$" || sym === "€" || sym === "£"
+    ? `${sign}${sym}${absStr}`
+    : `${sign}${absStr} ${sym}`;
+}
+
 /**
- * Extracts numeric price and optional currency symbol from a price string
+ * Extracts numeric price (including negative discount amounts) and optional currency symbol from a price string
  */
 function parsePriceAndCurrency(str: string): { price: number; currency?: string } {
   const clean = str.trim();
@@ -23,8 +42,10 @@ function parsePriceAndCurrency(str: string): { price: number; currency?: string 
   else if (clean.includes("£")) currency = "£";
   else if (/лв|bgn/i.test(clean)) currency = "€";
 
+  const isNegative = /(?:^|\s|[$€£лв])-|\d[.,]\d{2}\s*-/.test(clean);
   const numMatch = clean.match(/(\d+[.,]\d{1,2}|\d+)/);
-  const price = numMatch ? parseFloat(numMatch[1].replace(",", ".")) : 0;
+  const rawPrice = numMatch ? parseFloat(numMatch[1].replace(",", ".")) : 0;
+  const price = isNegative && rawPrice > 0 ? -rawPrice : rawPrice;
   return { price, currency };
 }
 
@@ -50,7 +71,7 @@ function isLineFormattedReceiptItem(
   const clean = line.replace(/^[•\-*\s]+/, "").trim();
   if (!clean) return true;
 
-  // Matches formatted bullet/price line like "1 x Beer - €3.00" or "Beer - €3.00 (ориг. €4.00, -€1.00)"
+  // Matches formatted bullet/price line like "1 x Beer - €3.00", "1 x Отстъпка - -€3.50", or "1 x Отстъпка - €-3.50"
   const strippedDiscount = clean
     .replace(
       /\s*\((?:ориг\.|orig\.?)\s*[$€£лв.]?\s*\d+[.,]\d{2}.*?\)\s*$/i,
@@ -59,7 +80,7 @@ function isLineFormattedReceiptItem(
     .trim();
 
   if (
-    /^.+?\s*(?:[-—:=]|\.{2,}|\s{2,})\s*[$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?$/i.test(
+    /^.+?\s*(?:[-—:=]|\.{2,}|\s{2,})\s*-?\s*[$€£лв]?\s*-?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?$/i.test(
       strippedDiscount
     )
   ) {
@@ -164,9 +185,9 @@ export function parseExpenseNote(
   const trimmed = note.trim();
   let detectedCurrency = "€";
 
-  // 1. Check if note has line breaks OR is a single formatted item line like "2 x Coca Cola - €4.80"
+  // 1. Check if note has line breaks OR is a single formatted item line like "2 x Coca Cola - €4.80" or "1 x Отстъпка - -€3.50"
   const looksLikeFormattedSingleLine =
-    /^[•\-*\s]*.+?\s+[-—:=]\s+[$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?$/i.test(trimmed);
+    /^[•\-*\s]*.+?\s+[-—:=]\s+-?\s*[$€£лв]?\s*-?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?$/i.test(trimmed);
 
   if (trimmed.includes("\n") || looksLikeFormattedSingleLine) {
     const lines = trimmed
@@ -213,16 +234,16 @@ export function parseExpenseNote(
         line = line.slice(0, discSuffixMatch.index).trim();
       }
 
-      // Regex matching: name ... separator ... price
-      // e.g. "2 x Coca Cola - €4.80", "1 x Хляб бял - €1.20", "Beer €5.00"
+      // Regex matching: name ... separator ... price (supports negative discount prices like -€3.50 or €-3.50)
+      // e.g. "2 x Coca Cola - €4.80", "1 x Отстъпка - -€3.50", "Beer €5.00"
       const match = line.match(
-        /^[•\-*\s]*(.+?)\s*(?:[-—:=]|\.{2,}|\s{2,}|\s+)\s*([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)$/i
+        /^[•\-*\s]*(.+?)\s*(?:[-—:=]|\.{2,}|\s{2,}|\s+)\s*(-?\s*[$€£лв]?\s*-?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)$/i
       );
 
       if (match) {
         const parsedName = splitQuantityAndName(match[1]);
         const priceInfo = parsePriceAndCurrency(match[2]);
-        if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price >= 0 && (priceInfo.price > 0 || discountMeta)) {
+        if (parsedName.name && !isNaN(priceInfo.price) && (priceInfo.price !== 0 || discountMeta)) {
           items.push({
             name: parsedName.name,
             price: priceInfo.price,
@@ -239,12 +260,12 @@ export function parseExpenseNote(
       } else {
         // Loose fallback: look for last price in line
         const looseMatch = line.match(
-          /^[•\-*\s]*(.+?)\s+([$€£лв]?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)$/i
+          /^[•\-*\s]*(.+?)\s+(-?\s*[$€£лв]?\s*-?\s*\d+[.,]\d{2}\s*(?:[$€£лв]|лв\.|EUR|BGN)?)$/i
         );
         if (looseMatch) {
           const parsedName = splitQuantityAndName(looseMatch[1]);
           const priceInfo = parsePriceAndCurrency(looseMatch[2]);
-          if (parsedName.name && !isNaN(priceInfo.price) && priceInfo.price >= 0 && (priceInfo.price > 0 || discountMeta)) {
+          if (parsedName.name && !isNaN(priceInfo.price) && (priceInfo.price !== 0 || discountMeta)) {
             items.push({
               name: parsedName.name,
               price: priceInfo.price,
@@ -381,11 +402,7 @@ export function parseExpenseNote(
  * Formats an array of receipt items into a clean multiline text string.
  */
 export function formatReceiptItemsToText(items: ReceiptItemDetail[], currency = "€"): string {
-  const sym = currency === "лв." || currency === "BGN" ? "€" : currency || "€";
-  const fmt = (val: number) =>
-    sym === "$" || sym === "€" || sym === "£"
-      ? `${sym}${val.toFixed(2)}`
-      : `${val.toFixed(2)} ${sym}`;
+  const fmt = (val: number) => formatSignedCurrency(val, currency);
 
   return items
     .map((item) => {
