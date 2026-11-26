@@ -48,6 +48,7 @@ import {
   toLatinMatchForm,
   isValidCalendarDate,
   extractReceiptAddressFromText,
+  extractReceiptLocationFromText,
   isValidReceiptAddressCandidate,
   reconcileReceiptItemQuantities,
 } from "@/utils/receiptParser";
@@ -1248,7 +1249,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         : {}),
     }));
     const prefilledOcrLocation = localParsed.detectedAddress
-      ? normalizeLocation({ address: localParsed.detectedAddress })
+      ? normalizeLocation({
+          ...(localParsed.detectedPlaceName
+            ? { placeName: localParsed.detectedPlaceName }
+            : {}),
+          address: localParsed.detectedAddress,
+        })
       : undefined;
     if (prefilledOcrLocation) {
       addDebugLog(
@@ -2185,19 +2191,27 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
 
           const aiRawAddress =
             typeof gData.address === "string" ? gData.address.trim() : "";
+          const rawTextLoc =
+            typeof gData.rawText === "string"
+              ? extractReceiptLocationFromText(gData.rawText)
+              : {};
+          const aiFieldAddress = aiRawAddress
+            ? extractReceiptAddressFromText(aiRawAddress) ||
+              (isValidReceiptAddressCandidate(aiRawAddress)
+                ? aiRawAddress
+                : undefined)
+            : undefined;
           const aiAddressCandidate =
-            (aiRawAddress
-              ? extractReceiptAddressFromText(aiRawAddress) ||
-                (isValidReceiptAddressCandidate(aiRawAddress)
-                  ? aiRawAddress
-                  : undefined)
-              : undefined) ||
-            (typeof gData.rawText === "string"
-              ? extractReceiptAddressFromText(gData.rawText)
-              : undefined);
+            rawTextLoc.address &&
+            (rawTextLoc.placeName || !aiFieldAddress || aiFieldAddress !== rawTextLoc.address)
+              ? rawTextLoc.address
+              : aiFieldAddress || rawTextLoc.address;
+          const aiPlaceNameCandidate =
+            rawTextLoc.placeName || localParsed.detectedPlaceName;
 
           if (aiAddressCandidate && !locationEditedByUserRef.current) {
             const nextAiLocation = normalizeLocation({
+              ...(aiPlaceNameCandidate ? { placeName: aiPlaceNameCandidate } : {}),
               address: aiAddressCandidate,
             });
             if (nextAiLocation) {
@@ -2210,11 +2224,20 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               const aiHasStreet = /(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|шосе|местност|str\.?|blvd\.?|\d)/i.test(
                 nextAiLocation.address
               );
-              if (!prefilledOcrLocation || (!ocrHasStreet && aiHasStreet)) {
-                setLocation((prev) => (!prev || !ocrHasStreet ? nextAiLocation : prev));
+              const aiImprovedLocation =
+                !prefilledOcrLocation ||
+                (!ocrHasStreet && aiHasStreet) ||
+                (Boolean(nextAiLocation.placeName) &&
+                  !prefilledOcrLocation.placeName &&
+                  aiHasStreet) ||
+                (Boolean(rawTextLoc.placeName) &&
+                  nextAiLocation.address !== prefilledOcrLocation.address &&
+                  aiHasStreet);
+              if (aiImprovedLocation) {
+                setLocation(nextAiLocation);
                 addDebugLog(
                   "parsed_merchant",
-                  `AI detected store address: "${nextAiLocation.address}"`
+                  `AI detected store address: "${nextAiLocation.placeName ? `${nextAiLocation.placeName} — ` : ""}${nextAiLocation.address}"`
                 );
               }
             }

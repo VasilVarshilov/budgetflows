@@ -731,9 +731,7 @@ export const bg = {
     monthPicker: {
       title: "Избор на месец",
       openAria: "Отвори избор на месец",
-      prevYear: "Предишна година",
-      nextYear: "Следваща година",
-      currentMonthBtn: "Текущ",
+      confirm: "Избери",
     },
     scanReceiptBtn: "Сканирай бележка",
     scanReceiptLongBtn: "Сканирай касова бележка",

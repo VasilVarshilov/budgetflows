@@ -733,9 +733,7 @@ export const en: TranslationShape<TranslationSchema> = {
     monthPicker: {
       title: "Select Month",
       openAria: "Open month picker",
-      prevYear: "Previous year",
-      nextYear: "Next year",
-      currentMonthBtn: "Current",
+      confirm: "Select",
     },
     scanReceiptBtn: "Scan Receipt",
     scanReceiptLongBtn: "Scan receipt",
