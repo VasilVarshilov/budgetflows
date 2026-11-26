@@ -50,6 +50,8 @@ import {
   extractReceiptAddressFromText,
   extractReceiptLocationFromText,
   isValidReceiptAddressCandidate,
+  isReceiptHqAddressCandidate,
+  findStorePlaceNameNearAddress,
   reconcileReceiptItemQuantities,
 } from "@/utils/receiptParser";
 import { runClientOcr } from "@/utils/tesseractOcr";
@@ -1970,7 +1972,9 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             addDebugLog("parsed_merchant", `Gemini търговец: "${cleanAiMerchant}"`);
           }
 
-          // Date Priority: 1. OCR detected date -> 2. AI calendar-valid date -> 3. User correction -> 4. Today fallback
+          // Date Priority & Validation:
+          // 1. Validate OCR vs Gemini dates cleanly so a misread or inferior OCR date (e.g. "03-11-2026" vs footer "23-11-2026 13:12:08")
+          //    can be corrected by Gemini's vision-verified calendar date, while blocking MM/DD transpositions and same-day fallbacks.
           const rawAiDate = typeof gData.date === "string" ? gData.date.trim() : "";
           const aiDateParts = rawAiDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
           const isValidGeminiDate = Boolean(
@@ -1981,14 +1985,37 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 parseInt(aiDateParts[3], 10)
               )
           );
-          if (localParsed.dateDetected) {
-            addDebugLog(
-              "parsed_date",
-              `Запазена дата от OCR: "${localParsed.date}" (Приоритет 1: OCR датата не се презаписва от AI${isValidGeminiDate && rawAiDate !== localParsed.date ? `, AI предложи "${rawAiDate}"` : ""})`
-            );
-          } else if (isValidGeminiDate) {
+          const todayIso = new Date().toISOString().split("T")[0];
+          const ocrDateParts = localParsed.date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          const isMmDdSwapFromOcr = Boolean(
+            localParsed.dateDetected &&
+              aiDateParts &&
+              ocrDateParts &&
+              aiDateParts[1] === ocrDateParts[1] &&
+              aiDateParts[2] === ocrDateParts[3] &&
+              aiDateParts[3] === ocrDateParts[2] &&
+              parseInt(ocrDateParts[3], 10) <= 12
+          );
+          const isAiTodayFallbackConflict = Boolean(
+            localParsed.dateDetected &&
+              isValidGeminiDate &&
+              rawAiDate === todayIso &&
+              localParsed.date !== todayIso &&
+              (localParsed.datePriority ?? 0) >= 2
+          );
+          const shouldPreferGeminiDate = Boolean(
+            isValidGeminiDate &&
+              (!localParsed.dateDetected ||
+                (rawAiDate !== localParsed.date &&
+                  !isMmDdSwapFromOcr &&
+                  !isAiTodayFallbackConflict &&
+                  ((localParsed.datePriority ?? 0) < 3 || rawAiDate !== todayIso)))
+          );
+
+          if (shouldPreferGeminiDate) {
             setDate(rawAiDate);
             setDetectedDate(rawAiDate);
+            setOcrDetectedDate(rawAiDate);
             setDateFallbackReason(null);
             setWarnings((prev) =>
               prev.filter(
@@ -1998,7 +2025,17 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   !w.toLowerCase().includes("receipt date was not detected")
               )
             );
-            addDebugLog("parsed_date", `AI (Gemini) detected date: "${rawAiDate}" | Final date: "${rawAiDate}"`);
+            addDebugLog(
+              "parsed_date",
+              localParsed.dateDetected
+                ? `AI коригира OCR дата "${localParsed.date}" -> "${rawAiDate}" (валидирана дата от касовата бележка)`
+                : `AI (Gemini) detected date: "${rawAiDate}" | Final date: "${rawAiDate}"`
+            );
+          } else if (localParsed.dateDetected) {
+            addDebugLog(
+              "parsed_date",
+              `Запазена дата от OCR: "${localParsed.date}" (${localParsed.dateRule || "OCR"})${isValidGeminiDate && rawAiDate !== localParsed.date ? ` | AI предложи "${rawAiDate}"` : ""}`
+            );
           } else {
             addDebugLog(
               "parsed_date",
@@ -2189,6 +2226,10 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setRawText(gData.rawText);
           }
 
+          const sourceTextForLocation =
+            typeof gData.rawText === "string" && gData.rawText.trim()
+              ? gData.rawText
+              : ocrRawText;
           const aiRawAddress =
             typeof gData.address === "string" ? gData.address.trim() : "";
           const rawTextLoc =
@@ -2201,15 +2242,36 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                 ? aiRawAddress
                 : undefined)
             : undefined;
+          const aiFieldIsHq = Boolean(
+            aiFieldAddress && isReceiptHqAddressCandidate(aiFieldAddress, sourceTextForLocation)
+          );
           const aiAddressCandidate =
             rawTextLoc.address &&
-            (rawTextLoc.placeName || !aiFieldAddress || aiFieldAddress !== rawTextLoc.address)
+            (rawTextLoc.placeName ||
+              aiFieldIsHq ||
+              !aiFieldAddress ||
+              aiFieldAddress !== rawTextLoc.address)
               ? rawTextLoc.address
               : aiFieldAddress || rawTextLoc.address;
+          const ocrLocationIsHq = Boolean(
+            prefilledOcrLocation &&
+              (localParsed.addressTier === 0 ||
+                isReceiptHqAddressCandidate(prefilledOcrLocation.address, ocrRawText))
+          );
+          const aiCandidateIsHq = Boolean(
+            aiAddressCandidate &&
+              isReceiptHqAddressCandidate(aiAddressCandidate, sourceTextForLocation)
+          );
           const aiPlaceNameCandidate =
-            rawTextLoc.placeName || localParsed.detectedPlaceName;
+            rawTextLoc.placeName ||
+            (!ocrLocationIsHq ? localParsed.detectedPlaceName : undefined) ||
+            findStorePlaceNameNearAddress(sourceTextForLocation, aiAddressCandidate);
 
-          if (aiAddressCandidate && !locationEditedByUserRef.current) {
+          if (
+            aiAddressCandidate &&
+            !locationEditedByUserRef.current &&
+            !(aiCandidateIsHq && prefilledOcrLocation && !ocrLocationIsHq)
+          ) {
             const nextAiLocation = normalizeLocation({
               ...(aiPlaceNameCandidate ? { placeName: aiPlaceNameCandidate } : {}),
               address: aiAddressCandidate,
@@ -2226,10 +2288,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               );
               const aiImprovedLocation =
                 !prefilledOcrLocation ||
+                (ocrLocationIsHq && !aiCandidateIsHq) ||
                 (!ocrHasStreet && aiHasStreet) ||
                 (Boolean(nextAiLocation.placeName) &&
                   !prefilledOcrLocation.placeName &&
-                  aiHasStreet) ||
+                  (aiHasStreet ||
+                    nextAiLocation.address === prefilledOcrLocation.address)) ||
                 (Boolean(rawTextLoc.placeName) &&
                   nextAiLocation.address !== prefilledOcrLocation.address &&
                   aiHasStreet);

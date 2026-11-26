@@ -7,6 +7,9 @@ export interface ParsedReceiptData {
   merchantName: string;
   date: string;
   dateDetected: boolean;
+  datePriority?: number;
+  dateHasTimestamp?: boolean;
+  dateIsFooter?: boolean;
   dateFallbackReason?: string;
   totalAmount: number;
   itemsTotal: number;
@@ -34,6 +37,7 @@ export interface ParsedReceiptData {
   dateRule?: string;
   detectedAddress?: string;
   detectedPlaceName?: string;
+  addressTier?: number;
   addressRule?: string;
   warnings: string[];
 }
@@ -681,13 +685,15 @@ export function isValidCalendarDate(year: number, month: number, day: number): b
 }
 
 function normalizeDateCandidateLine(line: string): string {
-  // Replace Cyrillic/Latin OCR lookalikes (O->0, б->6, l/I/|->1) inside date segments (year first so subsequent month/day lookaheads match 20xx)
+  // Replace Cyrillic/Latin OCR lookalikes (O->0, б->6, З->3, l/I/|->1) inside date segments (year first so subsequent month/day lookaheads match 20xx)
   return line
     .replace(/2[ОO]([1-3])([ОOбЗ\d])/g, (_m, d3, d4) => {
       const f4 = d4 === "О" || d4 === "O" ? "0" : d4 === "б" ? "6" : d4 === "З" ? "3" : d4;
       return `20${d3}${f4}`;
     })
     .replace(/20([1-3])[б]/g, "20$16")
+    .replace(/20([1-3])[З]/g, "20$13")
+    .replace(/(?:^|(?<=[^\dA-Za-zА-Яа-я]))([0-3]?)[З](?=\s*[-/.,:]\s*[01ОOlI|\d]{1,2}\s*[-/.,:]\s*(?:20[1-3]\d|1[89]|[23]\d))/g, "$13")
     .replace(/([0-3OО]?)[ОO](?=\d?\s*[-/.,:]\s*[01ОOlI|\d]{1,2}\s*[-/.,:]\s*(?:20[1-3]\d|1[89]|[23]\d))/g, "$10")
     .replace(/(\d{1,2}\s*[-/.,:]\s*)([01OО]?)[ОO](?=\d?\s*[-/.,:]\s*(?:20[1-3]\d|1[89]|[23]\d))/g, "$1$20")
     .replace(/([01]?)[ОO](?=\s*[-/.,:]\s*20[1-3]\d)/g, "$10")
@@ -715,33 +721,115 @@ const BG_EN_MONTH_MAP: Array<{ pattern: RegExp; month: number }> = [
   { pattern: /^(?:дек|декември|dec|december)\.?$/i, month: 12 },
 ];
 
-// Extract Transaction Date (YYYY-MM-DD), prioritizing Bulgarian DD.MM.YYYY / ДАТА lines
+// Extract Transaction Date (YYYY-MM-DD), prioritizing:
+// 1. Fiscal receipt date near footer (complete full detected date over partial/header/misread fragments)
+// 2. Transaction timestamp (e.g. DD-MM-YYYY HH:MM:SS)
+// 3. Other document dates
 export function extractDate(lines: string[]): {
   date: string;
   dateDetected: boolean;
   matchedRule: string;
+  priority?: number;
+  hasTimestamp?: boolean;
+  hasSeconds?: boolean;
+  isFooter?: boolean;
   fallbackReason?: string;
 } {
   interface DateCandidate {
     iso: string;
+    priority: number;
     score: number;
+    lineIndex: number;
+    hasTimestamp: boolean;
+    hasSeconds: boolean;
+    isFooter: boolean;
     rule: string;
   }
   const candidates: DateCandidate[] = [];
+
+  // Identify footer boundary (lower portion of receipt or at/after the last total/payment row)
+  let lastTotalIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const cyrLine = toCyrillicMatchForm(lines[i]);
+    if (
+      /^(?:ОБЩО|ОБЩА\s+СУМА|КРАЙНА\s+СУМА|ЗА\s+ПЛАЩАНЕ|СУМА\s+ЗА\s+ПЛАЩАНЕ|В\s+БРОЙ|КАРТА|ПЛАТЕНО|TOTAL|GRAND\s+TOTAL)\b/.test(
+        cyrLine
+      )
+    ) {
+      lastTotalIdx = i;
+    }
+  }
+  const proportionalFooterStart = lines.length >= 6 ? Math.floor(lines.length * 0.55) : lines.length;
+  const footerStartIdx =
+    lines.length >= 6
+      ? lastTotalIdx >= 0
+        ? Math.min(proportionalFooterStart, lastTotalIdx)
+        : proportionalFooterStart
+      : lines.length;
+
+  const isEmbeddedInsideId = (text: string, matchStart: number, matchEnd: number): boolean => {
+    const beforeSlice = text.slice(0, matchStart);
+    const afterSlice = text.slice(matchEnd);
+    return /\d[-/]$/.test(beforeSlice) || /^[-/]\d/.test(afterSlice);
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const line = normalizeDateCandidateLine(rawLine);
     const cyr = toCyrillicMatchForm(rawLine);
     const prevCyr = i > 0 ? toCyrillicMatchForm(lines[i - 1]) : "";
+    const nextCyr = i + 1 < lines.length ? toCyrillicMatchForm(lines[i + 1]) : "";
+    const isInFooter = lines.length >= 6 && i >= footerStartIdx;
 
     const hasDateLabel = /(ДАТА|DATE|ДЕН|ЧАС)/.test(cyr) || /\b(?:ДАТА|DATE)\s*[:=]?\s*$/.test(prevCyr);
-    const hasTime = /\b([01]?\d|2[0-3])[:.]([0-5]\d)(?:[:.]([0-5]\d))?\b/.test(line);
-    const isPromoOrExpiryLine = /(ВАЖИ|ПРОМО|КАМПАНИЯ|СРОК|ГОД\.\s*ДО|\bEXP\b)/.test(cyr);
-    const isFiscalOrIdLine =
-      (/(УНП|ЕИК|БУЛСТАТ|(?:^|\s)(?:ФУ|ФП)(?:$|[\s:№N#\-\d])|BG\d|БОН\s*№|СТОРНО)/.test(cyr) ||
-        (/КАСА/.test(cyr) && !hasTime)) &&
+    const hasTimeWithSeconds = /(?:^|[^\d:]|\d{4})([01]?\d|2[0-3])[:.]([0-5]\d)[:.]([0-5]\d)(?!\d)/.test(line);
+    const hasTime =
+      hasTimeWithSeconds || /(?:^|[^\d:]|\d{4})([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)/.test(line);
+    const isPromoOrExpiryLine = /(ВАЖИ|ПРОМО|КАМПАНИЯ|СРОК|ГОД\.\s*ДО|\bEXP\b|ЛИСТОВКА|НАМАЛЕНИЕ)/.test(cyr);
+    const isHardIdLine = /(ЕИК|БУЛСТАТ|BG\d|СТОРНО|IBAN)/.test(cyr) && !hasDateLabel;
+    const isNonTimeFiscalIdLine =
+      /(УНП|(?:^|\s)(?:ФУ|ФП)(?:$|[\s:№N#\-\d])|БОН\s*№|КАСА)/.test(cyr) &&
+      !hasTime &&
       !hasDateLabel;
+    const hasFiscalFooterContext =
+      !isPromoOrExpiryLine &&
+      !isHardIdLine &&
+      (/(ФИСКАЛЕН\s*БОН|СИСТЕМЕН\s*БОН|КАСОВА\s*БЕЛЕЖКА|КАСОВ\s*БОН|БЛАГОДАРИМ|THANK\s*YOU|НРА|NRA|БОН\s*№|КАСА|УНП)/.test(
+        cyr
+      ) ||
+        /(ФИСКАЛЕН\s*БОН|СИСТЕМЕН\s*БОН|БЛАГОДАРИМ|THANK\s*YOU)/.test(`${prevCyr} ${nextCyr}`));
+
+    const computePriorityAndScore = (
+      baseScore: number,
+      isFullYear: boolean,
+      embeddedId: boolean
+    ): { priority: number; score: number } => {
+      const cleanDoc = !isPromoOrExpiryLine && !isHardIdLine && !embeddedId;
+      let priority = 0;
+      if (
+        isFullYear &&
+        cleanDoc &&
+        ((isInFooter && (hasTime || hasFiscalFooterContext)) || (hasTimeWithSeconds && isInFooter))
+      ) {
+        priority = 3; // 1. Fiscal receipt date near footer (complete full date)
+      } else if (cleanDoc && ((isFullYear && hasTime) || (hasTimeWithSeconds && isFullYear))) {
+        priority = 2; // 2. Transaction timestamp
+      } else if (isFullYear && cleanDoc && !isNonTimeFiscalIdLine) {
+        priority = 1; // 3. Other valid complete document dates
+      }
+
+      const score =
+        baseScore +
+        (isInFooter && cleanDoc ? 25 : 0) +
+        (hasFiscalFooterContext ? 20 : 0) +
+        (hasDateLabel ? 25 : 0) +
+        (hasTimeWithSeconds ? 35 : hasTime ? 20 : 0) +
+        (isPromoOrExpiryLine ? -40 : 0) +
+        (isHardIdLine || isNonTimeFiscalIdLine ? -45 : 0) +
+        (embeddedId ? -60 : 0);
+
+      return { priority, score };
+    };
 
     // 1. DD.MM.YYYY or DD/MM/YYYY or DD-MM-YYYY or DD.MM:YYYY (also when glued to HH:MM)
     const dmyRegex =
@@ -760,21 +848,25 @@ export function extractDate(lines: string[]): {
 
       if (isValidCalendarDate(year, month, day)) {
         const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const digitsStart = dmyFull.index + dmyFull[0].indexOf(dmyFull[1]);
+        const digitsEnd = dmyFull.index + dmyFull[0].length;
+        const embeddedId = !hasTime && isEmbeddedInsideId(line, digitsStart, digitsEnd);
+        const { priority, score } = computePriorityAndScore(90, true, embeddedId);
         candidates.push({
           iso,
-          score:
-            85 +
-            (hasDateLabel ? 30 : 0) +
-            (hasTime ? 20 : 0) +
-            (isPromoOrExpiryLine ? -35 : 0) +
-            (isFiscalOrIdLine ? -45 : 0),
-          rule: `DD.MM.YYYY in "${rawLine}"`,
+          priority,
+          score,
+          lineIndex: i,
+          hasTimestamp: hasTime,
+          hasSeconds: hasTimeWithSeconds,
+          isFooter: isInFooter,
+          rule: `DD.MM.YYYY in "${rawLine}" (p=${priority}, footer=${isInFooter}, time=${hasTimeWithSeconds ? "HMS" : hasTime ? "HM" : "no"})`,
         });
       }
     }
 
-    // 1b. Space-separated DD MM YYYY when explicit DATE/ДАТА label is present
-    if (hasDateLabel) {
+    // 1b. Space-separated DD MM YYYY when explicit DATE/ДАТА label or HH:MM:SS timestamp is present
+    if (hasDateLabel || hasTimeWithSeconds) {
       const spacedDmy = line.match(/(?:^|[^\d])([0-3]?\d)\s+([01]?\d)\s+(20[1-3]\d)(?=[^\d]|$)/);
       if (spacedDmy) {
         const day = parseInt(spacedDmy[1], 10);
@@ -782,9 +874,15 @@ export function extractDate(lines: string[]): {
         const year = parseInt(spacedDmy[3], 10);
         if (isValidCalendarDate(year, month, day)) {
           const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const { priority, score } = computePriorityAndScore(88, true, false);
           candidates.push({
             iso,
-            score: 105 + (hasTime ? 15 : 0),
+            priority,
+            score,
+            lineIndex: i,
+            hasTimestamp: hasTime,
+            hasSeconds: hasTimeWithSeconds,
+            isFooter: isInFooter,
             rule: `Spaced DD MM YYYY in "${rawLine}"`,
           });
         }
@@ -801,9 +899,15 @@ export function extractDate(lines: string[]): {
       const foundMonth = BG_EN_MONTH_MAP.find((m) => m.pattern.test(monthToken))?.month;
       if (foundMonth && isValidCalendarDate(year, foundMonth, day)) {
         const iso = `${year}-${String(foundMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const { priority, score } = computePriorityAndScore(92, true, false);
         candidates.push({
           iso,
-          score: 90 + (hasDateLabel ? 25 : 0) + (hasTime ? 15 : 0) + (isPromoOrExpiryLine ? -35 : 0),
+          priority,
+          score,
+          lineIndex: i,
+          hasTimestamp: hasTime,
+          hasSeconds: hasTimeWithSeconds,
+          isFooter: isInFooter,
           rule: `Named month in "${rawLine}"`,
         });
       }
@@ -819,20 +923,24 @@ export function extractDate(lines: string[]): {
       const day = parseInt(ymdFull[3], 10);
       if (isValidCalendarDate(year, month, day)) {
         const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const digitsStart = ymdFull.index + ymdFull[0].indexOf(ymdFull[1]);
+        const digitsEnd = ymdFull.index + ymdFull[0].length;
+        const embeddedId = !hasTime && isEmbeddedInsideId(line, digitsStart, digitsEnd);
+        const { priority, score } = computePriorityAndScore(85, true, embeddedId);
         candidates.push({
           iso,
-          score:
-            80 +
-            (hasDateLabel ? 30 : 0) +
-            (hasTime ? 20 : 0) +
-            (isPromoOrExpiryLine ? -35 : 0) +
-            (isFiscalOrIdLine ? -45 : 0),
+          priority,
+          score,
+          lineIndex: i,
+          hasTimestamp: hasTime,
+          hasSeconds: hasTimeWithSeconds,
+          isFooter: isInFooter,
           rule: `YYYY-MM-DD in "${rawLine}"`,
         });
       }
     }
 
-    // 3. DD.MM.YY or DD/MM/YY or DD-MM-YY
+    // 3. DD.MM.YY or DD/MM/YY or DD-MM-YY (partial 2-digit year — always lower priority than full 4-digit dates)
     const dmyShortRegex =
       /(?:^|[^\d])([0-3]?\d)\s*[-/.]\s*([01]?\d)\s*[-/.]\s*(2[0-9]|1[89])(?=[^\d]|$|\d{2}:\d{2})/g;
     let dmyShort: RegExpExecArray | null;
@@ -842,14 +950,18 @@ export function extractDate(lines: string[]): {
       const year = 2000 + parseInt(dmyShort[3], 10);
       if (isValidCalendarDate(year, month, day)) {
         const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const digitsStart = dmyShort.index + dmyShort[0].indexOf(dmyShort[1]);
+        const digitsEnd = dmyShort.index + dmyShort[0].length;
+        const embeddedId = !hasTime && isEmbeddedInsideId(line, digitsStart, digitsEnd);
+        const { priority, score } = computePriorityAndScore(55, false, embeddedId);
         candidates.push({
           iso,
-          score:
-            65 +
-            (hasDateLabel ? 30 : 0) +
-            (hasTime ? 20 : 0) +
-            (isPromoOrExpiryLine ? -35 : 0) +
-            (isFiscalOrIdLine ? -45 : 0),
+          priority,
+          score,
+          lineIndex: i,
+          hasTimestamp: hasTime,
+          hasSeconds: hasTimeWithSeconds,
+          isFooter: isInFooter,
           rule: `DD.MM.YY in "${rawLine}"`,
         });
       }
@@ -857,11 +969,20 @@ export function extractDate(lines: string[]): {
   }
 
   if (candidates.length > 0) {
-    candidates.sort((a, b) => b.score - a.score);
+    candidates.sort((a, b) => {
+      if (b.priority !== a.priority) return b.priority - a.priority;
+      if (b.score !== a.score) return b.score - a.score;
+      return b.lineIndex - a.lineIndex;
+    });
+    const best = candidates[0];
     return {
-      date: candidates[0].iso,
+      date: best.iso,
       dateDetected: true,
-      matchedRule: candidates[0].rule,
+      matchedRule: best.rule,
+      priority: best.priority,
+      hasTimestamp: best.hasTimestamp,
+      hasSeconds: best.hasSeconds,
+      isFooter: best.isFooter,
     };
   }
 
@@ -2723,47 +2844,51 @@ const ADDRESS_LOWER_PREPOSITIONS = new Set([
 ]);
 
 function normalizeAddressOcrPrefixes(raw: string): string {
-  const repaired = repairCyrillicWordTokens(raw, /[а-яА-Я]/.test(raw));
-  return (
-    repaired
-      .replace(/[#*_~|]+/g, " ")
-      .replace(/\s+/g, " ")
-      // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (strictly guarded against random Latin noise)
-      .replace(
-        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)гр(?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z]{3,})/gi,
-        "$1гр. "
+  const preNormalized = /[а-яА-Я]/.test(raw)
+    ? raw.replace(
+        /(^|[\s,(])(?:N[°o.]?|No\.?)\s*(?=\d{1,4}[а-яА-Яa-zA-Z]?(?:\s|$|[,;.)]))/gi,
+        "$1№"
       )
-      .replace(
-        /(^|[\s,;:(])(?<!\d\s*)(?<!\d)[гrт][рp](?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{3,})/gi,
-        "$1гр. "
-      )
-      .replace(
-        /(^|[\s,;:(])ул(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
-        "$1ул. "
-      )
-      .replace(
-        /(^|[\s,;:(])[уy][лnп](?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,})/gi,
-        "$1ул. "
-      )
-      .replace(
-        /(^|[\s,;:(])бул(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
-        "$1бул. "
-      )
-      .replace(
-        /(^|[\s,;:(])[б6][уy]л(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,})/gi,
-        "$1бул. "
-      )
-      .replace(
-        /(^|[\s,;:(])ж\s*[.,]?\s*к(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
-        "$1ж.к. "
-      )
-      .replace(/(^|[\s,;:(])кв\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9]{2,})/gi, "$1кв. ")
-      .replace(/(^|[\s,;:(])пл\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9]{2,})/gi, "$1пл. ")
-      .replace(/(^|[\s,;:(])бл\s*[.,]\s*(?=\d)/gi, "$1бл. ")
-      .replace(/(^|[\s,;:(])с\s*[.,]\s*(?=[А-Яа-я]{3,})/gi, "$1с. ")
-      .replace(/\s+/g, " ")
-      .trim()
-  );
+    : raw;
+  const repaired = repairCyrillicWordTokens(preNormalized, /[а-яА-Я]/.test(preNormalized));
+  const out = repaired
+    .replace(/[#*_~|]+/g, " ")
+    .replace(/\s+/g, " ")
+    // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (strictly guarded against random Latin noise)
+    .replace(
+      /(^|[\s,;:(])(?<!\d\s*)(?<!\d)гр(?:\s*[.,]\s*|\s+)(?=[А-Яа-яA-Za-z]{3,})/gi,
+      "$1гр. "
+    )
+    .replace(
+      /(^|[\s,;:(])(?<!\d\s*)(?<!\d)[гrт][рp](?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{3,})/gi,
+      "$1гр. "
+    )
+    .replace(
+      /(^|[\s,;:(])ул(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
+      "$1ул. "
+    )
+    .replace(
+      /(^|[\s,;:(])[уy][лnп](?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,})/gi,
+      "$1ул. "
+    )
+    .replace(
+      /(^|[\s,;:(])бул(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
+      "$1бул. "
+    )
+    .replace(
+      /(^|[\s,;:(])[б6][уy]л(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,})/gi,
+      "$1бул. "
+    )
+    .replace(
+      /(^|[\s,;:(])ж\s*[.,]?\s*к(?:\s*[.,]\s*|\s+)(?=[А-Яа-я]{2,}|\d)/gi,
+      "$1ж.к. "
+    )
+    .replace(/(^|[\s,;:(])кв\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9]{2,})/gi, "$1кв. ")
+    .replace(/(^|[\s,;:(])пл\s*[.,]\s*(?=[А-Яа-яA-Za-z0-9]{2,})/gi, "$1пл. ")
+    .replace(/(^|[\s,;:(])бл\s*[.,]\s*(?=\d)/gi, "$1бл. ")
+    .replace(/(^|[\s,;:(])с\s*[.,]\s*(?=[А-Яа-я]{3,})/gi, "$1с. ");
+
+  return out.replace(/\s+/g, " ").trim();
 }
 
 const ADDRESS_INDICATOR_TOKENS = new Set([
@@ -2917,11 +3042,11 @@ export function isCorruptedAddressText(text: string): boolean {
       continue;
     }
 
-    // Pure numbers, №33, house numbers like 115А / 115A, ordinals like 3-ти / 6-ти
+    // Pure numbers, №33, N8А/No8А, house numbers like 115А / 115A, ordinals like 3-ти / 6-ти
     if (
-      /^[№#]?\d+[а-яА-Яa-zA-Z]?$/.test(stripped) ||
+      /^(?:[№#]|N[°o.]?|No\.?)\s*\d+[а-яА-Яa-zA-Z]?$/i.test(stripped) ||
       /^\d+(?:-[а-яА-Яa-zA-Z]{1,4})?$/.test(stripped) ||
-      /^№\s*\d*$/i.test(stripped)
+      /^(?:№|N[°o.]?|No\.?)\s*\d*$/i.test(stripped)
     ) {
       consecutiveShort = 0;
       consecutiveAnyShort = 0;
@@ -3154,6 +3279,7 @@ function stripAddressLineWrapper(line: string): {
   hasExplicitAddressLabel: boolean;
   hasBranchContext: boolean;
   hasHqContext: boolean;
+  hasCompanyHeaderContext: boolean;
   hasTaxIdContext: boolean;
   branchCityHint?: string;
   storeDisplayName?: string;
@@ -3190,13 +3316,14 @@ function stripAddressLineWrapper(line: string): {
     ) ||
     /(?:EIK|BULSTAT|VAT|BG\s*\d{8,11})/i.test(lat);
 
-  const hasHqContext =
+  const hasCompanyHeaderContext =
     isLegalAddressLabel ||
     hasLegalEntityForm ||
-    hasTaxIdContext ||
     /(?:СЕДАЛИЩЕ|АДРЕС\s+НА\s+УПРАВЛЕНИЕ|ЮРИДИЧЕСКИ\s+АДРЕС|ДАНЪЧЕН\s+АДРЕС|ЦЕНТРАЛЕН\s+ОФИС|ЦЕНТРАЛА|УПРАВИТЕЛ|СЪДЕБНА\s+РЕГИСТРАЦИЯ)/i.test(
       cyr
     );
+
+  const hasHqContext = hasCompanyHeaderContext || hasTaxIdContext;
 
   // Detect store/branch identifier lines (e.g. "СУПЕРМАРКЕТ ТРИУМФ", "МАГАЗИН", "ОБЕКТ", "ФИЛИАЛ", "STORE", "BRANCH", "SHOP")
   const hasExplicitBranchKeyword =
@@ -3267,7 +3394,7 @@ function stripAddressLineWrapper(line: string): {
       ""
     )
     .replace(
-      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|ОБЕКТ\s*(?:№|N|#|:)?\s*\d*|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#|:)?\s*\d*|ФИЛИАЛ\s*(?:№|N|#)?\s*\d*|КЛОН\s*(?:№|N|#)?\s*\d*|БЕНЗИНОСТАНЦИЯ\s*(?:№|N|#)?\s*\d*)\s*[:\-–,]?\s*/i,
+      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|ОБЕКТ\s*(?:№|N|#|:)?\s*\d*|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#|:)?\s*\d*|ФИЛИАЛ\s*(?:№|N|#|:)?\s*\d*|КЛОН\s*(?:№|N|#|:)?\s*\d*|БЕНЗИНОСТАНЦИЯ\s*(?:№|N|#)?\s*\d*)\s*[:\-–,]?\s*/i,
       ""
     )
     .replace(
@@ -3282,6 +3409,7 @@ function stripAddressLineWrapper(line: string): {
     hasExplicitAddressLabel,
     hasBranchContext,
     hasHqContext,
+    hasCompanyHeaderContext,
     hasTaxIdContext,
     branchCityHint: hasBranchContext ? matchedBranchCity : undefined,
     storeDisplayName,
@@ -3491,12 +3619,12 @@ function splitSingleLineAddress(line: string): {
 export function extractReceiptAddress(
   lines: string[],
   preferredCurrency: string = "€"
-): { address?: string; placeName?: string; matchedRule?: string } {
+): { address?: string; placeName?: string; tier?: number; matchedRule?: string } {
   if (!lines || lines.length === 0) return {};
 
   // Determine header boundary before genuine items/totals start (never cut off on fiscal/date/phone header lines)
-  let headerEnd = Math.min(lines.length, 32);
-  for (let i = 2; i < Math.min(lines.length, 32); i++) {
+  let headerEnd = Math.min(lines.length, 36);
+  for (let i = 2; i < Math.min(lines.length, 36); i++) {
     const line = lines[i];
     const trailingPrice = extractTrailingItemPrice(line, preferredCurrency);
     if (
@@ -3527,6 +3655,7 @@ export function extractReceiptAddress(
     hasExplicitAddressLabel: boolean;
     hasBranchContext: boolean;
     hasHqContext: boolean;
+    hasCompanyHeaderContext: boolean;
     hasTaxIdContext: boolean;
     branchCityHint?: string;
     storeDisplayName?: string;
@@ -3544,6 +3673,7 @@ export function extractReceiptAddress(
       hasExplicitAddressLabel,
       hasBranchContext,
       hasHqContext,
+      hasCompanyHeaderContext,
       hasTaxIdContext,
       branchCityHint,
       storeDisplayName,
@@ -3567,6 +3697,7 @@ export function extractReceiptAddress(
       hasExplicitAddressLabel,
       hasBranchContext,
       hasHqContext,
+      hasCompanyHeaderContext,
       hasTaxIdContext,
       branchCityHint,
       storeDisplayName,
@@ -3597,6 +3728,12 @@ export function extractReceiptAddress(
       if ((parsedHeader[j]?.hasHqContext || parsedHeader[j]?.hasTaxIdContext) && j < idx) {
         break;
       }
+      if (
+        j < idx &&
+        (parsedHeader[j]?.singleLineSplit || parsedHeader[j]?.isStreet || parsedHeader[j]?.cityOnly)
+      ) {
+        break;
+      }
       if (parsedHeader[j]?.hasBranchContext || parsedHeader[j]?.hasExplicitAddressLabel) {
         return true;
       }
@@ -3605,29 +3742,60 @@ export function extractReceiptAddress(
   };
 
   // Detect a clean Store/Merchant Name line immediately preceding the address block
-  // (e.g. "СУПЕРМАРКЕТ ТРИУМФ" -> "гр. Пловдив" -> "ул. Лев Толстой №8А")
+  // (e.g. "СУПЕРМАРКЕТ \"ТРИУМФ\"" -> "гр. Пловдив" -> "ул. Лев Толстой №8А", including split 2-line headers)
   const findNearbyStorePlaceName = (blockStartIdx: number): string | undefined => {
-    for (let j = blockStartIdx - 1; j >= Math.max(0, blockStartIdx - 3); j--) {
+    const collectedNames: Array<{ idx: number; name: string; isGenericType: boolean }> = [];
+    for (let j = blockStartIdx - 1; j >= Math.max(0, blockStartIdx - 4); j--) {
       const prev = parsedHeader[j];
       if (!prev) continue;
       if (prev.hasHqContext || prev.hasTaxIdContext) break;
       if (prev.cityOnly || prev.isStreet || prev.singleLineSplit) break;
 
-      if (prev.storeDisplayName) {
-        return prev.storeDisplayName;
-      }
-
       // Skip purely decorative separator lines ("---", "***")
       if (/^[\s\-_=*~•.|]+$/.test(prev.raw)) continue;
 
-      if (!isNonMerchantMetadataLine(prev.raw) && !isCorruptedAddressText(prev.raw)) {
-        const candidateName = formatStorePlaceName(prev.raw);
-        if (candidateName) {
+      const candidateName =
+        prev.storeDisplayName ||
+        (!isNonMerchantMetadataLine(prev.raw) && !isCorruptedAddressText(prev.raw)
+          ? formatStorePlaceName(prev.raw)
+          : undefined);
+
+      if (candidateName) {
+        const isGenericType =
+          /^(?:Супермаркет|Хипермаркет|Минимаркет|Магазин|Обект|Филиал|Аптека|Ресторант|Supermarket|Hypermarket|Store|Shop|Branch)$/i.test(
+            candidateName
+          );
+        collectedNames.push({ idx: j, name: candidateName, isGenericType });
+        if (!isGenericType) {
+          // If line above this is a standalone generic store type (e.g. "СУПЕРМАРКЕТ" above "\"ТРИУМФ\""), combine them
+          if (j - 1 >= Math.max(0, blockStartIdx - 4)) {
+            const above = parsedHeader[j - 1];
+            if (
+              above &&
+              !above.hasHqContext &&
+              !above.hasTaxIdContext &&
+              !above.cityOnly &&
+              !above.isStreet &&
+              !above.singleLineSplit
+            ) {
+              const aboveName =
+                above.storeDisplayName ||
+                (!isNonMerchantMetadataLine(above.raw) && !isCorruptedAddressText(above.raw)
+                  ? formatStorePlaceName(above.raw)
+                  : undefined);
+              if (
+                aboveName &&
+                /^(?:Супермаркет|Хипермаркет|Минимаркет|Магазин|Аптека|Ресторант)$/i.test(aboveName)
+              ) {
+                return `${aboveName} ${candidateName}`;
+              }
+            }
+          }
           return candidateName;
         }
       }
     }
-    return undefined;
+    return collectedNames[0]?.name;
   };
 
   const getNearbyBranchCityHint = (idx: number): string | undefined => {
@@ -3642,15 +3810,22 @@ export function extractReceiptAddress(
 
   const hasNearbyHqContext = (idx: number): boolean => {
     if (parsedHeader[idx]?.hasHqContext) return true;
-    // Check 1-4 lines above (stopping if a branch header separates them)
+    // Check 1-4 lines above: stop at branch header, tax ID boundary (which sits under HQ), or any prior address
     for (let j = idx - 1; j >= Math.max(0, idx - 4); j--) {
-      if (parsedHeader[j]?.hasBranchContext && !parsedHeader[j]?.hasHqContext) break;
-      if (parsedHeader[j]?.hasHqContext) return true;
+      const p = parsedHeader[j];
+      if (!p) continue;
+      if (p.hasBranchContext && !p.hasCompanyHeaderContext) break;
+      if (p.singleLineSplit || p.isStreet || p.cityOnly) break;
+      if (p.hasTaxIdContext && !p.hasCompanyHeaderContext) break;
+      if (p.hasCompanyHeaderContext) return true;
     }
     // Check 1-3 lines below for tax/EIK/BG VAT section immediately following HQ address
     for (let j = idx + 1; j <= Math.min(parsedHeader.length - 1, idx + 3); j++) {
-      if (parsedHeader[j]?.hasBranchContext && !parsedHeader[j]?.hasHqContext) break;
-      if (parsedHeader[j]?.hasTaxIdContext) return true;
+      const p = parsedHeader[j];
+      if (!p) continue;
+      if (p.hasBranchContext && !p.hasHqContext) break;
+      if (p.singleLineSplit || p.isStreet || p.cityOnly) break;
+      if (p.hasTaxIdContext) return true;
     }
     return false;
   };
@@ -3660,19 +3835,28 @@ export function extractReceiptAddress(
     hasStreet: boolean,
     hasCity: boolean,
     streetText: string,
-    explicitLabel: boolean
+    explicitLabel: boolean,
+    addressPreview: string
   ): { tier: number; score: number; placeName?: string } => {
     const branchNear = hasNearbyBranchContext(idx);
     const hqNear =
       parsedHeader[idx]?.hasHqContext ||
       (!branchNear && hasNearbyHqContext(idx));
-    const placeName = !hqNear ? findNearbyStorePlaceName(idx) : undefined;
-    const isBranch = branchNear || Boolean(placeName);
-    const isHq = hqNear && !branchNear;
+    const placeNameCandidate = !parsedHeader[idx]?.hasHqContext
+      ? findNearbyStorePlaceName(idx)
+      : undefined;
+    const isBranch = branchNear || Boolean(placeNameCandidate);
+    const isHq = hqNear && !branchNear && !placeNameCandidate;
+    const placeName = isHq ? undefined : placeNameCandidate;
     const isPostTaxOrPostHqStoreSection =
-      !hqNear &&
+      !isHq &&
       ((firstTaxIdIdx >= 0 && idx > firstTaxIdIdx) ||
         (firstHqIdx >= 0 && idx > firstHqIdx + 1));
+    const isVillageLocalityRegistration =
+      /^с\.\s+[^,]+,?\s+местност\b/i.test(addressPreview) && !isBranch;
+    const isUrbanCityStreet = /^гр\.\s+[^,]+,\s*(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.)/i.test(
+      addressPreview
+    );
 
     let score = 0;
     if (hasStreet) score += 40;
@@ -3681,8 +3865,10 @@ export function extractReceiptAddress(
     if (!hasStreet && hasCity) score = 20;
     if (explicitLabel) score += 15;
     if (branchNear) score += 60;
-    if (placeName) score += 25;
+    if (placeName) score += 30;
     if (isPostTaxOrPostHqStoreSection) score += 25;
+    if (isUrbanCityStreet) score += 10;
+    if (isVillageLocalityRegistration) score -= 15;
     if (isHq) score -= 50;
 
     let tier = 1;
@@ -3720,7 +3906,8 @@ export function extractReceiptAddress(
         true,
         true,
         cur.singleLineSplit.street,
-        cur.hasExplicitAddressLabel
+        cur.hasExplicitAddressLabel,
+        addr
       );
       pushValidatedCandidate({
         address: addr,
@@ -3805,7 +3992,8 @@ export function extractReceiptAddress(
           true,
           true,
           formattedStreet,
-          cur.hasExplicitAddressLabel
+          cur.hasExplicitAddressLabel,
+          addr
         );
         pushValidatedCandidate({
           address: addr,
@@ -3822,7 +4010,8 @@ export function extractReceiptAddress(
           true,
           Boolean(branchCity),
           formattedStreet,
-          cur.hasExplicitAddressLabel
+          cur.hasExplicitAddressLabel,
+          addr
         );
         pushValidatedCandidate({
           address: addr,
@@ -3846,7 +4035,7 @@ export function extractReceiptAddress(
     const label = cur.cityOnly.isVillage
       ? cur.cityOnly.city
       : `гр. ${cur.cityOnly.city}`;
-    const evalRes = evaluateCandidate(i, false, true, "", cur.hasExplicitAddressLabel);
+    const evalRes = evaluateCandidate(i, false, true, "", cur.hasExplicitAddressLabel, label);
     pushValidatedCandidate({
       address: label,
       placeName: evalRes.placeName,
@@ -3870,6 +4059,7 @@ export function extractReceiptAddress(
   return {
     address: best.address,
     ...(best.placeName ? { placeName: best.placeName } : {}),
+    tier: best.tier,
     matchedRule: `${best.rule} (tier=${best.tier}, score=${best.score}${
       best.placeName ? `, store="${best.placeName}"` : ""
     })`,
@@ -3886,6 +4076,7 @@ export function extractReceiptAddressFromText(rawText: string): string | undefin
 export function extractReceiptLocationFromText(rawText: string): {
   address?: string;
   placeName?: string;
+  tier?: number;
 } {
   if (!rawText || !rawText.trim()) return {};
   const lines = cleanLines(rawText);
@@ -3894,7 +4085,93 @@ export function extractReceiptLocationFromText(rawText: string): {
   return {
     address: res.address,
     placeName: res.placeName,
+    tier: res.tier,
   };
+}
+
+/**
+ * Checks whether a candidate address matches a company/HQ registration address
+ * (e.g. "с. Марково, местност Исака 44А" appearing right under ЕООД/ЕИК in the receipt text).
+ */
+export function isReceiptHqAddressCandidate(
+  candidateAddress?: string | null,
+  rawReceiptText?: string | null
+): boolean {
+  if (!candidateAddress || !candidateAddress.trim()) return false;
+  const normCand = normalizeAddressOcrPrefixes(candidateAddress).toLowerCase();
+  const isVillageLocality = /^с\.\s+[^,]+,?\s+местност\b/i.test(normCand);
+
+  if (rawReceiptText && rawReceiptText.trim()) {
+    const lines = cleanLines(rawReceiptText).slice(0, 20);
+    const candTokens = normCand
+      .replace(/[^а-яa-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length >= 3);
+    for (let i = 0; i < lines.length; i++) {
+      const lineLower = normalizeAddressOcrPrefixes(lines[i]).toLowerCase();
+      const matchedTokens = candTokens.filter((tok) => lineLower.includes(tok));
+      if (matchedTokens.length >= Math.min(2, candTokens.length) && candTokens.length > 0) {
+        const prevInfo = i > 0 ? stripAddressLineWrapper(lines[i - 1]) : null;
+        const curInfo = stripAddressLineWrapper(lines[i]);
+        const nextInfo = i + 1 < lines.length ? stripAddressLineWrapper(lines[i + 1]) : null;
+        if (
+          curInfo.hasHqContext ||
+          prevInfo?.hasCompanyHeaderContext ||
+          nextInfo?.hasTaxIdContext
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return isVillageLocality;
+}
+
+/**
+ * Recovers a store display name (e.g. "Супермаркет Триумф") from receipt OCR lines
+ * near a known address (useful when Gemini supplies the clean street address directly).
+ */
+export function findStorePlaceNameNearAddress(
+  rawReceiptText?: string | null,
+  targetAddress?: string | null
+): string | undefined {
+  if (!rawReceiptText || !rawReceiptText.trim()) return undefined;
+  const loc = extractReceiptLocationFromText(rawReceiptText);
+  if (loc.placeName) return loc.placeName;
+
+  const lines = cleanLines(rawReceiptText).slice(0, 24);
+  if (targetAddress) {
+    const cityMatch = targetAddress.match(/(?:гр\.|с\.)\s+([А-Яа-яA-Za-z\-]{3,})/i);
+    const streetWordMatch = targetAddress.match(/(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.)\s+([А-Яа-яA-Za-z\-]{3,})/i);
+    const needles = [cityMatch?.[1]?.toLowerCase(), streetWordMatch?.[1]?.toLowerCase()].filter(
+      Boolean
+    ) as string[];
+    if (needles.length > 0) {
+      for (let i = 1; i < lines.length; i++) {
+        const lineLower = lines[i].toLowerCase();
+        if (needles.some((n) => lineLower.includes(n))) {
+          for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+            const info = stripAddressLineWrapper(lines[j]);
+            if (info.hasHqContext || info.hasTaxIdContext) break;
+            if (info.storeDisplayName) return info.storeDisplayName;
+            if (!isNonMerchantMetadataLine(lines[j]) && !isCorruptedAddressText(lines[j])) {
+              const formatted = formatStorePlaceName(lines[j]);
+              if (formatted) return formatted;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < Math.min(lines.length, 15); i++) {
+    const info = stripAddressLineWrapper(lines[i]);
+    if (info.storeDisplayName && !info.hasHqContext) {
+      return info.storeDisplayName;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -4587,6 +4864,9 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     merchantName: merchantRes.merchantName,
     date: dateRes.date,
     dateDetected: dateRes.dateDetected,
+    datePriority: dateRes.priority,
+    dateHasTimestamp: dateRes.hasTimestamp,
+    dateIsFooter: dateRes.isFooter,
     dateFallbackReason: dateRes.fallbackReason,
     totalAmount: finalTotal,
     itemsTotal: validation.itemsTotal,
@@ -4606,6 +4886,7 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     dateRule: dateRes.matchedRule,
     detectedAddress: addressRes.address,
     detectedPlaceName: addressRes.placeName,
+    addressTier: addressRes.tier,
     addressRule: addressRes.matchedRule,
     warnings,
   };
