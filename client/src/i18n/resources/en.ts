@@ -466,6 +466,9 @@ export const en: TranslationShape<TranslationSchema> = {
     openInGoogleMaps: "Open in Google Maps",
     showAddressDetails: "Address details",
     hideAddressDetails: "Hide address",
+    changeLocation: "Change location",
+    detectedCandidatesHeading: "Detected locations from receipt:",
+    selectedCandidateBadge: "Selected",
   },
   charts: {
     barView: "Bars",

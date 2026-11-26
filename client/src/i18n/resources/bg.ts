@@ -463,6 +463,9 @@ export const bg = {
     openInGoogleMaps: "Отвори в Google Maps",
     showAddressDetails: "Детайли за адреса",
     hideAddressDetails: "Скрий адреса",
+    changeLocation: "Смени локация",
+    detectedCandidatesHeading: "Открити локации от бележката:",
+    selectedCandidateBadge: "Избрана",
   },
   charts: {
     barView: "Ленти",

@@ -36,7 +36,10 @@ import {
   TransactionLocation,
 } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
-import { LocationPickerField } from "@/components/common/LocationPickerField";
+import {
+  LocationPickerField,
+  DetectedLocationOption,
+} from "@/components/common/LocationPickerField";
 import { normalizeLocation } from "@/utils/locationUtils";
 import { AVAILABLE_ICONS_MAP, getCategoryBadgeClasses } from "@/utils/categoryStorage";
 import {
@@ -791,6 +794,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
   const [notes, setNotes] = useState<string>("");
   const [merchantName, setMerchantName] = useState<string>("");
   const [location, setLocation] = useState<TransactionLocation | undefined>(undefined);
+  const [locationCandidates, setLocationCandidates] = useState<DetectedLocationOption[]>([]);
   const [receiptItems, setReceiptItems] = useState<ReceiptItemDetail[]>([]);
   const [selectedItemIndices, setSelectedItemIndices] = useState<Set<number>>(new Set());
   const [splitBillEnabled, setSplitBillEnabled] = useState<boolean>(false);
@@ -931,6 +935,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setMerchantName("");
     locationEditedByUserRef.current = false;
     setLocation(undefined);
+    setLocationCandidates([]);
     setReceiptItems([]);
     setSelectedItemIndices(new Set());
     setSplitBillEnabled(false);
@@ -1155,6 +1160,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
     setSplitBillEnabled(false);
     locationEditedByUserRef.current = false;
     setLocation(undefined);
+    setLocationCandidates([]);
     preSplitSnapshotRef.current = null;
     modifiedAfterSplitRef.current = false;
     setScanStatusMessage(t("ocr.preparingImageStatus"));
@@ -1270,6 +1276,23 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
         ? t("ocr.receiptDefaultName")
         : localParsed.merchantName
     );
+    const initialCandidates: DetectedLocationOption[] = (
+      localParsed.locationCandidates || []
+    )
+      .map((c) => {
+        const norm = normalizeLocation({
+          ...(c.placeName ? { placeName: c.placeName } : {}),
+          address: c.address,
+        });
+        return norm
+          ? {
+              ...(norm.placeName ? { placeName: norm.placeName } : {}),
+              address: norm.address,
+            }
+          : null;
+      })
+      .filter((c): c is DetectedLocationOption => Boolean(c));
+    setLocationCandidates(initialCandidates);
     setLocation(prefilledOcrLocation);
     setAmount(localParsed.totalAmount > 0 ? localParsed.totalAmount.toFixed(2) : "");
     setDate(localParsed.date);
@@ -2319,6 +2342,46 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                   `AI detected store address: "${nextAiLocation.placeName ? `${nextAiLocation.placeName} — ` : ""}${nextAiLocation.address}"`
                 );
               }
+
+              // Merge distinct OCR + AI detected candidates so user can switch with one tap
+              const extraRawCandidates: DetectedLocationOption[] = [
+                ...(rawTextLoc.candidates || []).map((c) => ({
+                  ...(c.placeName ? { placeName: c.placeName } : {}),
+                  address: c.address,
+                })),
+                {
+                  ...(nextAiLocation.placeName
+                    ? { placeName: nextAiLocation.placeName }
+                    : {}),
+                  address: nextAiLocation.address,
+                },
+              ];
+              setLocationCandidates((prev) => {
+                const merged: DetectedLocationOption[] = [];
+                const seen = new Set<string>();
+                const pushOption = (opt: DetectedLocationOption) => {
+                  const norm = normalizeLocation(opt);
+                  if (!norm) return;
+                  const key = norm.address.trim().toLowerCase();
+                  if (seen.has(key)) return;
+                  seen.add(key);
+                  merged.push({
+                    ...(norm.placeName ? { placeName: norm.placeName } : {}),
+                    address: norm.address,
+                  });
+                };
+                if (aiImprovedLocation) {
+                  pushOption({
+                    ...(nextAiLocation.placeName
+                      ? { placeName: nextAiLocation.placeName }
+                      : {}),
+                    address: nextAiLocation.address,
+                  });
+                }
+                prev.forEach(pushOption);
+                extraRawCandidates.forEach(pushOption);
+                return merged;
+              });
             }
           }
 
@@ -4311,6 +4374,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                         locationEditedByUserRef.current = true;
                         setLocation(nextLoc);
                       }}
+                      detectedCandidates={locationCandidates}
                       compact
                     />
                   </div>

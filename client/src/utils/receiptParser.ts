@@ -3,6 +3,14 @@
  * Performs deterministic local text extraction on OCR outputs without requiring Gemini.
  */
 
+export interface ReceiptLocationCandidate {
+  placeName?: string;
+  address: string;
+  tier: number;
+  score: number;
+  isCompanyHq?: boolean;
+}
+
 export interface ParsedReceiptData {
   merchantName: string;
   date: string;
@@ -39,6 +47,7 @@ export interface ParsedReceiptData {
   detectedPlaceName?: string;
   addressTier?: number;
   addressRule?: string;
+  locationCandidates?: ReceiptLocationCandidate[];
   warnings: string[];
 }
 
@@ -3725,7 +3734,13 @@ function splitSingleLineAddress(line: string): {
 export function extractReceiptAddress(
   lines: string[],
   preferredCurrency: string = "€"
-): { address?: string; placeName?: string; tier?: number; matchedRule?: string } {
+): {
+  address?: string;
+  placeName?: string;
+  tier?: number;
+  matchedRule?: string;
+  candidates?: ReceiptLocationCandidate[];
+} {
   if (!lines || lines.length === 0) return {};
 
   // Determine header boundary before genuine items/totals start (never cut off on fiscal/date/phone header lines)
@@ -3827,6 +3842,7 @@ export function extractReceiptAddress(
   interface AddressCandidate {
     address: string;
     placeName?: string;
+    candidatePlaceName?: string;
     tier: number;
     score: number;
     rule: string;
@@ -4156,6 +4172,44 @@ export function extractReceiptAddress(
     });
   }
 
+  const findNearbyCompanyEntityLabel = (blockStartIdx: number): string | undefined => {
+    for (let j = blockStartIdx; j >= Math.max(0, blockStartIdx - 3); j--) {
+      const prev = parsedHeader[j];
+      if (!prev) continue;
+      if (j < blockStartIdx && (prev.cityOnly || prev.isStreet || prev.singleLineSplit)) break;
+      if (!prev.hasCompanyHeaderContext) continue;
+      const rawLine = repairCyrillicWordTokens(prev.raw, /[а-яА-Я]/.test(prev.raw))
+        .replace(/[#*_~|]+/g, " ")
+        .replace(/[„“"«»]/g, "")
+        .replace(
+          /^(?:ЮРИДИЧЕСКИ\s+АДРЕС|АДРЕС\s+НА\s+УПРАВЛЕНИЕ|СЕДАЛИЩЕ(?:\s+И\s+АДРЕС)?)\s*[:\-–]?\s*/i,
+          ""
+        )
+        .replace(/\s+/g, " ")
+        .trim();
+      const cyrCheck = toCyrillicMatchForm(rawLine);
+      if (
+        rawLine &&
+        !hasStreetIndicator(rawLine) &&
+        !/^(?:гр\.|с\.)\s+/i.test(rawLine) &&
+        /(?:ЕООД|ООД|ЕАД|АД|КД|СД|EOOD|OOD|EAD|AD|KD|LTD|LLC|GMBH)/i.test(cyrCheck)
+      ) {
+        // Format name nicely while keeping Bulgarian legal form uppercase ("МАРКОВЦИ ЕООД" -> "Марковци ЕООД")
+        return rawLine
+          .split(/\s+/)
+          .map((tok) => {
+            const upper = tok.toUpperCase();
+            if (/^(?:ЕООД|ООД|ЕАД|АД|ЕТ|КД|СД|EOOD|OOD|EAD|AD|KD|LTD|LLC|GMBH)[.,]?$/.test(upper)) {
+              return upper;
+            }
+            return formatAddressCasing(tok);
+          })
+          .join(" ");
+      }
+    }
+    return undefined;
+  };
+
   if (candidates.length === 0) return {};
 
   candidates.sort((a, b) => {
@@ -4167,6 +4221,58 @@ export function extractReceiptAddress(
 
   if (!isValidReceiptAddressCandidate(best.address)) return {};
 
+  // Deduplicate candidates while keeping distinct locations (e.g. Store address vs Company HQ address)
+  const validCandidates = candidates.filter(
+    (c) => (c.tier === 0 ? c.score >= 15 : c.score >= 20) && isValidReceiptAddressCandidate(c.address)
+  );
+  const dedupedCandidates: ReceiptLocationCandidate[] = [];
+  const seenAddressKeys = new Set<string>();
+  const streetFullAddressesLower = validCandidates
+    .filter((c) => hasStreetIndicator(c.address))
+    .map((c) => c.address.toLowerCase());
+
+  for (const c of validCandidates) {
+    const key = c.address.toLowerCase().replace(/\s+/g, " ").trim();
+    if (seenAddressKeys.has(key)) continue;
+
+    // Skip city-only candidate if a full street+city candidate already includes this city
+    if (!hasStreetIndicator(c.address)) {
+      const cityToken = key.replace(/^(?:гр\.|с\.)\s+/, "").trim();
+      const coveredByFullAddress = streetFullAddressesLower.some(
+        (full) => full.includes(key) || (cityToken.length >= 3 && full.includes(cityToken))
+      );
+      if (coveredByFullAddress) continue;
+    }
+
+    seenAddressKeys.add(key);
+    let candidatePlaceName = c.placeName || c.candidatePlaceName;
+    if (!candidatePlaceName && c.tier === 0) {
+      // Find matching header index to label company/HQ candidate (e.g. "Марковци ЕООД")
+      const addrTokens = key
+        .replace(/[^а-яa-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((t) => t.length >= 3);
+      for (const p of parsedHeader) {
+        const lineLower = p.cleaned.toLowerCase();
+        if (addrTokens.length > 0 && addrTokens.some((tok) => lineLower.includes(tok))) {
+          const companyLabel = findNearbyCompanyEntityLabel(p.index);
+          if (companyLabel) {
+            candidatePlaceName = companyLabel;
+            break;
+          }
+        }
+      }
+    }
+
+    dedupedCandidates.push({
+      ...(candidatePlaceName ? { placeName: candidatePlaceName } : {}),
+      address: c.address,
+      tier: c.tier,
+      score: c.score,
+      ...(c.tier === 0 ? { isCompanyHq: true } : {}),
+    });
+  }
+
   return {
     address: best.address,
     ...(best.placeName ? { placeName: best.placeName } : {}),
@@ -4174,6 +4280,7 @@ export function extractReceiptAddress(
     matchedRule: `${best.rule} (tier=${best.tier}, score=${best.score}${
       best.placeName ? `, store="${best.placeName}"` : ""
     })`,
+    candidates: dedupedCandidates,
   };
 }
 
@@ -4188,6 +4295,7 @@ export function extractReceiptLocationFromText(rawText: string): {
   address?: string;
   placeName?: string;
   tier?: number;
+  candidates?: ReceiptLocationCandidate[];
 } {
   if (!rawText || !rawText.trim()) return {};
   const lines = cleanLines(rawText);
@@ -4197,6 +4305,7 @@ export function extractReceiptLocationFromText(rawText: string): {
     address: res.address,
     placeName: res.placeName,
     tier: res.tier,
+    candidates: res.candidates,
   };
 }
 
@@ -5034,6 +5143,7 @@ export function parseReceiptTextLocally(rawText: string): ParsedReceiptData {
     detectedPlaceName: addressRes.placeName,
     addressTier: addressRes.tier,
     addressRule: addressRes.matchedRule,
+    locationCandidates: addressRes.candidates,
     warnings,
   };
 }

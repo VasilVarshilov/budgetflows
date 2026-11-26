@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   Loader2,
   MapPin,
   Pencil,
@@ -17,11 +19,17 @@ import {
 import { LocationCard } from "./LocationCard";
 import { useI18n } from "@/i18n";
 
+export interface DetectedLocationOption {
+  placeName?: string;
+  address: string;
+}
+
 interface LocationPickerFieldProps {
   value?: TransactionLocation;
   onChange: (next: TransactionLocation | undefined) => void;
   label?: string;
   compact?: boolean;
+  detectedCandidates?: DetectedLocationOption[];
 }
 
 export const LocationPickerField: React.FC<LocationPickerFieldProps> = ({
@@ -29,11 +37,13 @@ export const LocationPickerField: React.FC<LocationPickerFieldProps> = ({
   onChange,
   label,
   compact = false,
+  detectedCandidates,
 }) => {
   const { t } = useI18n();
   const resolvedLabel = label ?? t("location.labelOptional");
   const normalizedValue = normalizeLocation(value);
   const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [showCandidatesList, setShowCandidatesList] = useState<boolean>(false);
   const [placeNameInput, setPlaceNameInput] = useState<string>(
     normalizedValue?.placeName || ""
   );
@@ -45,6 +55,10 @@ export const LocationPickerField: React.FC<LocationPickerFieldProps> = ({
 
   const abortRef = useRef<AbortController | null>(null);
   const skipNextSearchRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    setShowCandidatesList(false);
+  }, [detectedCandidates]);
 
   // Sync external value resets (e.g., after form reset or switching edited item)
   useEffect(() => {
@@ -173,6 +187,7 @@ export const LocationPickerField: React.FC<LocationPickerFieldProps> = ({
     setHasSearched(false);
     setSearchError(null);
     setIsEditing(false);
+    setShowCandidatesList(false);
   };
 
   const handleStartEdit = () => {
@@ -183,6 +198,7 @@ export const LocationPickerField: React.FC<LocationPickerFieldProps> = ({
     setHasSearched(false);
     setSearchError(null);
     setIsEditing(true);
+    setShowCandidatesList(false);
   };
 
   const handleCancelEdit = () => {
@@ -236,11 +252,97 @@ export const LocationPickerField: React.FC<LocationPickerFieldProps> = ({
 
       {/* Preview Card Mode */}
       {normalizedValue && !isEditing ? (
-        <LocationCard
-          location={normalizedValue}
-          compact={compact}
-          defaultShowAddressDetails
-        />
+        <div className="space-y-2">
+          <LocationCard
+            location={normalizedValue}
+            compact={compact}
+            defaultShowAddressDetails
+          />
+          {detectedCandidates && detectedCandidates.length > 1 && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowCandidatesList((prev) => !prev)}
+                aria-expanded={showCandidatesList}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors cursor-pointer"
+              >
+                <span>{t("location.changeLocation")}</span>
+                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  ({detectedCandidates.length})
+                </span>
+                {showCandidatesList ? (
+                  <ChevronUp className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                )}
+              </button>
+
+              {showCandidatesList && (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 p-2 space-y-1.5">
+                  <p className="px-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    {t("location.detectedCandidatesHeading")}
+                  </p>
+                  <div className="space-y-1.5">
+                    {detectedCandidates.map((cand, idx) => {
+                      const isSelected =
+                        cand.address.trim().toLowerCase() ===
+                          normalizedValue.address.trim().toLowerCase() &&
+                        (cand.placeName || "").trim().toLowerCase() ===
+                          (normalizedValue.placeName || "").trim().toLowerCase();
+                      return (
+                        <button
+                          key={`${cand.placeName || ""}|${cand.address}|${idx}`}
+                          type="button"
+                          onClick={() => {
+                            const next = normalizeLocation({
+                              ...(cand.placeName ? { placeName: cand.placeName } : {}),
+                              address: cand.address,
+                            });
+                            onChange(next);
+                            setShowCandidatesList(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-lg border transition-colors flex items-start justify-between gap-2 cursor-pointer ${
+                            isSelected
+                              ? "border-emerald-400 dark:border-emerald-600 bg-emerald-50/90 dark:bg-emerald-950/40"
+                              : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 flex items-start gap-1.5">
+                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">
+                              {idx + 1}.
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              {cand.placeName ? (
+                                <>
+                                  <p className="text-xs font-bold text-slate-900 dark:text-white leading-snug break-words">
+                                    {cand.placeName}
+                                  </p>
+                                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-snug break-words mt-0.5">
+                                    {cand.address}
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="text-xs font-semibold text-slate-900 dark:text-white leading-snug break-words">
+                                  {cand.address}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <span className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
+                              <Check className="w-3.5 h-3.5" />
+                              <span>{t("location.selectedCandidateBadge")}</span>
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         /* Search / Edit Mode */
         <div className="space-y-2">
