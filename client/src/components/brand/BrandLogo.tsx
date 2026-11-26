@@ -344,10 +344,10 @@ export const BrandHeaderLockup: React.FC<{
   showText?: boolean;
 }> = ({ className = "", showText = true }) => {
   return (
-    <div className={`inline-flex items-center gap-2 sm:gap-2.5 min-w-0 ${className}`}>
-      <BrandMark size={34} detail="compact" className="sm:w-9 sm:h-9 shrink-0" />
+    <div className={`inline-flex items-center gap-1.5 sm:gap-2.5 shrink-0 ${className}`}>
+      <BrandMark size={28} detail="compact" className="w-7 h-7 sm:w-9 sm:h-9 shrink-0" />
       {showText && (
-        <span className="font-extrabold text-[15px] sm:text-lg tracking-tight text-slate-900 dark:text-white truncate">
+        <span className="font-extrabold text-[13px] min-[390px]:text-[14px] sm:text-lg tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
           Budget Force{" "}
           <span className="text-sky-600 dark:text-sky-400">365</span>
         </span>

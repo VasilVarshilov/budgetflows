@@ -1218,19 +1218,19 @@ const AppContent: React.FC = () => {
       <header className="bg-white/95 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-50 shadow-xs backdrop-blur-md transition-colors">
         <div className="max-w-6xl mx-auto header-safe-x">
           {/* Row 1: Brand Logo, Active Month & Controls */}
-          <div className="flex justify-between items-center h-14 sm:h-15 gap-2 border-b border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="flex justify-between items-center h-14 sm:h-15 gap-1.5 sm:gap-2 border-b border-slate-100 dark:border-slate-800/80">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <BrandHeaderLockup />
               <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap shrink-0">
                 {formatLocalizedMonthYear(headerDisplayMonth, language)}
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
 
               {/* Cloud Sync Status / User Profile Chip */}
               {displayUser ? (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1 sm:gap-1.5">
                   {driveSessionStatus === "needs_reauth" &&
                     autoBackupEnabled &&
                     isOnline &&
@@ -1251,7 +1251,7 @@ const AppContent: React.FC = () => {
                     type="button"
                     onClick={() => setActiveTab("backup")}
                     title={`Google Drive: ${displayUser.email || t("header.connectedLabel")}`}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
+                    className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
                   >
                     {displayUser.photoURL ? (
                       <img
@@ -1312,7 +1312,7 @@ const AppContent: React.FC = () => {
                     loginWithGoogle().catch(() => setActiveTab("backup"));
                   }}
                   title={t("header.loginTooltip")}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
+                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
                 >
                   <LogIn className="w-3.5 h-3.5" />
                   <span className="text-[11px] hidden sm:inline">{t("header.signInWithGoogle")}</span>
@@ -1488,29 +1488,29 @@ const AppContent: React.FC = () => {
               {APP_TAGLINE}
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-500 dark:text-slate-400">
             <button
               type="button"
               onClick={() => setIsAboutOpen(true)}
-              className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-white font-medium transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Info className="w-3.5 h-3.5" />
+              <Info className="w-3.5 h-3.5 shrink-0" />
               <span>{t("header.aboutApp")}</span>
             </button>
             <button
               type="button"
               onClick={() => setIsSupportOpen(true)}
-              className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300 hover:text-amber-700 dark:hover:text-amber-200 font-semibold transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300 hover:text-amber-700 dark:hover:text-amber-200 font-semibold transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Coffee className="w-3.5 h-3.5" />
+              <Coffee className="w-3.5 h-3.5 shrink-0" />
               <span>{t("brand.supportMenu")}</span>
             </button>
             <button
               type="button"
               onClick={handleShareApp}
-              className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Share2 className="w-3.5 h-3.5" />
+              <Share2 className="w-3.5 h-3.5 shrink-0" />
               <span>{shareCopied ? t("header.copiedShort") : t("brand.share")}</span>
             </button>
           </div>
@@ -1595,17 +1595,17 @@ const AppContent: React.FC = () => {
               })}
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2">
+            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-500 dark:text-slate-400">
               <button
                 type="button"
                 onClick={() => {
                   setIsMobileMoreOpen(false);
                   setIsAboutOpen(true);
                 }}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
+                className="min-h-[38px] px-1 inline-flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Info className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{t("header.aboutApp")}</span>
+                <span>{t("header.aboutApp")}</span>
               </button>
               <button
                 type="button"
@@ -1613,10 +1613,10 @@ const AppContent: React.FC = () => {
                   setIsMobileMoreOpen(false);
                   setIsSupportOpen(true);
                 }}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-amber-400/20 dark:bg-amber-400/15 border border-amber-400/50 dark:border-amber-400/40 text-amber-700 dark:text-amber-300 text-xs font-bold cursor-pointer"
+                className="min-h-[38px] px-1 inline-flex items-center gap-1 text-amber-600 dark:text-amber-300 hover:text-amber-700 dark:hover:text-amber-200 font-semibold transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Coffee className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{t("brand.supportMenu")}</span>
+                <span>{t("brand.supportMenu")}</span>
               </button>
               <button
                 type="button"
@@ -1624,10 +1624,10 @@ const AppContent: React.FC = () => {
                   setIsMobileMoreOpen(false);
                   handleShareApp();
                 }}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 text-xs font-semibold cursor-pointer"
+                className="min-h-[38px] px-1 inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Share2 className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{t("brand.share")}</span>
+                <span>{shareCopied ? t("header.copiedShort") : t("brand.share")}</span>
               </button>
             </div>
           </div>

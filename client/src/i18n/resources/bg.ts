@@ -164,6 +164,9 @@ export const bg = {
     feedbackLine1: "Открихте бъг или имате идея за нова функционалност?",
     feedbackLine2: "Изпратете описание на:",
     feedbackEmail: "vasil.varshilov@yahoo.com",
+    sendEmailBtn: "Изпрати имейл",
+    copyEmailAria: "Копирай имейл адреса",
+    emailCopied: "Копирано!",
     feedbackLine3:
       "Ще се радвам да разгледам всички предложения и обратна връзка.",
     supportMenu: "Подкрепи ме",

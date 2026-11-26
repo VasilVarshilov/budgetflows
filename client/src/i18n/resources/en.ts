@@ -167,6 +167,9 @@ export const en: TranslationShape<TranslationSchema> = {
     feedbackLine1: "Found a bug or have an idea for a new feature?",
     feedbackLine2: "Send a description to:",
     feedbackEmail: "vasil.varshilov@yahoo.com",
+    sendEmailBtn: "Send email",
+    copyEmailAria: "Copy email address",
+    emailCopied: "Copied!",
     feedbackLine3:
       "I would be happy to review all suggestions and feedback.",
     supportMenu: "Support me",

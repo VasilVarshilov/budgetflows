@@ -32,7 +32,7 @@ export const ThemeToggle: React.FC = () => {
       {/* Quick Toggle Button */}
       <button
         onClick={() => setIsOpen((prev) => !prev)}
-        className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+        className="p-1.5 sm:p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
         title={`${t("theme.label")}: ${currentThemeLabel}`}
         aria-label={t("theme.toggleAria")}
         aria-expanded={isOpen}

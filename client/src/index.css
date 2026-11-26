@@ -362,8 +362,8 @@ body {
   margin-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
 }
 .header-safe-x {
-  padding-left: max(env(safe-area-inset-left, 0px), 16px);
-  padding-right: max(env(safe-area-inset-right, 0px), 16px);
+  padding-left: max(env(safe-area-inset-left, 0px), 12px);
+  padding-right: max(env(safe-area-inset-right, 0px), 12px);
 }
 @media (min-width: 640px) {
   .header-safe-x {

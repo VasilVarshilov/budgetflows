@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Check, Globe } from "lucide-react";
+import { Check, Languages } from "lucide-react";
 import { useI18n } from "@/i18n";
 
 export const LanguageSwitcher: React.FC = () => {
@@ -45,9 +45,9 @@ export const LanguageSwitcher: React.FC = () => {
         aria-haspopup="menu"
         aria-expanded={isOpen}
         title={`${t("language.label")}: ${activeOption.nativeName}`}
-        className="flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-xs hover:bg-slate-50 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
+        className="flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 sm:px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-xs hover:bg-slate-50 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
       >
-        <Globe className="h-4 w-4 text-slate-600 dark:text-slate-300 shrink-0" />
+        <Languages className="h-4 w-4 text-slate-600 dark:text-slate-300 shrink-0" />
         <span className="hidden sm:inline uppercase tracking-wide">
           {activeOption.code}
         </span>

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Check, Coffee, Mail, Share2, X } from "lucide-react";
+import { Check, Coffee, Copy, Mail, Share2, X } from "lucide-react";
 import { APP_NAME, APP_PRODUCTION_URL, APP_TAGLINE, BrandMark } from "./BrandLogo";
 import { useI18n } from "@/i18n";
 
@@ -11,12 +11,25 @@ interface AboutModalProps {
 
 export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenSupport }) => {
   const [shareCopied, setShareCopied] = useState(false);
+  const [emailCopied, setEmailCopied] = useState(false);
   const { t } = useI18n();
 
   if (!isOpen) return null;
 
   const tagline = APP_TAGLINE;
   const feedbackEmail = t("brand.feedbackEmail");
+
+  const handleCopyEmail = async () => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && feedbackEmail) {
+        await navigator.clipboard.writeText(feedbackEmail);
+        setEmailCopied(true);
+        setTimeout(() => setEmailCopied(false), 2500);
+      }
+    } catch {
+      // Ignore clipboard permission errors
+    }
+  };
 
   const handleShareApp = async () => {
     const shareUrl = APP_PRODUCTION_URL;
@@ -92,26 +105,50 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
           </div>
 
           {/* Bug Reports & Feature Requests */}
-          <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 p-4 text-left space-y-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
-              <Mail className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
-              <span>{t("brand.feedbackTitle")}</span>
+          <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 p-4 text-left space-y-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
+                <Mail className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+                <span>{t("brand.feedbackTitle")}</span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {t("brand.feedbackLine1")}
+              </p>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              {t("brand.feedbackLine1")}
-            </p>
-            <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              <span>{t("brand.feedbackLine2")} </span>
-              <a
-                href={`mailto:${feedbackEmail}?subject=${encodeURIComponent(APP_NAME)}`}
-                className="font-semibold text-sky-600 dark:text-sky-400 hover:underline break-all"
-              >
+
+            {/* Compact copyable single-line email card */}
+            <div className="flex items-center justify-between gap-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/90 px-3 py-2">
+              <span className="text-[11px] sm:text-xs font-mono font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap overflow-x-auto select-all min-w-0">
                 {feedbackEmail}
-              </a>
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyEmail}
+                aria-label={t("brand.copyEmailAria")}
+                title={t("brand.copyEmailAria")}
+                className="inline-flex items-center gap-1 shrink-0 min-h-[28px] px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+              >
+                {emailCopied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="text-emerald-700 dark:text-emerald-300">
+                      {t("brand.emailCopied")}
+                    </span>
+                  </>
+                ) : (
+                  <Copy className="w-3.5 h-3.5 shrink-0" />
+                )}
+              </button>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              {t("brand.feedbackLine3")}
-            </p>
+
+            {/* Clear Send Email CTA */}
+            <a
+              href={`mailto:${feedbackEmail}`}
+              className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 dark:bg-sky-500 dark:hover:bg-sky-400 text-white dark:text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            >
+              <Mail className="w-4 h-4 shrink-0" />
+              <span>{t("brand.sendEmailBtn")}</span>
+            </a>
           </div>
 
           {/* Two Primary Actions: [ Подкрепи ме ] [ Сподели ] */}
@@ -121,10 +158,10 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
                 <button
                   type="button"
                   onClick={onOpenSupport}
-                  className="min-h-[44px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 dark:bg-amber-400 dark:hover:bg-amber-300 text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  className="min-h-[44px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 dark:bg-amber-400 dark:hover:bg-amber-300 text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <Coffee className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{t("brand.supportMenu")}</span>
+                  <span>{t("brand.supportMenu")}</span>
                 </button>
               )}
               <button
@@ -132,17 +169,17 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
                 onClick={handleShareApp}
                 className={`${
                   onOpenSupport ? "" : "col-span-2"
-                } min-h-[44px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 dark:bg-sky-500 dark:hover:bg-sky-400 text-white dark:text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer`}
+                } min-h-[44px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 dark:bg-sky-500 dark:hover:bg-sky-400 text-white dark:text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer whitespace-nowrap`}
               >
                 {shareCopied ? (
                   <>
                     <Check className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{t("brand.linkCopied")}</span>
+                    <span>{t("brand.linkCopied")}</span>
                   </>
                 ) : (
                   <>
                     <Share2 className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{t("brand.share")}</span>
+                    <span>{t("brand.share")}</span>
                   </>
                 )}
               </button>
