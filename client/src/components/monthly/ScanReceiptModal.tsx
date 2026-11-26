@@ -40,7 +40,11 @@ import {
   LocationPickerField,
   DetectedLocationOption,
 } from "@/components/common/LocationPickerField";
-import { normalizeLocation } from "@/utils/locationUtils";
+import {
+  normalizeLocation,
+  buildReceiptLocationSelection,
+  resolveMerchantForLocationName,
+} from "@/utils/locationUtils";
 import { AVAILABLE_ICONS_MAP, getCategoryBadgeClasses } from "@/utils/categoryStorage";
 import {
   parseReceiptTextLocally,
@@ -1256,44 +1260,46 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           }
         : {}),
     }));
-    const prefilledOcrLocation = localParsed.detectedAddress
-      ? normalizeLocation({
-          ...(localParsed.detectedPlaceName
-            ? { placeName: localParsed.detectedPlaceName }
-            : {}),
-          address: localParsed.detectedAddress,
-        })
-      : undefined;
-    if (prefilledOcrLocation) {
+    const resolvedOcrMerchant =
+      localParsed.merchantName === "Касова бележка"
+        ? t("ocr.receiptDefaultName")
+        : localParsed.merchantName;
+    setMerchantName(resolvedOcrMerchant);
+
+    const ocrRawCandidates =
+      localParsed.locationCandidates && localParsed.locationCandidates.length > 0
+        ? localParsed.locationCandidates.map((c) => ({
+            ...(c.placeName ? { placeName: c.placeName } : {}),
+            address: c.address,
+            isCompanyHq: c.isCompanyHq,
+          }))
+        : localParsed.detectedAddress
+        ? [
+            {
+              ...(localParsed.detectedPlaceName
+                ? { placeName: localParsed.detectedPlaceName }
+                : {}),
+              address: localParsed.detectedAddress,
+              isCompanyHq: localParsed.addressTier === 0,
+            },
+          ]
+        : [];
+
+    const ocrSelection = buildReceiptLocationSelection({
+      candidates: ocrRawCandidates,
+      merchantName: resolveMerchantForLocationName(localParsed.merchantName),
+      isHqAddress: (addr) => isReceiptHqAddressCandidate(addr, ocrRawText),
+    });
+
+    if (ocrSelection.selectedLocation) {
       addDebugLog(
         "parsed_merchant",
-        `OCR detected address: "${prefilledOcrLocation.address}" (${localParsed.addressRule || "—"})`
+        `OCR detected address: "${ocrSelection.selectedLocation.address}" (${localParsed.addressRule || "—"})`
       );
     }
 
-    setMerchantName(
-      localParsed.merchantName === "Касова бележка"
-        ? t("ocr.receiptDefaultName")
-        : localParsed.merchantName
-    );
-    const initialCandidates: DetectedLocationOption[] = (
-      localParsed.locationCandidates || []
-    )
-      .map((c) => {
-        const norm = normalizeLocation({
-          ...(c.placeName ? { placeName: c.placeName } : {}),
-          address: c.address,
-        });
-        return norm
-          ? {
-              ...(norm.placeName ? { placeName: norm.placeName } : {}),
-              address: norm.address,
-            }
-          : null;
-      })
-      .filter((c): c is DetectedLocationOption => Boolean(c));
-    setLocationCandidates(initialCandidates);
-    setLocation(prefilledOcrLocation);
+    setLocationCandidates(ocrSelection.orderedCandidates);
+    setLocation(ocrSelection.selectedLocation);
     setAmount(localParsed.totalAmount > 0 ? localParsed.totalAmount.toFixed(2) : "");
     setDate(localParsed.date);
     setNotes(localParsed.notesFormatted);
@@ -2249,6 +2255,13 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             setRawText(gData.rawText);
           }
 
+          const effectiveMerchantForLocation =
+            resolveMerchantForLocationName(
+              cleanAiMerchant && !isPlaceholderMerchant
+                ? cleanAiMerchant
+                : localParsed.merchantName
+            );
+
           const sourceTextForLocation =
             typeof gData.rawText === "string" && gData.rawText.trim()
               ? gData.rawText
@@ -2281,107 +2294,54 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
               ? rawTextLoc.address
               : aiFieldAddress || rawTextLoc.address;
           const ocrLocationIsHq = Boolean(
-            prefilledOcrLocation &&
+            ocrSelection.selectedLocation &&
               (localParsed.addressTier === 0 ||
-                isReceiptHqAddressCandidate(prefilledOcrLocation.address, ocrRawText))
-          );
-          const aiCandidateIsHq = Boolean(
-            aiAddressCandidate &&
-              isReceiptHqAddressCandidate(aiAddressCandidate, sourceTextForLocation)
+                isReceiptHqAddressCandidate(ocrSelection.selectedLocation.address, ocrRawText))
           );
           const aiPlaceNameCandidate =
+            effectiveMerchantForLocation ||
             rawTextLoc.placeName ||
             aiFieldLoc.placeName ||
             (!ocrLocationIsHq ? localParsed.detectedPlaceName : undefined) ||
             findStorePlaceNameNearAddress(sourceTextForLocation, aiAddressCandidate);
 
-          if (
-            aiAddressCandidate &&
-            !locationEditedByUserRef.current &&
-            !(aiCandidateIsHq && prefilledOcrLocation && !ocrLocationIsHq)
-          ) {
-            const nextAiLocation = normalizeLocation({
-              ...(aiPlaceNameCandidate ? { placeName: aiPlaceNameCandidate } : {}),
-              address: aiAddressCandidate,
-            });
-            if (nextAiLocation) {
-              const ocrHasStreet = Boolean(
-                prefilledOcrLocation?.address &&
-                  /(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|шосе|местност|str\.?|blvd\.?|\d)/i.test(
-                    prefilledOcrLocation.address
-                  )
-              );
-              const ocrHasCity = Boolean(
-                prefilledOcrLocation?.address &&
-                  /(?:гр\.|с\.)\s+[А-Яа-яA-Za-z]{3,}/i.test(prefilledOcrLocation.address)
-              );
-              const aiHasStreet = /(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|шосе|местност|str\.?|blvd\.?|\d)/i.test(
-                nextAiLocation.address
-              );
-              const aiHasCity = /(?:гр\.|с\.)\s+[А-Яа-яA-Za-z]{3,}/i.test(
-                nextAiLocation.address
-              );
-              const aiDowngradedCity = ocrHasCity && ocrHasStreet && !aiHasCity;
-              const aiImprovedLocation =
-                !prefilledOcrLocation ||
-                (ocrLocationIsHq && !aiCandidateIsHq) ||
-                (!ocrHasStreet && aiHasStreet && !aiDowngradedCity) ||
-                (Boolean(nextAiLocation.placeName) &&
-                  !prefilledOcrLocation.placeName &&
-                  !aiDowngradedCity &&
-                  (aiHasStreet ||
-                    nextAiLocation.address === prefilledOcrLocation.address)) ||
-                (Boolean(rawTextLoc.placeName) &&
-                  nextAiLocation.address !== prefilledOcrLocation.address &&
-                  aiHasStreet &&
-                  !aiDowngradedCity);
-              if (aiImprovedLocation) {
-                setLocation(nextAiLocation);
-                addDebugLog(
-                  "parsed_merchant",
-                  `AI detected store address: "${nextAiLocation.placeName ? `${nextAiLocation.placeName} — ` : ""}${nextAiLocation.address}"`
-                );
-              }
+          const combinedCandidates = [
+            ...ocrRawCandidates,
+            ...(rawTextLoc.candidates || []).map((c) => ({
+              ...(c.placeName ? { placeName: c.placeName } : {}),
+              address: c.address,
+              isCompanyHq: c.isCompanyHq,
+            })),
+            ...(aiAddressCandidate
+              ? [
+                  {
+                    ...(aiPlaceNameCandidate ? { placeName: aiPlaceNameCandidate } : {}),
+                    address: aiAddressCandidate,
+                    isCompanyHq: isReceiptHqAddressCandidate(
+                      aiAddressCandidate,
+                      sourceTextForLocation
+                    ),
+                  },
+                ]
+              : []),
+          ];
 
-              // Merge distinct OCR + AI detected candidates so user can switch with one tap
-              const extraRawCandidates: DetectedLocationOption[] = [
-                ...(rawTextLoc.candidates || []).map((c) => ({
-                  ...(c.placeName ? { placeName: c.placeName } : {}),
-                  address: c.address,
-                })),
-                {
-                  ...(nextAiLocation.placeName
-                    ? { placeName: nextAiLocation.placeName }
-                    : {}),
-                  address: nextAiLocation.address,
-                },
-              ];
-              setLocationCandidates((prev) => {
-                const merged: DetectedLocationOption[] = [];
-                const seen = new Set<string>();
-                const pushOption = (opt: DetectedLocationOption) => {
-                  const norm = normalizeLocation(opt);
-                  if (!norm) return;
-                  const key = norm.address.trim().toLowerCase();
-                  if (seen.has(key)) return;
-                  seen.add(key);
-                  merged.push({
-                    ...(norm.placeName ? { placeName: norm.placeName } : {}),
-                    address: norm.address,
-                  });
-                };
-                if (aiImprovedLocation) {
-                  pushOption({
-                    ...(nextAiLocation.placeName
-                      ? { placeName: nextAiLocation.placeName }
-                      : {}),
-                    address: nextAiLocation.address,
-                  });
-                }
-                prev.forEach(pushOption);
-                extraRawCandidates.forEach(pushOption);
-                return merged;
-              });
+          const mergedSelection = buildReceiptLocationSelection({
+            candidates: combinedCandidates,
+            merchantName: effectiveMerchantForLocation,
+            isHqAddress: (addr) => isReceiptHqAddressCandidate(addr, sourceTextForLocation),
+          });
+
+          if (!locationEditedByUserRef.current) {
+            if (mergedSelection.orderedCandidates.length > 0) {
+              setLocationCandidates(mergedSelection.orderedCandidates);
+            }
+            if (mergedSelection.selectedLocation) {
+              setLocation(mergedSelection.selectedLocation);
+              addDebugLog(
+                "parsed_merchant",
+                `Selected receipt location: "${mergedSelection.selectedLocation.placeName ? `${mergedSelection.selectedLocation.placeName} — ` : ""}${mergedSelection.selectedLocation.address}" (candidates=${mergedSelection.orderedCandidates.length})`
+              );
             }
           }
 

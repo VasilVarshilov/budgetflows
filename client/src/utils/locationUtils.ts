@@ -585,3 +585,119 @@ export async function searchNominatimAddresses(
 
   return results;
 }
+
+export interface ReceiptLocationSelectionInput {
+  placeName?: string;
+  address: string;
+  isCompanyHq?: boolean;
+}
+
+const PLACEHOLDER_MERCHANT_RE =
+  /^(?:касова\s+бележка|неизвестен\s+търговец|неразпознат\s+търговец|receipt|unknown(?:\s+merchant)?|n\/a)$/i;
+
+/**
+ * Returns a clean Merchant name usable as Location Name, or undefined when missing/placeholder.
+ */
+export function resolveMerchantForLocationName(
+  merchantName?: string | null
+): string | undefined {
+  const trimmed = typeof merchantName === "string" ? merchantName.trim() : "";
+  if (!trimmed || PLACEHOLDER_MERCHANT_RE.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function normalizeAddressSelectionKey(address: string): string {
+  return address
+    .toLowerCase()
+    .replace(/№/g, " ")
+    .replace(/[,.;:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Orders detected receipt location candidates (company/HQ candidates first, store/latest candidates last),
+ * automatically selects the LAST candidate when multiple candidates exist,
+ * and applies Merchant as Location Name whenever available (falling back to OCR-derived names only when Merchant is missing).
+ */
+export function buildReceiptLocationSelection(params: {
+  candidates: ReceiptLocationSelectionInput[];
+  merchantName?: string | null;
+  isHqAddress?: (address: string) => boolean;
+}): {
+  selectedLocation: TransactionLocation | undefined;
+  orderedCandidates: Array<{ placeName?: string; address: string }>;
+} {
+  const effectiveMerchant = resolveMerchantForLocationName(params.merchantName);
+
+  const deduped: Array<ReceiptLocationSelectionInput & { hq: boolean }> = [];
+  const keyToIndex = new Map<string, number>();
+
+  for (const raw of params.candidates) {
+    const norm = normalizeLocation(raw);
+    if (!norm || !norm.address) continue;
+
+    const key = normalizeAddressSelectionKey(norm.address);
+    const hq = Boolean(raw.isCompanyHq || params.isHqAddress?.(norm.address));
+
+    if (keyToIndex.has(key)) {
+      const existingIdx = keyToIndex.get(key)!;
+      const existing = deduped[existingIdx];
+      // Prefer version with richer address symbol (e.g. №) or non-empty placeName
+      const preferNewAddress =
+        norm.address.includes("№") && !existing.address.includes("№");
+      deduped[existingIdx] = {
+        address: preferNewAddress ? norm.address : existing.address,
+        placeName: existing.placeName || norm.placeName,
+        isCompanyHq: existing.isCompanyHq || raw.isCompanyHq,
+        hq: existing.hq || hq,
+      };
+      continue;
+    }
+
+    keyToIndex.set(key, deduped.length);
+    deduped.push({
+      ...(norm.placeName ? { placeName: norm.placeName } : {}),
+      address: norm.address,
+      isCompanyHq: raw.isCompanyHq,
+      hq,
+    });
+  }
+
+  if (deduped.length === 0) {
+    return { selectedLocation: undefined, orderedCandidates: [] };
+  }
+
+  // Place company/HQ candidates before store/later candidates so the LAST candidate is always the latest/store location
+  const hqList = deduped.filter((c) => c.hq);
+  const storeList = deduped.filter((c) => !c.hq);
+  const orderedRaw = [...hqList, ...storeList];
+  const lastIdx = orderedRaw.length - 1;
+
+  const orderedCandidates = orderedRaw.map((cand, idx) => {
+    const isLastOrStore = idx === lastIdx || !cand.hq;
+    const resolvedPlaceName = isLastOrStore
+      ? effectiveMerchant || cand.placeName
+      : cand.placeName || effectiveMerchant;
+
+    return {
+      ...(resolvedPlaceName ? { placeName: resolvedPlaceName } : {}),
+      address: cand.address,
+    };
+  });
+
+  // Automatically select the LAST detected receipt location when >1 candidates exist (and the sole candidate when 1 exists)
+  const chosen = orderedCandidates[lastIdx];
+  const selectedLocation = normalizeLocation({
+    ...(chosen.placeName ? { placeName: chosen.placeName } : {}),
+    address: chosen.address,
+  });
+
+  return {
+    selectedLocation,
+    orderedCandidates,
+  };
+}
+
