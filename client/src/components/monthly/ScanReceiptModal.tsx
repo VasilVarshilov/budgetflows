@@ -2236,8 +2236,12 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
             typeof gData.rawText === "string"
               ? extractReceiptLocationFromText(gData.rawText)
               : {};
+          const aiFieldLoc = aiRawAddress
+            ? extractReceiptLocationFromText(aiRawAddress)
+            : {};
           const aiFieldAddress = aiRawAddress
-            ? extractReceiptAddressFromText(aiRawAddress) ||
+            ? aiFieldLoc.address ||
+              extractReceiptAddressFromText(aiRawAddress) ||
               (isValidReceiptAddressCandidate(aiRawAddress)
                 ? aiRawAddress
                 : undefined)
@@ -2264,6 +2268,7 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
           );
           const aiPlaceNameCandidate =
             rawTextLoc.placeName ||
+            aiFieldLoc.placeName ||
             (!ocrLocationIsHq ? localParsed.detectedPlaceName : undefined) ||
             findStorePlaceNameNearAddress(sourceTextForLocation, aiAddressCandidate);
 
@@ -2283,20 +2288,30 @@ export const ScanReceiptModal: React.FC<ScanReceiptModalProps> = ({
                     prefilledOcrLocation.address
                   )
               );
+              const ocrHasCity = Boolean(
+                prefilledOcrLocation?.address &&
+                  /(?:гр\.|с\.)\s+[А-Яа-яA-Za-z]{3,}/i.test(prefilledOcrLocation.address)
+              );
               const aiHasStreet = /(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.|шосе|местност|str\.?|blvd\.?|\d)/i.test(
                 nextAiLocation.address
               );
+              const aiHasCity = /(?:гр\.|с\.)\s+[А-Яа-яA-Za-z]{3,}/i.test(
+                nextAiLocation.address
+              );
+              const aiDowngradedCity = ocrHasCity && ocrHasStreet && !aiHasCity;
               const aiImprovedLocation =
                 !prefilledOcrLocation ||
                 (ocrLocationIsHq && !aiCandidateIsHq) ||
-                (!ocrHasStreet && aiHasStreet) ||
+                (!ocrHasStreet && aiHasStreet && !aiDowngradedCity) ||
                 (Boolean(nextAiLocation.placeName) &&
                   !prefilledOcrLocation.placeName &&
+                  !aiDowngradedCity &&
                   (aiHasStreet ||
                     nextAiLocation.address === prefilledOcrLocation.address)) ||
                 (Boolean(rawTextLoc.placeName) &&
                   nextAiLocation.address !== prefilledOcrLocation.address &&
-                  aiHasStreet);
+                  aiHasStreet &&
+                  !aiDowngradedCity);
               if (aiImprovedLocation) {
                 setLocation(nextAiLocation);
                 addDebugLog(

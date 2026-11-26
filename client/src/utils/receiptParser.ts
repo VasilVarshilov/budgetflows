@@ -2845,13 +2845,42 @@ const ADDRESS_LOWER_PREPOSITIONS = new Set([
 
 function normalizeAddressOcrPrefixes(raw: string): string {
   const preNormalized = /[а-яА-Я]/.test(raw)
-    ? raw.replace(
-        /(^|[\s,(])(?:N[°o.]?|No\.?)\s*(?=\d{1,4}[а-яА-Яa-zA-Z]?(?:\s|$|[,;.)]))/gi,
-        "$1№"
-      )
+    ? raw
+        .replace(
+          /(^|[\s,(])(?:N[°o.]?|No\.?)\s*(?=\d{1,4}\s*[а-яА-Яa-zA-Z]?(?:\s|$|[,;.)]))/gi,
+          "$1№"
+        )
+        .replace(/№\s*(\d{1,4})\s+([а-яА-Яa-zA-Z])(?=$|[\s,;.)])/g, "№$1$2")
     : raw;
   const repaired = repairCyrillicWordTokens(preNormalized, /[а-яА-Я]/.test(preNormalized));
-  const out = repaired
+  const cyrSuffixRepaired = /[а-яА-Я]/.test(repaired)
+    ? repaired.replace(/№(\d{1,4})([ABCEKMOPTXabcekmoptx])(?=$|[\s,;.)])/g, (_, num, ch) => {
+        const suffixMap: Record<string, string> = {
+          A: "А",
+          a: "а",
+          B: "В",
+          b: "в",
+          C: "С",
+          c: "с",
+          E: "Е",
+          e: "е",
+          K: "К",
+          k: "к",
+          M: "М",
+          m: "м",
+          O: "О",
+          o: "о",
+          P: "Р",
+          p: "р",
+          T: "Т",
+          t: "т",
+          X: "Х",
+          x: "х",
+        };
+        return `№${num}${suffixMap[ch] || ch}`;
+      })
+    : repaired;
+  const out = cyrSuffixRepaired
     .replace(/[#*_~|]+/g, " ")
     .replace(/\s+/g, " ")
     // Fix common Tesseract OCR mistakes in Bulgarian address prefixes (strictly guarded against random Latin noise)
@@ -3042,10 +3071,10 @@ export function isCorruptedAddressText(text: string): boolean {
       continue;
     }
 
-    // Pure numbers, №33, N8А/No8А, house numbers like 115А / 115A, ordinals like 3-ти / 6-ти
+    // Pure numbers, №33, N8А/No8А, house numbers like 8А / 115А / 115A, ordinals like 3-ти / 6-ти
     if (
       /^(?:[№#]|N[°o.]?|No\.?)\s*\d+[а-яА-Яa-zA-Z]?$/i.test(stripped) ||
-      /^\d+(?:-[а-яА-Яa-zA-Z]{1,4})?$/.test(stripped) ||
+      /^\d+[а-яА-Яa-zA-Z]?(?:-[а-яА-Яa-zA-Z]{1,4})?$/.test(stripped) ||
       /^(?:№|N[°o.]?|No\.?)\s*\d*$/i.test(stripped)
     ) {
       consecutiveShort = 0;
@@ -3231,12 +3260,18 @@ function formatAddressCasing(text: string): string {
     .trim();
 }
 
+const GENERIC_STORE_TYPE_ONLY_RE =
+  /^(?:Супермаркет|Хипермаркет|Минимаркет|Магазин|Обект|Филиал|Клон|Аптека|Ресторант|Бензиностанция|Supermarket|Hypermarket|Minimarket|Store|Shop|Branch|Outlet)$/i;
+
+const LEADING_STORE_TYPE_PREFIX_RE =
+  /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|Т\.?\s*О\.?|СУПЕРМАРКЕТ|ХИПЕРМАРКЕТ|МИНИМАРКЕТ|МАГАЗИН|ФИЛИАЛ|ОБЕКТ|КЛОН|БЕНЗИНОСТАНЦИЯ|АПТЕКА|РЕСТОРАНТ|SUPERMARKET|HYPERMARKET|MINIMARKET|STORE|SHOP|BRANCH|OUTLET)(?:\s*(?:№|N|#)\s*\d+)?(?:\s*[:\-–]+\s*|\s+)(.+)$/i;
+
 function formatStorePlaceName(rawLine: string): string | undefined {
-  const repaired = repairCyrillicWordTokens(rawLine, /[а-яА-Я]/.test(rawLine))
+  let repaired = repairCyrillicWordTokens(rawLine, /[а-яА-Я]/.test(rawLine))
     .replace(/[#*_~|]+/g, " ")
     .replace(/[„“"«»]/g, "")
     .replace(
-      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|АДРЕС\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ)|ОБЕКТ|ОБ\.?\s*(?:№|N|#)?\s*\d+|STORE|BRANCH|SHOP)\s*[:\-–]+\s*/i,
+      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|Т\.?\s*О\.?|АДРЕС\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ)|ОБЕКТ|ОБ\.?\s*(?:№|N|#)?\s*\d+|STORE|BRANCH|SHOP|OUTLET)\s*[:\-–]+\s*/i,
       ""
     )
     .replace(
@@ -3248,9 +3283,31 @@ function formatStorePlaceName(rawLine: string): string | undefined {
     .trim();
 
   if (!repaired || repaired.length < 2) return undefined;
+
+  // If line begins directly with city/street address after stripping wrapper, it's an address line, not a store name
+  if (
+    hasStreetIndicator(repaired) &&
+    /^(?:ул\.|улица|бул\.|булевард|ж\.к\.|жк\.|кв\.|пл\.|шосе|местност|гр\.|с\.)/i.test(repaired)
+  ) {
+    return undefined;
+  }
+  if (/^(?:гр\.|с\.)\s+/i.test(repaired)) {
+    return undefined;
+  }
+
+  // If a store header line accidentally merged a trailing city/street on the same line
+  // (e.g. "СУПЕРМАРКЕТ ТРИУМФ, гр. Пловдив"), isolate the store portion before the address indicator.
+  const embeddedAddressIdx = repaired.search(
+    /[,;:\-–\s]+(?:гр\.|с\.|ул\.|улица|бул\.|булевард|ж\.к\.|жк\.|кв\.|пл\.)\s+[А-Яа-яA-Za-z0-9]/i
+  );
+  if (embeddedAddressIdx > 0) {
+    repaired = repaired.slice(0, embeddedAddressIdx).replace(/^[\s,;:\-–]+|[\s,;:\-–]+$/g, "").trim();
+  }
+
+  if (!repaired || repaired.length < 2) return undefined;
   const cyr = toCyrillicMatchForm(repaired);
   if (
-    /(?:^|[^А-ЯA-Z])(?:ЕООД|ООД|ЕАД|АД|КД|СД|EOOD|OOD|EAD|AD|KD|LTD|LLC|GMBH)(?:$|[^А-ЯA-Z])/i.test(
+    /(?:^|[^А-ЯA-Z])(?:ЕООД|ООД|ЕАД|АД|ЕТ|КД|СД|EOOD|OOD|EAD|AD|KD|LTD|LLC|GMBH)(?:$|[^А-ЯA-Z])/i.test(
       cyr
     ) ||
     /(?:ЕИК|EIK|БУЛСТАТ|BULSTAT|ДДС|VAT|BG\s*\d{8,11}|ФИСКАЛЕН\s+БОН|КАСОВА\s+БЕЛЕЖКА|КАСА\s*№|КАСИЕР|РАБ\.?\s*ВРЕМЕ)/i.test(
@@ -3262,22 +3319,47 @@ function formatStorePlaceName(rawLine: string): string | undefined {
     return undefined;
   }
 
-  // Reject pure generic object numbers with no descriptive name (e.g. "ОБ. № 12")
+  // Reject pure generic object numbers with no descriptive name (e.g. "ОБ. № 12", "МАГАЗИН № 5")
   const withoutGenericCode = repaired
-    .replace(/^(?:ОБЕКТ|ОБ\.?|STORE|BRANCH|SHOP)\s*(?:№|N|#|:)?\s*\d+$/i, "")
+    .replace(/^(?:ОБЕКТ|ОБ\.?|МАГАЗИН|ФИЛИАЛ|КЛОН|STORE|BRANCH|SHOP|OUTLET)\s*(?:№|N|#|:)?\s*\d+$/i, "")
     .trim();
   if (!withoutGenericCode || !/[а-яА-Яa-zA-Z]{3,}/.test(withoutGenericCode)) {
     return undefined;
   }
 
-  // Title-case ALL-CAPS store names ("СУПЕРМАРКЕТ ТРИУМФ" -> "Супермаркет Триумф")
-  return formatAddressCasing(repaired);
+  // Strip leading generic store-type prefix ("СУПЕРМАРКЕТ ТРИУМФ" -> "Триумф") when a distinct brand/store name follows
+  let candidate = repaired;
+  for (let pass = 0; pass < 2; pass++) {
+    const prefixMatch = candidate.match(LEADING_STORE_TYPE_PREFIX_RE);
+    if (!prefixMatch) break;
+    const remainder = prefixMatch[1].replace(/^[\s,;:\-–"„“«»]+|[\s,;:\-–"„“«»]+$/g, "").trim();
+    const remainderWithoutBranchNum = remainder
+      .replace(/^(?:№|N|#)?\s*\d+\s*$/i, "")
+      .trim();
+    if (remainderWithoutBranchNum && /[а-яА-Яa-zA-Z]{3,}/.test(remainderWithoutBranchNum)) {
+      candidate = remainder;
+    } else {
+      break;
+    }
+  }
+
+  const finalCyr = toCyrillicMatchForm(candidate);
+  if (
+    /(?:^|[^А-ЯA-Z])(?:ЕООД|ООД|ЕАД|АД|ЕТ|КД|СД|EOOD|OOD|EAD|AD|KD|LTD|LLC|GMBH)(?:$|[^А-ЯA-Z])/i.test(
+      finalCyr
+    )
+  ) {
+    return undefined;
+  }
+
+  return formatAddressCasing(candidate);
 }
 
 function stripAddressLineWrapper(line: string): {
   cleaned: string;
   hasExplicitAddressLabel: boolean;
   hasBranchContext: boolean;
+  hasStoreEntityKeyword: boolean;
   hasHqContext: boolean;
   hasCompanyHeaderContext: boolean;
   hasTaxIdContext: boolean;
@@ -3297,10 +3379,10 @@ function stripAddressLineWrapper(line: string): {
 
   const hasExplicitAddressLabel =
     !isLegalAddressLabel &&
-    (/(?:^|\s)(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|ADDRESS|ADDR\.?)\s*[:\-–]?/i.test(
+    (/(?:^|\s)(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|МЕСТОНАХОЖДЕНИЕ|ADDRESS|ADDR\.?)\s*[:\-–]?/i.test(
       working
     ) ||
-      /(?:^|\s)АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?\s*[:\-–]?/.test(
+      /(?:^|\s)(?:АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|МЕСТОНАХОЖДЕНИЕ)\s*[:\-–]?/.test(
         cyr
       ));
 
@@ -3327,10 +3409,18 @@ function stripAddressLineWrapper(line: string): {
 
   // Detect store/branch identifier lines (e.g. "СУПЕРМАРКЕТ ТРИУМФ", "МАГАЗИН", "ОБЕКТ", "ФИЛИАЛ", "STORE", "BRANCH", "SHOP")
   const hasExplicitBranchKeyword =
-    /(?:^|\s)(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|Т\.?\s*О\.?(?:\s*(?:№|N|#|:)?\s*\d+)?|ОБЕКТ(?:\s*(?:№|N|#|:))?|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН(?:\s*(?:№|N|#|:)?\s*\d*)?|ФИЛИАЛ(?:\s*(?:№|N|#|:)?\s*\d+)?|КЛОН(?:\s*(?:№|N|#|:)?\s*\d+)?|СУПЕРМАРКЕТ|ХИПЕРМАРКЕТ|МИНИМАРКЕТ|БЕНЗИНОСТАНЦИЯ|АПТЕКА|РЕСТОРАНТ|МЯСТО\s+НА\s+(?:ИЗВЪРШВАНЕ|ТЪРГОВИЯ|ДЕЙНОСТ)|АДРЕС\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?)|BRANCH|STORE|SHOP|SUPERMARKET|HYPERMARKET|OUTLET)(?:$|[\s:;,\-–№#\d])/i.test(
+    /(?:^|\s)(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|Т\.?\s*О\.?(?:\s*(?:№|N|#|:)?\s*\d+)?|ОБЕКТ(?:\s*(?:№|N|#|:))?|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН(?:\s*(?:№|N|#|:)?\s*\d*)?|ФИЛИАЛ(?:\s*(?:№|N|#|:)?\s*\d+)?|КЛОН(?:\s*(?:№|N|#|:)?\s*\d+)?|СУПЕРМАРКЕТ|ХИПЕРМАРКЕТ|МИНИМАРКЕТ|БЕНЗИНОСТАНЦИЯ|АПТЕКА|РЕСТОРАНТ|МЯСТО\s+НА\s+(?:ИЗВЪРШВАНЕ|ТЪРГОВИЯ|ДЕЙНОСТ)|АДРЕС\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?)|BRANCH|STORE|SHOP|SUPERMARKET|HYPERMARKET|MINIMARKET|OUTLET)(?:$|[\s:;,\-–№#\d"'„“«»])/i.test(
       cyr
     ) ||
-    /(?:^|\s)(?:BRANCH|STORE|SHOP|SUPERMARKET|HYPERMARKET|OUTLET)(?:$|[\s:;,\-–#\d])/i.test(
+    /(?:^|\s)(?:BRANCH|STORE|SHOP|SUPERMARKET|HYPERMARKET|MINIMARKET|OUTLET)(?:$|[\s:;,\-–#\d"'„“«»])/i.test(
+      lat
+    );
+
+  const hasStoreEntityKeyword =
+    /(?:^|\s)(?:СУПЕРМАРКЕТ|ХИПЕРМАРКЕТ|МИНИМАРКЕТ|МАГАЗИН|ФИЛИАЛ|ОБЕКТ|ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|Т\.?\s*О\.?|STORE|SHOP|SUPERMARKET|HYPERMARKET|MINIMARKET|BRANCH|OUTLET)(?:$|[\s:;,\-–№#\d"'„“«»])/i.test(
+      cyr
+    ) ||
+    /(?:^|\s)(?:STORE|SHOP|SUPERMARKET|HYPERMARKET|MINIMARKET|BRANCH|OUTLET)(?:$|[\s:;,\-–#\d"'„“«»])/i.test(
       lat
     );
 
@@ -3342,7 +3432,7 @@ function stripAddressLineWrapper(line: string): {
 
   let matchedBranchCity: string | undefined;
   const wordsAndPairs = working
-    .replace(/[,:;()№#]+/g, " ")
+    .replace(/[,:;()№#"'„“«».]+/g, " ")
     .split(/\s+/)
     .filter(Boolean);
   const toCityTitleCase = (rawCity: string) =>
@@ -3383,18 +3473,22 @@ function stripAddressLineWrapper(line: string): {
     (hasExplicitBranchKeyword || isStoreBrandWithBranch || hasExplicitAddressLabel);
 
   const storeDisplayName =
-    hasBranchContext && !hasHqContext && !hasStreetIndicator(working)
+    hasBranchContext && !hasHqContext
       ? formatStorePlaceName(line)
       : undefined;
 
   // Strip leading object/store/address label prefixes
   working = working
     .replace(
-      /^(?:ЮРИДИЧЕСКИ\s+АДРЕС|АДРЕС\s+НА\s+УПРАВЛЕНИЕ|ДАНЪЧЕН\s+АДРЕС|СЕДАЛИЩЕ(?:\s+И\s+АДРЕС)?|АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|ADDRESS|ADDR\.?)\s*[:\-–]?\s*/i,
+      /^(?:ЮРИДИЧЕСКИ\s+АДРЕС|АДРЕС\s+НА\s+УПРАВЛЕНИЕ|ДАНЪЧЕН\s+АДРЕС|СЕДАЛИЩЕ(?:\s+И\s+АДРЕС)?|АДРЕС(?:\s+НА\s+(?:ОБЕКТ(?:А)?|МАГАЗИН(?:А)?|ТЪРГОВСКИ(?:Я)?\s+ОБЕКТ))?|МЕСТОНАХОЖДЕНИЕ|ADDRESS|ADDR\.?)\s*[:\-–]?\s*/i,
       ""
     )
     .replace(
-      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|ОБЕКТ\s*(?:№|N|#|:)?\s*\d*|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#|:)?\s*\d*|ФИЛИАЛ\s*(?:№|N|#|:)?\s*\d*|КЛОН\s*(?:№|N|#|:)?\s*\d*|БЕНЗИНОСТАНЦИЯ\s*(?:№|N|#)?\s*\d*)\s*[:\-–,]?\s*/i,
+      /^(?:ТЪРГОВСКИ\s+ОБЕКТ|ТЪРГ\.?\s*ОБЕКТ|Т\.?\s*О\.?\s*(?:№|N|#|:)?\s*\d*|ОБЕКТ\s*(?:№|N|#|:)?\s*\d*|ОБ\.?\s*(?:№|N|#)?\s*\d+|МАГАЗИН\s*(?:№|N|#|:)?\s*\d*|ФИЛИАЛ\s*(?:№|N|#|:)?\s*\d*|КЛОН\s*(?:№|N|#|:)?\s*\d*|БЕНЗИНОСТАНЦИЯ\s*(?:№|N|#)?\s*\d*)\s*[:\-–,]?\s*/i,
+      ""
+    )
+    .replace(
+      /^(?:СУПЕРМАРКЕТ|ХИПЕРМАРКЕТ|МИНИМАРКЕТ|SUPERMARKET|HYPERMARKET|MINIMARKET|STORE|SHOP|BRANCH|OUTLET)\s*(?:№|N|#)?\s*\d*\s*[:\-–]+\s*/i,
       ""
     )
     .replace(
@@ -3404,10 +3498,22 @@ function stripAddressLineWrapper(line: string): {
     .replace(/^[\s,;:\-–]+|[\s,;:\-–]+$/g, "")
     .trim();
 
+  // If a store header line also holds a physical address after it (e.g. "СУПЕРМАРКЕТ ТРИУМФ: гр. Пловдив" or "СУПЕРМАРКЕТ ТРИУМФ, гр. Пловдив, ул. Лев Толстой №8А"),
+  // strip the store prefix so `cleaned` becomes the clean address portion.
+  if (hasBranchContext && !hasHqContext) {
+    const embeddedAddrMatch = working.match(
+      /^[^,:\n]{2,}?(?:[,;:\-–]+\s*|\s+)(?=(?:\d{4}[\s,]+)?(?:гр\.|с\.|ул\.|улица|бул\.|булевард|ж\.к\.|жк\.|кв\.|пл\.)\s+[А-Яа-яA-Za-z0-9])/i
+    );
+    if (embeddedAddrMatch && !/^(?:\d{4}[\s,]+)?(?:гр\.|с\.|ул\.|бул\.|ж\.к\.|жк\.|кв\.|пл\.)/i.test(working)) {
+      working = working.slice(embeddedAddrMatch[0].length).trim();
+    }
+  }
+
   return {
     cleaned: working,
     hasExplicitAddressLabel,
     hasBranchContext,
+    hasStoreEntityKeyword,
     hasHqContext,
     hasCompanyHeaderContext,
     hasTaxIdContext,
@@ -3483,13 +3589,13 @@ function parseStandaloneCityLine(line: string): ParsedCityLine | null {
   const cleaned = line
     .replace(/^(?:България|Bulgaria)\s*,?\s*/i, "")
     .replace(/,?\s*(?:България|Bulgaria)$/i, "")
-    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .replace(/^[\s,;.\-–]+|[\s,;.\-–]+$/g, "")
     .trim();
   if (!cleaned || /\d{5,}/.test(cleaned)) return null;
 
-  // Match explicit "гр. <City>" or "с. <Village>" (optional 4-digit postal code)
+  // Match explicit "гр. <City>" or "с. <Village>" (optional 4-digit postal code before/after)
   const explicitMatch = cleaned.match(
-    /^(?:\d{4}\s+)?(гр\.|с\.)\s+([А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,}(?:\s+[А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,})?)(?:\s+\d{4})?$/i
+    /^(?:\d{4}[\s,]+)?(гр\.|с\.)\s+([А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,}(?:\s+[А-Яа-яA-Za-z][А-Яа-яA-Za-z\-]{2,})?)(?:[\s,]+\d{4})?$/i
   );
   if (explicitMatch) {
     const prefix = explicitMatch[1].toLowerCase();
@@ -3654,6 +3760,7 @@ export function extractReceiptAddress(
     cleaned: string;
     hasExplicitAddressLabel: boolean;
     hasBranchContext: boolean;
+    hasStoreEntityKeyword: boolean;
     hasHqContext: boolean;
     hasCompanyHeaderContext: boolean;
     hasTaxIdContext: boolean;
@@ -3672,6 +3779,7 @@ export function extractReceiptAddress(
       cleaned,
       hasExplicitAddressLabel,
       hasBranchContext,
+      hasStoreEntityKeyword,
       hasHqContext,
       hasCompanyHeaderContext,
       hasTaxIdContext,
@@ -3696,6 +3804,7 @@ export function extractReceiptAddress(
       cleaned,
       hasExplicitAddressLabel,
       hasBranchContext,
+      hasStoreEntityKeyword,
       hasHqContext,
       hasCompanyHeaderContext,
       hasTaxIdContext,
@@ -3708,9 +3817,12 @@ export function extractReceiptAddress(
     });
   }
 
-  // Locate company/tax section (ЕООД/ООД/ЕИК/ДДС) to separate HQ section above vs Store section below
+  // Locate company/tax section (ЕООД/ООД/ЕИК/ДДС) and first explicit Store Entity header
   const firstTaxIdIdx = parsedHeader.findIndex((p) => p.hasTaxIdContext);
   const firstHqIdx = parsedHeader.findIndex((p) => p.hasHqContext);
+  const firstStoreEntityIdx = parsedHeader.findIndex(
+    (p) => !p.hasHqContext && (p.hasStoreEntityKeyword || p.hasBranchContext || Boolean(p.storeDisplayName))
+  );
 
   interface AddressCandidate {
     address: string;
@@ -3724,7 +3836,7 @@ export function extractReceiptAddress(
   const usedCityIndices = new Set<number>();
 
   const hasNearbyBranchContext = (idx: number): boolean => {
-    for (let j = idx; j >= Math.max(0, idx - 4); j--) {
+    for (let j = idx; j >= Math.max(0, idx - 6); j--) {
       if ((parsedHeader[j]?.hasHqContext || parsedHeader[j]?.hasTaxIdContext) && j < idx) {
         break;
       }
@@ -3732,9 +3844,17 @@ export function extractReceiptAddress(
         j < idx &&
         (parsedHeader[j]?.singleLineSplit || parsedHeader[j]?.isStreet || parsedHeader[j]?.cityOnly)
       ) {
+        // Allow city immediately above street within the same store block to inherit store entity above city
+        if (parsedHeader[idx]?.isStreet && parsedHeader[j]?.cityOnly && j >= idx - 2) {
+          continue;
+        }
         break;
       }
-      if (parsedHeader[j]?.hasBranchContext || parsedHeader[j]?.hasExplicitAddressLabel) {
+      if (
+        parsedHeader[j]?.hasStoreEntityKeyword ||
+        parsedHeader[j]?.hasBranchContext ||
+        parsedHeader[j]?.hasExplicitAddressLabel
+      ) {
         return true;
       }
     }
@@ -3742,64 +3862,38 @@ export function extractReceiptAddress(
   };
 
   // Detect a clean Store/Merchant Name line immediately preceding the address block
-  // (e.g. "СУПЕРМАРКЕТ \"ТРИУМФ\"" -> "гр. Пловдив" -> "ул. Лев Толстой №8А", including split 2-line headers)
+  // (e.g. "СУПЕРМАРКЕТ \"ТРИУМФ\"" -> "гр. Пловдив" -> "ул. Лев Толстой №8А" -> "Триумф")
   const findNearbyStorePlaceName = (blockStartIdx: number): string | undefined => {
     const collectedNames: Array<{ idx: number; name: string; isGenericType: boolean }> = [];
-    for (let j = blockStartIdx - 1; j >= Math.max(0, blockStartIdx - 4); j--) {
+    for (let j = blockStartIdx; j >= Math.max(0, blockStartIdx - 6); j--) {
       const prev = parsedHeader[j];
       if (!prev) continue;
       if (prev.hasHqContext || prev.hasTaxIdContext) break;
-      if (prev.cityOnly || prev.isStreet || prev.singleLineSplit) break;
+      if (j < blockStartIdx && (prev.cityOnly || prev.isStreet || prev.singleLineSplit)) break;
 
       // Skip purely decorative separator lines ("---", "***")
       if (/^[\s\-_=*~•.|]+$/.test(prev.raw)) continue;
 
       const candidateName =
         prev.storeDisplayName ||
-        (!isNonMerchantMetadataLine(prev.raw) && !isCorruptedAddressText(prev.raw)
+        (j < blockStartIdx && !isNonMerchantMetadataLine(prev.raw)
           ? formatStorePlaceName(prev.raw)
           : undefined);
 
       if (candidateName) {
-        const isGenericType =
-          /^(?:Супермаркет|Хипермаркет|Минимаркет|Магазин|Обект|Филиал|Аптека|Ресторант|Supermarket|Hypermarket|Store|Shop|Branch)$/i.test(
-            candidateName
-          );
+        const isGenericType = GENERIC_STORE_TYPE_ONLY_RE.test(candidateName);
         collectedNames.push({ idx: j, name: candidateName, isGenericType });
         if (!isGenericType) {
-          // If line above this is a standalone generic store type (e.g. "СУПЕРМАРКЕТ" above "\"ТРИУМФ\""), combine them
-          if (j - 1 >= Math.max(0, blockStartIdx - 4)) {
-            const above = parsedHeader[j - 1];
-            if (
-              above &&
-              !above.hasHqContext &&
-              !above.hasTaxIdContext &&
-              !above.cityOnly &&
-              !above.isStreet &&
-              !above.singleLineSplit
-            ) {
-              const aboveName =
-                above.storeDisplayName ||
-                (!isNonMerchantMetadataLine(above.raw) && !isCorruptedAddressText(above.raw)
-                  ? formatStorePlaceName(above.raw)
-                  : undefined);
-              if (
-                aboveName &&
-                /^(?:Супермаркет|Хипермаркет|Минимаркет|Магазин|Аптека|Ресторант)$/i.test(aboveName)
-              ) {
-                return `${aboveName} ${candidateName}`;
-              }
-            }
-          }
           return candidateName;
         }
       }
     }
-    return collectedNames[0]?.name;
+    const nonGeneric = collectedNames.find((c) => !c.isGenericType);
+    return nonGeneric?.name || collectedNames[0]?.name;
   };
 
   const getNearbyBranchCityHint = (idx: number): string | undefined => {
-    for (let j = idx; j >= Math.max(0, idx - 4); j--) {
+    for (let j = idx; j >= Math.max(0, idx - 6); j--) {
       if (parsedHeader[j]?.hasHqContext && j < idx) break;
       if (parsedHeader[j]?.branchCityHint) {
         return parsedHeader[j].branchCityHint;
@@ -3814,7 +3908,7 @@ export function extractReceiptAddress(
     for (let j = idx - 1; j >= Math.max(0, idx - 4); j--) {
       const p = parsedHeader[j];
       if (!p) continue;
-      if (p.hasBranchContext && !p.hasCompanyHeaderContext) break;
+      if ((p.hasStoreEntityKeyword || p.hasBranchContext) && !p.hasCompanyHeaderContext) break;
       if (p.singleLineSplit || p.isStreet || p.cityOnly) break;
       if (p.hasTaxIdContext && !p.hasCompanyHeaderContext) break;
       if (p.hasCompanyHeaderContext) return true;
@@ -3823,7 +3917,7 @@ export function extractReceiptAddress(
     for (let j = idx + 1; j <= Math.min(parsedHeader.length - 1, idx + 3); j++) {
       const p = parsedHeader[j];
       if (!p) continue;
-      if (p.hasBranchContext && !p.hasHqContext) break;
+      if ((p.hasStoreEntityKeyword || p.hasBranchContext) && !p.hasHqContext) break;
       if (p.singleLineSplit || p.isStreet || p.cityOnly) break;
       if (p.hasTaxIdContext) return true;
     }
@@ -3839,19 +3933,35 @@ export function extractReceiptAddress(
     addressPreview: string
   ): { tier: number; score: number; placeName?: string } => {
     const branchNear = hasNearbyBranchContext(idx);
-    const hqNear =
-      parsedHeader[idx]?.hasHqContext ||
-      (!branchNear && hasNearbyHqContext(idx));
     const placeNameCandidate = !parsedHeader[idx]?.hasHqContext
       ? findNearbyStorePlaceName(idx)
       : undefined;
+    const isVillageAboveStoreEntity =
+      firstStoreEntityIdx >= 0 &&
+      idx < firstStoreEntityIdx &&
+      !branchNear &&
+      /^с\.\s+/i.test(addressPreview);
+    const hqNear =
+      parsedHeader[idx]?.hasHqContext ||
+      isVillageAboveStoreEntity ||
+      (!branchNear && hasNearbyHqContext(idx));
     const isBranch = branchNear || Boolean(placeNameCandidate);
     const isHq = hqNear && !branchNear && !placeNameCandidate;
-    const placeName = isHq ? undefined : placeNameCandidate;
+    const placeName =
+      isHq || !placeNameCandidate || GENERIC_STORE_TYPE_ONLY_RE.test(placeNameCandidate)
+        ? undefined
+        : placeNameCandidate;
     const isPostTaxOrPostHqStoreSection =
       !isHq &&
       ((firstTaxIdIdx >= 0 && idx > firstTaxIdIdx) ||
-        (firstHqIdx >= 0 && idx > firstHqIdx + 1));
+        (firstHqIdx >= 0 && idx > firstHqIdx + 1) ||
+        (firstStoreEntityIdx >= 0 && idx >= firstStoreEntityIdx));
+    const isDirectlyFollowingStoreEntity =
+      !isHq &&
+      firstStoreEntityIdx >= 0 &&
+      idx >= firstStoreEntityIdx &&
+      idx <= firstStoreEntityIdx + 6 &&
+      isBranch;
     const isVillageLocalityRegistration =
       /^с\.\s+[^,]+,?\s+местност\b/i.test(addressPreview) && !isBranch;
     const isUrbanCityStreet = /^гр\.\s+[^,]+,\s*(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.)/i.test(
@@ -3865,6 +3975,7 @@ export function extractReceiptAddress(
     if (!hasStreet && hasCity) score = 20;
     if (explicitLabel) score += 15;
     if (branchNear) score += 60;
+    if (isDirectlyFollowingStoreEntity) score += 35;
     if (placeName) score += 30;
     if (isPostTaxOrPostHqStoreSection) score += 25;
     if (isUrbanCityStreet) score += 10;
@@ -4100,28 +4211,46 @@ export function isReceiptHqAddressCandidate(
   if (!candidateAddress || !candidateAddress.trim()) return false;
   const normCand = normalizeAddressOcrPrefixes(candidateAddress).toLowerCase();
   const isVillageLocality = /^с\.\s+[^,]+,?\s+местност\b/i.test(normCand);
+  const isVillageCandidate = /^с\.\s+([а-яa-z\-]{3,})/i.test(normCand);
 
   if (rawReceiptText && rawReceiptText.trim()) {
-    const lines = cleanLines(rawReceiptText).slice(0, 20);
+    const lines = cleanLines(rawReceiptText).slice(0, 26);
     const candTokens = normCand
       .replace(/[^а-яa-z0-9\s]/g, " ")
       .split(/\s+/)
       .filter((t) => t.length >= 3);
+
+    const parsedInfos = lines.map((l) => stripAddressLineWrapper(l));
+    const firstStoreEntityIdx = parsedInfos.findIndex(
+      (info) =>
+        !info.hasHqContext &&
+        (info.hasStoreEntityKeyword || info.hasBranchContext || Boolean(info.storeDisplayName))
+    );
+
     for (let i = 0; i < lines.length; i++) {
       const lineLower = normalizeAddressOcrPrefixes(lines[i]).toLowerCase();
-      const matchedTokens = candTokens.filter((tok) => lineLower.includes(tok));
+      const matchedTokens = candTokens.filter(
+        (tok) => lineLower.includes(tok) || (tok.length >= 5 && lineLower.includes(tok.slice(0, 5)))
+      );
       if (matchedTokens.length >= Math.min(2, candTokens.length) && candTokens.length > 0) {
-        const prevInfo = i > 0 ? stripAddressLineWrapper(lines[i - 1]) : null;
-        const curInfo = stripAddressLineWrapper(lines[i]);
-        const nextInfo = i + 1 < lines.length ? stripAddressLineWrapper(lines[i + 1]) : null;
+        const prevInfo = i > 0 ? parsedInfos[i - 1] : null;
+        const curInfo = parsedInfos[i];
+        const nextInfo = i + 1 < lines.length ? parsedInfos[i + 1] : null;
         if (
           curInfo.hasHqContext ||
           prevInfo?.hasCompanyHeaderContext ||
-          nextInfo?.hasTaxIdContext
+          nextInfo?.hasTaxIdContext ||
+          (isVillageCandidate && firstStoreEntityIdx >= 0 && i < firstStoreEntityIdx)
         ) {
           return true;
         }
       }
+    }
+
+    // Also treat any "с. <Village>" candidate as HQ when a distinct Store Entity ("СУПЕРМАРКЕТ", "МАГАЗИН", etc.)
+    // or distinct urban store address ("гр. ...") is present in the receipt text.
+    if (isVillageCandidate && firstStoreEntityIdx >= 0) {
+      return true;
     }
   }
 
@@ -4129,7 +4258,20 @@ export function isReceiptHqAddressCandidate(
 }
 
 /**
- * Recovers a store display name (e.g. "Супермаркет Триумф") from receipt OCR lines
+ * Checks whether raw receipt OCR text explicitly contains a store/branch entity keyword
+ * (e.g. СУПЕРМАРКЕТ, МАГАЗИН, STORE, SHOP, ФИЛИАЛ, ОБЕКТ).
+ */
+export function hasReceiptStoreEntity(rawReceiptText?: string | null): boolean {
+  if (!rawReceiptText || !rawReceiptText.trim()) return false;
+  const lines = cleanLines(rawReceiptText).slice(0, 26);
+  return lines.some((l) => {
+    const info = stripAddressLineWrapper(l);
+    return !info.hasHqContext && (info.hasStoreEntityKeyword || Boolean(info.storeDisplayName));
+  });
+}
+
+/**
+ * Recovers a store display name (e.g. "Триумф") from receipt OCR lines
  * near a known address (useful when Gemini supplies the clean street address directly).
  */
 export function findStorePlaceNameNearAddress(
@@ -4140,7 +4282,7 @@ export function findStorePlaceNameNearAddress(
   const loc = extractReceiptLocationFromText(rawReceiptText);
   if (loc.placeName) return loc.placeName;
 
-  const lines = cleanLines(rawReceiptText).slice(0, 24);
+  const lines = cleanLines(rawReceiptText).slice(0, 26);
   if (targetAddress) {
     const cityMatch = targetAddress.match(/(?:гр\.|с\.)\s+([А-Яа-яA-Za-z\-]{3,})/i);
     const streetWordMatch = targetAddress.match(/(?:ул\.|бул\.|ж\.к\.|кв\.|пл\.)\s+([А-Яа-яA-Za-z\-]{3,})/i);
@@ -4149,15 +4291,19 @@ export function findStorePlaceNameNearAddress(
     ) as string[];
     if (needles.length > 0) {
       for (let i = 1; i < lines.length; i++) {
-        const lineLower = lines[i].toLowerCase();
+        const lineLower = normalizeAddressOcrPrefixes(lines[i]).toLowerCase();
         if (needles.some((n) => lineLower.includes(n))) {
-          for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+          for (let j = i; j >= Math.max(0, i - 5); j--) {
             const info = stripAddressLineWrapper(lines[j]);
             if (info.hasHqContext || info.hasTaxIdContext) break;
-            if (info.storeDisplayName) return info.storeDisplayName;
-            if (!isNonMerchantMetadataLine(lines[j]) && !isCorruptedAddressText(lines[j])) {
+            if (info.storeDisplayName && !GENERIC_STORE_TYPE_ONLY_RE.test(info.storeDisplayName)) {
+              return info.storeDisplayName;
+            }
+            if (j < i && !isNonMerchantMetadataLine(lines[j])) {
               const formatted = formatStorePlaceName(lines[j]);
-              if (formatted) return formatted;
+              if (formatted && !GENERIC_STORE_TYPE_ONLY_RE.test(formatted)) {
+                return formatted;
+              }
             }
           }
         }
@@ -4165,9 +4311,9 @@ export function findStorePlaceNameNearAddress(
     }
   }
 
-  for (let i = 0; i < Math.min(lines.length, 15); i++) {
+  for (let i = 0; i < Math.min(lines.length, 20); i++) {
     const info = stripAddressLineWrapper(lines[i]);
-    if (info.storeDisplayName && !info.hasHqContext) {
+    if (info.storeDisplayName && !info.hasHqContext && !GENERIC_STORE_TYPE_ONLY_RE.test(info.storeDisplayName)) {
       return info.storeDisplayName;
     }
   }
