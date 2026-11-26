@@ -7,8 +7,6 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronUp,
-  ChevronLeft,
-  ChevronRight,
   Repeat,
   CheckCircle2,
   X,
@@ -31,6 +29,7 @@ import {
 } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
+import { MonthPickerControl } from "@/components/ui/MonthPickerControl";
 import { LocationCard } from "@/components/common/LocationCard";
 import { LocationPickerField } from "@/components/common/LocationPickerField";
 import {
@@ -1017,30 +1016,12 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Month Switcher */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 border border-slate-200/70 dark:border-slate-700/70">
-              <button
-                type="button"
-                onClick={() => shiftMonth(-1)}
-                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                title={t("income.prevMonth")}
-                aria-label={t("income.prevMonth")}
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="px-3 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap min-w-[125px] text-center">
-                {formatLocalizedMonthYear(currentMonth, language)}
-              </span>
-              <button
-                type="button"
-                onClick={() => shiftMonth(1)}
-                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                title={t("income.nextMonth")}
-                aria-label={t("income.nextMonth")}
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+            {/* Month Switcher (shared with Expenses tab) */}
+            <MonthPickerControl
+              currentMonth={currentMonth}
+              onMonthChange={onMonthChange}
+              onShiftMonth={shiftMonth}
+            />
 
             {/* Primary Add Income Button */}
             <button

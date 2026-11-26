@@ -104,7 +104,7 @@ import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
 import { ScanReceiptModal } from "@/components/monthly/ScanReceiptModal";
-import { MonthPickerControl } from "@/components/monthly/MonthPickerControl";
+import { MonthPickerControl } from "@/components/ui/MonthPickerControl";
 import {
   AVAILABLE_ICONS_MAP,
   loadStoredCategories,

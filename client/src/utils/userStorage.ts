@@ -26,6 +26,8 @@ export const STORAGE_BASE_DISMISSED_RESTORE_PROMPT = "DismissedRestorePrompt";
 export const STORAGE_BASE_RECURRENCE_DISMISSED = "DismissedRecurrenceOccurrences";
 export const STORAGE_BASE_SAVINGS_GOALS = "SavingsGoals";
 export const STORAGE_BASE_NOTIFICATIONS = "Notifications";
+export const STORAGE_BASE_EXPENSES_MONTH = "ExpensesSelectedMonth";
+export const STORAGE_BASE_INCOME_MONTH = "IncomeSelectedMonth";
 export const STORAGE_BASE_PRE_RESTORE_PREFIX = "PreRestore_Backup_";
 
 // Legacy un-namespaced keys for one-time migration ONLY to the guest namespace

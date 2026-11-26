@@ -58,6 +58,8 @@ import {
   userStorage,
   STORAGE_BASE_MONTHLY,
   STORAGE_BASE_SAVINGS,
+  STORAGE_BASE_EXPENSES_MONTH,
+  STORAGE_BASE_INCOME_MONTH,
 } from "@/utils/userStorage";
 import { toggleRecordCompletion } from "@/utils/expenseStatus";
 import { upsertElectricityRecordFromExpense } from "@/utils/electricityStorage";
@@ -83,6 +85,7 @@ import {
   normalizeMonthlyDataConsistency,
   partitionExpensesByRepeat,
   normalizeIncomeByRepeat,
+  parseMonthKeyToYearMonth,
 } from "@/utils/recurrenceEngine";
 import {
   AppNotification,
@@ -202,12 +205,34 @@ const NAV_TAB_CONFIGS: NavTabConfig[] = [
 const MOBILE_PRIMARY_TABS = NAV_TAB_CONFIGS.slice(0, 5);
 const MOBILE_MORE_TABS = NAV_TAB_CONFIGS.slice(5);
 
+const readStoredTabMonth = (baseKey: string, specificUid?: string): string => {
+  const stored = userStorage.getItem(baseKey, specificUid);
+  if (stored && parseMonthKeyToYearMonth(stored)) {
+    return stored;
+  }
+  return getCurrentMonthBulgarian();
+};
+
 const AppContent: React.FC = () => {
   const { language, t } = useI18n();
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
   const [pendingRecordTarget, setPendingRecordTarget] = useState<OpenRecordTarget | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(() => getCurrentMonthBulgarian());
+  const [defaultCurrentMonth] = useState(() => getCurrentMonthBulgarian());
+  const [expensesSelectedMonth, setExpensesSelectedMonthState] = useState(() =>
+    readStoredTabMonth(STORAGE_BASE_EXPENSES_MONTH)
+  );
+  const [incomeSelectedMonth, setIncomeSelectedMonthState] = useState(() =>
+    readStoredTabMonth(STORAGE_BASE_INCOME_MONTH)
+  );
+  const updateExpensesSelectedMonth = useCallback((nextMonth: string) => {
+    setExpensesSelectedMonthState(nextMonth);
+    userStorage.setItem(STORAGE_BASE_EXPENSES_MONTH, nextMonth);
+  }, []);
+  const updateIncomeSelectedMonth = useCallback((nextMonth: string) => {
+    setIncomeSelectedMonthState(nextMonth);
+    userStorage.setItem(STORAGE_BASE_INCOME_MONTH, nextMonth);
+  }, []);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isGlobalRestoreModalOpen, setIsGlobalRestoreModalOpen] = useState(false);
@@ -308,8 +333,12 @@ const AppContent: React.FC = () => {
 
   // Reload isolated data for the active user account
   const loadAccountWorkspaceData = useCallback((targetUid: string) => {
-    const activeMonth = getCurrentMonthBulgarian();
-    setCurrentMonth((prev) => prev || activeMonth);
+    setExpensesSelectedMonthState(
+      readStoredTabMonth(STORAGE_BASE_EXPENSES_MONTH, targetUid)
+    );
+    setIncomeSelectedMonthState(
+      readStoredTabMonth(STORAGE_BASE_INCOME_MONTH, targetUid)
+    );
     const storedMonthly = userStorage.getJSON<Record<string, MonthlyRecord>>(
       STORAGE_BASE_MONTHLY,
       {},
@@ -647,7 +676,8 @@ const AppContent: React.FC = () => {
     (expensesData: any, targetMonth?: string) => {
       const targetUid = userStorage.getActiveUid();
       const prev = monthlyDataRef.current;
-      const monthKey = targetMonth || currentMonth || getCurrentMonthBulgarian();
+      const monthKey =
+        targetMonth || expensesSelectedMonth || getCurrentMonthBulgarian();
 
       const existing = prev[monthKey] || {
         month: monthKey,
@@ -704,7 +734,7 @@ const AppContent: React.FC = () => {
       setMonthlyData(newData);
       triggerAutoSync();
     },
-    [currentMonth, activeUid, saveMonthlyToStorage, triggerAutoSync]
+    [expensesSelectedMonth, activeUid, saveMonthlyToStorage, triggerAutoSync]
   );
 
   // Toggle completion status (Изпълнено: true <-> false) for Expenses or Incomes from Dashboard
@@ -841,7 +871,11 @@ const AppContent: React.FC = () => {
       }
     }
 
-    setCurrentMonth(targetMonthKey);
+    if (ev.kind === "expense") {
+      updateExpensesSelectedMonth(targetMonthKey);
+    } else {
+      updateIncomeSelectedMonth(targetMonthKey);
+    }
     setPendingRecordTarget({
       kind: ev.kind,
       monthKey: targetMonthKey,
@@ -852,11 +886,15 @@ const AppContent: React.FC = () => {
       nonce: Date.now(),
     });
     setActiveTab(ev.kind === "expense" ? "monthly" : "income");
-  }, []);
+  }, [updateExpensesSelectedMonth, updateIncomeSelectedMonth]);
 
   const handleOpenDashboardRecord = useCallback(
     (target: { kind: "fixed" | "additional" | "income"; monthKey: string; id: string }) => {
-      setCurrentMonth(target.monthKey);
+      if (target.kind === "income") {
+        updateIncomeSelectedMonth(target.monthKey);
+      } else {
+        updateExpensesSelectedMonth(target.monthKey);
+      }
       setPendingRecordTarget({
         kind: target.kind === "income" ? "income" : "expense",
         monthKey: target.monthKey,
@@ -866,7 +904,7 @@ const AppContent: React.FC = () => {
       });
       setActiveTab(target.kind === "income" ? "income" : "monthly");
     },
-    []
+    [updateExpensesSelectedMonth, updateIncomeSelectedMonth]
   );
 
   // Notification Center Actions
@@ -1072,7 +1110,8 @@ const AppContent: React.FC = () => {
     (targetMonthKey: string, incomes: IncomeItem[]) => {
       const targetUid = userStorage.getActiveUid();
       const prev = monthlyDataRef.current;
-      const monthKey = targetMonthKey || currentMonth || getCurrentMonthBulgarian();
+      const monthKey =
+        targetMonthKey || incomeSelectedMonth || getCurrentMonthBulgarian();
       const existing = prev[monthKey] || createEmptyMonthlyRecord(monthKey);
 
       const normalizedIncomes = Array.isArray(incomes)
@@ -1090,7 +1129,7 @@ const AppContent: React.FC = () => {
       setMonthlyData(newData);
       triggerAutoSync();
     },
-    [currentMonth, activeUid, saveMonthlyToStorage, triggerAutoSync]
+    [incomeSelectedMonth, activeUid, saveMonthlyToStorage, triggerAutoSync]
   );
 
   // Global Savings Save
@@ -1117,7 +1156,13 @@ const AppContent: React.FC = () => {
     };
   }, [handleDataRestored]);
 
-  const currentMonthRecord = monthlyData[currentMonth];
+  const expensesMonthRecord = monthlyData[expensesSelectedMonth];
+  const headerDisplayMonth =
+    activeTab === "monthly"
+      ? expensesSelectedMonth
+      : activeTab === "income"
+      ? incomeSelectedMonth
+      : defaultCurrentMonth;
 
   if (!minSplashElapsed || isAuthLoading || isSwitchingAccount) {
     return (
@@ -1177,7 +1222,7 @@ const AppContent: React.FC = () => {
             <div className="flex items-center gap-2 min-w-0">
               <BrandHeaderLockup />
               <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap shrink-0">
-                {formatLocalizedMonthYear(currentMonth, language)}
+                {formatLocalizedMonthYear(headerDisplayMonth, language)}
               </span>
             </div>
 
@@ -1349,11 +1394,11 @@ const AppContent: React.FC = () => {
 
         {activeTab === "monthly" && (
           <MonthlyExpensesTab
-            currentMonth={currentMonth}
-            initialData={currentMonthRecord}
+            currentMonth={expensesSelectedMonth}
+            initialData={expensesMonthRecord}
             onSaveExpenses={handleSaveExpenses}
             allMonthlyData={monthlyData}
-            onMonthChange={setCurrentMonth}
+            onMonthChange={updateExpensesSelectedMonth}
             onOpenCalendar={handleOpenCalendar}
             pendingRecordTarget={pendingRecordTarget}
             onConsumeRecordTarget={() => setPendingRecordTarget(null)}
@@ -1362,9 +1407,9 @@ const AppContent: React.FC = () => {
 
         {activeTab === "income" && (
           <IncomeTab
-            currentMonth={currentMonth}
+            currentMonth={incomeSelectedMonth}
             allMonthlyData={monthlyData}
-            onMonthChange={setCurrentMonth}
+            onMonthChange={updateIncomeSelectedMonth}
             onSaveIncomesForMonth={handleSaveIncomesForMonth}
             onTriggerSync={triggerAutoSync}
             onOpenCalendar={handleOpenCalendar}
@@ -1422,7 +1467,7 @@ const AppContent: React.FC = () => {
           <AiAnalysisTab
             monthlyData={monthlyData}
             globalSavings={globalSavings}
-            currentMonth={currentMonth}
+            currentMonth={defaultCurrentMonth}
             onNavigateTab={handleSelectTab}
           />
         )}

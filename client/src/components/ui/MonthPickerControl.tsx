@@ -1,14 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { MONTHS_BG } from "@/utils/comparisonStorage";
 import { parseMonthKeyToYearMonth } from "@/utils/recurrenceEngine";
 import { formatLocalizedMonthYear, RESOURCES, useI18n } from "@/i18n";
 
-interface MonthPickerControlProps {
+export interface MonthPickerControlProps {
   currentMonth: string;
   onMonthChange: (newMonth: string) => void;
-  onShiftMonth: (delta: number) => void;
+  onShiftMonth?: (delta: number) => void;
 }
 
 export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
@@ -18,6 +18,8 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
 }) => {
   const { t, language } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
+  const yearSelectId = useId();
+  const monthSelectId = useId();
 
   const parsedCurrent = useMemo(
     () => parseMonthKeyToYearMonth(currentMonth),
@@ -68,6 +70,17 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
     [language]
   );
 
+  const handleShift = (delta: number) => {
+    if (onShiftMonth) {
+      onShiftMonth(delta);
+      return;
+    }
+    const baseYear = parsedCurrent?.year ?? currentCalendarYear;
+    const baseMonthIndex = parsedCurrent?.monthIndex ?? currentCalendarMonthIndex;
+    const target = new Date(baseYear, baseMonthIndex + delta, 1);
+    onMonthChange(`${MONTHS_BG[target.getMonth()]} ${target.getFullYear()}`);
+  };
+
   const handleConfirm = (e: React.FormEvent) => {
     e.preventDefault();
     const targetKey = `${MONTHS_BG[draftMonthIndex]} ${draftYear}`;
@@ -112,14 +125,14 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
               <div className="space-y-3">
                 <div className="space-y-1">
                   <label
-                    htmlFor="expense-picker-year"
+                    htmlFor={yearSelectId}
                     className="block text-xs font-semibold text-slate-600 dark:text-slate-300"
                   >
                     {t("common.year")}
                   </label>
                   <div className="relative">
                     <select
-                      id="expense-picker-year"
+                      id={yearSelectId}
                       value={draftYear}
                       onChange={(e) => setDraftYear(Number(e.target.value))}
                       className="w-full min-h-[44px] appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 pr-9 text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
@@ -136,14 +149,14 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
 
                 <div className="space-y-1">
                   <label
-                    htmlFor="expense-picker-month"
+                    htmlFor={monthSelectId}
                     className="block text-xs font-semibold text-slate-600 dark:text-slate-300"
                   >
                     {t("common.month")}
                   </label>
                   <div className="relative">
                     <select
-                      id="expense-picker-month"
+                      id={monthSelectId}
                       value={draftMonthIndex}
                       onChange={(e) => setDraftMonthIndex(Number(e.target.value))}
                       className="w-full min-h-[44px] appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 pr-9 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
@@ -186,8 +199,8 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
       <div className="inline-flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-0.5 border border-slate-200/70 dark:border-slate-700/70 max-w-full">
         <button
           type="button"
-          onClick={() => onShiftMonth(-1)}
-          className="min-h-[32px] min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+          onClick={() => handleShift(-1)}
+          className="min-h-[36px] min-w-[34px] sm:min-h-[32px] sm:min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer shrink-0"
           title={t("income.prevMonth")}
           aria-label={t("income.prevMonth")}
         >
@@ -200,16 +213,16 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
           aria-expanded={isOpen}
           aria-haspopup="dialog"
           aria-label={t("expenses.monthPicker.openAria")}
-          className="inline-flex items-center gap-1.5 bg-transparent hover:bg-white/70 dark:hover:bg-slate-700/70 dark:text-slate-100 text-slate-800 font-semibold text-xs rounded-lg px-2.5 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer transition-colors whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 bg-transparent hover:bg-white/70 dark:hover:bg-slate-700/70 dark:text-slate-100 text-slate-800 font-semibold text-xs sm:text-sm rounded-lg px-2.5 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer transition-colors whitespace-nowrap min-w-0"
         >
-          <span>{formatLocalizedMonthYear(currentMonth, language)}</span>
-          <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+          <span className="truncate">{formatLocalizedMonthYear(currentMonth, language)}</span>
+          <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
         </button>
 
         <button
           type="button"
-          onClick={() => onShiftMonth(1)}
-          className="min-h-[32px] min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+          onClick={() => handleShift(1)}
+          className="min-h-[36px] min-w-[34px] sm:min-h-[32px] sm:min-w-[30px] flex items-center justify-center rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer shrink-0"
           title={t("income.nextMonth")}
           aria-label={t("income.nextMonth")}
         >
