@@ -32,8 +32,8 @@ import { GoogleAuthCard } from "@/components/auth/GoogleAuthCard";
 import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
 import {
   APP_NAME,
-  APP_TAGLINE,
   BrandMark,
+  BrandTagline,
 } from "@/components/brand/BrandLogo";
 import { useI18n } from "@/i18n";
 import { getIntlLocale } from "@/i18n/helpers";
@@ -708,8 +708,8 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
             <p className="text-xs text-slate-600 dark:text-slate-300">
               {t("brand.description")}
             </p>
-            <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-              {APP_TAGLINE}
+            <p className="text-xs">
+              <BrandTagline />
             </p>
           </div>
         </div>

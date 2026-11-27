@@ -37,8 +37,8 @@ export const STORAGE_KEY_SETTINGS = "HomeBudget_Settings";
 // Default Settings
 export const DEFAULT_SETTINGS: AppSettings = {
   currency: "EUR",
-  language: "bg",
-  theme: "light",
+  language: "en",
+  theme: "system",
   autoSaveElectricity: true,
   defaultPriceT1: "0.15458",
   defaultPriceT2: "0.09226",

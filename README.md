@@ -1,8 +1,14 @@
 # Budget Force 365
 
-> **May the Budget Force be with you.**
+<p align="left">
+  <img src="client/public/assets/budget-force-365-logo.png" alt="Budget Force 365 Logo" width="112" height="112" />
+</p>
 
-Budget Force 365 is a modern personal and household finance application built to make expense tracking, receipt scanning, budget planning, and savings management effortless and clear.
+**Track. Save. Grow.**
+
+---
+
+Budget Force 365 is a modern personal and household finance application built to make daily expense tracking, OCR receipt scanning, budget planning, and savings goal management effortless and clear.
 
 Live App: [https://vasilvarshilov.github.io/budgetflows/](https://vasilvarshilov.github.io/budgetflows/)
 
@@ -10,20 +16,17 @@ Live App: [https://vasilvarshilov.github.io/budgetflows/](https://vasilvarshilov
 
 ## Features
 
-- **Expense Tracking** — Log, categorize, edit, and filter daily expenses with clear currency and category views.
+- **Expense Tracking** — Log, categorize, edit, and filter daily expenses with itemized manual entry, currency support, and clear category views.
 - **Income Tracking** — Record salaries, side income, and household inflows to maintain an accurate cash-flow balance.
 - **OCR Receipt Scanning** — Scan paper receipts directly from your camera or photo library with automatic text recognition.
 - **AI Receipt Analysis** — Smart line-item, quantity, total, merchant, and financial health insights with transparent metric breakdowns.
-- **Recurring Expenses** — Schedule fixed monthly bills, subscriptions, and obligations with completion tracking.
-- **Recurring Income** — Track expected recurring paychecks and scheduled inflows automatically.
+- **Recurring Expenses & Income** — Schedule fixed monthly bills, subscriptions, and expected inflows with completion tracking.
 - **Financial Calendar** — Visualize upcoming bills, expected income, and due dates on an interactive calendar.
-- **Savings Goals** — Create custom savings targets and monitor progress toward personal milestones.
-- **Emergency Fund** — Track dedicated emergency reserves and calculate months of financial buffer.
+- **Savings Goals & Emergency Fund** — Create custom savings targets, monitor dedicated emergency reserves, and track financial buffer months.
 - **Category Budgets** — Set monthly spending limits per category with live progress indicators.
-- **Dashboard** — Unified overview of net balance, spending distribution, recent activity, and key financial KPIs.
-- **Reports & Export** — Analyze monthly and historical trends with charts and portable data exports.
+- **Dashboard & Reports** — Unified overview of net balance, spending distribution, month-to-month comparisons, and portable data exports.
 - **Notifications** — Timely alerts for upcoming, due, and overdue recurring transactions.
-- **Google Drive Backup** — Optional encrypted-access personal cloud sync and backup directly to your own Google Drive.
+- **Google Drive Backup** — Optional personal cloud sync and backup directly to your own Google Drive.
 - **Multi-language Support** — Full localization in Bulgarian (BG) and English (EN) with instant switching.
 
 ---
@@ -57,15 +60,6 @@ Your financial data always stays under your control:
 - **Local-First Storage:** Transactions, budgets, and goals are stored locally in your browser by default.
 - **User-Owned Cloud Sync:** When Google Drive backup is enabled, data is synced directly to your personal Google Drive account (`appDataFolder` / Drive storage) — never sold or shared with third parties.
 - **Minimal Permissions:** No external analytics trackers or ad networks are embedded in the application.
-
----
-
-## Roadmap
-
-- Interactive multi-month forecasting and cash-flow projections
-- Custom receipt merchant rules and smart category auto-learning
-- Enhanced CSV / PDF report templates
-- Additional localization packs and accessibility refinements
 
 ---
 

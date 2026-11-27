@@ -146,7 +146,7 @@ export const en: TranslationShape<TranslationSchema> = {
     lightWord: "light",
   },
   brand: {
-    tagline: "May the Budget Force be with you.",
+    tagline: "Track. Save. Grow.",
     description:
       "Smart application for managing household finances, tracking expenses, and planning savings.",
     aboutTitle: "About the app",
@@ -181,7 +181,7 @@ export const en: TranslationShape<TranslationSchema> = {
         "This app was created as a personal project to help make managing personal and household budgets clearer and easier.",
       body2:
         "If you find it helpful and valuable, I would be grateful for your support toward its continued development.",
-      appreciation: "Every contribution helps the growth of Budget Force 365.",
+      appreciation: "Every contribution helps the growth of Budget\u00A0Force\u00A0365.",
       revolutTitle: "Buy Vasil a coffee here:",
       revolutHandle: "@vasilvarshilov",
       revolutBtn: "Support via Revolut",
@@ -1174,7 +1174,7 @@ export const en: TranslationShape<TranslationSchema> = {
     emergencyWithdrawBtn: "Withdraw",
     emergencyEditTargetTooltip: "Edit Emergency Fund target",
     goalsSectionTitle: "Savings Goals",
-    goalsJarsTitle: "Savings Goals (“Jars”)",
+    goalsJarsTitle: "Savings Goals (Jars)",
     goalsJarsSubtitle:
       "Allocate available savings across virtual goals without duplicating your balance",
     goalsGroupTitle: "Savings Goals",

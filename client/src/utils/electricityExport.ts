@@ -163,7 +163,7 @@ export function exportElectricityHistoryToTxt(
   }
 
   lines.push("Бележка: Всички суми и тарифи са в EUR (€).");
-  lines.push("Генерирано автоматично от Budget Force 365 • May the Budget Force be with you.");
+  lines.push("Генерирано автоматично от Budget Force 365 • Track. Save. Grow.");
   lines.push("=======================================================================");
 
   const content = lines.join("\n");
@@ -370,7 +370,7 @@ export async function exportElectricityHistoryToPng(
   ctx.fillStyle = "#94a3b8";
   ctx.font = "12px sans-serif";
   ctx.fillText(
-    `Budget Force 365 • May the Budget Force be with you. • Общо ${totalRecords} записа`,
+    `Budget Force 365 • Track. Save. Grow. • Общо ${totalRecords} записа`,
     40,
     height - 30
   );

@@ -2,12 +2,12 @@
   "id": "./",
   "name": "Budget Force 365",
   "short_name": "Budget 365",
-  "description": "Personal Finance Management powered by smart budgeting, planning and insights. May the Budget Force be with you.",
+  "description": "Personal Finance Management powered by smart budgeting, planning and insights. Track. Save. Grow.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#081029",
-  "theme_color": "#0e173d",
+  "background_color": "#0a1e57",
+  "theme_color": "#123285",
   "icons": [
     {
       "src": "pwa-192x192.png",

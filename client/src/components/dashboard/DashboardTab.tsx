@@ -22,7 +22,7 @@ import { loadAppSettings, saveAppSettings } from "@/utils/incomeStorage";
 import { isCompletedExpense, isPlannedExpense, isRecordCompleted } from "@/utils/expenseStatus";
 import { isRepeatingFrequency } from "@/utils/recurrenceEngine";
 import { resolveRecordDateKey, toLocalDateKey } from "@/utils/calendarEngine";
-import { BrandMark, APP_NAME, APP_TAGLINE } from "@/components/brand/BrandLogo";
+import { BrandMark, BrandTagline, APP_NAME } from "@/components/brand/BrandLogo";
 import {
   ELECTRICITY_UPDATED_EVENT,
   getStoredElectricityHistory,
@@ -64,6 +64,7 @@ interface DashboardTabProps {
     recordId: string,
     nextCompleted?: boolean
   ) => void;
+  resetRevision?: number;
 }
 
 type PeriodType = "current" | "month" | "year" | "custom";
@@ -113,6 +114,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   onOpenRecord,
   onTriggerSync,
   onToggleRecordCompletion,
+  resetRevision = 0,
 }) => {
   const { t, language } = useI18n();
   const now = new Date();
@@ -148,15 +150,44 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   const [electricityRevision, setElectricityRevision] = React.useState(0);
   const [savingsGoalsRevision, setSavingsGoalsRevision] = React.useState(0);
 
-  // Swipeable Card Carousel State (always start on "overview" when entering Dashboard)
+  // Swipeable Card Carousel State (always start on first card when entering/resetting Dashboard)
   const [cardOrder, setCardOrder] = useState<DashboardCardId[]>(() =>
     loadDashboardCardOrder()
   );
-  const [activeCardId, setActiveCardId] = useState<DashboardCardId>("overview");
+  const [activeCardId, setActiveCardId] = useState<DashboardCardId>(
+    () => loadDashboardCardOrder()[0] ?? "overview"
+  );
   const [cardViewModes, setCardViewModes] = useState<
     Partial<Record<DashboardCardId, "summary" | "chart">>
   >({});
   const [expandedCardId, setExpandedCardId] = useState<DashboardCardId | null>(null);
+
+  // Reset Dashboard state & focus first card when triggered from the Header Home action
+  React.useEffect(() => {
+    if (!resetRevision) return;
+    const latestNow = new Date();
+    const latestMonth = latestNow.toLocaleDateString("bg-BG", { month: "long" });
+    const latestCapitalizedMonth =
+      latestMonth.charAt(0).toUpperCase() + latestMonth.slice(1);
+    const startOfMonth = new Date(latestNow.getFullYear(), latestNow.getMonth(), 1);
+    const latestOrder = loadDashboardCardOrder();
+
+    setPeriodType("current");
+    setSelectedMonth(latestCapitalizedMonth);
+    setSelectedYear(latestNow.getFullYear().toString());
+    setCustomStartDate(startOfMonth.toISOString().split("T")[0]);
+    setCustomEndDate(latestNow.toISOString().split("T")[0]);
+    setIsFiltersSheetOpen(false);
+    setIsExportCenterOpen(false);
+    setCardOrder(latestOrder);
+    setActiveCardId(latestOrder[0] ?? "overview");
+    setCardViewModes({});
+    setExpandedCardId(null);
+    setSavingsTargetPercent(loadAppSettings().savingsTargetPercent ?? 20);
+    setBudgetsRevision((v) => v + 1);
+    setElectricityRevision((v) => v + 1);
+    setSavingsGoalsRevision((v) => v + 1);
+  }, [resetRevision]);
 
   React.useEffect(() => {
     const handleRestored = () => {
@@ -939,8 +970,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">
                 {t("dashboard.welcomeTitle", { appName: APP_NAME })}
               </h2>
-              <p className="text-xs sm:text-sm font-semibold text-indigo-100">
-                {APP_TAGLINE}
+              <p className="text-xs sm:text-sm">
+                <BrandTagline onDarkBanner />
               </p>
               <p className="text-xs text-indigo-100/90 pt-0.5">
                 {t("dashboard.welcomeDesc")}

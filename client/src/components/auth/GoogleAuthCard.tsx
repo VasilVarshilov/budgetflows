@@ -33,7 +33,7 @@ import {
   isOriginMismatchError,
 } from "@/utils/googleAuth";
 import { getFirebaseConfig } from "@/utils/firebaseConfig";
-import { APP_NAME, APP_TAGLINE, BrandMark } from "@/components/brand/BrandLogo";
+import { APP_NAME, BrandMark, BrandTagline } from "@/components/brand/BrandLogo";
 import { dispatchManualBackupNotification } from "@/utils/notificationsEngine";
 import { useI18n } from "@/i18n";
 import { getIntlLocale } from "@/i18n/helpers";
@@ -622,8 +622,8 @@ export const GoogleAuthCard: React.FC<GoogleAuthCardProps> = ({
                 <div className="text-sm font-extrabold text-slate-900 dark:text-white leading-tight">
                   {APP_NAME}
                 </div>
-                <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {APP_TAGLINE}
+                <div className="text-[11px]">
+                  <BrandTagline />
                 </div>
               </div>
             </div>

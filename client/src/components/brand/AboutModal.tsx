@@ -1,6 +1,12 @@
 import React, { useState } from "react";
 import { Check, Coffee, Copy, Mail, Share2, X } from "lucide-react";
-import { APP_NAME, APP_PRODUCTION_URL, APP_TAGLINE, BrandMark } from "./BrandLogo";
+import {
+  APP_NAME,
+  APP_PRODUCTION_URL,
+  APP_TAGLINE,
+  BrandMark,
+  BrandTagline,
+} from "./BrandLogo";
 import { useI18n } from "@/i18n";
 
 interface AboutModalProps {
@@ -94,8 +100,8 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
             <h4 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
               Budget Force <span className="text-sky-600 dark:text-sky-400">365</span>
             </h4>
-            <p className="text-sm font-medium text-amber-600 dark:text-amber-300">
-              {tagline}
+            <p className="text-sm">
+              <BrandTagline />
             </p>
           </div>
 

@@ -46,7 +46,7 @@ export function setStoredLanguage(lang: SupportedLanguage): void {
 
 export function getIntlLocale(lang: SupportedLanguage = getCurrentLanguage()): string {
   const found = LANGUAGE_OPTIONS.find((opt) => opt.code === lang);
-  return found?.locale ?? "bg-BG";
+  return found?.locale ?? "en-US";
 }
 
 function getNestedValue(obj: unknown, path: string): unknown {

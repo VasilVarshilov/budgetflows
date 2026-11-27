@@ -308,7 +308,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
     });
 
     lines.push("--------------------------------------------------------------------------------");
-    lines.push(" Budget Force 365 • May the Budget Force be with you.");
+    lines.push(" Budget Force 365 • Track. Save. Grow.");
     lines.push("================================================================================\n");
 
     const content = lines.join("\n");

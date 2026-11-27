@@ -75,8 +75,8 @@ export function saveRecurringIncomes(templates: RecurringIncomeTemplate[]): void
 export function loadAppSettings(): AppSettings {
   const defaults: AppSettings = {
     currency: "EUR",
-    language: "bg",
-    theme: "light",
+    language: "en",
+    theme: "system",
     autoSaveElectricity: true,
     defaultPriceT1: "0.15458",
     defaultPriceT2: "0.09226",

@@ -1068,7 +1068,7 @@ export function exportTxtReport(data: ExportReportData): void {
   }
 
   lines.push(divider);
-  lines.push(" Budget Force 365 • May the Budget Force be with you. • Финансов отчет");
+  lines.push(" Budget Force 365 • Track. Save. Grow. • Финансов отчет");
   lines.push(divider);
 
   const fileContent = lines.join("\n");
@@ -1564,7 +1564,7 @@ export function exportPngReport(data: ExportReportData): Promise<void> {
 
       ctx.fillStyle = "#64748b";
       ctx.font = "12px Inter, system-ui, -apple-system, sans-serif";
-      ctx.fillText("Budget Force 365 • May the Budget Force be with you.", 48, footerY + 8);
+      ctx.fillText("Budget Force 365 • Track. Save. Grow.", 48, footerY + 8);
 
       ctx.textAlign = "right";
       ctx.fillText(`Страница 1 от 1 • Доклад #${Date.now().toString().slice(-6)}`, width - 48, footerY + 8);

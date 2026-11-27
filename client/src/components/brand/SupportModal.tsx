@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Coffee, ExternalLink, Heart, QrCode, X, ZoomIn } from "lucide-react";
-import { APP_TAGLINE, BrandMark } from "./BrandLogo";
+import { BrandMark, BrandTagline } from "./BrandLogo";
 import { useI18n } from "@/i18n";
 import revolutQrSrc from "../../../../public/assets/aistudio/IMG_5580_82bfe87f.jpeg";
 
@@ -51,7 +51,7 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-gradient-to-r from-[#081029] via-[#0E173D] to-slate-900 text-white shrink-0">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-gradient-to-r from-[#0A1E57] via-[#123285] to-[#1B46B5] text-white shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-300/30 flex items-center justify-center text-amber-300 shrink-0">
                 <Coffee className="w-4 h-4" />
@@ -84,8 +84,8 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
                 <div className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">
                   Budget Force <span className="text-sky-600 dark:text-sky-400">365</span>
                 </div>
-                <p className="text-xs font-medium text-amber-600 dark:text-amber-300">
-                  {APP_TAGLINE}
+                <p className="text-xs">
+                  <BrandTagline />
                 </p>
               </div>
             </div>
@@ -97,7 +97,7 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
             </div>
 
             {/* Appreciation Box */}
-            <div className="flex items-start gap-2.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/35 border border-amber-200/80 dark:border-amber-800/60 px-3.5 py-2.5 text-xs text-amber-900 dark:text-amber-200">
+            <div className="flex items-start gap-2.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/35 border border-amber-200/80 dark:border-amber-800/60 px-3.5 py-2.5 text-[11.5px] sm:text-xs text-amber-900 dark:text-amber-200">
               <Heart className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               <span className="font-medium leading-relaxed">
                 {t("brand.support.appreciation")}

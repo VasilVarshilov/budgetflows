@@ -36,6 +36,7 @@ import { DriveRestoreModal } from "@/components/backup/DriveRestoreModal";
 import {
   BrandHeaderLockup,
   BrandSplashLockup,
+  BrandTagline,
   APP_NAME,
   APP_PRODUCTION_URL,
   APP_TAGLINE,
@@ -268,6 +269,8 @@ const AppContent: React.FC = () => {
     });
     return () => window.cancelAnimationFrame(rafId);
   }, [activeTab]);
+
+  const [dashboardResetRevision, setDashboardResetRevision] = useState(0);
 
   const handleSelectTab = useCallback(
     (tabId: Tab) => {
@@ -1150,6 +1153,17 @@ const AppContent: React.FC = () => {
     loadAccountWorkspaceData(userStorage.getActiveUid());
   }, [loadAccountWorkspaceData]);
 
+  // Header Logo / App Name "Home" action: navigate to Dashboard, open first card, refresh data, reset state
+  const handleHeaderHomeClick = useCallback(() => {
+    setIsMobileMoreOpen(false);
+    setIsAboutOpen(false);
+    setIsSupportOpen(false);
+    loadAccountWorkspaceData(userStorage.getActiveUid());
+    setActiveTab("dashboard");
+    setDashboardResetRevision((prev) => prev + 1);
+    smoothScrollToTop(190, mainContentRef.current);
+  }, [loadAccountWorkspaceData]);
+
   // Listen for data-restored & account-changed events
   useEffect(() => {
     window.addEventListener("homebudget:data-restored", handleDataRestored);
@@ -1221,8 +1235,16 @@ const AppContent: React.FC = () => {
         <div className="max-w-6xl mx-auto header-safe-x">
           {/* Row 1: Brand Logo, Active Month & Controls */}
           <div className="flex justify-between items-center h-14 sm:h-15 gap-1.5 sm:gap-2 border-b border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <BrandHeaderLockup />
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+              <button
+                type="button"
+                onClick={handleHeaderHomeClick}
+                aria-label={`${APP_NAME} — ${t("nav.dashboard")}`}
+                title={t("nav.dashboard")}
+                className="inline-flex items-center text-left rounded-xl py-1 pr-1.5 -ml-1 pl-1 hover:bg-slate-100/80 dark:hover:bg-slate-800/70 active:scale-[0.98] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70 shrink-0 min-w-0"
+              >
+                <BrandHeaderLockup />
+              </button>
               <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap shrink-0">
                 {formatLocalizedMonthYear(headerDisplayMonth, language)}
               </span>
@@ -1391,6 +1413,7 @@ const AppContent: React.FC = () => {
             onOpenRecord={handleOpenDashboardRecord}
             onTriggerSync={triggerAutoSync}
             onToggleRecordCompletion={handleToggleRecordCompletion}
+            resetRevision={dashboardResetRevision}
           />
         )}
 
@@ -1486,9 +1509,7 @@ const AppContent: React.FC = () => {
               {APP_NAME} © {new Date().getFullYear()}
             </span>
             <span aria-hidden="true">·</span>
-            <span className="text-indigo-600 dark:text-indigo-400 font-medium">
-              {APP_TAGLINE}
-            </span>
+            <BrandTagline />
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-500 dark:text-slate-400">
             <button
@@ -1510,7 +1531,7 @@ const AppContent: React.FC = () => {
             <button
               type="button"
               onClick={handleShareApp}
-              className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-semibold transition-colors cursor-pointer whitespace-nowrap"
             >
               <Share2 className="w-3.5 h-3.5 shrink-0" />
               <span>{shareCopied ? t("header.copiedShort") : t("brand.share")}</span>
@@ -1626,7 +1647,7 @@ const AppContent: React.FC = () => {
                   setIsMobileMoreOpen(false);
                   handleShareApp();
                 }}
-                className="min-h-[38px] px-1 inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-medium transition-colors cursor-pointer whitespace-nowrap"
+                className="min-h-[38px] px-1 inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 font-semibold transition-colors cursor-pointer whitespace-nowrap"
               >
                 <Share2 className="w-3.5 h-3.5 shrink-0" />
                 <span>{shareCopied ? t("header.copiedShort") : t("brand.share")}</span>

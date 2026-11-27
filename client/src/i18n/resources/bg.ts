@@ -143,7 +143,7 @@ export const bg = {
     lightWord: "светла",
   },
   brand: {
-    tagline: "May the Budget Force be with you.",
+    tagline: "Track. Save. Grow.",
     description:
       "Интелигентно приложение за управление на семейния бюджет, контрол на разходите и планиране на спестяванията.",
     aboutTitle: "За приложението",
@@ -178,7 +178,7 @@ export const bg = {
         "Това приложение е създадено като личен проект с цел да помага за по-лесно и ясно управление на личния и семейния бюджет.",
       body2:
         "Ако ви е полезно и ви носи стойност, ще се радвам да подкрепите развитието му.",
-      appreciation: "Всяка подкрепа помага за развитието на Budget Force 365.",
+      appreciation: "Всяка подкрепа помага за развитието на Budget\u00A0Force\u00A0365.",
       revolutTitle: "Почерпете Васил от тук:",
       revolutHandle: "@vasilvarshilov",
       revolutBtn: "Подкрепи чрез Revolut",
@@ -1172,7 +1172,7 @@ export const bg = {
     emergencyWithdrawBtn: "Извади",
     emergencyEditTargetTooltip: "Промени целта на Аварийния фонд",
     goalsSectionTitle: "Спестовни цели",
-    goalsJarsTitle: "Цели за спестяване („Касички“)",
+    goalsJarsTitle: "Цели за спестяване (Касички)",
     goalsJarsSubtitle:
       "Разпределете наличните спестявания по виртуални цели без дублиране на баланса",
     goalsGroupTitle: "Цели за спестяване",

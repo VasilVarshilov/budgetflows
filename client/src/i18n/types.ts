@@ -1,6 +1,6 @@
 export type SupportedLanguage = "bg" | "en";
 
-export const DEFAULT_LANGUAGE: SupportedLanguage = "bg";
+export const DEFAULT_LANGUAGE: SupportedLanguage = "en";
 export const LANGUAGE_STORAGE_KEY = "HomeBudget_Language";
 
 export interface LanguageOption {
