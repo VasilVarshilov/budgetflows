@@ -6,9 +6,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Lightbulb,
-  Zap,
   PiggyBank,
-  Wallet,
   ArrowRight,
   Filter,
   CheckCircle2,
@@ -18,7 +16,6 @@ import {
   HelpCircle,
   Award,
   Layers,
-  Banknote,
   PieChart as PieChartIcon,
   Info,
   X,
@@ -30,14 +27,13 @@ import {
 import { MonthlyRecord, IncomeItem } from "@/types";
 import {
   generateLocalFinancialAnalysis,
-  FinancialInsight,
-  InsightPriority,
   translateHealthRating,
   AiMetricId,
 } from "@/utils/aiAnalysisEngine";
 import { isCompletedExpense } from "@/utils/expenseStatus";
 import { CategoryDistributionChart } from "@/components/charts/CategoryDistributionChart";
 import { AiChatSection } from "./AiChatSection";
+import { AiInsightsCarousel } from "./AiInsightsCarousel";
 import { useI18n } from "@/i18n";
 import { formatLocalizedMonthYear } from "@/i18n/helpers";
 import { SAVINGS_GOALS_UPDATED_EVENT } from "@/utils/savingsGoalsStorage";
@@ -164,52 +160,6 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
     return analysis.insights.filter((item) => item.category === selectedFilter);
   }, [analysis, selectedFilter]);
 
-  const getPriorityBadge = (priority: InsightPriority) => {
-    switch (priority) {
-      case "high":
-        return {
-          label: t("ai.priorityHigh"),
-          className: "bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800",
-          dot: "bg-rose-500",
-        };
-      case "opportunity":
-        return {
-          label: t("ai.priorityOpportunity"),
-          className: "bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800",
-          dot: "bg-indigo-500",
-        };
-      case "medium":
-        return {
-          label: t("ai.priorityMedium"),
-          className: "bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",
-          dot: "bg-amber-500",
-        };
-      case "low":
-      default:
-        return {
-          label: t("ai.priorityLow"),
-          className: "bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
-          dot: "bg-emerald-500",
-        };
-    }
-  };
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case "income":
-        return <Banknote className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
-      case "spending":
-        return <Wallet className="w-5 h-5 text-rose-600 dark:text-rose-400" />;
-      case "savings":
-        return <PiggyBank className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
-      case "electricity":
-        return <Zap className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />;
-      case "trend":
-      default:
-        return <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />;
-    }
-  };
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500 min-w-0 overflow-x-hidden">
       {/* Top Banner / Hero Header */}
@@ -330,6 +280,9 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
                 {t("ai.monthsBufferSuffix")}
               </span>
             </div>
+            <span className="mt-1 block text-[11px] leading-snug text-slate-300/90 break-words">
+              {t("ai.emergencyBasedOnAllSavingsNote")}
+            </span>
           </button>
 
           <button
@@ -508,7 +461,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
         </span>
       </div>
 
-      {/* Insight Cards Grid */}
+      {/* Insight Cards Swipe Carousel */}
       {filteredInsights.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500 dark:text-slate-400">
           <HelpCircle className="w-10 h-10 mx-auto text-slate-400 dark:text-slate-400 mb-2" />
@@ -520,95 +473,10 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredInsights.map((insight) => {
-            const priorityBadge = getPriorityBadge(insight.priority);
-
-            return (
-              <div
-                key={insight.id}
-                className={`min-w-0 overflow-hidden bg-white dark:bg-slate-900 rounded-2xl border p-4 sm:p-6 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between ${
-                  insight.priority === "high"
-                    ? "border-rose-200/90 dark:border-rose-900/60"
-                    : insight.priority === "opportunity"
-                    ? "border-indigo-200/90 dark:border-indigo-900/60"
-                    : "border-slate-200/80 dark:border-slate-800"
-                }`}
-              >
-                <div className="min-w-0">
-                  {/* Card Header */}
-                  <div className="flex flex-wrap items-start justify-between gap-2.5 min-w-0">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center shrink-0">
-                        {getCategoryIcon(insight.category)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border max-w-full break-words ${priorityBadge.className}`}
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityBadge.dot}`}
-                            />
-                            <span className="break-words">{priorityBadge.label}</span>
-                          </span>
-
-                          {insight.isTopRecommendation && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 max-w-full break-words">
-                              {t("ai.topTipBadge")}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Metric Chip */}
-                    {insight.metricValue && (
-                      <div className="text-left sm:text-right min-w-0 max-w-full">
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider block break-words">
-                          {insight.metricLabel || t("ai.valueFallbackLabel")}
-                        </span>
-                        <span className="text-sm font-black text-slate-900 dark:text-white break-words block">
-                          {insight.metricValue}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Title & Description */}
-                  <div className="mt-3.5 space-y-1.5 min-w-0">
-                    <h3 className="font-bold text-slate-900 dark:text-white text-base leading-snug break-words">
-                      {insight.title}
-                    </h3>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed break-words">
-                      {insight.description}
-                    </p>
-                  </div>
-
-                  {/* Impact Tag (if any) */}
-                  {insight.impact && (
-                    <div className="mt-3.5 inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800 px-2.5 py-1 rounded-lg text-xs font-bold max-w-full whitespace-normal break-words">
-                      <Lightbulb className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span className="break-words min-w-0">{insight.impact}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Actionable Advice Footer */}
-                <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 p-4 rounded-b-2xl min-w-0">
-                  <div className="flex flex-wrap sm:flex-nowrap items-start gap-1.5 sm:gap-2 text-xs text-slate-700 dark:text-slate-200 min-w-0">
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">
-                      {t("ai.recommendationPrefix")}
-                    </span>
-                    <p className="font-medium text-slate-700 dark:text-slate-200 leading-relaxed break-words min-w-0 flex-1">
-                      {insight.actionableTip}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <AiInsightsCarousel
+          insights={filteredInsights}
+          filterKey={selectedFilter}
+        />
       )}
 
       {/* Financial Health Best Practices Section */}

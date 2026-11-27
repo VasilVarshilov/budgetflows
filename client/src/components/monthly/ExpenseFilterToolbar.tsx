@@ -27,7 +27,7 @@ import {
   useI18n,
 } from "@/i18n";
 
-export type ExpenseSortOption = "newest" | "oldest" | "highest" | "lowest";
+export type ExpenseSortOption = "newest" | "oldest" | "lastAdded" | "highest" | "lowest";
 export type ExpenseStatusFilter = "all" | "completed" | "planned";
 
 export interface ExpenseFiltersState {
@@ -75,6 +75,7 @@ interface ExpenseFilterToolbarProps {
 const SORT_LABEL_KEYS: Record<ExpenseSortOption, string> = {
   newest: "expenses.filters.sortDateDesc",
   oldest: "expenses.filters.sortDateAsc",
+  lastAdded: "expenses.filters.sortLastAdded",
   highest: "expenses.filters.sortHighestEur",
   lowest: "expenses.filters.sortLowestEur",
 };
@@ -82,6 +83,7 @@ const SORT_LABEL_KEYS: Record<ExpenseSortOption, string> = {
 const SORT_SHORT_LABEL_KEYS: Record<ExpenseSortOption, string> = {
   newest: "expenses.filters.sortNewestShort",
   oldest: "expenses.filters.sortOldestShort",
+  lastAdded: "expenses.filters.sortLastAddedShort",
   highest: "expenses.filters.sortAmountDesc",
   lowest: "expenses.filters.sortAmountAsc",
 };
@@ -535,7 +537,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                     <span>{t("expenses.filters.sortSectionLabel")}</span>
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {(Object.keys(SORT_LABEL_KEYS) as ExpenseSortOption[]).map((option) => {
+                    {(["newest", "oldest", "highest", "lowest", "lastAdded"] as ExpenseSortOption[]).map((option) => {
                       const active = draftFilters.sortBy === option;
                       return (
                         <button
@@ -543,6 +545,8 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                           type="button"
                           onClick={() => updateDraftFilter("sortBy", option)}
                           className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                            option === "lastAdded" ? "col-span-2" : ""
+                          } ${
                             active
                               ? "bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-200 border-indigo-400 dark:border-indigo-700"
                               : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"

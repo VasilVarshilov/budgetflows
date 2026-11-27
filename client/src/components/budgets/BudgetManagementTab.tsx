@@ -480,7 +480,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
               <Wallet className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   {t("budgets.overallTitle")}
                 </span>

@@ -64,6 +64,7 @@ import {
 import { toggleRecordCompletion } from "@/utils/expenseStatus";
 import { upsertElectricityRecordFromExpense } from "@/utils/electricityStorage";
 import { loadSavingsGoals, SAVINGS_GOALS_UPDATED_EVENT } from "@/utils/savingsGoalsStorage";
+import { ensureNewUserDefaults } from "@/utils/newUserDefaults";
 import { resetPageScrollToTop, smoothScrollToTop } from "@/utils/scrollUtils";
 import {
   clearAllNotifications,
@@ -333,6 +334,7 @@ const AppContent: React.FC = () => {
 
   // Reload isolated data for the active user account
   const loadAccountWorkspaceData = useCallback((targetUid: string) => {
+    ensureNewUserDefaults(targetUid);
     setExpensesSelectedMonthState(
       readStoredTabMonth(STORAGE_BASE_EXPENSES_MONTH, targetUid)
     );
@@ -1343,7 +1345,7 @@ const AppContent: React.FC = () => {
           <div className="py-2 hidden md:block">
             <nav
               aria-label={t("nav.desktopNavAria")}
-              className="grid grid-cols-10 gap-1 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
+              className="flex items-center justify-between gap-0.5 lg:gap-1 p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-2xs overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               {NAV_TAB_CONFIGS.map((tab) => {
                 const Icon = tab.icon;
@@ -1354,18 +1356,18 @@ const AppContent: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => handleSelectTab(tab.id)}
-                    className={`flex items-center justify-center gap-1.5 py-2 px-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                    className={`flex-1 min-w-max flex items-center justify-center gap-1 lg:gap-1.5 py-2 px-1.5 lg:px-2 rounded-lg text-[11px] xl:text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                       isActive
                         ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold shadow-xs border border-slate-200/80 dark:border-slate-700/80"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/50 dark:hover:bg-slate-700/50"
                     }`}
                   >
                     <Icon
-                      className={`w-4 h-4 shrink-0 ${
+                      className={`w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0 ${
                         isActive ? tab.accentColor : "text-slate-500 dark:text-slate-400"
                       }`}
                     />
-                    <span className="truncate">{label}</span>
+                    <span className="whitespace-nowrap">{label}</span>
                   </button>
                 );
               })}

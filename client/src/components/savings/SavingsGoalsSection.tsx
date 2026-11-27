@@ -17,6 +17,8 @@ import {
   computeSavingsAllocationSummary,
   createSavingsGoal,
   deleteSavingsGoalPermanently,
+  EMERGENCY_FUND_DEFAULT_DESCRIPTION,
+  EMERGENCY_FUND_TARGET_MONTHS,
   getGoalProgressPercent,
   loadSavingsGoals,
   SAVINGS_GOALS_UPDATED_EVENT,
@@ -190,15 +192,15 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
     setEditingGoalId(null);
     setGoalName(presetEmergency ? "Авариен фонд" : "");
     if (presetEmergency && summary.averageMonthlyExpenses > 0) {
-      setGoalTarget((summary.averageMonthlyExpenses * 3).toFixed(0));
+      setGoalTarget((summary.averageMonthlyExpenses * EMERGENCY_FUND_TARGET_MONTHS).toFixed(2));
+    } else if (presetEmergency) {
+      setGoalTarget("6");
     } else {
       setGoalTarget("");
     }
     setGoalInitialAllocation("");
     setGoalDescription(
-      presetEmergency
-        ? "Финансов буфер за непредвидени разходи (препоръчително 3–6 месеца разходи)"
-        : ""
+      presetEmergency ? EMERGENCY_FUND_DEFAULT_DESCRIPTION : ""
     );
     setGoalIsEmergency(presetEmergency);
     setGoalFormError(null);
@@ -208,7 +210,11 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   const openEditGoalModal = (goal: SavingsGoal) => {
     setEditingGoalId(goal.id);
     setGoalName(goal.name);
-    setGoalTarget(goal.targetAmount > 0 ? String(goal.targetAmount) : "");
+    if (goal.isEmergencyFund && summary.averageMonthlyExpenses > 0) {
+      setGoalTarget((summary.averageMonthlyExpenses * EMERGENCY_FUND_TARGET_MONTHS).toFixed(2));
+    } else {
+      setGoalTarget(goal.targetAmount > 0 ? String(goal.targetAmount) : "");
+    }
     setGoalInitialAllocation("");
     setGoalDescription(goal.description || "");
     setGoalIsEmergency(Boolean(goal.isEmergencyFund));
@@ -335,11 +341,18 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
     const pct = getGoalProgressPercent(ef);
     const remaining = Math.max(0, ef.targetAmount - ef.allocatedAmount);
     const displayEfName = translateGoalName(ef.name, true, language);
+    const DEFAULT_EMERGENCY_DESCRIPTIONS = new Set([
+      "Финансов буфер за непредвидени разходи (препоръчително 3–6 месеца разходи)",
+      "За непредвидени разходи (препоръчително 3–6 месеца разходи)",
+      EMERGENCY_FUND_DEFAULT_DESCRIPTION,
+    ]);
     const displayEfDesc =
-      ef.description ===
-      "Финансов буфер за непредвидени разходи (препоръчително 3–6 месеца разходи)"
+      ef.description && DEFAULT_EMERGENCY_DESCRIPTIONS.has(ef.description.trim())
         ? t("savings.emergencyDefaultDesc")
         : ef.description;
+    const isEmergencyGoalReached =
+      summary.emergencyCoverageMonths !== null &&
+      summary.emergencyCoverageMonths >= EMERGENCY_FUND_TARGET_MONTHS;
 
     return (
       <div className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900/60 rounded-xl p-5 shadow-xs space-y-4">
@@ -356,6 +369,11 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                 <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 tabular-nums">
                   {pct.toFixed(1)}%
                 </span>
+                {isEmergencyGoalReached && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    {t("savings.emergencyGoalReachedBadge")}
+                  </span>
+                )}
               </div>
               {displayEfDesc && (
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -370,6 +388,13 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                     })
                   : t("savings.coverageAddExpensesHint")}
               </p>
+              {isEmergencyGoalReached && summary.emergencyCoverageMonths !== null && (
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mt-0.5 tabular-nums">
+                  {t("savings.currentCoverageOutOf6", {
+                    current: summary.emergencyCoverageMonths.toFixed(1),
+                  })}
+                </p>
+              )}
             </div>
           </div>
 
@@ -788,11 +813,23 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                     type="text"
                     inputMode="decimal"
                     required
+                    readOnly={goalIsEmergency && summary.averageMonthlyExpenses > 0}
                     value={goalTarget}
                     onChange={(e) => setGoalTarget(sanitizeDecimalInput(e.target.value))}
                     placeholder="3000"
-                    className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums"
+                    className={`w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums ${
+                      goalIsEmergency && summary.averageMonthlyExpenses > 0
+                        ? "opacity-75 cursor-not-allowed"
+                        : ""
+                    }`}
                   />
+                  {goalIsEmergency && summary.averageMonthlyExpenses > 0 && (
+                    <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-1 tabular-nums">
+                      {t("savings.emergencyAutoTargetHint", {
+                        avg: summary.averageMonthlyExpenses.toFixed(2),
+                      })}
+                    </p>
+                  )}
                 </div>
 
                 {!editingGoalId && (

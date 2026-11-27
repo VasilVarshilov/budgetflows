@@ -81,11 +81,11 @@ export const DEFAULT_INCOME_CATEGORIES: ExpenseCategory[] = [
 ];
 
 export const DEFAULT_BUDGETS: BudgetConfig[] = [
-  { id: "b_food", categoryName: "Храна", categoryId: "food", monthlyLimit: 350 },
-  { id: "b_bills", categoryName: "Сметки и битови", monthlyLimit: 150 },
-  { id: "b_transport", categoryName: "Гориво и транспорт", monthlyLimit: 120 },
-  { id: "b_rest", categoryName: "Ресторанти и забавления", monthlyLimit: 100 },
-  { id: "b_other", categoryName: "Други разходи", monthlyLimit: 80 },
+  { id: "b_food", categoryName: "Храна", categoryId: "food", monthlyLimit: 1 },
+  { id: "b_bills", categoryName: "Сметки и битови", monthlyLimit: 1 },
+  { id: "b_transport", categoryName: "Гориво и транспорт", monthlyLimit: 1 },
+  { id: "b_rest", categoryName: "Ресторанти и забавления", monthlyLimit: 1 },
+  { id: "b_other", categoryName: "Други разходи", monthlyLimit: 1 },
 ];
 
 /**

@@ -733,14 +733,15 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                 />
               </div>
 
-              <div className="pt-2">
-                <InputGroup
-                  label={t('electricity.totalInvoiceAmount')}
-                  value={activeInputs.invoiceTotal}
-                  onChange={(v) => setActiveInputs((prev) => ({ ...prev, invoiceTotal: v }))}
-                  placeholder={isSingleMode ? t('common.optional') : undefined}
-                />
-              </div>
+              {!isSingleMode && (
+                <div className="pt-2">
+                  <InputGroup
+                    label={t('electricity.totalInvoiceAmount')}
+                    value={activeInputs.invoiceTotal}
+                    onChange={(v) => setActiveInputs((prev) => ({ ...prev, invoiceTotal: v }))}
+                  />
+                </div>
+              )}
 
               {/* Optional note */}
               <div>

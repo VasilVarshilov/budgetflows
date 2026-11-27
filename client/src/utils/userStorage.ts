@@ -28,6 +28,7 @@ export const STORAGE_BASE_SAVINGS_GOALS = "SavingsGoals";
 export const STORAGE_BASE_NOTIFICATIONS = "Notifications";
 export const STORAGE_BASE_EXPENSES_MONTH = "ExpensesSelectedMonth";
 export const STORAGE_BASE_INCOME_MONTH = "IncomeSelectedMonth";
+export const STORAGE_BASE_DEFAULTS_INITIALIZED = "DefaultsInitialized";
 export const STORAGE_BASE_PRE_RESTORE_PREFIX = "PreRestore_Backup_";
 
 // Legacy un-namespaced keys for one-time migration ONLY to the guest namespace
@@ -263,8 +264,14 @@ export function isUserStorageEmpty(specificUid?: string): boolean {
     Array.isArray(electricity) &&
     electricity.some((r) => !String(r?.id || "").startsWith("elec_seed_"));
 
-  const recurring = getUserJSON<unknown[]>(STORAGE_BASE_RECURRING_INCOMES, [], targetUid);
-  const hasRecurring = Array.isArray(recurring) && recurring.length > 0;
+  const recurring = getUserJSON<Array<{ id?: string }>>(
+    STORAGE_BASE_RECURRING_INCOMES,
+    [],
+    targetUid
+  );
+  const hasRecurring =
+    Array.isArray(recurring) &&
+    recurring.some((r) => !String(r?.id || "").startsWith("rec_inc_default_"));
 
   return !hasMonthly && !hasSavings && !hasElectricity && !hasRecurring;
 }

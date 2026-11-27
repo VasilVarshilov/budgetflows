@@ -4,6 +4,9 @@ import { STORAGE_BASE_SAVINGS_GOALS, userStorage } from "./userStorage";
 import { t } from "@/i18n/helpers";
 
 export const SAVINGS_GOALS_UPDATED_EVENT = "homebudget:savings-goals-updated";
+export const EMERGENCY_FUND_TARGET_MONTHS = 6;
+export const EMERGENCY_FUND_DEFAULT_DESCRIPTION =
+  "За непредвидени разходи (Препоръчителен период от 6 месеца)";
 
 function roundCurrency(val: number): number {
   return Math.round((val + Number.EPSILON) * 100) / 100;
@@ -136,10 +139,24 @@ export function computeSavingsAllocationSummary(
   monthlyData: Record<string, MonthlyRecord> = {}
 ): SavingsAllocationSummary {
   const totalSavings = calculateTotalSavingsBalance(savingsData);
-  const activeGoals = goals.filter((g) => !g.archived);
+  const rawActiveGoals = goals.filter((g) => !g.archived);
   const archivedGoals = goals.filter((g) => Boolean(g.archived));
 
-  const emergencyFundGoal = activeGoals.find((g) => Boolean(g.isEmergencyFund)) || null;
+  const averageMonthlyExpenses = calculateAverageMonthlyExpenses(monthlyData);
+  const rawEmergencyGoal = rawActiveGoals.find((g) => Boolean(g.isEmergencyFund)) || null;
+  const emergencyFundGoal = rawEmergencyGoal
+    ? {
+        ...rawEmergencyGoal,
+        targetAmount:
+          averageMonthlyExpenses > 0
+            ? roundCurrency(averageMonthlyExpenses * EMERGENCY_FUND_TARGET_MONTHS)
+            : rawEmergencyGoal.targetAmount,
+      }
+    : null;
+  const activeGoals = emergencyFundGoal
+    ? rawActiveGoals.map((g) => (g.id === emergencyFundGoal.id ? emergencyFundGoal : g))
+    : rawActiveGoals;
+
   const emergencyFundAllocated = emergencyFundGoal
     ? roundCurrency(emergencyFundGoal.allocatedAmount)
     : 0;
@@ -155,7 +172,6 @@ export function computeSavingsAllocationSummary(
   const unallocatedSavings = Math.max(0, rawUnallocated);
   const overAllocatedAmount = rawUnallocated < 0 ? roundCurrency(Math.abs(rawUnallocated)) : 0;
 
-  const averageMonthlyExpenses = calculateAverageMonthlyExpenses(monthlyData);
   const emergencyCoverageMonths =
     averageMonthlyExpenses > 0
       ? Math.round((emergencyFundAllocated / averageMonthlyExpenses) * 10) / 10

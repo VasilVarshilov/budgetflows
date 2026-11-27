@@ -13,6 +13,8 @@ import {
   Scale,
   Loader2,
   RotateCcw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { MonthlyRecord, IncomeItem } from "@/types";
 import {
@@ -110,6 +112,16 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
   const [statusFilter, setStatusFilter] = useState<ExportStatusFilter>("completed");
   const [recurringFilter, setRecurringFilter] = useState<ExportRecurringFilter>("all");
   const [showFiltersPanel, setShowFiltersPanel] = useState(true);
+  const [isReportFiltersOpen, setIsReportFiltersOpen] = useState(variant === "modal");
+
+  useEffect(() => {
+    if (variant !== "inline" || !isReportFiltersOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsReportFiltersOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [variant, isReportFiltersOpen]);
 
   const [isExportingPng, setIsExportingPng] = useState(false);
   const [isExportingTxt, setIsExportingTxt] = useState(false);
@@ -269,6 +281,282 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
 
   const isModal = variant === "modal";
 
+  const renderFilterSections = () => (
+    <div>
+      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-2">
+        {t("exportCenter.step1Title")}
+      </label>
+      <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+        <button
+          type="button"
+          onClick={() => setPeriodType("month")}
+          className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            periodType === "month"
+              ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
+              : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+          }`}
+        >
+          {t("exportCenter.periodMonth")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPeriodType("year")}
+          className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            periodType === "year"
+              ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
+              : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+          }`}
+        >
+          {t("exportCenter.periodYear")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPeriodType("custom")}
+          className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            periodType === "custom"
+              ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
+              : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+          }`}
+        >
+          {t("exportCenter.periodCustom")}
+        </button>
+      </div>
+
+      {/* Period Sub-selectors */}
+      <div className="mt-3 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+        {periodType === "month" && (
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                {t("common.month")}
+              </label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                {MONTHS_BG.map((m) => (
+                  <option key={m} value={m}>
+                    {translateMonthName(m, language)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="w-full sm:w-1/3">
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                {t("common.year")}
+              </label>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                {YEARS.map((y) => (
+                  <option key={y} value={y}>
+                    {y} {t("common.yearSuffix")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {periodType === "year" && (
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                {t("exportCenter.selectYearLabel")}
+              </label>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                {YEARS.map((y) => (
+                  <option key={y} value={y}>
+                    {t("exportCenter.all12MonthsOption", { year: y })}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {periodType === "custom" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                {t("exportCenter.fromDate")}
+              </label>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
+                {t("exportCenter.toDate")}
+              </label>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Filter-Aware Report Settings */}
+      <div className="mt-3 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setShowFiltersPanel((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+          >
+            <Filter className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>{t("exportCenter.filtersToggle")}</span>
+            {activeFiltersCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold tabular-nums">
+                {t("exportCenter.activeFiltersBadge", { count: activeFiltersCount })}
+              </span>
+            )}
+          </button>
+          {activeFiltersCount > 0 && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>{t("common.reset")}</span>
+            </button>
+          )}
+        </div>
+
+        {showFiltersPanel && (
+          <div className="space-y-2.5 pt-1 border-t border-slate-200/70 dark:border-slate-700/70">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* Status Filter */}
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
+                  {t("exportCenter.statusLabel")}
+                </label>
+                <div className="grid grid-cols-3 gap-1 p-0.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                  {(
+                    [
+                      { id: "completed", label: t("exportCenter.statusCompleted") },
+                      { id: "upcoming", label: t("exportCenter.statusUpcoming") },
+                      { id: "all", label: t("exportCenter.statusAll") },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setStatusFilter(opt.id)}
+                      className={`py-1 px-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                        statusFilter === opt.id
+                          ? "bg-indigo-600 text-white shadow-2xs"
+                          : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Recurring Filter */}
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
+                  {t("exportCenter.recurringLabel")}
+                </label>
+                <div className="grid grid-cols-3 gap-1 p-0.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                  {(
+                    [
+                      { id: "all", label: t("exportCenter.recurringAll") },
+                      { id: "recurring", label: t("exportCenter.recurringOnly") },
+                      { id: "one_time", label: t("exportCenter.oneTimeOnly") },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setRecurringFilter(opt.id)}
+                      className={`py-1 px-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                        recurringFilter === opt.id
+                          ? "bg-indigo-600 text-white shadow-2xs"
+                          : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Multi-Category Filter */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  {t("exportCenter.categoriesLabel", {
+                    selection:
+                      selectedCategories.length === 0
+                        ? t("common.all")
+                        : t("exportCenter.selectedCategoriesCount", {
+                            count: selectedCategories.length,
+                          }),
+                  })}
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-[88px] overflow-y-auto pr-1 custom-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategories([])}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                    selectedCategories.length === 0
+                      ? "bg-slate-900 dark:bg-indigo-600 text-white border-slate-900 dark:border-indigo-600"
+                      : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  {t("common.all")}
+                </button>
+                {availableCategories.map((catName) => {
+                  const isSelected = selectedCategories.some(
+                    (c) => c.toLowerCase() === catName.toLowerCase()
+                  );
+                  return (
+                    <button
+                      key={catName}
+                      type="button"
+                      onClick={() => toggleCategory(catName)}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-indigo-50 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-200 border-indigo-400 dark:border-indigo-500 font-semibold"
+                          : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300"
+                      }`}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: getCategoryColor(catName) }}
+                      />
+                      <span>{translateCategoryName(catName, language)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div
       className={
@@ -312,280 +600,118 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
             : "p-5 sm:p-6 space-y-5"
         }
       >
-          {/* Step 1: Period & Filter Selection */}
-          <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-2">
-              {t("exportCenter.step1Title")}
-            </label>
-            <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => setPeriodType("month")}
-                className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                  periodType === "month"
-                    ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                {t("exportCenter.periodMonth")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPeriodType("year")}
-                className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                  periodType === "year"
-                    ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                {t("exportCenter.periodYear")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPeriodType("custom")}
-                className={`py-2 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                  periodType === "custom"
-                    ? "bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                {t("exportCenter.periodCustom")}
-              </button>
-            </div>
-
-            {/* Period Sub-selectors */}
-            <div className="mt-3 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
-              {periodType === "month" && (
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-1">
-                    <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      {t("common.month")}
-                    </label>
-                    <select
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                    >
-                      {MONTHS_BG.map((m) => (
-                        <option key={m} value={m}>
-                          {translateMonthName(m, language)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="w-full sm:w-1/3">
-                    <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      {t("common.year")}
-                    </label>
-                    <select
-                      value={selectedYear}
-                      onChange={(e) => setSelectedYear(e.target.value)}
-                      className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                    >
-                      {YEARS.map((y) => (
-                        <option key={y} value={y}>
-                          {y} {t("common.yearSuffix")}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {periodType === "year" && (
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      {t("exportCenter.selectYearLabel")}
-                    </label>
-                    <select
-                      value={selectedYear}
-                      onChange={(e) => setSelectedYear(e.target.value)}
-                      className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                    >
-                      {YEARS.map((y) => (
-                        <option key={y} value={y}>
-                          {t("exportCenter.all12MonthsOption", { year: y })}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {periodType === "custom" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      {t("exportCenter.fromDate")}
-                    </label>
-                    <input
-                      type="date"
-                      value={customStartDate}
-                      onChange={(e) => setCustomStartDate(e.target.value)}
-                      className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                      {t("exportCenter.toDate")}
-                    </label>
-                    <input
-                      type="date"
-                      value={customEndDate}
-                      onChange={(e) => setCustomEndDate(e.target.value)}
-                      className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Filter-Aware Report Settings */}
-            <div className="mt-3 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+          {/* Step 1: Collapsed [ Филтри ] Bar by default on inline Reports tab; expanded directly in modal */}
+          {isModal ? (
+            renderFilterSections()
+          ) : (
+            <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowFiltersPanel((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  onClick={() => setIsReportFiltersOpen((prev) => !prev)}
+                  aria-expanded={isReportFiltersOpen}
+                  className={`inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[42px] rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
+                    isReportFiltersOpen || activeFiltersCount > 0
+                      ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-200 border-indigo-300 dark:border-indigo-700 shadow-2xs"
+                      : "bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                  }`}
                 >
-                  <Filter className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>{t("exportCenter.filtersToggle")}</span>
+                  <Filter className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span>{t("exportCenter.filtersButton")}</span>
                   {activeFiltersCount > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold tabular-nums">
-                      {t("exportCenter.activeFiltersBadge", { count: activeFiltersCount })}
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-bold tabular-nums">
+                      {activeFiltersCount}
                     </span>
                   )}
+                  <span className="hidden sm:inline-flex items-center text-slate-400 dark:text-slate-400">
+                    {isReportFiltersOpen ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </span>
                 </button>
+
                 {activeFiltersCount > 0 && (
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
-                    <RotateCcw className="w-3 h-3" />
+                    <RotateCcw className="w-3.5 h-3.5" />
                     <span>{t("common.reset")}</span>
                   </button>
                 )}
               </div>
 
-              {showFiltersPanel && (
-                <div className="space-y-2.5 pt-1 border-t border-slate-200/70 dark:border-slate-700/70">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Status Filter */}
-                    <div>
-                      <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
-                        {t("exportCenter.statusLabel")}
-                      </label>
-                      <div className="grid grid-cols-3 gap-1 p-0.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
-                        {(
-                          [
-                            { id: "completed", label: t("exportCenter.statusCompleted") },
-                            { id: "upcoming", label: t("exportCenter.statusUpcoming") },
-                            { id: "all", label: t("exportCenter.statusAll") },
-                          ] as const
-                        ).map((opt) => (
+              {/* Desktop: Inline expandable filter panel */}
+              {isReportFiltersOpen && (
+                <div className="hidden sm:block pt-1 animate-in fade-in duration-150">
+                  {renderFilterSections()}
+                </div>
+              )}
+
+              {/* Mobile: Bottom sheet filter panel */}
+              {isReportFiltersOpen && (
+                <div
+                  className="sm:hidden fixed inset-0 z-50 flex items-end bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={t("exportCenter.filtersPanelTitle")}
+                  onClick={() => setIsReportFiltersOpen(false)}
+                >
+                  <div
+                    className="w-full max-h-[88vh] bg-white dark:bg-slate-900 rounded-t-2xl border-t border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex justify-center pt-2.5 pb-1">
+                      <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                    </div>
+                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Filter className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                          {t("exportCenter.filtersPanelTitle")}
+                        </h4>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {activeFiltersCount > 0 && (
                           <button
-                            key={opt.id}
                             type="button"
-                            onClick={() => setStatusFilter(opt.id)}
-                            className={`py-1 px-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
-                              statusFilter === opt.id
-                                ? "bg-indigo-600 text-white shadow-2xs"
-                                : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            }`}
+                            onClick={resetFilters}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer"
                           >
-                            {opt.label}
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>{t("common.reset")}</span>
                           </button>
-                        ))}
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsReportFiltersOpen(false)}
+                          className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+                          aria-label={t("common.close")}
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
                       </div>
                     </div>
-
-                    {/* Recurring Filter */}
-                    <div>
-                      <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
-                        {t("exportCenter.recurringLabel")}
-                      </label>
-                      <div className="grid grid-cols-3 gap-1 p-0.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
-                        {(
-                          [
-                            { id: "all", label: t("exportCenter.recurringAll") },
-                            { id: "recurring", label: t("exportCenter.recurringOnly") },
-                            { id: "one_time", label: t("exportCenter.oneTimeOnly") },
-                          ] as const
-                        ).map((opt) => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => setRecurringFilter(opt.id)}
-                            className={`py-1 px-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
-                              recurringFilter === opt.id
-                                ? "bg-indigo-600 text-white shadow-2xs"
-                                : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="p-4 overflow-y-auto flex-1">
+                      {renderFilterSections()}
                     </div>
-                  </div>
-
-                  {/* Multi-Category Filter */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        {t("exportCenter.categoriesLabel", {
-                          selection:
-                            selectedCategories.length === 0
-                              ? t("common.all")
-                              : t("exportCenter.selectedCategoriesCount", {
-                                  count: selectedCategories.length,
-                                }),
-                        })}
-                      </label>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 max-h-[88px] overflow-y-auto pr-1 custom-scrollbar">
+                    <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
                       <button
                         type="button"
-                        onClick={() => setSelectedCategories([])}
-                        className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
-                          selectedCategories.length === 0
-                            ? "bg-slate-900 dark:bg-indigo-600 text-white border-slate-900 dark:border-indigo-600"
-                            : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300"
-                        }`}
+                        onClick={() => setIsReportFiltersOpen(false)}
+                        className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl shadow-xs transition-colors cursor-pointer"
                       >
-                        {t("common.all")}
+                        {t("exportCenter.applyFilters")}
                       </button>
-                      {availableCategories.map((catName) => {
-                        const isSelected = selectedCategories.some(
-                          (c) => c.toLowerCase() === catName.toLowerCase()
-                        );
-                        return (
-                          <button
-                            key={catName}
-                            type="button"
-                            onClick={() => toggleCategory(catName)}
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors cursor-pointer ${
-                              isSelected
-                                ? "bg-indigo-50 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-200 border-indigo-400 dark:border-indigo-500 font-semibold"
-                                : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300"
-                            }`}
-                          >
-                            <span
-                              className="w-2 h-2 rounded-full shrink-0"
-                              style={{ backgroundColor: getCategoryColor(catName) }}
-                            />
-                            <span>{translateCategoryName(catName, language)}</span>
-                          </button>
-                        );
-                      })}
                     </div>
                   </div>
                 </div>
               )}
             </div>
-          </div>
+          )}
 
           {/* Step 2: Live Statistics Preview */}
           <div>

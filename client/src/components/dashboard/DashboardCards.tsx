@@ -637,7 +637,7 @@ export const DashboardCardContent: React.FC<DashboardCardRendererProps> = (props
         {/* Expanded Section: Month-to-Month Comparison + Quick Actions */}
         {isExpanded && (
           <div className="space-y-4 pt-2 animate-in fade-in duration-150">
-            <MonthToMonthComparison comparisonData={monthComparisonData} />
+            <MonthToMonthComparison comparisonData={monthComparisonData} layout="grid" />
 
             <div className="rounded-2xl bg-slate-900 dark:bg-slate-800/90 p-4 text-white space-y-3">
               <div className="flex items-center justify-between gap-2">

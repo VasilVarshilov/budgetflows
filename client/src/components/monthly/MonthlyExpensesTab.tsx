@@ -125,6 +125,7 @@ import {
   sanitizeDecimalInput,
   parseDecimalInput,
   compareExpensesChronologically,
+  getExpenseCreationTimestamp,
 } from "@/utils/formatting";
 import {
   isManualElectricityExpense,
@@ -143,10 +144,10 @@ import { MONTHS_BG } from "@/utils/comparisonStorage";
 // Map за иконките, поддържащ всички налични иконки и AI предложения
 const ICON_MAP: Record<string, any> = AVAILABLE_ICONS_MAP;
 
-// Fixed Default Values in EUR
-const DEFAULT_CREDIT_EUR = 321.32;
-const DEFAULT_PHONE_EUR = 24.54;
-const DEFAULT_INTERNET_EUR = 23.01;
+// Fixed Default Values in EUR (new users)
+const DEFAULT_CREDIT_EUR = 1;
+const DEFAULT_PHONE_EUR = 1;
+const DEFAULT_INTERNET_EUR = 1;
 
 const PREDEFINED_CATEGORIES: ExpenseCategory[] = [
   {
@@ -404,7 +405,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
         rawFixed = savedFixed.map((item) => {
           let amount = item.amount;
           if (item.categoryName === "Кредит" && item.amount === 353.69) {
-            amount = DEFAULT_CREDIT_EUR;
+            amount = 321.32;
           }
           return {
             ...item,
@@ -418,8 +419,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       const legacy: ExpenseItem[] = [];
       const creditAmount =
         savedFixed.credit_eur === 353.69
-          ? DEFAULT_CREDIT_EUR
-          : savedFixed.credit_eur || DEFAULT_CREDIT_EUR;
+          ? 321.32
+          : savedFixed.credit_eur || 321.32;
       legacy.push(
         createFixedItem(
           "Кредит",
@@ -715,8 +716,8 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
   // --- Candidate Expenses Collection across Months & Types ---
   const candidateExpenses = useMemo(() => {
-    // 1. Current Month filter
-    if (expenseFilters.monthFilter === "current") {
+    // 1. Current Month filter (unless "lastAdded" is active so newly added records in other months remain immediately discoverable)
+    if (expenseFilters.monthFilter === "current" && expenseFilters.sortBy !== "lastAdded") {
       let items: (ExpenseItem & { sourceMonth?: string; isFixedItem?: boolean })[] = expenses.map(
         (e) => ({ ...e, sourceMonth: currentMonth, isFixedItem: false })
       );
@@ -789,6 +790,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     currentMonth,
     expenseFilters.monthFilter,
     expenseFilters.includeFixed,
+    expenseFilters.sortBy,
   ]);
 
   // --- Smart Search, Filter & Sort Pipeline ---
@@ -877,6 +879,11 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       })
       .sort((a, b) => {
         switch (expenseFilters.sortBy) {
+          case "lastAdded":
+            return (
+              getExpenseCreationTimestamp(b.item) - getExpenseCreationTimestamp(a.item) ||
+              compareExpensesChronologically(a.item, b.item, "desc", a.idx, b.idx)
+            );
           case "oldest":
             return compareExpensesChronologically(a.item, b.item, "asc", a.idx, b.idx);
           case "highest":

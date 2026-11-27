@@ -16,36 +16,36 @@ import { getCurrentLanguage, t, translateBudgetName } from "@/i18n/helpers";
 export const STORAGE_KEY_BUDGETS = "HomeBudget_Budgets";
 export const STORAGE_KEY_TOTAL_BUDGET = "HomeBudget_TotalMonthlyBudget";
 
-export const DEFAULT_TOTAL_MONTHLY_BUDGET = 1500;
+export const DEFAULT_TOTAL_MONTHLY_BUDGET = 5;
 
 export const DEFAULT_CATEGORY_BUDGETS: BudgetConfig[] = [
   {
     id: "b_food",
     categoryName: "Храна",
     categoryId: "food",
-    monthlyLimit: 400,
+    monthlyLimit: 1,
   },
   {
     id: "b_transport",
     categoryName: "Транспорт",
     categoryId: "transport",
-    monthlyLimit: 250,
+    monthlyLimit: 1,
   },
   {
     id: "b_entertainment",
     categoryName: "Забавления",
-    monthlyLimit: 150,
+    monthlyLimit: 1,
   },
   {
     id: "b_bills",
     categoryName: "Сметки и битови",
-    monthlyLimit: 200,
+    monthlyLimit: 1,
   },
   {
     id: "b_other",
     categoryName: "Други",
     categoryId: "other",
-    monthlyLimit: 100,
+    monthlyLimit: 1,
   },
 ];
 
