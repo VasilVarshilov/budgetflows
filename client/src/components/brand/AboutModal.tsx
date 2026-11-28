@@ -67,31 +67,31 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
       role="dialog"
       aria-modal="true"
       aria-label={t("brand.aboutAria", { appName: APP_NAME })}
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95"
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full modal-panel-safe sm:max-h-[90dvh] flex flex-col overflow-hidden animate-in zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+        <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white min-w-0 flex-1 truncate">
             {t("brand.aboutTitle")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             aria-label={t("common.close")}
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-5 sm:p-6 text-center space-y-4 overflow-y-auto min-w-0">
+        <div className="p-4 sm:p-6 text-center space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0 min-w-0">
           <div className="flex justify-center">
             <BrandMark size={84} detail="full" />
           </div>
@@ -159,15 +159,15 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
 
           {/* Two Primary Actions: [ Подкрепи ме ] [ Сподели ] */}
           <div className="pt-1 space-y-2.5">
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
               {onOpenSupport && (
                 <button
                   type="button"
                   onClick={onOpenSupport}
-                  className="min-h-[44px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 dark:bg-amber-400 dark:hover:bg-amber-300 text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+                  className="min-h-[44px] min-w-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 dark:bg-amber-400 dark:hover:bg-amber-300 text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer"
                 >
                   <Coffee className="w-4 h-4 shrink-0" />
-                  <span>{t("brand.supportMenu")}</span>
+                  <span className="truncate">{t("brand.supportMenu")}</span>
                 </button>
               )}
               <button
@@ -175,17 +175,17 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenS
                 onClick={handleShareApp}
                 className={`${
                   onOpenSupport ? "" : "col-span-2"
-                } min-h-[44px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 dark:bg-sky-500 dark:hover:bg-sky-400 text-white dark:text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer whitespace-nowrap`}
+                } min-h-[44px] min-w-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 dark:bg-sky-500 dark:hover:bg-sky-400 text-white dark:text-slate-950 text-xs font-bold shadow-xs transition-colors cursor-pointer`}
               >
                 {shareCopied ? (
                   <>
                     <Check className="w-4 h-4 shrink-0" />
-                    <span>{t("brand.linkCopied")}</span>
+                    <span className="truncate">{t("brand.linkCopied")}</span>
                   </>
                 ) : (
                   <>
                     <Share2 className="w-4 h-4 shrink-0" />
-                    <span>{t("brand.share")}</span>
+                    <span className="truncate">{t("brand.share")}</span>
                   </>
                 )}
               </button>

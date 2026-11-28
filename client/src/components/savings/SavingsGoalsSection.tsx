@@ -766,10 +766,10 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
       {/* Create / Edit Goal Modal */}
       {isGoalModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-black/50 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 max-w-md w-full modal-panel-safe flex flex-col overflow-hidden">
+            <div className="px-4 sm:px-5 pt-4 pb-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white min-w-0 flex-1 truncate">
                 {editingGoalId
                   ? goalIsEmergency
                     ? t("savings.goalModal.editEmergencyShort")
@@ -781,13 +781,14 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               <button
                 type="button"
                 onClick={() => setIsGoalModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                aria-label={t("common.close")}
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveGoalModal} className="space-y-3">
+            <form onSubmit={handleSaveGoalModal} className="p-4 sm:p-5 space-y-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
               {!goalIsEmergency && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -894,10 +895,10 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
       {/* Allocate / Withdraw Funds Modal */}
       {fundModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 max-w-sm w-full p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-black/50 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 max-w-sm w-full modal-panel-safe flex flex-col overflow-hidden">
+            <div className="px-4 sm:px-5 pt-4 pb-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white min-w-0 flex-1 truncate">
                 {fundModal.mode === "allocate"
                   ? t("savings.fundModal.addTitle", {
                       name: translateGoalName(
@@ -917,13 +918,14 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               <button
                 type="button"
                 onClick={() => setFundModal(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                aria-label={t("common.close")}
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitFundAction} className="space-y-3">
+            <form onSubmit={handleSubmitFundAction} className="p-4 sm:p-5 space-y-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
               <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                 {fundModal.mode === "allocate" ? (
                   <>

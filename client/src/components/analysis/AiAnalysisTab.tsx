@@ -539,19 +539,19 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
         const detail = analysis.metricBreakdowns[selectedMetricId];
         return (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
+            className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/65 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
             role="dialog"
             aria-modal="true"
             aria-label={detail.title}
             onClick={() => setSelectedMetricId(null)}
           >
             <div
-              className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full max-h-[88vh] flex flex-col overflow-hidden animate-in zoom-in-95"
+              className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full modal-panel-safe sm:max-h-[88dvh] flex flex-col overflow-hidden animate-in zoom-in-95"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Modal Header */}
-              <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3 bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-900 text-white shrink-0">
-                <div className="min-w-0">
+              <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3 bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-900 text-white shrink-0">
+                <div className="min-w-0 flex-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-300 block">
                     {t("ai.metricModal.subtitle")}
                   </span>
@@ -580,7 +580,7 @@ export const AiAnalysisTab: React.FC<AiAnalysisTabProps> = ({
               </div>
 
               {/* Scrollable Content */}
-              <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs sm:text-sm min-w-0">
+              <div className="p-4 sm:p-5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 space-y-4 text-xs sm:text-sm min-w-0">
                 {/* Formula */}
                 <div className="rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-900/70 p-3.5 min-w-0">
                   <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 mb-1.5">

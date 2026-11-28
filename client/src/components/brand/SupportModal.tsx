@@ -40,23 +40,23 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
   return (
     <>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
+        className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/65 dark:bg-black/75 backdrop-blur-xs animate-in fade-in"
         role="dialog"
         aria-modal="true"
         aria-label={t("brand.support.dialogAria")}
         onClick={onClose}
       >
         <div
-          className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95"
+          className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full modal-panel-safe sm:max-h-[90dvh] flex flex-col overflow-hidden animate-in zoom-in-95"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-gradient-to-r from-[#0A1E57] via-[#123285] to-[#1B46B5] text-white shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-gradient-to-r from-[#0A1E57] via-[#123285] to-[#1B46B5] text-white shrink-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-300/30 flex items-center justify-center text-amber-300 shrink-0">
                 <Coffee className="w-4 h-4" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h3 className="text-sm sm:text-base font-bold text-white truncate">
                   {t("brand.support.title")}
                 </h3>
@@ -71,12 +71,12 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
               aria-label={t("common.close")}
               className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Body */}
-          <div className="p-5 sm:p-6 overflow-y-auto space-y-4 min-w-0">
+          <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 min-h-0 space-y-4 min-w-0">
             {/* Brand Identity Strip */}
             <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
               <BrandMark size={44} detail="compact" className="shrink-0" />
@@ -187,21 +187,21 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
       {/* Enlarged QR Code Lightbox */}
       {isQrEnlarged && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in"
+          className="fixed inset-0 z-[60] flex items-center justify-center modal-backdrop-safe bg-black/85 backdrop-blur-sm animate-in fade-in"
           role="dialog"
           aria-modal="true"
           aria-label={t("brand.support.qrZoomAria")}
           onClick={() => setIsQrEnlarged(false)}
         >
           <div
-            className="relative bg-[#1c1f26] border border-slate-700 rounded-3xl p-4 sm:p-6 max-w-sm w-full flex flex-col items-center gap-3 shadow-2xl animate-in zoom-in-95"
+            className="relative bg-[#1c1f26] border border-slate-700 rounded-3xl p-4 sm:p-6 max-w-sm w-full modal-panel-safe overflow-y-auto overflow-x-hidden flex flex-col items-center gap-3 shadow-2xl animate-in zoom-in-95"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               onClick={() => setIsQrEnlarged(false)}
               aria-label={t("common.close")}
-              className="self-end min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="self-end shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>

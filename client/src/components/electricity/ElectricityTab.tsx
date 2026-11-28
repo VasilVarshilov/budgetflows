@@ -965,18 +965,18 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
 
       {/* Manual Electricity Entry Modal */}
       {isManualModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 rounded-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full modal-panel-safe flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="p-2 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 rounded-xl shrink-0">
                   <Zap className="w-5 h-5" />
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base truncate">
                     {t('electricity.manualModalTitle')}
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                     {t('electricity.manualModalSubtitle')}
                   </p>
                 </div>
@@ -984,14 +984,14 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
               <button
                 type="button"
                 onClick={() => setIsManualModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 aria-label={t('common.close')}
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveManualEntry} className="p-5 space-y-4">
+            <form onSubmit={handleSaveManualEntry} className="p-4 sm:p-5 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
               {manualError && (
                 <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs rounded-xl font-medium">
                   {manualError}
@@ -999,14 +999,14 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
               )}
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
+                <div className="min-w-0">
                   <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
                     {t('common.month')}
                   </label>
                   <select
                     value={manualMonth}
                     onChange={(e) => setManualMonth(e.target.value)}
-                    className="w-full text-sm font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-yellow-500/30"
+                    className="w-full min-w-0 text-sm font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-yellow-500/30"
                   >
                     {MONTHS_BG_LIST.map((m) => (
                       <option key={m} value={m}>
@@ -1015,7 +1015,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                     ))}
                   </select>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">
                     {t('common.year')}
                   </label>
@@ -1023,7 +1023,7 @@ export const ElectricityTab: React.FC<ElectricityTabProps> = ({
                     type="number"
                     value={manualYear}
                     onChange={(e) => setManualYear(e.target.value)}
-                    className="w-full text-sm font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-yellow-500/30"
+                    className="w-full min-w-0 text-sm font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-yellow-500/30"
                   />
                 </div>
               </div>

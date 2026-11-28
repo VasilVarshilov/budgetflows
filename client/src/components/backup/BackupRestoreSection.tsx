@@ -402,48 +402,50 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
       {/* PREVIEW & IMPORT MODAL */}
       {/* ========================================================= */}
       {isPreviewOpen && pendingBackup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/60 dark:bg-black/75 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full modal-panel-safe sm:max-h-[90dvh] flex flex-col overflow-hidden animate-in zoom-in-95">
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-lg">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-900 shrink-0">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="p-2 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-lg shrink-0">
                   <FileCheck className="w-5 h-5" />
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 dark:text-white text-base sm:text-lg">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-slate-800 dark:text-white text-base sm:text-lg truncate">
                     {t("backup.previewModal.title")}
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                     {selectedFileName} ({selectedFileSize})
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsPreviewOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800"
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 cursor-pointer"
+                aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 sm:p-6 overflow-y-auto space-y-6">
+            <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 min-h-0 space-y-6">
               {/* File Metadata Overview */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-indigo-50/60 dark:bg-indigo-950/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
-                <div>
+                <div className="min-w-0">
                   <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
                     {t("backup.previewModal.backupDate")}
                   </div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100 break-words">
                     {formatIsoDate(pendingBackup.exportDate)}
                   </div>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
                     {t("backup.previewModal.appLabel")}
                   </div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100 break-words">
                     {pendingBackup.appName || APP_NAME}
                   </div>
                 </div>
@@ -454,7 +456,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
                   {t("backup.previewModal.comparisonHeading")}
                 </h4>
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-xs">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto text-xs">
                   <table className="w-full text-left divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-semibold">
                       <tr>
@@ -652,7 +654,7 @@ export const BackupRestoreSection: React.FC<BackupRestoreSectionProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-col sm:flex-row justify-end gap-3">
+            <div className="p-4 sm:p-5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-col sm:flex-row justify-end gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsPreviewOpen(false)}

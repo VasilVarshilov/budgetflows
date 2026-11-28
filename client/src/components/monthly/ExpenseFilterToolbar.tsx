@@ -442,7 +442,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
       {isFilterModalOpen &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/55 dark:bg-black/75 backdrop-blur-xs sm:p-4 animate-in fade-in duration-150"
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/55 dark:bg-black/75 backdrop-blur-xs sheet-backdrop-safe animate-in fade-in duration-150"
             onClick={(e) => {
               if (e.target === e.currentTarget) handleCloseModal();
             }}
@@ -450,24 +450,24 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
             aria-modal="true"
             aria-labelledby="expense-filter-modal-title"
           >
-            <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[88vh] sm:max-h-[85vh] overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200">
+            <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col sheet-panel-safe sm:max-h-[85dvh] overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200">
               {/* Mobile Drag Handle */}
               <div className="sm:hidden pt-2.5 pb-1 flex justify-center shrink-0">
                 <span className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
               </div>
 
               {/* Sticky Modal Header */}
-              <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
-                <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <SlidersHorizontal className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                   <h2
                     id="expense-filter-modal-title"
-                    className="text-base font-bold text-slate-900 dark:text-white"
+                    className="text-base font-bold text-slate-900 dark:text-white truncate"
                   >
                     {t("expenses.filters.modalTitle")}
                   </h2>
                   {draftFiltersCount > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold tabular-nums">
+                    <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold tabular-nums shrink-0">
                       {draftFiltersCount}
                     </span>
                   )}
@@ -476,7 +476,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   aria-label={t("expenses.filters.closeFiltersAria")}
                 >
                   <X className="w-5 h-5" />
@@ -484,48 +484,48 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
               </div>
 
               {/* Scrollable Filter Controls Body */}
-              <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-5">
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 sm:px-5 py-4 space-y-5">
                 {/* 1. Status (Realized vs Planned / Future) */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-indigo-500" />
                     <span>{t("expenses.filters.statusLabel")}</span>
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                     <button
                       type="button"
                       onClick={() => updateDraftFilter("statusFilter", "all")}
-                      className={`min-h-[44px] px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      className={`min-h-[44px] px-1.5 sm:px-3 min-w-0 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
                         (draftFilters.statusFilter || "all") === "all"
                           ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
                           : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
                       }`}
                     >
-                      {t("expenses.filters.statusAll")}
+                      <span className="truncate">{t("expenses.filters.statusAll")}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => updateDraftFilter("statusFilter", "completed")}
-                      className={`min-h-[44px] px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      className={`min-h-[44px] px-1.5 sm:px-3 min-w-0 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
                         draftFilters.statusFilter === "completed"
                           ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
                           : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
                       }`}
                     >
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>{t("expenses.filters.statusCompleted")}</span>
+                      <span className="truncate">{t("expenses.filters.statusCompleted")}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => updateDraftFilter("statusFilter", "planned")}
-                      className={`min-h-[44px] px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      className={`min-h-[44px] px-1.5 sm:px-3 min-w-0 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
                         draftFilters.statusFilter === "planned"
                           ? "bg-amber-600 text-white border-amber-600 shadow-xs"
                           : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
                       }`}
                     >
                       <Clock className="w-3.5 h-3.5 shrink-0" />
-                      <span>{t("expenses.filters.statusUpcoming")}</span>
+                      <span className="truncate">{t("expenses.filters.statusUpcoming")}</span>
                     </button>
                   </div>
                 </div>
@@ -629,29 +629,29 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
                   </div>
 
                   {draftFilters.monthFilter === "custom" && (
-                    <div className="grid grid-cols-2 gap-2.5 p-3 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/60">
-                      <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/60">
+                      <div className="min-w-0">
                         <label className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-200 flex items-center gap-1 mb-1">
-                          <CalendarRange className="w-3 h-3" />
+                          <CalendarRange className="w-3 h-3 shrink-0" />
                           <span>{t("expenses.filters.fromDateLabel")}</span>
                         </label>
                         <input
                           type="date"
                           value={draftFilters.startDate}
                           onChange={(e) => updateDraftFilter("startDate", e.target.value)}
-                          className="w-full px-2.5 py-2 min-h-[42px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 max-w-full px-2.5 py-2 min-h-[42px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <label className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-200 flex items-center gap-1 mb-1">
-                          <CalendarRange className="w-3 h-3" />
+                          <CalendarRange className="w-3 h-3 shrink-0" />
                           <span>{t("expenses.filters.toDateLabel")}</span>
                         </label>
                         <input
                           type="date"
                           value={draftFilters.endDate}
                           onChange={(e) => updateDraftFilter("endDate", e.target.value)}
-                          className="w-full px-2.5 py-2 min-h-[42px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full min-w-0 max-w-full px-2.5 py-2 min-h-[42px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                       </div>
                     </div>
@@ -825,7 +825,7 @@ export const ExpenseFilterToolbar: React.FC<ExpenseFilterToolbarProps> = ({
               </div>
 
               {/* Sticky Modal Footer */}
-              <div className="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-2.5 shrink-0">
+              <div className="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={handleResetDraft}

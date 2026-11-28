@@ -92,7 +92,7 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
     isOpen && typeof document !== "undefined"
       ? createPortal(
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 dark:bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 dark:bg-black/75 backdrop-blur-xs modal-backdrop-safe animate-in fade-in duration-150"
             onClick={() => setIsOpen(false)}
           >
             <form
@@ -101,11 +101,11 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
               aria-modal="true"
               aria-label={t("expenses.monthPicker.title")}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-slate-900 w-full max-w-xs rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 space-y-4 animate-in zoom-in-95 duration-150"
+              className="bg-white dark:bg-slate-900 w-full max-w-xs rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 modal-panel-safe overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 animate-in zoom-in-95 duration-150"
             >
               {/* Header */}
               <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
                   <CalendarDays className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                     {t("expenses.monthPicker.title")}
@@ -115,7 +115,7 @@ export const MonthPickerControl: React.FC<MonthPickerControlProps> = ({
                   type="button"
                   onClick={() => setIsOpen(false)}
                   aria-label={t("common.close")}
-                  className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>

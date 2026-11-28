@@ -396,3 +396,46 @@ body {
     }
   }
 }
+
+/* Mobile-first Modal & Sheet Viewport Safety (iOS Safari / Android Chrome dvh + Safe Areas) */
+.modal-backdrop-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+
+.sheet-backdrop-safe {
+  padding-top: max(2.25rem, env(safe-area-inset-top, 0px));
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+@media (min-width: 640px) {
+  .sheet-backdrop-safe {
+    padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) max(1rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
+  }
+}
+
+.modal-panel-safe {
+  max-height: calc(100dvh - max(1.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px) + 1rem));
+  max-width: 100%;
+  min-width: 0;
+}
+
+.sheet-panel-safe {
+  max-height: calc(100dvh - max(2.5rem, env(safe-area-inset-top, 0px) + 1rem));
+  max-width: 100%;
+  min-width: 0;
+}
+
+.modal-panel-safe input,
+.modal-panel-safe select,
+.modal-panel-safe textarea,
+.sheet-panel-safe input,
+.sheet-panel-safe select,
+.sheet-panel-safe textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+

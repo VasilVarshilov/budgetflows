@@ -465,39 +465,39 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
       {/* Reorder Cards Modal (Mobile + Desktop friendly) */}
       {isReorderOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs modal-backdrop-safe animate-in fade-in duration-150"
           role="dialog"
           aria-modal="true"
           aria-labelledby="reorder-cards-title"
           onClick={() => setIsReorderOpen(false)}
         >
           <div
-            className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col modal-panel-safe sm:max-h-[85dvh]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
-              <div>
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0 flex-1">
                 <h3
                   id="reorder-cards-title"
-                  className="text-base font-bold text-slate-900 dark:text-white"
+                  className="text-base font-bold text-slate-900 dark:text-white truncate"
                 >
                   {t("dashboard.reorderModalTitle")}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">
                   {t("dashboard.reorderModalSubtitle")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsReorderOpen(false)}
-                className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="min-h-[40px] min-w-[40px] shrink-0 inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 aria-label={t("common.close")}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="p-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0 divide-y divide-slate-100 dark:divide-slate-800">
               {cardOrder.map((cardId, idx) => {
                 const label = getCardLabel(cardId);
                 const isFirst = idx === 0;
@@ -546,7 +546,7 @@ export const DashboardCarousel: React.FC<DashboardCarouselProps> = ({
               })}
             </div>
 
-            <div className="px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+            <div className="px-4 sm:px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => onChangeOrder([...DEFAULT_DASHBOARD_CARD_ORDER])}

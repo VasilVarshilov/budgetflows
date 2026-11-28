@@ -123,19 +123,19 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+    <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full modal-panel-safe sm:max-h-[92dvh] flex flex-col overflow-hidden animate-in zoom-in-95">
         {/* Header */}
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 rounded-xl">
+        <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-900 shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="p-2 bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 rounded-xl shrink-0">
               <Cloud className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="font-bold text-slate-900 dark:text-white text-base sm:text-lg">
+            <div className="min-w-0 flex-1">
+              <h3 className="font-bold text-slate-900 dark:text-white text-base sm:text-lg truncate">
                 {t("backup.driveRestoreModal.title")}
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400 break-words">
                 {t("backup.driveRestoreModal.profileLabel")}{" "}
                 <strong className="text-slate-700 dark:text-slate-200">
                   {user?.email || t("backup.driveRestoreModal.currentGoogleProfile")}
@@ -147,14 +147,15 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 cursor-pointer"
+            className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 cursor-pointer"
+            aria-label={t("common.close")}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden space-y-5 flex-1 min-h-0">
           {isLoading && (
             <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-500 dark:text-slate-400">
               <Loader2 className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-spin" />
@@ -224,7 +225,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
                   {t("backup.driveRestoreModal.comparisonHeading")}
                 </h4>
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-xs">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto text-xs">
                   <table className="w-full text-left divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-semibold">
                       <tr>
@@ -421,7 +422,7 @@ export const DriveRestoreModal: React.FC<DriveRestoreModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-col sm:flex-row justify-end gap-3">
+        <div className="p-4 sm:p-5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-col sm:flex-row justify-end gap-3 shrink-0">
           <button
             type="button"
             onClick={onClose}

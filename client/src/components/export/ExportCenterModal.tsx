@@ -385,7 +385,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
 
         {periodType === "custom" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+            <div className="min-w-0">
               <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
                 {t("exportCenter.fromDate")}
               </label>
@@ -393,10 +393,10 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full min-w-0 max-w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
                 {t("exportCenter.toDate")}
               </label>
@@ -404,7 +404,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full min-w-0 max-w-full text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
           </div>
@@ -562,21 +562,21 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
     <div
       className={
         isModal
-          ? "bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+          ? "bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl modal-panel-safe sm:max-h-[92dvh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
           : "bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 w-full flex flex-col overflow-hidden transition-colors"
       }
     >
       {/* Header */}
-      <div className="px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-900">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2.5 bg-slate-50/70 dark:bg-slate-900 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs shrink-0">
             <Download className="w-5 h-5" />
           </div>
-          <div className="min-w-0">
-            <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-white leading-tight">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-white leading-tight truncate">
               {t("exportCenter.title")}
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
               {t("exportCenter.subtitle")}
             </p>
           </div>
@@ -585,7 +585,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shrink-0"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer shrink-0"
             aria-label={t("common.close")}
           >
             <X className="w-5 h-5" />
@@ -597,8 +597,8 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
       <div
         className={
           isModal
-            ? "p-6 space-y-5 overflow-y-auto flex-1"
-            : "p-5 sm:p-6 space-y-5"
+            ? "p-4 sm:p-6 space-y-5 overflow-y-auto overflow-x-hidden flex-1 min-h-0"
+            : "p-5 sm:p-6 space-y-5 overflow-x-hidden"
         }
       >
           {/* Step 1: Collapsed [ Филтри ] Bar by default on inline Reports tab; expanded directly in modal */}
@@ -655,27 +655,27 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
               {/* Mobile: Bottom sheet filter panel */}
               {isReportFiltersOpen && (
                 <div
-                  className="sm:hidden fixed inset-0 z-50 flex items-end bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
+                  className="sm:hidden fixed inset-0 z-50 flex items-end bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs sheet-backdrop-safe animate-in fade-in duration-150"
                   role="dialog"
                   aria-modal="true"
                   aria-label={t("exportCenter.filtersPanelTitle")}
                   onClick={() => setIsReportFiltersOpen(false)}
                 >
                   <div
-                    className="w-full max-h-[88vh] bg-white dark:bg-slate-900 rounded-t-2xl border-t border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200"
+                    className="w-full sheet-panel-safe bg-white dark:bg-slate-900 rounded-t-2xl border-t border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="flex justify-center pt-2.5 pb-1">
+                    <div className="flex justify-center pt-2.5 pb-1 shrink-0">
                       <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                     </div>
-                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Filter className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <Filter className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                           {t("exportCenter.filtersPanelTitle")}
                         </h4>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         {activeFiltersCount > 0 && (
                           <button
                             type="button"
@@ -689,17 +689,17 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
                         <button
                           type="button"
                           onClick={() => setIsReportFiltersOpen(false)}
-                          className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+                          className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                           aria-label={t("common.close")}
                         >
                           <X className="w-5 h-5" />
                         </button>
                       </div>
                     </div>
-                    <div className="p-4 overflow-y-auto flex-1">
+                    <div className="p-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
                       {renderFilterSections()}
                     </div>
-                    <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                    <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 shrink-0">
                       <button
                         type="button"
                         onClick={() => setIsReportFiltersOpen(false)}
@@ -844,7 +844,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
         </div>
 
         {/* Footer Actions / Download Buttons */}
-        <div className="p-4 sm:px-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-4 sm:px-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="text-xs text-slate-500 dark:text-slate-400 hidden md:block">
             {t("exportCenter.formatsFooter")}{" "}
             <strong className="text-slate-700 dark:text-slate-300">TXT</strong>,{" "}
@@ -941,14 +941,14 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
       aria-label={t("exportCenter.title")}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl flex justify-center"
+        className="w-full max-w-2xl min-w-0 flex justify-center"
         onClick={(e) => e.stopPropagation()}
       >
         <ExportCenterPanel

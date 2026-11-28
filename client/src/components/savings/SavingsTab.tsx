@@ -885,28 +885,28 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
 
       {/* Export Modal */}
       {isExportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-5 animate-in zoom-in-95 duration-200 transition-colors">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/40 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full modal-panel-safe flex flex-col overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200 transition-colors">
+            <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="p-2 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-lg shrink-0">
                   <FileText className="w-5 h-5" />
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800 dark:text-white">{t("savings.exportModal.title")}</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{t("savings.exportModal.subtitle")}</p>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base font-bold text-slate-800 dark:text-white truncate">{t("savings.exportModal.title")}</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{t("savings.exportModal.subtitle")}</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsExportModalOpen(false)}
-                className="text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md cursor-pointer"
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                 aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
               <div>
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-2">
                   {t("savings.exportModal.scopeLabel")}
@@ -918,9 +918,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       name="exportScope"
                       checked={exportScope === "all"}
                       onChange={() => setExportScope("all")}
-                      className="text-emerald-600 focus:ring-emerald-500"
+                      className="text-emerald-600 focus:ring-emerald-500 shrink-0"
                     />
-                    <div className="text-sm">
+                    <div className="text-sm min-w-0 flex-1">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeAll")}</span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">{t("savings.exportModal.scopeAllDesc")}</span>
                     </div>
@@ -932,9 +932,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       name="exportScope"
                       checked={exportScope === "current_month"}
                       onChange={() => setExportScope("current_month")}
-                      className="text-emerald-600 focus:ring-emerald-500"
+                      className="text-emerald-600 focus:ring-emerald-500 shrink-0"
                     />
-                    <div className="text-sm">
+                    <div className="text-sm min-w-0 flex-1">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeCurrentMonth")}</span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">
                         {formatFullMonthIndex(new Date().getMonth(), language)} {new Date().getFullYear()}
@@ -948,9 +948,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       name="exportScope"
                       checked={exportScope === "current_year"}
                       onChange={() => setExportScope("current_year")}
-                      className="text-emerald-600 focus:ring-emerald-500"
+                      className="text-emerald-600 focus:ring-emerald-500 shrink-0"
                     />
-                    <div className="text-sm">
+                    <div className="text-sm min-w-0 flex-1">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeCurrentYear")}</span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">
                         {t("savings.exportModal.scopeCurrentYearDesc", { year: currentYear })}
@@ -964,9 +964,9 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       name="exportScope"
                       checked={exportScope === "custom_range"}
                       onChange={() => setExportScope("custom_range")}
-                      className="text-emerald-600 focus:ring-emerald-500"
+                      className="text-emerald-600 focus:ring-emerald-500 shrink-0"
                     />
-                    <div className="text-sm">
+                    <div className="text-sm min-w-0 flex-1">
                       <span className="font-medium text-slate-700 dark:text-slate-200 block">{t("savings.exportModal.scopeCustomRange")}</span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">{t("savings.exportModal.scopeCustomRangeDesc")}</span>
                     </div>
@@ -976,50 +976,50 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
 
               {exportScope === "custom_range" && (
                 <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 animate-in fade-in duration-150">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="min-w-0">
                       <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 block mb-1">{t("savings.exportModal.fromDateLabel")}</label>
                       <input
                         type="date"
                         value={exportStartDate}
                         onChange={(e) => setExportStartDate(e.target.value)}
-                        className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded p-1.5 outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full min-w-0 max-w-full text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded p-2 min-h-[40px] outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 block mb-1">{t("savings.exportModal.toDateLabel")}</label>
                       <input
                         type="date"
                         value={exportEndDate}
                         onChange={(e) => setExportEndDate(e.target.value)}
-                        className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded p-1.5 outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full min-w-0 max-w-full text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded p-2 min-h-[40px] outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex justify-between items-center">
-                <span>{t("savings.exportModal.includedTransactionsLabel")}</span>
-                <span className="font-bold">
+              <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex justify-between items-center gap-2">
+                <span className="min-w-0">{t("savings.exportModal.includedTransactionsLabel")}</span>
+                <span className="font-bold shrink-0">
                   {getFilteredSavingsTransactions().length} {t("common.pcs")}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800 shrink-0">
               <button
                 onClick={() => setIsExportModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                className="min-h-[40px] px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               >
                 {t("common.cancel")}
               </button>
               <button
                 onClick={handleExportTxt}
                 disabled={getFilteredSavingsTransactions().length === 0}
-                className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
+                className="min-h-[40px] px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
               >
-                <Download className="w-4 h-4" />
+                <Download className="w-4 h-4 shrink-0" />
                 {t("savings.exportModal.downloadTxtBtn")}
               </button>
             </div>

@@ -963,12 +963,14 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     <div className="space-y-3.5 sm:space-y-4 animate-in fade-in duration-500">
       {/* Welcome / Empty-State Banner */}
       {isCompletelyEmpty && (
-        <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-600 text-white p-5 sm:p-6 rounded-2xl shadow-md border border-indigo-400/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start sm:items-center gap-3.5">
+        <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-600 text-white p-3.5 sm:p-6 rounded-2xl shadow-md border border-indigo-400/30 flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 sm:gap-4">
+          <div className="flex items-start sm:items-center gap-3 sm:gap-3.5 min-w-0 flex-1">
             <BrandMark size={52} variant="appIcon" className="rounded-[26%] shadow-md shrink-0 ring-2 ring-white/20" />
-            <div className="space-y-0.5">
-              <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                {t("dashboard.welcomeTitle", { appName: APP_NAME })}
+            <div className="space-y-0.5 min-w-0">
+              <h2 className="text-[16px] min-[390px]:text-[17px] sm:text-xl lg:text-[19px] xl:text-xl leading-snug font-extrabold tracking-tight">
+                {t("dashboard.welcomeTitle", {
+                  appName: APP_NAME.replace(/ /g, "\u00A0"),
+                })}
               </h2>
               <p className="text-xs sm:text-sm">
                 <BrandTagline onDarkBanner />
@@ -979,29 +981,29 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </div>
           </div>
           {onNavigateTab && (
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="flex flex-nowrap items-center gap-1 min-[400px]:gap-1.5 sm:gap-2 w-full lg:w-auto lg:shrink-0">
               <button
                 type="button"
                 onClick={() => onNavigateTab("monthly")}
-                className="min-h-[38px] px-3.5 py-2 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-bold shadow-xs transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                className="flex-auto lg:flex-initial min-h-[36px] sm:min-h-[38px] px-1.5 min-[390px]:px-2 sm:px-3 py-1.5 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 text-[9.5px] min-[375px]:text-[10.5px] min-[420px]:text-[11px] sm:text-xs font-bold shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-0.5 min-[390px]:gap-1 sm:gap-1.5 whitespace-nowrap"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
                 <span>{t("dashboard.addExpense")}</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigateTab("income")}
-                className="min-h-[38px] px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                className="flex-auto lg:flex-initial min-h-[36px] sm:min-h-[38px] px-1.5 min-[390px]:px-2 sm:px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-[9.5px] min-[375px]:text-[10.5px] min-[420px]:text-[11px] sm:text-xs font-bold transition-colors cursor-pointer inline-flex items-center justify-center gap-0.5 min-[390px]:gap-1 sm:gap-1.5 whitespace-nowrap"
               >
-                <ArrowDownLeft className="w-3.5 h-3.5" />
+                <ArrowDownLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
                 <span>{t("dashboard.addIncome")}</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigateTab("budgets")}
-                className="min-h-[38px] px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                className="flex-auto lg:flex-initial min-h-[36px] sm:min-h-[38px] px-1.5 min-[390px]:px-2 sm:px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 text-[9.5px] min-[375px]:text-[10.5px] min-[420px]:text-[11px] sm:text-xs font-bold transition-colors cursor-pointer inline-flex items-center justify-center gap-0.5 min-[390px]:gap-1 sm:gap-1.5 whitespace-nowrap"
               >
-                <Target className="w-3.5 h-3.5" />
+                <Target className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
                 <span>{t("dashboard.configureBudget")}</span>
               </button>
             </div>
@@ -1101,24 +1103,24 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       {/* Filters & Export Bottom Sheet (mobile) / Modal Dialog (desktop) */}
       {isFiltersSheetOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs sheet-backdrop-safe animate-in fade-in duration-150"
           role="dialog"
           aria-modal="true"
           aria-labelledby="dashboard-filters-title"
           onClick={() => setIsFiltersSheetOpen(false)}
         >
           <div
-            className="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
+            className="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col sheet-panel-safe sm:max-h-[88dvh]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Mobile Sheet Handle */}
-            <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
               <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
             </div>
 
             {/* Header */}
-            <div className="px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
-              <div className="min-w-0">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0 flex-1">
                 <h3
                   id="dashboard-filters-title"
                   className="text-base font-bold text-slate-900 dark:text-white"
@@ -1140,7 +1142,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             </div>
 
             {/* Body: Existing Period Filters + Export */}
-            <div className="p-5 space-y-5 overflow-y-auto">
+            <div className="p-4 sm:p-5 space-y-5 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
               <div className="space-y-2.5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   {t("dashboard.periodLabel")}

@@ -466,43 +466,43 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
       {/* Reorder Goal Cards Modal */}
       {isReorderOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs sheet-backdrop-safe animate-in fade-in duration-150"
           role="dialog"
           aria-modal="true"
           aria-labelledby="reorder-goals-title"
           onClick={() => setIsReorderOpen(false)}
         >
           <div
-            className="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            className="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col sheet-panel-safe sm:max-h-[85dvh]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
               <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
             </div>
 
-            <div className="px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
-              <div>
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0 flex-1">
                 <h3
                   id="reorder-goals-title"
-                  className="text-base font-bold text-slate-900 dark:text-white"
+                  className="text-base font-bold text-slate-900 dark:text-white truncate"
                 >
                   {t("savings.carousel.reorderModalTitle")}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">
                   {t("savings.carousel.reorderModalSubtitle")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsReorderOpen(false)}
-                className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="min-h-[40px] min-w-[40px] shrink-0 inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 aria-label={t("common.close")}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="p-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0 divide-y divide-slate-100 dark:divide-slate-800">
               {goals.map((goal, idx) => {
                 const isFirst = idx === 0;
                 const isLast = idx === goals.length - 1;
@@ -563,7 +563,7 @@ export const SavingsGoalCardsCarousel: React.FC<SavingsGoalCardsCarouselProps> =
               })}
             </div>
 
-            <div className="px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+            <div className="px-4 sm:px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <button
                 type="button"
                 onClick={onResetOrder}

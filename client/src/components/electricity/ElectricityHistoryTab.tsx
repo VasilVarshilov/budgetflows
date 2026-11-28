@@ -1204,23 +1204,23 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
 
         return (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
+            className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop-safe bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
             onClick={() => setSelectedDetailRecord(null)}
           >
             <div
-              className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+              className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full modal-panel-safe flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-yellow-50 dark:bg-yellow-950/60 text-yellow-600 dark:text-yellow-400 rounded-xl">
+              <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className="p-2 bg-yellow-50 dark:bg-yellow-950/60 text-yellow-600 dark:text-yellow-400 rounded-xl shrink-0">
                     <Zap className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base truncate">
                       {t("electricity.history.detailTitle", { period: detailPeriod })}
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                       {t("electricity.history.savedOn", {
                         date: formatLocalizedDate(selectedDetailRecord.createdAt, language),
                       })}
@@ -1230,16 +1230,16 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDetailRecord(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                   aria-label={t("common.close")}
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="p-5 space-y-4 text-sm">
+              <div className="p-4 sm:p-5 space-y-4 text-sm overflow-y-auto overflow-x-hidden flex-1 min-h-0">
                 {/* Calculator Type Row */}
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700">
                   <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                     {t("electricity.history.typeLabel")}
                   </span>
@@ -1259,52 +1259,52 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                 {!isManualDetail && (
                   <>
                     {/* Readings */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 min-w-0">
                         <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
                           {t("electricity.history.oldReadingLabel")}
                         </div>
-                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                        <div className="font-mono font-bold text-slate-900 dark:text-white break-words">
                           {selectedDetailRecord.previousReading.toFixed(1)}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 break-words">
                           {t("electricity.history.t1Short")}: {selectedDetailRecord.prevT1} | {t("electricity.history.t2Short")}: {selectedDetailRecord.prevT2}
                         </div>
                       </div>
-                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 min-w-0">
                         <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
                           {t("electricity.history.newReadingLabel")}
                         </div>
-                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                        <div className="font-mono font-bold text-slate-900 dark:text-white break-words">
                           {selectedDetailRecord.currentReading.toFixed(1)}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 break-words">
                           {t("electricity.history.t1Short")}: {selectedDetailRecord.currT1} | {t("electricity.history.t2Short")}: {selectedDetailRecord.currT2}
                         </div>
                       </div>
                     </div>
 
                     {/* Consumption & Unit Price */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200/70 dark:border-amber-900/40">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+                      <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200/70 dark:border-amber-900/40 min-w-0">
                         <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 mb-1">
                           {t("electricity.history.consumptionCardLabel")}
                         </div>
-                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                        <div className="font-mono font-bold text-slate-900 dark:text-white break-words">
                           {selectedDetailRecord.consumption.toFixed(3)} kWh
                         </div>
-                        <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono mt-0.5">
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono mt-0.5 break-words">
                           {t("electricity.history.t1Short")}: {selectedDetailRecord.consT1.toFixed(2)} | {t("electricity.history.t2Short")}: {selectedDetailRecord.consT2.toFixed(2)}
                         </div>
                       </div>
-                      <div className="p-3 rounded-xl bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-900/40">
+                      <div className="p-3 rounded-xl bg-sky-50/60 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-900/40 min-w-0">
                         <div className="text-[11px] font-semibold text-sky-700 dark:text-sky-300 mb-1">
                           {t("electricity.history.avgPriceLabel")}
                         </div>
-                        <div className="font-mono font-bold text-slate-900 dark:text-white">
+                        <div className="font-mono font-bold text-slate-900 dark:text-white break-words">
                           €{selectedDetailRecord.unitPrice.toFixed(4)} /kWh
                         </div>
-                        <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono mt-0.5">
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono mt-0.5 break-words">
                           {t("electricity.history.t1Short")}: €{selectedDetailRecord.priceT1.toFixed(4)} | {t("electricity.history.t2Short")}: €{selectedDetailRecord.priceT2.toFixed(4)}
                         </div>
                       </div>
@@ -1316,46 +1316,46 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                 <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-900/50 space-y-2">
                   {detailMode === "double" ? (
                     <>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-600 dark:text-slate-300">
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-slate-600 dark:text-slate-300 min-w-0">
                           {t("electricity.history.em1BillLabel")}
                         </span>
-                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                        <span className="font-mono font-bold text-slate-900 dark:text-white shrink-0">
                           €{selectedDetailRecord.costEm1.toFixed(2)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-600 dark:text-slate-300">
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-slate-600 dark:text-slate-300 min-w-0">
                           {t("electricity.history.em2BillLabel")}
                         </span>
-                        <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                        <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
                           €{selectedDetailRecord.em2Remainder.toFixed(2)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between pt-2 border-t border-emerald-200/80 dark:border-emerald-800/50">
-                        <span className="font-bold text-slate-800 dark:text-slate-100">
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-emerald-200/80 dark:border-emerald-800/50">
+                        <span className="font-bold text-slate-800 dark:text-slate-100 min-w-0">
                           {t("electricity.history.totalInvoiceLabel")}
                         </span>
-                        <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
+                        <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white shrink-0">
                           €{selectedDetailRecord.totalCost.toFixed(2)}
                         </span>
                       </div>
                     </>
                   ) : detailMode === "single" ? (
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-800 dark:text-slate-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-800 dark:text-slate-100 min-w-0">
                         {t("electricity.history.singleMeterBillLabel")}
                       </span>
-                      <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
+                      <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white shrink-0">
                         €{selectedDetailRecord.costEm1.toFixed(2)}
                       </span>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-800 dark:text-slate-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-800 dark:text-slate-100 min-w-0">
                         {t("electricity.history.amountColon")}
                       </span>
-                      <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
+                      <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white shrink-0">
                         €{selectedDetailRecord.totalCost.toFixed(2)}
                       </span>
                     </div>
@@ -1363,18 +1363,18 @@ export const ElectricityHistoryTab: React.FC<ElectricityHistoryTabProps> = ({
                 </div>
 
                 {detailNote && (
-                  <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300">
+                  <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300 break-words">
                     <span className="font-semibold">{t("electricity.history.remarkPrefix")} </span>
                     {detailNote}
                   </div>
                 )}
               </div>
 
-              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <div className="px-4 sm:px-5 py-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
                 <button
                   type="button"
                   onClick={() => setSelectedDetailRecord(null)}
-                  className="px-4 py-2 text-xs font-bold bg-slate-900 dark:bg-slate-700 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-600 cursor-pointer"
+                  className="min-h-[40px] px-4 py-2 text-xs font-bold bg-slate-900 dark:bg-slate-700 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-600 cursor-pointer"
                 >
                   {t("common.close")}
                 </button>

@@ -43,11 +43,11 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs modal-backdrop-safe animate-in fade-in duration-150"
       onClick={onCancel}
     >
       <div
-        className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 space-y-4 animate-in zoom-in-95 duration-200 transition-colors"
+        className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-y-auto overflow-x-hidden modal-panel-safe p-5 space-y-4 animate-in zoom-in-95 duration-200 transition-colors"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-delete-title"

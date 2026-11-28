@@ -20,6 +20,7 @@ import {
   Check,
   Receipt,
   StickyNote,
+  Settings2,
 } from "lucide-react";
 import { parseExpenseNote, formatSignedCurrency, isDiscountReceiptItem } from "@/utils/expenseFormatter";
 import { MonthlyRecord, BudgetConfig, ExpenseCategory } from "@/types";
@@ -42,6 +43,7 @@ import {
   getCategoryBadgeClasses,
 } from "@/utils/categoryStorage";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
+import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import {
   getCurrentMonthBulgarian,
   sanitizeDecimalInput,
@@ -116,6 +118,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
   });
   const [isCustomNameTouched, setIsCustomNameTouched] = useState(false);
   const [formError, setFormError] = useState("");
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
   // Category details expansion state
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
@@ -152,6 +155,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
       refreshBudgets();
       setActiveBudgetId("");
       setExpandedCategoryIds({});
+      setShowCategoryPicker(false);
     };
     window.addEventListener("homebudget:budgets-updated", handleSync);
     window.addEventListener("homebudget:categories-updated", handleSync);
@@ -258,6 +262,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     });
     setIsCustomNameTouched(false);
     setFormError("");
+    setShowCategoryPicker(false);
     setIsModalOpen(true);
   };
 
@@ -275,7 +280,26 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
     });
     setIsCustomNameTouched(true);
     setFormError("");
+    setShowCategoryPicker(false);
     setIsModalOpen(true);
+  };
+
+  const computeAutoBudgetName = (ids: string[], catsList: ExpenseCategory[], fallbackName: string): string => {
+    if (ids.length === 1) {
+      return catsList.find((c) => c.id === ids[0])?.name || fallbackName;
+    }
+    if (ids.length > 1) {
+      const names = ids
+        .slice(0, 2)
+        .map((id) => catsList.find((c) => c.id === id)?.name)
+        .filter(Boolean);
+      if (names.length > 0) {
+        return ids.length > 2
+          ? `${names.join(" + ")} (+${ids.length - 2})`
+          : names.join(" + ");
+      }
+    }
+    return fallbackName;
   };
 
   // Toggle a category in multi-select checklist
@@ -286,24 +310,10 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
         ? prev.categoryIds.filter((id) => id !== categoryId)
         : [...prev.categoryIds, categoryId];
 
-      let nextName = prev.categoryName;
-      if (!editingBudgetId && !isCustomNameTouched) {
-        if (nextIds.length === 1) {
-          const singleCat = availableCategories.find((c) => c.id === nextIds[0]);
-          if (singleCat) nextName = singleCat.name;
-        } else if (nextIds.length > 1) {
-          const names = nextIds
-            .slice(0, 2)
-            .map((id) => availableCategories.find((c) => c.id === id)?.name)
-            .filter(Boolean);
-          if (names.length > 0) {
-            nextName =
-              nextIds.length > 2
-                ? `${names.join(" + ")} (+${nextIds.length - 2})`
-                : names.join(" + ");
-          }
-        }
-      }
+      const nextName =
+        !editingBudgetId && !isCustomNameTouched
+          ? computeAutoBudgetName(nextIds, availableCategories, prev.categoryName)
+          : prev.categoryName;
 
       return {
         ...prev,
@@ -1062,28 +1072,30 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
       {/* Add / Edit Category Budget Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-colors">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-black/75 backdrop-blur-xs flex items-center justify-center modal-backdrop-safe animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full modal-panel-safe sm:max-h-[90dvh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-colors">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2.5 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
                   <Target className="w-5 h-5" />
                 </div>
-                <h3 className="font-bold text-slate-800 dark:text-white text-base">
+                <h3 className="font-bold text-slate-800 dark:text-white text-base truncate">
                   {editingBudgetId
                     ? t("budgets.editBudgetTitle")
                     : t("budgets.newBudgetTitle")}
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                aria-label={t("common.close")}
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitForm} className="p-5 space-y-4">
+            <form onSubmit={handleSubmitForm} className="p-4 sm:p-5 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0 min-w-0">
               {formError && (
                 <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs rounded-xl flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1114,24 +1126,34 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
 
               {/* Multi-Select Linked Expense Categories Checklist */}
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap min-w-0">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 min-w-0">
                     {t("budgets.linkedCategoriesLabel", { count: formData.categoryIds.length })}
                   </label>
-                  {formData.categoryIds.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    {formData.categoryIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, categoryIds: [] }))}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                      >
+                        {t("budgets.clearSelectionBtn")}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setFormData((prev) => ({ ...prev, categoryIds: [] }))}
-                      className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                      onClick={() => setShowCategoryPicker(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800 text-[11px] font-semibold transition-colors cursor-pointer max-w-full"
                     >
-                      {t("budgets.clearSelectionBtn")}
+                      <Settings2 className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{t("expenses.manageCategoryBtn")}</span>
                     </button>
-                  )}
+                  </div>
                 </div>
 
                 {/* Selected Categories Chips Preview */}
                 {formData.categoryIds.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80">
+                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 min-w-0">
                     {formData.categoryIds.map((cid) => {
                       const cat = availableCategories.find((c) => c.id === cid);
                       if (!cat) return null;
@@ -1142,14 +1164,14 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           key={cid}
                           type="button"
                           onClick={() => handleToggleCategoryId(cid)}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-85 cursor-pointer ${getCategoryBadgeClasses(
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-85 cursor-pointer max-w-full min-w-0 ${getCategoryBadgeClasses(
                             cat.colorClass
                           )}`}
                           title={t("budgets.removeCategoryTitle", { name: catLabel })}
                         >
                           <CatIcon className="w-3 h-3 shrink-0" />
-                          <span>{catLabel}</span>
-                          <X className="w-3 h-3 ml-0.5 opacity-75" />
+                          <span className="truncate min-w-0">{catLabel}</span>
+                          <X className="w-3 h-3 ml-0.5 opacity-75 shrink-0" />
                         </button>
                       );
                     })}
@@ -1181,7 +1203,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                             : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <span
                             className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
                               isChecked
@@ -1198,7 +1220,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                           >
                             <CatIcon className="w-3.5 h-3.5" />
                           </span>
-                          <span className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
+                          <span className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 truncate min-w-0">
                             {translateCategoryName(cat.name, language)}
                           </span>
                         </div>
@@ -1212,7 +1234,7 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   };
 
                   return (
-                    <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800 custom-scrollbar">
+                    <div className="max-h-52 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800 custom-scrollbar min-w-0">
                       {customCats.length > 0 && (
                         <>
                           <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -1286,6 +1308,71 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Shared Category Picker & Manager Modal (Reused from Expenses/Incomes) */}
+      {showCategoryPicker && (
+        <CategoryPicker
+          categories={availableCategories}
+          onSelect={(selectedCategory) => {
+            const latestCategories = loadStoredCategories();
+            setAvailableCategories(latestCategories);
+            setFormData((prev) => {
+              const nextIds = prev.categoryIds.includes(selectedCategory.id)
+                ? prev.categoryIds
+                : [...prev.categoryIds, selectedCategory.id];
+              const nextName =
+                !editingBudgetId && !isCustomNameTouched
+                  ? computeAutoBudgetName(nextIds, latestCategories, prev.categoryName)
+                  : prev.categoryName;
+              return {
+                ...prev,
+                categoryIds: nextIds,
+                categoryName: nextName,
+              };
+            });
+            setShowCategoryPicker(false);
+          }}
+          onAddNewCategory={() => {
+            setAvailableCategories(loadStoredCategories());
+          }}
+          onCategoriesChanged={(updatedCategories) => {
+            setAvailableCategories(updatedCategories);
+            const loadedBudgets = loadBudgets();
+            const validIds = new Set(updatedCategories.map((c) => c.id));
+
+            setFormData((prev) => {
+              const nextIds = prev.categoryIds.filter((id) => validIds.has(id));
+              let nextName = prev.categoryName;
+
+              if (editingBudgetId) {
+                const prevBudget = categoryBudgets.find((b) => b.id === editingBudgetId);
+                const nextBudget = loadedBudgets.categoryBudgets.find(
+                  (b) => b.id === editingBudgetId
+                );
+                if (
+                  prevBudget &&
+                  nextBudget &&
+                  prevBudget.categoryName !== nextBudget.categoryName &&
+                  prev.categoryName === prevBudget.categoryName
+                ) {
+                  nextName = nextBudget.categoryName;
+                }
+              } else if (!isCustomNameTouched) {
+                nextName = computeAutoBudgetName(nextIds, updatedCategories, prev.categoryName);
+              }
+
+              return {
+                ...prev,
+                categoryIds: nextIds,
+                categoryName: nextName,
+              };
+            });
+
+            setCategoryBudgets(loadedBudgets.categoryBudgets);
+          }}
+          onClose={() => setShowCategoryPicker(false)}
+        />
       )}
     </div>
   );

@@ -314,33 +314,33 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-sm p-2 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[55] flex items-end sm:items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-sm sheet-backdrop-safe modal-backdrop-safe animate-in fade-in duration-200">
       <div
-        className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200/80 dark:border-slate-800 animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-2 duration-300 transition-colors"
+        className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col modal-panel-safe sm:max-h-[88dvh] border border-slate-200/80 dark:border-slate-800 animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-2 duration-300 transition-colors"
         role="dialog"
         aria-modal="true"
       >
         {/* Top Header */}
-        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shadow-sm z-10">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+        <div className="p-3.5 sm:p-5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2.5 shadow-sm z-10 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold shrink-0">
               <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-800 dark:text-white">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-base font-bold text-slate-800 dark:text-white truncate">
                 {t("categories.pickerTitle")}
               </h3>
-              <p className="text-xs text-slate-400 dark:text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-slate-400 truncate">
                 {t("categories.activeCount", { count: categories.length })}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
+              className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer shrink-0"
               aria-label={t("common.close")}
             >
               <X className="w-5 h-5" />
@@ -349,18 +349,19 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         </div>
 
         {/* Search & Actions Bar */}
-        <div className="px-4 py-3 bg-slate-50/80 dark:bg-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
-          <div className="relative flex-1">
+        <div className="px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-50/80 dark:bg-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex flex-wrap min-[360px]:flex-nowrap items-center gap-2 shrink-0">
+          <div className="relative flex-1 min-w-0">
             <Search className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder={t("categories.searchPlaceholder")}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-400 text-slate-800 dark:text-white"
+              className="w-full min-w-0 pl-9 pr-8 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-400 text-slate-800 dark:text-white"
             />
             {searchTerm && (
               <button
+                type="button"
                 onClick={() => setSearchTerm("")}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
@@ -378,9 +379,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 setCustomIcon(null);
                 setCustomColor(null);
               }}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 shrink-0" />
               <span>{t("categories.newCategoryBtn")}</span>
             </button>
           )}
@@ -389,7 +390,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         {/* Scrollable Body */}
         <div
           ref={scrollContainerRef}
-          className="overflow-y-auto p-4 bg-slate-50/40 dark:bg-slate-950/40 space-y-4 flex-1"
+          className="overflow-y-auto overflow-x-hidden min-w-0 min-h-0 p-3 sm:p-4 bg-slate-50/40 dark:bg-slate-950/40 space-y-4 flex-1"
         >
           {/* Prominent New Category Trigger Card */}
           {!isAddingNew && (
@@ -401,17 +402,17 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 setCustomIcon(null);
                 setCustomColor(null);
               }}
-              className="w-full p-3.5 rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/60 dark:bg-indigo-950/30 hover:bg-indigo-100/70 dark:hover:bg-indigo-950/50 transition-colors flex items-center justify-between gap-3 text-left cursor-pointer"
+              className="w-full p-3 sm:p-3.5 rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/60 dark:bg-indigo-950/30 hover:bg-indigo-100/70 dark:hover:bg-indigo-950/50 transition-colors flex items-center justify-between gap-2.5 sm:gap-3 text-left cursor-pointer min-w-0"
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                 <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                   <Plus className="w-5 h-5" />
                 </div>
-                <div>
-                  <span className="text-sm font-bold text-indigo-900 dark:text-indigo-200 block">
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-bold text-indigo-900 dark:text-indigo-200 block break-words">
                     {t("categories.newCategoryBtn")}
                   </span>
-                  <span className="text-xs text-indigo-700/80 dark:text-indigo-300/80">
+                  <span className="text-xs text-indigo-700/80 dark:text-indigo-300/80 block break-words">
                     {t("categories.newDesc")}
                   </span>
                 </div>
@@ -462,8 +463,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   onKeyDown={(e) => e.key === "Enter" && handleCreateNew()}
                 />
                 {duplicateCategoryMatch && (
-                  <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-200">
-                    <span>
+                  <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-200">
+                    <span className="min-w-0 flex-1 break-words">
                       {t("categories.duplicateExists", {
                         name: getCategoryDisplayName(duplicateCategoryMatch),
                       })}
@@ -483,10 +484,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               </div>
 
               {/* Live AI Icon & Color Preview Box */}
-              <div className="p-3 bg-gradient-to-r from-indigo-50/70 via-purple-50/60 to-pink-50/50 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-pink-950/20 rounded-xl border border-indigo-100 dark:border-indigo-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="p-3 bg-gradient-to-r from-indigo-50/70 via-purple-50/60 to-pink-50/50 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-pink-950/20 rounded-xl border border-indigo-100 dark:border-indigo-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div
-                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm transition-transform ${getCategoryBadgeClasses(activeNewColor)}`}
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm transition-transform shrink-0 ${getCategoryBadgeClasses(activeNewColor)}`}
                   >
                     {AVAILABLE_ICONS_MAP[activeNewIcon] ? (
                       React.createElement(AVAILABLE_ICONS_MAP[activeNewIcon], {
@@ -496,25 +497,25 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                       <Sparkles className="w-6 h-6 text-current" />
                     )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100 break-words">
                         {newCategoryName.trim() || t("categories.exampleCategory")}
                       </span>
                       {!customIcon && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-100/80 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
-                          <Sparkles className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
-                          {t("categories.aiIconBadge", { icon: activeNewIcon })}
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-indigo-100/80 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800 max-w-full">
+                          <Sparkles className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                          <span className="truncate">{t("categories.aiIconBadge", { icon: activeNewIcon })}</span>
                         </span>
                       )}
                       {customIcon && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">
-                          <Check className="w-2.5 h-2.5" />
-                          {t("categories.manualPickedBadge")}
+                          <Check className="w-2.5 h-2.5 shrink-0" />
+                          <span>{t("categories.manualPickedBadge")}</span>
                         </span>
                       )}
                     </div>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5 break-words">
                       {t("categories.iconReportNote")}
                     </span>
                   </div>
@@ -578,8 +579,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
                   {/* Icon Selector Grid */}
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+                      <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider min-w-0">
                         {t("categories.iconSelectLabel", { count: availableIconKeys.length })}
                       </label>
                       <input
@@ -587,10 +588,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         placeholder={t("categories.searchIconPlaceholder")}
                         value={iconSearchTerm}
                         onChange={(e) => setIconSearchTerm(e.target.value)}
-                        className="px-2 py-0.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-md w-28 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="px-2 py-0.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-md w-24 sm:w-28 min-w-0 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
-                    <div className="grid grid-cols-7 sm:grid-cols-9 gap-1.5 max-h-36 overflow-y-auto p-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div className="grid grid-cols-7 sm:grid-cols-9 gap-1 sm:gap-1.5 max-h-36 overflow-y-auto overflow-x-hidden p-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
                       {availableIconKeys.map((iconKey) => {
                         const IconComp = AVAILABLE_ICONS_MAP[iconKey];
                         const isSelected = activeNewIcon === iconKey;
@@ -715,7 +716,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         aria-label={t("categories.selectAria", { name: category.name })}
                         className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
                       >
-                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 break-words w-full">
                           {category.name}
                         </span>
                         <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-300 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
@@ -809,7 +810,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         aria-label={t("categories.selectAria", { name: displayName })}
                         className="w-full flex-1 px-3 pb-3 pt-1.5 flex flex-col items-start justify-start gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:scale-[0.98] transition-transform"
                       >
-                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 w-full">
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2 break-words w-full">
                           {displayName}
                         </span>
                       </button>
@@ -846,7 +847,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 px-4">
+        <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400 px-4 shrink-0">
           <span>{t("categories.clickToSelectHint")}</span>
           <span className="hidden sm:inline">{t("categories.autoSaveHint")}</span>
         </div>
@@ -854,136 +855,140 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
       {/* --- Edit Category Modal --- */}
       {editingCategory && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden space-y-4 p-5 animate-in zoom-in-95 duration-200 transition-colors">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs modal-backdrop-safe animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col modal-panel-safe animate-in zoom-in-95 duration-200 transition-colors">
+            <div className="px-4 sm:px-5 py-3.5 flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
                   <Pencil className="w-4 h-4" />
                 </div>
-                <h4 className="font-bold text-slate-800 dark:text-white text-sm">
+                <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">
                   {t("categories.editTitle")}
                 </h4>
               </div>
               <button
+                type="button"
                 onClick={() => setEditingCategory(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                aria-label={t("common.close")}
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Name */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                {t("categories.nameLabel")}
-              </label>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
-            </div>
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
+              {/* Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  {t("categories.nameLabel")}
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-sm focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
 
-            {/* Preview & Icon Toggle */}
-            <div className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs ${getCategoryBadgeClasses(editColor)}`}
+              {/* Preview & Icon Toggle */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs shrink-0 ${getCategoryBadgeClasses(editColor)}`}
+                  >
+                    {AVAILABLE_ICONS_MAP[editIcon] ? (
+                      React.createElement(AVAILABLE_ICONS_MAP[editIcon], {
+                        className: "w-6 h-6 text-current",
+                      })
+                    ) : (
+                      <Sparkles className="w-6 h-6 text-current" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-bold text-slate-800 dark:text-white block truncate">
+                      {editName || t("categories.sampleName")}
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate">
+                      {t("categories.iconPrefix", { icon: editIcon })}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditIconSelector((prev) => !prev)}
+                  className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
                 >
-                  {AVAILABLE_ICONS_MAP[editIcon] ? (
-                    React.createElement(AVAILABLE_ICONS_MAP[editIcon], {
-                      className: "w-6 h-6 text-current",
-                    })
-                  ) : (
-                    <Sparkles className="w-6 h-6 text-current" />
-                  )}
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-slate-800 dark:text-white block">
-                    {editName || t("categories.sampleName")}
-                  </span>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {t("categories.iconPrefix", { icon: editIcon })}
-                  </span>
-                </div>
+                  {showEditIconSelector
+                    ? t("categories.hideIcons")
+                    : t("categories.changeIconColor")}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowEditIconSelector((prev) => !prev)}
-                className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-colors"
-              >
-                {showEditIconSelector
-                  ? t("categories.hideIcons")
-                  : t("categories.changeIconColor")}
-              </button>
+
+              {/* Edit Icon & Color Selector Palette */}
+              {showEditIconSelector && (
+                <div className="p-3 bg-slate-100/70 dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 max-h-52 overflow-y-auto overflow-x-hidden">
+                  {/* Colors */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                      {t("categories.colorLabel")}
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {COLOR_OPTIONS.map((col) => {
+                        const isSelected = editColor === col.colorClass;
+                        return (
+                          <button
+                            key={col.id}
+                            type="button"
+                            onClick={() => setEditColor(col.colorClass)}
+                            title={translateColorLabel(col.id, language)}
+                            className={`w-5 h-5 rounded-full ${col.previewBg} flex items-center justify-center transition-all ${
+                              isSelected ? "ring-2 ring-offset-2 ring-indigo-600 scale-110" : "opacity-80"
+                            }`}
+                          >
+                            {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Icons */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                      {t("categories.iconLabel")}
+                    </label>
+                    <div className="grid grid-cols-7 gap-1.5 max-h-28 overflow-y-auto overflow-x-hidden p-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                      {Object.keys(AVAILABLE_ICONS_MAP).map((iconKey) => {
+                        const IconComp = AVAILABLE_ICONS_MAP[iconKey];
+                        const isSelected = editIcon === iconKey;
+                        return (
+                          <button
+                            key={iconKey}
+                            type="button"
+                            onClick={() => setEditIcon(iconKey)}
+                            className={`p-1.5 rounded-md flex items-center justify-center transition-all ${
+                              isSelected
+                                ? "bg-indigo-600 text-white shadow-xs"
+                                : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                            title={iconKey}
+                          >
+                            <IconComp className="w-4 h-4" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-
-            {/* Edit Icon & Color Selector Palette */}
-            {showEditIconSelector && (
-              <div className="p-3 bg-slate-100/70 dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 max-h-52 overflow-y-auto">
-                {/* Colors */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    {t("categories.colorLabel")}
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {COLOR_OPTIONS.map((col) => {
-                      const isSelected = editColor === col.colorClass;
-                      return (
-                        <button
-                          key={col.id}
-                          type="button"
-                          onClick={() => setEditColor(col.colorClass)}
-                          title={translateColorLabel(col.id, language)}
-                          className={`w-5 h-5 rounded-full ${col.previewBg} flex items-center justify-center transition-all ${
-                            isSelected ? "ring-2 ring-offset-2 ring-indigo-600 scale-110" : "opacity-80"
-                          }`}
-                        >
-                          {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Icons */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    {t("categories.iconLabel")}
-                  </label>
-                  <div className="grid grid-cols-7 gap-1.5 max-h-28 overflow-y-auto p-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
-                    {Object.keys(AVAILABLE_ICONS_MAP).map((iconKey) => {
-                      const IconComp = AVAILABLE_ICONS_MAP[iconKey];
-                      const isSelected = editIcon === iconKey;
-                      return (
-                        <button
-                          key={iconKey}
-                          type="button"
-                          onClick={() => setEditIcon(iconKey)}
-                          className={`p-1.5 rounded-md flex items-center justify-center transition-all ${
-                            isSelected
-                              ? "bg-indigo-600 text-white shadow-xs"
-                              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                          }`}
-                          title={iconKey}
-                        >
-                          <IconComp className="w-4 h-4" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="px-4 sm:px-5 py-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800 shrink-0">
               <button
                 type="button"
                 onClick={() => setEditingCategory(null)}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
               >
                 {t("common.cancel")}
               </button>
@@ -991,7 +996,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 type="button"
                 onClick={handleSaveEdit}
                 disabled={!editName.trim()}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-sm active:scale-95"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
               >
                 {t("common.saveChanges")}
               </button>
@@ -1009,7 +1014,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             name: getCategoryDisplayName(openMenu.category),
           })}
           style={{ top: openMenu.top, left: openMenu.left }}
-          className="fixed z-[70] w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 animate-in fade-in zoom-in-95 duration-150"
+          className="fixed z-[75] w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 animate-in fade-in zoom-in-95 duration-150"
         >
           <button
             type="button"

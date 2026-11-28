@@ -2084,18 +2084,18 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
 
       {/* Add / Edit Income Modal */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-xs sheet-backdrop-safe modal-backdrop-safe animate-in fade-in duration-150">
           <div
-            className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]"
+            className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col modal-panel-safe sm:max-h-[90dvh]"
             role="dialog"
             aria-modal="true"
             aria-labelledby="income-modal-title"
           >
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
               <h3
                 id="income-modal-title"
-                className="text-base sm:text-lg font-bold text-slate-900 dark:text-white"
+                className="text-base sm:text-lg font-bold text-slate-900 dark:text-white min-w-0 flex-1 truncate"
               >
                 {editingTemplateId
                   ? t("income.editTemplateTitle")
@@ -2106,7 +2106,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               <button
                 type="button"
                 onClick={() => setIsFormOpen(false)}
-                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="min-h-[40px] min-w-[40px] shrink-0 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" />
@@ -2116,7 +2116,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
             {/* Form Body */}
             <form
               onSubmit={handleSaveForm}
-              className="p-5 space-y-4 overflow-y-auto"
+              className="p-4 sm:p-5 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0"
             >
               {formError && (
                 <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs font-medium text-rose-700 dark:text-rose-300">
@@ -2165,20 +2165,20 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                   className="w-full min-h-[44px] flex items-center justify-between px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:border-emerald-400 transition-colors cursor-pointer text-left"
                 >
                   {formCategory ? (
-                    <span className="flex items-center gap-2.5 text-sm font-medium text-slate-800 dark:text-slate-100">
+                    <span className="flex items-center gap-2.5 text-sm font-medium text-slate-800 dark:text-slate-100 min-w-0 flex-1">
                       <span
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center ${getCategoryBadgeClasses(formCategory.colorClass)}`}
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(formCategory.colorClass)}`}
                       >
                         {renderCategoryIcon(formCategory.iconName, "w-4 h-4")}
                       </span>
-                      <span>{translateCategoryName(formCategory.name, language)}</span>
+                      <span className="truncate">{translateCategoryName(formCategory.name, language)}</span>
                     </span>
                   ) : (
-                    <span className="text-sm text-slate-500 dark:text-slate-400">
+                    <span className="text-sm text-slate-500 dark:text-slate-400 truncate">
                       {t("income.selectCategoryPlaceholder")}
                     </span>
                   )}
-                  <Tag className="w-4 h-4 text-slate-400" />
+                  <Tag className="w-4 h-4 text-slate-400 shrink-0" />
                 </button>
 
                 {/* Quick category chips for 1-tap selection */}
@@ -2190,7 +2190,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                         key={cat.id}
                         type="button"
                         onClick={() => setFormCategory(cat)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
+                        className={`max-w-full truncate px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                           isSelected
                             ? "bg-emerald-600 text-white border-emerald-600"
                             : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
@@ -2549,7 +2549,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
               )}
 
               {/* Actions */}
-              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsFormOpen(false)}
