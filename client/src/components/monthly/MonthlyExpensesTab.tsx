@@ -144,11 +144,6 @@ import { MONTHS_BG } from "@/utils/comparisonStorage";
 // Map за иконките, поддържащ всички налични иконки и AI предложения
 const ICON_MAP: Record<string, any> = AVAILABLE_ICONS_MAP;
 
-// Fixed Default Values in EUR (new users)
-const DEFAULT_CREDIT_EUR = 1;
-const DEFAULT_PHONE_EUR = 1;
-const DEFAULT_INTERNET_EUR = 1;
-
 const PREDEFINED_CATEGORIES: ExpenseCategory[] = [
   {
     id: "water",
@@ -358,35 +353,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     };
   }
 
-  function getDefaultFixedExpenses(): ExpenseItem[] {
-    return [
-      createFixedItem(
-        "Кредит",
-        DEFAULT_CREDIT_EUR,
-        "CreditCard",
-        "bg-blue-100 text-blue-600",
-        true,
-        0,
-      ),
-      createFixedItem(
-        "Телефон",
-        DEFAULT_PHONE_EUR,
-        "Phone",
-        "bg-indigo-100 text-indigo-600",
-        true,
-        1,
-      ),
-      createFixedItem(
-        "Интернет",
-        DEFAULT_INTERNET_EUR,
-        "Wifi",
-        "bg-cyan-100 text-cyan-600",
-        true,
-        2,
-      ),
-    ];
-  }
-
   function resolveMonthExpensesFromData(sourceData?: any): {
     fixed: ExpenseItem[];
     additional: ExpenseItem[];
@@ -412,24 +378,24 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
             amount,
           };
         });
-      } else {
-        rawFixed = getDefaultFixedExpenses();
       }
     } else if (savedFixed && !Array.isArray(savedFixed)) {
       const legacy: ExpenseItem[] = [];
-      const creditAmount =
-        savedFixed.credit_eur === 353.69
-          ? 321.32
-          : savedFixed.credit_eur || 321.32;
-      legacy.push(
-        createFixedItem(
-          "Кредит",
-          creditAmount,
-          "CreditCard",
-          "bg-blue-100 text-blue-600",
-          true,
-        ),
-      );
+      if (savedFixed.credit_eur > 0) {
+        const creditAmount =
+          savedFixed.credit_eur === 353.69
+            ? 321.32
+            : savedFixed.credit_eur;
+        legacy.push(
+          createFixedItem(
+            "Кредит",
+            creditAmount,
+            "CreditCard",
+            "bg-blue-100 text-blue-600",
+            true,
+          ),
+        );
+      }
       if (savedFixed.phone_eur)
         legacy.push(
           createFixedItem(
@@ -451,8 +417,6 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           ),
         );
       rawFixed = legacy;
-    } else {
-      rawFixed = getDefaultFixedExpenses();
     }
 
     const { fixedExpenses: normalizedFixed, additionalExpenses: normalizedAdditional } =
