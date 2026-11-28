@@ -34,6 +34,7 @@ import {
 import { getCategoryColor } from "@/utils/colors";
 import {
   useI18n,
+  getIntlLocale,
   translateMonthName,
   translateCategoryName,
   formatLocalizedMonthYear,
@@ -169,7 +170,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
     return Array.from(map.values()).sort((a, b) =>
       translateCategoryName(a, language).localeCompare(
         translateCategoryName(b, language),
-        language === "bg" ? "bg" : "en"
+        getIntlLocale(language)
       )
     );
   }, [monthlyData, language]);
@@ -848,7 +849,7 @@ export const ExportCenterPanel: React.FC<ExportCenterPanelProps> = ({
             {t("exportCenter.formatsFooter")}{" "}
             <strong className="text-slate-700 dark:text-slate-300">TXT</strong>,{" "}
             <strong className="text-slate-700 dark:text-slate-300">PNG</strong>{" "}
-            {language === "bg" ? "и" : "&"}{" "}
+            {language === "bg" ? "и" : language === "es" ? "y" : "&"}{" "}
             <strong className="text-emerald-700 dark:text-emerald-400">Excel (.xlsx)</strong>
           </div>
 

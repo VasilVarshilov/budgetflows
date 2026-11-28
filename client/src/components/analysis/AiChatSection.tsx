@@ -134,72 +134,88 @@ function deriveResponsePresentation(
     translateKey(key, params, language);
 
   let title = tr("ai.chat.titles.default");
-  if (/emergency\s*fund|авариен\s*фонд|аварийния\s*фонд|авариен\s*резерв/.test(qLower)) {
+  if (
+    /emergency\s*fund|fondo\s+de\s+emergencia|авариен\s*фонд|аварийния\s*фонд|авариен\s*резерв/.test(
+      qLower
+    )
+  ) {
     title = tr("ai.chat.titles.emergencyFund");
-  } else if (/unallocated|неразпределен|free\s*savings/.test(qLower)) {
+  } else if (/unallocated|sin\s+asignar|неразпределен|free\s*savings/.test(qLower)) {
     title = tr("ai.chat.titles.unallocated");
-  } else if (/savings\s*goals?|jars?|цел[иа]?\s*(?:за\s+)?спестяван|касичк|saved\s+for|спестил\s+за/.test(qLower)) {
+  } else if (
+    /savings\s*goals?|jars?|metas?\s+de\s+ahorro|huchas?|цел[иа]?\s*(?:за\s+)?спестяван|касичк|saved\s+for|спестил\s+за/.test(
+      qLower
+    )
+  ) {
     title = tr("ai.chat.titles.savingsGoals");
   } else if (
-    /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future|scheduled)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+|is\s+|are\s+|will\s+be\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending|scheduled|coming)|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|се\s+очаква|предсто|планиран))/.test(
+    /(?:(?:expect(?:ing|ed)?|upcoming|planned|pending|future|scheduled)\s+(?:\w+\s+){0,2}(?:income|incomes|salary|earnings)|(?:income|incomes|salary|earnings)\s+(?:am\s+i\s+|is\s+|are\s+|will\s+be\s+)?(?:expect(?:ing|ed)?|upcoming|planned|pending|scheduled|coming)|ingresos?\s+(?:esperados?|próximos?|programados?|pendientes?)|se\s+esperan.*ingresos?|(?:очакван|предстоящ|планиран|бъдещ)[аио]?\s+(?:\w+\s+){0,2}(?:приход|доход|заплат)|(?:приход|доход|заплат)[аите]*\s+(?:\w+\s+){0,2}(?:очаквам|се\s+очаква|предсто|планиран))/.test(
       qLower
     )
   ) {
     title = tr("ai.chat.titles.expectedIncome");
   } else if (
-    /(?:next\s*week|следващата\s*седмица|next\s*month|следващия\s*месец|coming\s*(?:payments?|expenses?)|предстоят)/.test(
+    /(?:next\s*week|próxima\s*semana|proxima\s*semana|следващата\s*седмица|next\s*month|próximo\s*mes|proximo\s*mes|следващия\s*месец|coming\s*(?:payments?|expenses?)|pagos?\s+vencen|предстоят)/.test(
       qLower
     )
   ) {
     title = tr("ai.chat.titles.upcomingCalendar");
   } else if (
-    /(?:колко\s+ще\s+похарча|\bще\s+похарча\b|колко\s+се\s+очаква|очаквани\s+разходи|предвидени\s+разходи|expected\s+(?:to\s+)?spend|projected\s+spend)/.test(
+    /(?:колко\s+ще\s+похарча|\bще\s+похарча\b|колко\s+се\s+очаква|очаквани\s+разходи|предвидени\s+разходи|expected\s+(?:to\s+)?spend|projected\s+spend|gastos?\s+esperados?)/.test(
       qLower
     )
   ) {
     title = tr("ai.chat.titles.expectedExpenses");
   } else if (
-    /(?:планиран|предстоящ|предстои\s+да\s+плат|planned\s+(?:expense|payment)|upcoming\s+(?:expense|payment)|pending\s+(?:expense|payment)|(?:expenses?|payments?|разходи|плащания)\s+(?:are\s+)?(?:upcoming|planned|pending))/.test(
+    /(?:планиран|предстоящ|предстои\s+да\s+плат|planned\s+(?:expense|payment)|upcoming\s+(?:expense|payment)|pending\s+(?:expense|payment)|próximos?\s+gastos?|proximos?\s+gastos?|(?:expenses?|payments?|разходи|плащания)\s+(?:are\s+)?(?:upcoming|planned|pending))/.test(
       qLower
     )
   ) {
     title = tr("ai.chat.titles.upcomingExpenses");
-  } else if (/цигар|cigaret|tobacco|iqos|heets|vape|тютюн/.test(qLower)) {
+  } else if (/цигар|cigaret|tobacco|tabaco|iqos|heets|vape|тютюн/.test(qLower)) {
     title = tr("ai.chat.titles.cigarettes");
-  } else if (/ток|електро|electric|kwh/.test(qLower)) {
+  } else if (/ток|електро|electric|kwh|luz/.test(qLower)) {
     title = tr("ai.chat.titles.electricity");
-  } else if (/спест|save|saved|savings/.test(qLower)) {
+  } else if (/спест|save|saved|savings|ahorr/.test(qLower)) {
     title = tr("ai.chat.titles.savings");
-  } else if (/увелич|increas|more\s+than\s+last|спрямо\s+минал/.test(qLower)) {
+  } else if (/увелич|increas|aument|more\s+than\s+last|спрямо\s+минал/.test(qLower)) {
     title = tr("ai.chat.titles.categoryIncrease");
-  } else if (/най-бързо|раст|fastest|growing/.test(qLower)) {
+  } else if (/най-бързо|раст|fastest|growing|mayor\s+crecimiento/.test(qLower)) {
     title = tr("ai.chat.titles.fastestGrowing");
   } else if (
-    /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
-    /(?:fixed|recurr|regular|периодич|повтарящ|фиксиран|постоян)/.test(qLower)
+    /(?:\bincome\b|\bearn|\bsalary\b|ingreso|salario|приход|доход|заплат)/.test(qLower) &&
+    /(?:fixed|recurr|regular|fijo|периодич|повтарящ|фиксиран|постоян)/.test(qLower)
   ) {
     title = tr("ai.chat.titles.recurringIncome");
   } else if (
-    /(?:\bincome\b|\bearn|\bsalary\b|приход|доход|заплат)/.test(qLower) &&
-    /(?:additional|variable|extra|bonus|one-time|допълнител|променлив|извънред|еднократ)/.test(qLower)
+    /(?:\bincome\b|\bearn|\bsalary\b|ingreso|salario|приход|доход|заплат)/.test(qLower) &&
+    /(?:additional|variable|extra|bonus|one-time|adicional|puntual|допълнител|променлив|извънред|еднократ)/.test(
+      qLower
+    )
   ) {
     title = tr("ai.chat.titles.additionalIncome");
   } else if (
-    /(?:additional|variable|extra|one-time|допълнител|променлив)/.test(qLower) &&
-    /(?:разход|expense)/.test(qLower)
+    /(?:additional|variable|extra|one-time|adicional|puntual|допълнител|променлив)/.test(
+      qLower
+    ) &&
+    /(?:разход|expense|gasto)/.test(qLower)
   ) {
     title = tr("ai.chat.titles.additionalExpenses");
-  } else if (/повтарящ|периодич|фиксиран|recurr|subscription/.test(qLower)) {
+  } else if (/повтарящ|периодич|фиксиран|recurr|subscription|suscripc/.test(qLower)) {
     title = tr("ai.chat.titles.recurringExpenses");
-  } else if (/среден|средно|средния|average|avg/.test(qLower)) {
+  } else if (/среден|средно|средния|average|avg|promedio|medio/.test(qLower)) {
     title = tr("ai.chat.titles.avgMonthly");
-  } else if (/коя\s+категория|категория.*най-много|which\s+category|highest\s+category/.test(qLower)) {
+  } else if (
+    /коя\s+категория|категория.*най-много|which\s+category|highest\s+category|qu[eé]\s+categor[ií]a|categor[ií]a.*cuesta\s+m[aá]s/.test(
+      qLower
+    )
+  ) {
     title = tr("ai.chat.titles.topCategory");
-  } else if (/най-голям|най-голем|largest|biggest|highest/.test(qLower)) {
+  } else if (/най-голям|най-голем|largest|biggest|highest|mayores\s+gastos/.test(qLower)) {
     title = tr("ai.chat.titles.largestExpenses");
-  } else if (/бюджет|лимит|budget|limit/.test(qLower)) {
+  } else if (/бюджет|лимит|budget|limit|presupuesto|l[ií]mite/.test(qLower)) {
     title = tr("ai.chat.titles.budgetExecution");
-  } else if (/приход|заплат|доход|income|salary/.test(qLower)) {
+  } else if (/приход|заплат|доход|income|salary|ingreso|salario/.test(qLower)) {
     title = tr("ai.chat.titles.income");
   } else if (/lidl|лидл/i.test(qLower)) {
     title = tr("ai.chat.titles.lidl");
@@ -207,9 +223,9 @@ function deriveResponsePresentation(
     title = tr("ai.chat.titles.kaufland");
   } else if (/billa|билла|била/i.test(qLower)) {
     title = tr("ai.chat.titles.billa");
-  } else if (/кафе|coffee|starbucks/i.test(qLower)) {
+  } else if (/кафе|coffee|caf[eé]|starbucks/i.test(qLower)) {
     title = tr("ai.chat.titles.coffee");
-  } else if (/горив|бензин|дизел|fuel|omv|shell|lukoil/i.test(qLower)) {
+  } else if (/горив|бензин|дизел|fuel|combustible|gasolina|omv|shell|lukoil/i.test(qLower)) {
     title = tr("ai.chat.titles.fuel");
   } else {
     const quotedTopic = res.answer.match(/„([^„“”"]+)["“”]|"([^"]+)"/);
@@ -221,7 +237,7 @@ function deriveResponsePresentation(
 
   let heroValue: string | undefined;
   if (typeof res.totalMatchedAmount === "number" && (res.totalMatchedAmount !== 0 || res.matchedExpenses.length > 0)) {
-    if (/увелич|increas/.test(qLower) && res.totalMatchedAmount > 0) {
+    if (/увелич|increas|aument/.test(qLower) && res.totalMatchedAmount > 0) {
       heroValue = `+${fmtEur(res.totalMatchedAmount)}`;
     } else {
       heroValue = fmtEur(res.totalMatchedAmount);
@@ -241,7 +257,7 @@ function deriveResponsePresentation(
   }
 
   let heroSubtitle: string | undefined;
-  if (res.matchedExpenses.length > 0 && /спест|save/.test(qLower)) {
+  if (res.matchedExpenses.length > 0 && /спест|save|ahorr/.test(qLower)) {
     heroSubtitle = `${res.matchedExpenses.length} ${
       res.matchedExpenses.length === 1
         ? tr("ai.chat.txSingular")
@@ -298,12 +314,12 @@ function runChatQuerySafely(
   // 2. Category-ranking prompt support when user asks "Коя категория ми струва най-много?"
   if (
     engineResult.matchedExpenses.length === 0 &&
-    /(?:коя\s+категория|категория.*най-много|най-скъпа\s+категория|which\s+category|highest\s+category|most\s+expensive\s+category)/i.test(
+    /(?:коя\s+категория|категория.*най-много|най-скъпа\s+категория|which\s+category|highest\s+category|most\s+expensive\s+category|qu[eé]\s+categor[ií]a|categor[ií]a.*cuesta\s+m[aá]s)/i.test(
       qLower
     )
   ) {
     const activeKey = resolveActiveMonthKey(monthlyData, currentMonth);
-    const hasAllKeyword = /(?:всички|общо|цялата|all\s*time|all\s*months)/i.test(qLower);
+    const hasAllKeyword = /(?:всички|общо|цялата|all\s*time|all\s*months|todos\s+los\s+meses)/i.test(qLower);
     const targetEntries = hasAllKeyword
       ? Object.entries(monthlyData || {})
       : monthlyData[activeKey]
@@ -519,7 +535,7 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
 
     const qLower = baseQuestion.toLowerCase();
     const isSpecificSubject =
-      /(?:цигар|cigaret|lidl|kaufland|billa|кафе|coffee|горив|fuel|ток|electric)/i.test(
+      /(?:цигар|cigaret|tabac|lidl|kaufland|billa|кафе|coffee|caf[eé]|горив|fuel|combustible|ток|electric|luz)/i.test(
         qLower
       );
 
@@ -527,20 +543,20 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
       // Query the exact same subject in current vs previous month cleanly
       const cleanedSubject = baseQuestion
         .replace(
-          /(?:този\s+месец|миналия\s+месец|тази\s+година|миналата\s+година|последните\s+\d+\s+месеца?|this\s+month|last\s+month|през\s+[а-яa-z]+|\?)/gi,
+          /(?:този\s+месец|миналия\s+месец|тази\s+година|миналата\s+година|последните\s+\d+\s+месеца?|this\s+month|last\s+month|este\s+mes|el\s+mes\s+pasado|mes\s+pasado|през\s+[а-яa-z]+|\?)/gi,
           ""
         )
         .trim();
 
       const curRes = answerFinancialChatQuestion(
-        `${cleanedSubject} ${language === "en" ? "this month" : "този месец"}`,
+        `${cleanedSubject} ${language === "bg" ? "този месец" : language === "es" ? "este mes" : "this month"}`,
         monthlyData,
         globalSavings,
         activeKey,
         language
       );
       const prevRes = answerFinancialChatQuestion(
-        `${cleanedSubject} ${language === "en" ? "last month" : "миналия месец"}`,
+        `${cleanedSubject} ${language === "bg" ? "миналия месец" : language === "es" ? "mes pasado" : "last month"}`,
         monthlyData,
         globalSavings,
         activeKey,
@@ -628,9 +644,11 @@ export const AiChatSection: React.FC<AiChatSectionProps> = ({
 
     // Otherwise run the full MoM category comparison
     handleSubmitChat(
-      language === "en"
-        ? "Which categories increased compared to last month?"
-        : "Кои категории се увеличиха спрямо миналия месец?"
+      language === "bg"
+        ? "Кои категории се увеличиха спрямо миналия месец?"
+        : language === "es"
+        ? "¿Qué categorías aumentaron respecto al mes pasado?"
+        : "Which categories increased compared to last month?"
     );
   };
 

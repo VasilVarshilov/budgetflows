@@ -33,6 +33,7 @@ import {
   formatLocalizedDateTime,
   localizeNotification,
   useI18n,
+  type SupportedLanguage,
 } from "@/i18n";
 
 interface NotificationCenterProps {
@@ -56,7 +57,7 @@ type CenterTab = "active" | "history";
 
 function formatNotificationDueDate(
   raw: string,
-  lang: "bg" | "en"
+  lang: SupportedLanguage
 ): string {
   const isoOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
   if (isoOnly) {

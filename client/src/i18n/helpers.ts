@@ -6,18 +6,20 @@ import {
 } from "./types";
 import { bg, type TranslationSchema } from "./resources/bg";
 import { en } from "./resources/en";
+import { es } from "./resources/es";
 import type { TranslationShape } from "./types";
 import type { AppNotification } from "@/types";
 
 export const RESOURCES: Record<SupportedLanguage, TranslationShape<TranslationSchema>> = {
   bg,
   en,
+  es,
 };
 
 const BG_MONTHS = bg.months.full;
 
 export function isSupportedLanguage(val: unknown): val is SupportedLanguage {
-  return val === "bg" || val === "en";
+  return val === "bg" || val === "en" || val === "es";
 }
 
 export function getCurrentLanguage(): SupportedLanguage {
@@ -79,8 +81,12 @@ export function t(
 ): string {
   const dict = RESOURCES[lang] ?? RESOURCES[DEFAULT_LANGUAGE];
   let value = getNestedValue(dict, key);
-  if (typeof value !== "string") {
-    value = getNestedValue(RESOURCES[DEFAULT_LANGUAGE], key);
+  const fallbackValue = getNestedValue(RESOURCES[DEFAULT_LANGUAGE], key);
+  if (
+    typeof value !== "string" ||
+    (value.length === 0 && typeof fallbackValue === "string" && fallbackValue.length > 0)
+  ) {
+    value = fallbackValue;
   }
   if (typeof value !== "string") {
     return key;

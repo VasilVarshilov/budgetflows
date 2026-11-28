@@ -131,6 +131,7 @@ export const en: TranslationShape<TranslationSchema> = {
     menuTitle: "Interface language",
     bg: "Български",
     en: "English",
+    es: "Español",
   },
   theme: {
     toggleAria: "Toggle theme",

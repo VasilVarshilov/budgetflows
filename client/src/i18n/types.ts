@@ -1,4 +1,4 @@
-export type SupportedLanguage = "bg" | "en";
+export type SupportedLanguage = "bg" | "en" | "es";
 
 export const DEFAULT_LANGUAGE: SupportedLanguage = "en";
 export const LANGUAGE_STORAGE_KEY = "HomeBudget_Language";
@@ -25,6 +25,13 @@ export const LANGUAGE_OPTIONS: LanguageOption[] = [
     nativeName: "English",
     englishName: "English",
     locale: "en-US",
+  },
+  {
+    code: "es",
+    flag: "🇪🇸",
+    nativeName: "Español",
+    englishName: "Spanish",
+    locale: "es-ES",
   },
 ];
 

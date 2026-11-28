@@ -331,7 +331,7 @@ export const RecurrenceCompletionRows: React.FC<RecurrenceCompletionRowsProps> =
                     {t("recurrence.yearlyDesc", {
                       day: clampedYearlyDay,
                       month:
-                        language === "bg"
+                        language === "bg" || language === "es"
                           ? formatFullMonthIndex(effectiveMonthOfYear, language).toLowerCase()
                           : formatFullMonthIndex(effectiveMonthOfYear, language),
                     })}

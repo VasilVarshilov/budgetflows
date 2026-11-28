@@ -128,6 +128,7 @@ export const bg = {
     menuTitle: "Език на интерфейса",
     bg: "Български",
     en: "English",
+    es: "Español",
   },
   theme: {
     toggleAria: "Смяна на тема",
