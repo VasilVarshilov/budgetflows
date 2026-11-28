@@ -16,6 +16,7 @@ import {
   Play,
   SkipForward,
   Tag,
+  PiggyBank,
 } from "lucide-react";
 import {
   ExpenseCategory,
@@ -25,6 +26,7 @@ import {
   RecurrenceFrequency,
   RecurringIncomeTemplate,
   RepeatFrequency,
+  SavingsGoal,
   TransactionLocation,
 } from "@/types";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
@@ -84,10 +86,16 @@ import {
   resolveRecordDateKey,
 } from "@/utils/calendarEngine";
 import {
+  IncomeToSavingsTransferInput,
+  loadSavingsGoals,
+  SAVINGS_GOALS_UPDATED_EVENT,
+} from "@/utils/savingsGoalsStorage";
+import {
   formatFullMonthIndex,
   formatLocalizedDate,
   formatLocalizedMonthYear,
   translateCategoryName,
+  translateGoalName,
   translateWeekday,
   useI18n,
 } from "@/i18n";
@@ -99,6 +107,7 @@ interface IncomeTabProps {
   allMonthlyData: Record<string, MonthlyRecord>;
   onMonthChange: (newMonth: string) => void;
   onSaveIncomesForMonth: (monthKey: string, incomes: IncomeItem[]) => void;
+  onAllocateIncomeToSavings?: (payload: IncomeToSavingsTransferInput) => void;
   onTriggerSync?: () => void;
   onOpenCalendar?: (dateKey?: string) => void;
   pendingRecordTarget?: OpenRecordTarget | null;
@@ -115,6 +124,7 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
   allMonthlyData,
   onMonthChange,
   onSaveIncomesForMonth,
+  onAllocateIncomeToSavings,
   onTriggerSync,
   onOpenCalendar,
   pendingRecordTarget,
@@ -162,6 +172,13 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     undefined
   );
   const [formIsGenerated, setFormIsGenerated] = useState<boolean>(false);
+  const [formSavingsAction, setFormSavingsAction] = useState<"none" | "transfer">("none");
+  const [formSavingsMode, setFormSavingsMode] = useState<"all" | "custom">("all");
+  const [formSavingsCustomAmount, setFormSavingsCustomAmount] = useState<string>("");
+  const [formSavingsTarget, setFormSavingsTarget] = useState<string>("unallocated");
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(() =>
+    loadSavingsGoals()
+  );
   const [formError, setFormError] = useState<string | null>(null);
 
   // Category Picker Modal State
@@ -191,24 +208,38 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     }, 3500);
   };
 
-  // Sync on restore or category update events (backup / Google Drive restore / SavingsTab)
+  // Sync on restore or category/goal update events (backup / Google Drive restore / SavingsTab)
   useEffect(() => {
     const handleCategoriesSync = () => {
       setIncomeCategories(loadStoredIncomeCategories());
+      setSavingsGoals(loadSavingsGoals());
+    };
+    const handleGoalsSync = () => {
+      setSavingsGoals(loadSavingsGoals());
     };
     const handleRestored = () => {
       setIncomeCategories(loadStoredIncomeCategories());
       setRecurringTemplates(loadRecurringIncomes());
+      setSavingsGoals(loadSavingsGoals());
     };
     window.addEventListener("homebudget:categories-updated", handleCategoriesSync);
+    window.addEventListener(SAVINGS_GOALS_UPDATED_EVENT, handleGoalsSync);
     window.addEventListener("storage", handleCategoriesSync);
     window.addEventListener("homebudget:data-restored", handleRestored);
+    window.addEventListener("budgetflows:account-changed", handleRestored);
     return () => {
       window.removeEventListener("homebudget:categories-updated", handleCategoriesSync);
+      window.removeEventListener(SAVINGS_GOALS_UPDATED_EVENT, handleGoalsSync);
       window.removeEventListener("storage", handleCategoriesSync);
       window.removeEventListener("homebudget:data-restored", handleRestored);
+      window.removeEventListener("budgetflows:account-changed", handleRestored);
     };
   }, []);
+
+  const activeRegularGoals = useMemo(
+    () => savingsGoals.filter((g) => !g.archived && !g.isEmergencyFund),
+    [savingsGoals]
+  );
 
   // Active month navigation helpers
   const shiftMonth = (delta: number) => {
@@ -529,6 +560,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormCompleted(true);
     setFormLocation(undefined);
     setFormIsGenerated(false);
+    setSavingsGoals(loadSavingsGoals());
+    setFormSavingsAction("none");
+    setFormSavingsMode("all");
+    setFormSavingsCustomAmount("");
+    setFormSavingsTarget("unallocated");
     setFormError(null);
     setIsFormOpen(true);
   };
@@ -565,6 +601,11 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     setFormCompleted(isRecordCompleted(entry.item));
     setFormLocation(entry.item.location);
     setFormIsGenerated(Boolean(entry.item.recurrenceSourceId));
+    setSavingsGoals(loadSavingsGoals());
+    setFormSavingsAction("none");
+    setFormSavingsMode("all");
+    setFormSavingsCustomAmount("");
+    setFormSavingsTarget("unallocated");
     setFormError(null);
     setIsFormOpen(true);
   };
@@ -655,6 +696,28 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
       return;
     }
 
+    const isRegularIncomeModal =
+      !editingTemplateId && (Boolean(editingEntry) || !formScheduleOnly);
+    let transferAmount = 0;
+    const shouldTransferToSavings =
+      isRegularIncomeModal && formSavingsAction === "transfer";
+    if (shouldTransferToSavings) {
+      if (formSavingsMode === "all") {
+        transferAmount = parseFloat(numericAmount.toFixed(2));
+      } else {
+        const parsedTransfer = parseDecimalInput(formSavingsCustomAmount);
+        if (
+          isNaN(parsedTransfer) ||
+          parsedTransfer <= 0 ||
+          parsedTransfer > numericAmount + 0.0001
+        ) {
+          setFormError(t("income.errInvalidSavingsTransferAmount"));
+          return;
+        }
+        transferAmount = parseFloat(parsedTransfer.toFixed(2));
+      }
+    }
+
     const safeDateStr = formDate || toLocalYyyyMmDd(new Date());
     const selectedDateObj = new Date(safeDateStr + "T12:00:00");
     const normalizedLocation = normalizeLocation(formLocation);
@@ -740,9 +803,22 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
         onSaveIncomesForMonth(targetMonthKey, [...newMonthList, updatedItem]);
       }
 
+      if (shouldTransferToSavings && transferAmount > 0 && onAllocateIncomeToSavings) {
+        onAllocateIncomeToSavings({
+          incomeItem: updatedItem,
+          transferAmount,
+          target: formSavingsTarget,
+          description: t("income.savingsTransferNote"),
+        });
+      }
+
       onTriggerSync?.();
       setIsFormOpen(false);
-      showToast(t("income.toastIncomeUpdatedPlain"));
+      showToast(
+        shouldTransferToSavings && transferAmount > 0
+          ? t("income.toastIncomeWithSavings", { amount: transferAmount.toFixed(2) })
+          : t("income.toastIncomeUpdatedPlain")
+      );
       return;
     }
 
@@ -816,11 +892,23 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
     };
     const existingList = allMonthlyData[targetMonthKey]?.incomes || [];
     onSaveIncomesForMonth(targetMonthKey, [...existingList, newIncome]);
+
+    if (shouldTransferToSavings && transferAmount > 0 && onAllocateIncomeToSavings) {
+      onAllocateIncomeToSavings({
+        incomeItem: newIncome,
+        transferAmount,
+        target: formSavingsTarget,
+        description: t("income.savingsTransferNote"),
+      });
+    }
+
     onTriggerSync?.();
 
     setIsFormOpen(false);
     showToast(
-      formCompleted
+      shouldTransferToSavings && transferAmount > 0
+        ? t("income.toastIncomeWithSavings", { amount: transferAmount.toFixed(2) })
+        : formCompleted
         ? isFixed
           ? t("income.toastRecurringAddedPlain")
           : t("income.toastIncomeAddedPlain")
@@ -2181,6 +2269,159 @@ export const IncomeTab: React.FC<IncomeTabProps> = ({
                     formIsGenerated ? t("income.generatedHint") : undefined
                   }
                 />
+              )}
+
+              {/* Optional Income -> Savings Automation (Add / Edit Income) */}
+              {(editingEntry || (!editingTemplateId && !formScheduleOnly)) && (
+                <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-900/50 space-y-3">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    <PiggyBank className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>{t("income.savingsSectionTitle")}</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/80 cursor-pointer transition-colors hover:border-emerald-300 dark:hover:border-emerald-700">
+                      <input
+                        type="radio"
+                        name="incomeSavingsAction"
+                        checked={formSavingsAction === "none"}
+                        onChange={() => {
+                          setFormSavingsAction("none");
+                          setFormError(null);
+                        }}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200">
+                        {t("income.savingsNoTransfer")}
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/80 cursor-pointer transition-colors hover:border-emerald-300 dark:hover:border-emerald-700">
+                      <input
+                        type="radio"
+                        name="incomeSavingsAction"
+                        checked={formSavingsAction === "transfer"}
+                        onChange={() => {
+                          setFormSavingsAction("transfer");
+                          setFormError(null);
+                        }}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200">
+                        {t("income.savingsTransfer")}
+                      </span>
+                    </label>
+                  </div>
+
+                  {formSavingsAction === "transfer" && (
+                    <div className="space-y-3 pt-2 border-t border-emerald-200/70 dark:border-emerald-900/50 animate-in fade-in duration-150">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
+                          {t("income.savingsModeLabel")}
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormSavingsMode("all");
+                              setFormError(null);
+                            }}
+                            className={`px-3 py-2 min-h-[40px] rounded-lg text-xs font-semibold border transition-colors cursor-pointer text-center ${
+                              formSavingsMode === "all"
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                                : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            {t("income.savingsModeEntire")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormSavingsMode("custom");
+                              setFormError(null);
+                            }}
+                            className={`px-3 py-2 min-h-[40px] rounded-lg text-xs font-semibold border transition-colors cursor-pointer text-center ${
+                              formSavingsMode === "custom"
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                                : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            {t("income.savingsModeCustom")}
+                          </button>
+                        </div>
+                      </div>
+
+                      {formSavingsMode === "custom" && (
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                            {t("income.savingsCustomAmountLabel")}
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={formSavingsCustomAmount}
+                            onChange={(e) => {
+                              setFormSavingsCustomAmount(
+                                sanitizeDecimalInput(e.target.value)
+                              );
+                              setFormError(null);
+                            }}
+                            placeholder="0.00"
+                            className="w-full px-3 py-2 min-h-[42px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums"
+                          />
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                          {t("income.savingsTargetLabel")}
+                        </label>
+                        <select
+                          value={formSavingsTarget}
+                          onChange={(e) => setFormSavingsTarget(e.target.value)}
+                          className="w-full px-3 py-2 min-h-[42px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="unallocated">
+                            {t("income.savingsTargetUnallocated")}
+                          </option>
+                          <option value="emergency">
+                            {t("income.savingsTargetEmergency")}
+                          </option>
+                          {activeRegularGoals.map((goal) => (
+                            <option key={goal.id} value={goal.id}>
+                              {translateGoalName(goal.name, false, language)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {(() => {
+                        const incVal = parseDecimalInput(formAmount);
+                        const transferVal =
+                          formSavingsMode === "all"
+                            ? incVal
+                            : parseDecimalInput(formSavingsCustomAmount);
+                        if (
+                          isNaN(incVal) ||
+                          incVal <= 0 ||
+                          isNaN(transferVal) ||
+                          transferVal <= 0 ||
+                          transferVal > incVal + 0.0001
+                        ) {
+                          return null;
+                        }
+                        return (
+                          <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 tabular-nums">
+                            {t("income.savingsPreview", {
+                              transfer: transferVal.toFixed(2),
+                              total: incVal.toFixed(2),
+                            })}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Legacy Recurring Template Options (only when adding/editing a Template directly) */}

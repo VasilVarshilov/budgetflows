@@ -64,7 +64,13 @@ import {
 } from "@/utils/userStorage";
 import { toggleRecordCompletion } from "@/utils/expenseStatus";
 import { upsertElectricityRecordFromExpense } from "@/utils/electricityStorage";
-import { loadSavingsGoals, SAVINGS_GOALS_UPDATED_EVENT } from "@/utils/savingsGoalsStorage";
+import {
+  applyIncomeToSavingsTransfer,
+  IncomeToSavingsTransferInput,
+  loadSavingsGoals,
+  SAVINGS_GOALS_UPDATED_EVENT,
+  saveSavingsGoals,
+} from "@/utils/savingsGoalsStorage";
 import { ensureNewUserDefaults } from "@/utils/newUserDefaults";
 import { resetPageScrollToTop, smoothScrollToTop } from "@/utils/scrollUtils";
 import {
@@ -320,6 +326,9 @@ const AppContent: React.FC = () => {
   const monthlyDataRef = useRef<Record<string, MonthlyRecord>>({});
   monthlyDataRef.current = monthlyData;
 
+  const globalSavingsRef = useRef<IncomeItem[]>([]);
+  globalSavingsRef.current = globalSavings;
+
   const notificationsStoreRef = useRef<NotificationsStoreState>(notificationsStore);
   notificationsStoreRef.current = notificationsStore;
 
@@ -378,7 +387,9 @@ const AppContent: React.FC = () => {
 
     monthlyDataRef.current = normalizedMonthly;
     setMonthlyData(normalizedMonthly);
-    setGlobalSavings(Array.isArray(storedSavings) ? storedSavings : []);
+    const nextSavings = Array.isArray(storedSavings) ? storedSavings : [];
+    globalSavingsRef.current = nextSavings;
+    setGlobalSavings(nextSavings);
     setWorkspaceRevision((prev) => prev + 1);
   }, []);
 
@@ -388,6 +399,7 @@ const AppContent: React.FC = () => {
       // Clear active in-memory view during account transitions to avoid any data flash
       monthlyDataRef.current = {};
       setMonthlyData({});
+      globalSavingsRef.current = [];
       setGlobalSavings([]);
       const emptyNotifs = createEmptyNotificationsState();
       notificationsStoreRef.current = emptyNotifs;
@@ -1141,11 +1153,36 @@ const AppContent: React.FC = () => {
   const handleUpdateGlobalSavings = useCallback(
     (newSavings: IncomeItem[]) => {
       const targetUid = userStorage.getActiveUid();
+      globalSavingsRef.current = newSavings;
       saveSavingsToStorage(newSavings, targetUid);
       setGlobalSavings(newSavings);
       triggerAutoSync();
     },
     [activeUid, saveSavingsToStorage, triggerAutoSync]
+  );
+
+  // Automated Income -> Savings Transfer (+ optional Goal/Jar allocation)
+  const handleAllocateIncomeToSavings = useCallback(
+    (payload: IncomeToSavingsTransferInput) => {
+      const targetUid = userStorage.getActiveUid();
+      const currentSavings = globalSavingsRef.current;
+      const currentGoals = loadSavingsGoals(targetUid);
+      const result = applyIncomeToSavingsTransfer(
+        currentSavings,
+        currentGoals,
+        monthlyDataRef.current,
+        payload
+      );
+      if (!result.savingTx) return;
+      globalSavingsRef.current = result.nextSavings;
+      saveSavingsToStorage(result.nextSavings, targetUid);
+      setGlobalSavings(result.nextSavings);
+      if (result.goalsUpdated) {
+        saveSavingsGoals(result.nextGoals, targetUid);
+      }
+      triggerAutoSync();
+    },
+    [saveSavingsToStorage, triggerAutoSync]
   );
 
   // Restore / reload all state after backup import or local clear
@@ -1436,6 +1473,7 @@ const AppContent: React.FC = () => {
             allMonthlyData={monthlyData}
             onMonthChange={updateIncomeSelectedMonth}
             onSaveIncomesForMonth={handleSaveIncomesForMonth}
+            onAllocateIncomeToSavings={handleAllocateIncomeToSavings}
             onTriggerSync={triggerAutoSync}
             onOpenCalendar={handleOpenCalendar}
             pendingRecordTarget={pendingRecordTarget}

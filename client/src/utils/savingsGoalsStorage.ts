@@ -426,3 +426,138 @@ export function unarchiveSavingsGoal(goals: SavingsGoal[], goalId: string): Savi
 export function deleteSavingsGoalPermanently(goals: SavingsGoal[], goalId: string): SavingsGoal[] {
   return goals.filter((g) => g.id !== goalId);
 }
+
+export interface IncomeToSavingsTransferInput {
+  incomeItem: IncomeItem;
+  transferAmount: number;
+  target: "unallocated" | "emergency" | string;
+  description: string;
+}
+
+export function applyIncomeToSavingsTransfer(
+  currentSavings: IncomeItem[],
+  currentGoals: SavingsGoal[],
+  monthlyData: Record<string, MonthlyRecord>,
+  input: IncomeToSavingsTransferInput
+): {
+  nextSavings: IncomeItem[];
+  nextGoals: SavingsGoal[];
+  goalsUpdated: boolean;
+  savingTx: IncomeItem | null;
+} {
+  const amount = roundCurrency(Number(input.transferAmount) || 0);
+  if (amount <= 0) {
+    return {
+      nextSavings: currentSavings,
+      nextGoals: currentGoals,
+      goalsUpdated: false,
+      savingTx: null,
+    };
+  }
+
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const savingTx: IncomeItem = {
+    id: `sav_inc_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+    categoryId: input.incomeItem.categoryId,
+    categoryName: input.incomeItem.categoryName,
+    categoryIcon: input.incomeItem.categoryIcon,
+    categoryColor: input.incomeItem.categoryColor,
+    amount,
+    note: input.description,
+    date: input.incomeItem.date || nowIso,
+    createdAt: nowIso,
+    timestamp: nowMs,
+    type: "income",
+  };
+
+  const nextSavings = [...currentSavings, savingTx];
+  const newTotalSavings = calculateTotalSavingsBalance(nextSavings);
+
+  if (!input.target || input.target === "unallocated") {
+    return {
+      nextSavings,
+      nextGoals: currentGoals,
+      goalsUpdated: false,
+      savingTx,
+    };
+  }
+
+  if (input.target === "emergency") {
+    const existingEmergency = currentGoals.find(
+      (g) => !g.archived && g.isEmergencyFund
+    );
+    if (existingEmergency) {
+      const allocRes = allocateToSavingsGoal(
+        currentGoals,
+        existingEmergency.id,
+        amount,
+        newTotalSavings
+      );
+      if (allocRes.ok) {
+        return {
+          nextSavings,
+          nextGoals: allocRes.goals,
+          goalsUpdated: true,
+          savingTx,
+        };
+      }
+      return {
+        nextSavings,
+        nextGoals: currentGoals,
+        goalsUpdated: false,
+        savingTx,
+      };
+    }
+
+    const avgMonthlyExpenses = calculateAverageMonthlyExpenses(monthlyData);
+    const targetAmount =
+      avgMonthlyExpenses > 0
+        ? roundCurrency(avgMonthlyExpenses * EMERGENCY_FUND_TARGET_MONTHS)
+        : Math.max(amount, 1000);
+    const createRes = createSavingsGoal(currentGoals, newTotalSavings, {
+      name: "Авариен фонд",
+      targetAmount,
+      initialAllocation: amount,
+      description: EMERGENCY_FUND_DEFAULT_DESCRIPTION,
+      isEmergencyFund: true,
+    });
+    if (createRes.ok) {
+      return {
+        nextSavings,
+        nextGoals: createRes.goals,
+        goalsUpdated: true,
+        savingTx,
+      };
+    }
+    return {
+      nextSavings,
+      nextGoals: currentGoals,
+      goalsUpdated: false,
+      savingTx,
+    };
+  }
+
+  const allocRes = allocateToSavingsGoal(
+    currentGoals,
+    input.target,
+    amount,
+    newTotalSavings
+  );
+  if (allocRes.ok) {
+    return {
+      nextSavings,
+      nextGoals: allocRes.goals,
+      goalsUpdated: true,
+      savingTx,
+    };
+  }
+
+  return {
+    nextSavings,
+    nextGoals: currentGoals,
+    goalsUpdated: false,
+    savingTx,
+  };
+}
+

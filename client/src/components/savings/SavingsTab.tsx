@@ -5,29 +5,29 @@ import {
   Trash2,
   PiggyBank,
   TrendingUp,
-  BarChart3,
-  Briefcase,
-  Users,
-  Gift,
-  Sparkles,
-  Smartphone,
-  ShoppingBag,
-  Wallet,
   Download,
   FileText,
   X,
-  Calendar,
+  Target,
 } from "lucide-react";
-import { ExpenseCategory, IncomeItem, MonthlyRecord } from "@/types";
+import { ExpenseCategory, IncomeItem, MonthlyRecord, SavingsGoal } from "@/types";
 import { SavingsGoalsSection } from "@/components/savings/SavingsGoalsSection";
 import { InputGroup } from "@/components/ui/InputGroup";
 import { CategoryPicker } from "@/components/ui/CategoryPicker";
 import { ConfirmDeleteDialog } from "@/components/ui/ConfirmDeleteDialog";
-import { getHexFromTailwindClass } from "@/utils/colors";
 import {
+  AVAILABLE_ICONS_MAP,
   getCategoryBadgeClasses,
   loadStoredIncomeCategories,
+  resolveCategoryDisplayIcon,
 } from "@/utils/categoryStorage";
+import {
+  allocateToSavingsGoal,
+  calculateTotalSavingsBalance,
+  loadSavingsGoals,
+  SAVINGS_GOALS_UPDATED_EVENT,
+  saveSavingsGoals,
+} from "@/utils/savingsGoalsStorage";
 import { useTheme } from "@/utils/themeContext";
 import {
   parseDecimalInput,
@@ -39,72 +39,11 @@ import {
   formatShortMonthIndex,
   pluralizeUnit,
   translateCategoryName,
+  translateGoalName,
   useI18n,
 } from "@/i18n";
 
-// Map за lucide-react иконките (използва се по iconName)
-const ICON_MAP: Record<string, any> = {
-  Briefcase,
-  Users,
-  Gift,
-  Sparkles,
-  Smartphone,
-  ShoppingBag,
-  Wallet,
-  TrendingUp,
-};
-
-// Predefined Income Categories
-const PREDEFINED_INCOME_CATEGORIES: ExpenseCategory[] = [
-  {
-    id: "salary",
-    name: "Заплата",
-    iconName: "Briefcase",
-    colorClass: "bg-emerald-100 text-emerald-600",
-  },
-  {
-    id: "parents",
-    name: "От родители",
-    iconName: "Users",
-    colorClass: "bg-blue-100 text-blue-600",
-  },
-  {
-    id: "gifts",
-    name: "Подаръци",
-    iconName: "Gift",
-    colorClass: "bg-pink-100 text-pink-500",
-  },
-  {
-    id: "bonus",
-    name: "Бонус",
-    iconName: "Sparkles",
-    colorClass: "bg-yellow-100 text-yellow-600",
-  },
-  {
-    id: "freelance",
-    name: "Фрийланс",
-    iconName: "Smartphone",
-    colorClass: "bg-purple-100 text-purple-600",
-  },
-  {
-    id: "sales",
-    name: "Продажби",
-    iconName: "ShoppingBag",
-    colorClass: "bg-orange-100 text-orange-600",
-  },
-  {
-    id: "investments",
-    name: "Инвестиции",
-    iconName: "TrendingUp",
-    colorClass: "bg-cyan-100 text-cyan-600",
-  },
-  {
-    id: "other_income",
-    name: "Други",
-    iconName: "Wallet",
-    colorClass: "bg-slate-100 text-slate-600",
-  },
-];
+const ICON_MAP: Record<string, React.ElementType> = AVAILABLE_ICONS_MAP;
 
 interface SavingsTabProps {
   onUpdateSavings: (incomes: IncomeItem[]) => void;
@@ -139,18 +78,33 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
   const [categories, setCategories] = useState<ExpenseCategory[]>(() =>
     loadStoredIncomeCategories(),
   );
+  const [goals, setGoals] = useState<SavingsGoal[]>(() => loadSavingsGoals());
 
   useEffect(() => {
     const syncCats = () => setCategories(loadStoredIncomeCategories());
+    const syncGoals = () => setGoals(loadSavingsGoals());
+    const syncAll = () => {
+      syncCats();
+      syncGoals();
+    };
     window.addEventListener("homebudget:categories-updated", syncCats);
-    window.addEventListener("homebudget:data-restored", syncCats);
-    window.addEventListener("storage", syncCats);
+    window.addEventListener(SAVINGS_GOALS_UPDATED_EVENT, syncGoals);
+    window.addEventListener("homebudget:data-restored", syncAll);
+    window.addEventListener("budgetflows:account-changed", syncAll);
+    window.addEventListener("storage", syncAll);
     return () => {
       window.removeEventListener("homebudget:categories-updated", syncCats);
-      window.removeEventListener("homebudget:data-restored", syncCats);
-      window.removeEventListener("storage", syncCats);
+      window.removeEventListener(SAVINGS_GOALS_UPDATED_EVENT, syncGoals);
+      window.removeEventListener("homebudget:data-restored", syncAll);
+      window.removeEventListener("budgetflows:account-changed", syncAll);
+      window.removeEventListener("storage", syncAll);
     };
   }, []);
+
+  const activeGoals = useMemo(
+    () => goals.filter((g) => !g.archived),
+    [goals],
+  );
 
   // UI State
   const [isAdding, setIsAdding] = useState(false);
@@ -166,6 +120,7 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
     useState<ExpenseCategory | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [selectedGoalId, setSelectedGoalId] = useState("");
 
   const currentYear = new Date().getFullYear();
 
@@ -348,10 +303,12 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
 
   const handleOpenAdd = (type: "income" | "expense") => {
     setTransactionType(type);
+    setGoals(loadSavingsGoals());
     setIsAdding(true);
     setSelectedCategory(null);
     setAmount("");
     setNote("");
+    setSelectedGoalId("");
   };
 
   const handleAddTransaction = () => {
@@ -380,10 +337,27 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
     const newData = [...savingsData, newTransaction];
     onUpdateSavings(newData);
 
+    if (transactionType === "income" && selectedGoalId) {
+      const currentGoals = loadSavingsGoals();
+      const nextTotalSavings = calculateTotalSavingsBalance(newData);
+      const allocRes = allocateToSavingsGoal(
+        currentGoals,
+        selectedGoalId,
+        parsedAmount,
+        nextTotalSavings,
+      );
+      if (allocRes.ok) {
+        const savedGoals = saveSavingsGoals(allocRes.goals);
+        setGoals(savedGoals);
+        onTriggerSync?.();
+      }
+    }
+
     setIsAdding(false);
     setSelectedCategory(null);
     setAmount("");
     setNote("");
+    setSelectedGoalId("");
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -648,17 +622,18 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                       <span
                         className={`w-5 h-5 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(selectedCategory.colorClass)}`}
                       >
-                        {selectedCategory.iconName &&
-                        ICON_MAP[selectedCategory.iconName] ? (
-                          React.createElement(
-                            ICON_MAP[selectedCategory.iconName],
-                            {
-                              className: "w-2.5 h-2.5 text-current",
-                            },
-                          )
-                        ) : (
-                          <div className="w-2 h-2 rounded-full bg-current" />
-                        )}
+                        {(() => {
+                          const iconKey = resolveCategoryDisplayIcon(
+                            selectedCategory.iconName,
+                            selectedCategory.name,
+                          );
+                          const IconComp = iconKey ? ICON_MAP[iconKey] : undefined;
+                          return IconComp ? (
+                            <IconComp className="w-2.5 h-2.5 text-current" />
+                          ) : (
+                            <div className="w-2 h-2 rounded-full bg-current" />
+                          );
+                        })()}
                       </span>
                       {translateCategoryName(selectedCategory.name, language)}
                     </span>
@@ -678,6 +653,29 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 placeholder="0.00"
               />
             </div>
+
+            {transactionType === "income" && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  {t("savings.goalJarOptionalLabel")}
+                </label>
+                <select
+                  value={selectedGoalId}
+                  onChange={(e) => setSelectedGoalId(e.target.value)}
+                  className="w-full px-3 py-2.5 min-h-[42px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-sm"
+                >
+                  <option value="">{t("savings.goalJarNoneOption")}</option>
+                  {activeGoals.map((goal) => (
+                    <option key={goal.id} value={goal.id}>
+                      {goal.isEmergencyFund
+                        ? t("savings.emergencyFundTitle")
+                        : translateGoalName(goal.name, Boolean(goal.isEmergencyFund), language)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -760,17 +758,42 @@ export const SavingsTab: React.FC<SavingsTabProps> = ({
                 >
                   <div className="flex items-center gap-4">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center ${getCategoryBadgeClasses(item.categoryColor)}`}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${getCategoryBadgeClasses(item.categoryColor)}`}
                     >
-                      {item.categoryIcon && ICON_MAP[item.categoryIcon] ? (
-                        React.createElement(ICON_MAP[item.categoryIcon], {
-                          className: "w-4 h-4 text-current",
-                        })
-                      ) : item.type === "expense" ? (
-                        <Minus className="w-4 h-4" />
-                      ) : (
-                        <Plus className="w-4 h-4" />
-                      )}
+                      {(() => {
+                        const resolvedPrimary = resolveCategoryDisplayIcon(
+                          item.categoryIcon,
+                          item.categoryName,
+                        );
+                        let IconComp = resolvedPrimary
+                          ? ICON_MAP[resolvedPrimary]
+                          : undefined;
+                        if (!IconComp) {
+                          const matchedCat = categories.find(
+                            (c) =>
+                              c.id === item.categoryId ||
+                              c.name.trim().toLowerCase() ===
+                                item.categoryName.trim().toLowerCase(),
+                          );
+                          const matchedKey = matchedCat
+                            ? resolveCategoryDisplayIcon(
+                                matchedCat.iconName,
+                                matchedCat.name,
+                              )
+                            : undefined;
+                          if (matchedKey) {
+                            IconComp = ICON_MAP[matchedKey];
+                          }
+                        }
+                        if (IconComp) {
+                          return <IconComp className="w-4 h-4 text-current" />;
+                        }
+                        return item.type === "expense" ? (
+                          <Minus className="w-4 h-4" />
+                        ) : (
+                          <Plus className="w-4 h-4" />
+                        );
+                      })()}
                     </div>
                     <div>
                       <p className="font-medium text-slate-800 dark:text-slate-100">

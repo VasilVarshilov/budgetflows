@@ -580,6 +580,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     dayOfMonth: extractScheduleDefaultsFromDate(getDefaultDateKeyForMonth(currentMonth), currentMonth).dayOfMonth,
   }));
   const [fixedCompleted, setFixedCompleted] = useState<boolean>(true);
+  const [fixedNote, setFixedNote] = useState("");
   const [fixedLocation, setFixedLocation] = useState<TransactionLocation | undefined>(
     undefined
   );
@@ -590,7 +591,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
     useState<ExpenseCategory | null>(null);
   const [showEditFixedCategoryPicker, setShowEditFixedCategoryPicker] =
     useState(false);
-  const [editFixedName, setEditFixedName] = useState("");
+  const [editFixedNote, setEditFixedNote] = useState("");
   const [editFixedAmount, setEditFixedAmount] = useState("");
   const [editFixedDate, setEditFixedDate] = useState<string>(() =>
     getDefaultDateKeyForMonth(currentMonth)
@@ -1410,6 +1411,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       targetMonthKey
     );
 
+    const trimmedFixedNote = fixedNote.trim();
     const newItem: ExpenseItem = {
       id: `${goesToFixed ? "fix" : "exp"}_${nowMs}`,
       categoryId: selectedFixedCategory.id,
@@ -1419,6 +1421,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       budgetCategoryId: selectedFixedBudgetCategoryId || undefined,
       budgetCategoryName: chosenBudget ? chosenBudget.categoryName : undefined,
       amount: parsed,
+      ...(trimmedFixedNote ? { note: trimmedFixedNote } : {}),
       ...(normalizedLocation ? { location: normalizedLocation } : {}),
       date: dateKeyToStableIso(safeDateKey),
       expectedDate: safeDateKey,
@@ -1476,6 +1479,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       dayOfMonth: extractScheduleDefaultsFromDate(resetFixedDate, currentMonth).dayOfMonth,
     });
     setFixedCompleted(true);
+    setFixedNote("");
     setFixedLocation(undefined);
   };
 
@@ -1494,7 +1498,7 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
   const handleStartEditFixed = (item: ExpenseItem) => {
     setEditingFixedId(item.id);
     setEditFixedCategory(resolveExpenseCategoryObject(item));
-    setEditFixedName(item.categoryName);
+    setEditFixedNote(item.note || "");
     setEditFixedAmount(item.amount.toString());
     setEditFixedDate(resolveRecordDateKey(item, currentMonth));
     setEditFixedBudgetCategoryId(item.budgetCategoryId || "");
@@ -1535,14 +1539,15 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
       targetMonthKey
     );
 
+    const trimmedEditFixedNote = editFixedNote.trim();
     const updatedItem: ExpenseItem = {
       ...existingItem,
       categoryId: editFixedCategory?.id || existingItem.categoryId,
-      categoryName:
-        editFixedName.trim() || editFixedCategory?.name || existingItem.categoryName,
+      categoryName: editFixedCategory?.name || existingItem.categoryName,
       categoryIcon: editFixedCategory?.iconName || existingItem.categoryIcon,
       categoryColor: editFixedCategory?.colorClass || existingItem.categoryColor,
       amount: val,
+      note: trimmedEditFixedNote || undefined,
       location: normalizedLocation,
       date: dateKeyToStableIso(safeDateKey),
       expectedDate: safeDateKey,
@@ -2231,6 +2236,19 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
                 </button>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  {t("expenses.noteOptionalLabel")}
+                </label>
+                <input
+                  type="text"
+                  value={fixedNote}
+                  onChange={(e) => setFixedNote(e.target.value)}
+                  placeholder={t("expenses.notePlaceholder")}
+                  className="w-full px-3 py-2 min-h-[40px] sm:min-h-[38px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
               <RecurrenceCompletionRows
                 repeat={fixedRepeat}
                 onRepeatChange={setFixedRepeat}
@@ -2363,14 +2381,14 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
 
                     <div>
                       <label className="text-xs font-medium text-slate-600 dark:text-slate-300 block mb-1">
-                        {t("expenses.fixedNameDescLabel")}
+                        {t("expenses.noteOptionalLabel")}
                       </label>
                       <input
                         type="text"
-                        value={editFixedName}
-                        onChange={(e) => setEditFixedName(e.target.value)}
+                        value={editFixedNote}
+                        onChange={(e) => setEditFixedNote(e.target.value)}
                         className="w-full px-3 py-2 min-h-[40px] sm:min-h-[36px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder={t("expenses.fixedNameDescPlaceholder")}
+                        placeholder={t("expenses.notePlaceholder")}
                       />
                     </div>
 
@@ -3356,14 +3374,12 @@ export const MonthlyExpensesTab: React.FC<MonthlyExpensesTabProps> = ({
           categories={categories}
           onSelect={(cat) => {
             setEditFixedCategory(cat);
-            setEditFixedName(cat.name);
             setShowEditFixedCategoryPicker(false);
           }}
           onClose={() => setShowEditFixedCategoryPicker(false)}
           onAddNewCategory={(newCat) => {
             handleCategoriesChanged(loadStoredCategories());
             setEditFixedCategory(newCat);
-            setEditFixedName(newCat.name);
             setShowEditFixedCategoryPicker(false);
           }}
           onCategoriesChanged={handleCategoriesChanged}
