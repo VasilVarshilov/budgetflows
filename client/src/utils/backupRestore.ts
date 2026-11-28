@@ -80,13 +80,7 @@ export const DEFAULT_INCOME_CATEGORIES: ExpenseCategory[] = [
   { id: "other_income", name: "Други", iconName: "Wallet", colorClass: "bg-slate-100 text-slate-600" },
 ];
 
-export const DEFAULT_BUDGETS: BudgetConfig[] = [
-  { id: "b_food", categoryName: "Храна", categoryId: "food", monthlyLimit: 1 },
-  { id: "b_bills", categoryName: "Сметки и битови", monthlyLimit: 1 },
-  { id: "b_transport", categoryName: "Гориво и транспорт", monthlyLimit: 1 },
-  { id: "b_rest", categoryName: "Ресторанти и забавления", monthlyLimit: 1 },
-  { id: "b_other", categoryName: "Други разходи", monthlyLimit: 1 },
-];
+export const DEFAULT_BUDGETS: BudgetConfig[] = [];
 
 /**
  * Reads safe JSON from account-isolated userStorage with fallback

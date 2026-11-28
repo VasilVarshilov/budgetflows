@@ -16,38 +16,9 @@ import { getCurrentLanguage, t, translateBudgetName } from "@/i18n/helpers";
 export const STORAGE_KEY_BUDGETS = "HomeBudget_Budgets";
 export const STORAGE_KEY_TOTAL_BUDGET = "HomeBudget_TotalMonthlyBudget";
 
-export const DEFAULT_TOTAL_MONTHLY_BUDGET = 5;
+export const DEFAULT_TOTAL_MONTHLY_BUDGET = 0;
 
-export const DEFAULT_CATEGORY_BUDGETS: BudgetConfig[] = [
-  {
-    id: "b_food",
-    categoryName: "Храна",
-    categoryId: "food",
-    monthlyLimit: 1,
-  },
-  {
-    id: "b_transport",
-    categoryName: "Транспорт",
-    categoryId: "transport",
-    monthlyLimit: 1,
-  },
-  {
-    id: "b_entertainment",
-    categoryName: "Забавления",
-    monthlyLimit: 1,
-  },
-  {
-    id: "b_bills",
-    categoryName: "Сметки и битови",
-    monthlyLimit: 1,
-  },
-  {
-    id: "b_other",
-    categoryName: "Други",
-    categoryId: "other",
-    monthlyLimit: 1,
-  },
-];
+export const DEFAULT_CATEGORY_BUDGETS: BudgetConfig[] = [];
 
 export interface BudgetStatus {
   budget: BudgetConfig;
@@ -378,10 +349,7 @@ export function loadBudgets(): {
     console.warn("Failed loading budgets list:", e);
   }
 
-  // If no category budgets configured yet, return default presets without dirtying empty storage
-  if (categoryBudgets.length === 0) {
-    categoryBudgets = DEFAULT_CATEGORY_BUDGETS.map((b) => ({ ...b }));
-  }
+  // Keep empty array when no category budgets have been configured yet (clean empty state)
 
   // Run idempotent reconciliation against current categories
   const categories = loadStoredCategories();
@@ -1017,12 +985,14 @@ export function calculateAllBudgetsStatus(
   }
   totalSpent = parseFloat(totalSpent.toFixed(2));
 
-  const totalRemaining = parseFloat((totalMonthlyLimit - totalSpent).toFixed(2));
-  const totalPercentage =
-    totalMonthlyLimit > 0
-      ? parseFloat(((totalSpent / totalMonthlyLimit) * 100).toFixed(1))
-      : 0;
-  const isTotalExceeded = totalSpent > totalMonthlyLimit;
+  const hasTotalLimit = totalMonthlyLimit > 0;
+  const totalRemaining = hasTotalLimit
+    ? parseFloat((totalMonthlyLimit - totalSpent).toFixed(2))
+    : 0;
+  const totalPercentage = hasTotalLimit
+    ? parseFloat(((totalSpent / totalMonthlyLimit) * 100).toFixed(1))
+    : 0;
+  const isTotalExceeded = hasTotalLimit && totalSpent > totalMonthlyLimit;
   const totalOverspentAmount = isTotalExceeded
     ? parseFloat((totalSpent - totalMonthlyLimit).toFixed(2))
     : 0;

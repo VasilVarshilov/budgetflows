@@ -504,7 +504,9 @@ export const BudgetManagementTab: React.FC<BudgetManagementTabProps> = ({
                   </span>
                   <button
                     onClick={() => {
-                      setTotalBudgetInput(totalMonthlyBudget.toString());
+                      setTotalBudgetInput(
+                        totalMonthlyBudget > 0 ? totalMonthlyBudget.toString() : ""
+                      );
                       setIsEditingTotal(true);
                     }}
                     className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"

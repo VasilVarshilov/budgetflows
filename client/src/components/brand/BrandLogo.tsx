@@ -61,8 +61,8 @@ const SIZE_CLASSES: Record<number, string> = {
 
 /**
  * Budget Force 365 Brand Mark
- * Uses the approved PNG circular emblem (deep royal-navy circle, compact white BF monogram,
- * and hidden cyan growth arrow integrated inside F) with adaptive dark/light surface framing.
+ * Uses the approved rounded-square app icon PNG (deep royal-navy rounded square, compact white BF monogram,
+ * and integrated cyan growth arrow inside F) with adaptive dark/light surface framing.
  */
 export const BrandMark: React.FC<BrandMarkProps> = ({
   size = 40,
@@ -92,7 +92,7 @@ export const BrandMark: React.FC<BrandMarkProps> = ({
       alt=""
       aria-hidden="true"
       decoding="async"
-      className={`${sizeClass} rounded-full object-contain shrink-0 select-none ${ringClass} ${className}`.trim()}
+      className={`${sizeClass} rounded-[26%] object-contain shrink-0 select-none ${ringClass} ${className}`.trim()}
     />
   );
 };
@@ -133,7 +133,7 @@ export const BrandTagline: React.FC<{
 };
 
 /**
- * Header Logo Lockup: Circular BF↗ PNG Logo + "Budget Force 365" + subtle uniform-color "Track. Save. Grow." subtitle.
+ * Header Logo Lockup: Rounded-square BF↗ PNG Logo + "Budget Force 365" + subtle uniform-color "Track. Save. Grow." subtitle.
  */
 export const BrandHeaderLockup: React.FC<{
   className?: string;
@@ -159,7 +159,7 @@ export const BrandHeaderLockup: React.FC<{
 };
 
 /**
- * Splash Screen Lockup: Circular BF↗ PNG Logo + "Budget Force 365" + "Track. Save. Grow.".
+ * Splash Screen Lockup: Rounded-square BF↗ PNG Logo + "Budget Force 365" + "Track. Save. Grow.".
  */
 export const BrandSplashLockup: React.FC<{
   statusMessage?: React.ReactNode;

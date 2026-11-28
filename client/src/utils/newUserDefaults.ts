@@ -1,9 +1,3 @@
-import { RecurringIncomeTemplate, SavingsGoal } from "@/types";
-import { toLocalYyyyMmDd } from "./incomeStorage";
-import {
-  EMERGENCY_FUND_DEFAULT_DESCRIPTION,
-  EMERGENCY_FUND_TARGET_MONTHS,
-} from "./savingsGoalsStorage";
 import {
   getUserStorageKey,
   sanitizeUid,
@@ -87,8 +81,9 @@ export function isBrandNewUserWorkspace(specificUid?: string): boolean {
 }
 
 /**
- * Initializes clean minimal defaults ONLY for brand-new users with fresh empty storage.
- * Existing users (any stored key or prior data) are marked initialized and NEVER modified.
+ * Marks a brand-new user workspace as initialized with a completely clean slate
+ * (zero seeded goals, Emergency Fund, budgets, incomes, expenses, electricity history,
+ * or notifications). Existing users are marked initialized without touching any data.
  * Does NOT call markLocalModified so cloud-sync fresh-device Drive restore detection stays intact.
  */
 export function ensureNewUserDefaults(specificUid?: string): boolean {
@@ -105,53 +100,6 @@ export function ensureNewUserDefaults(specificUid?: string): boolean {
     return false;
   }
 
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const todayYyyyMmDd = toLocalYyyyMmDd(now);
-
-  const defaultGoals: SavingsGoal[] = [
-    {
-      id: "goal_default_emergency",
-      name: "Авариен фонд",
-      targetAmount: EMERGENCY_FUND_TARGET_MONTHS,
-      allocatedAmount: 0,
-      description: EMERGENCY_FUND_DEFAULT_DESCRIPTION,
-      isEmergencyFund: true,
-      archived: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    },
-    {
-      id: "goal_default_vacation",
-      name: "Ваканция",
-      targetAmount: 1,
-      allocatedAmount: 0,
-      isEmergencyFund: false,
-      archived: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    },
-  ];
-
-  const defaultRecurringIncomes: RecurringIncomeTemplate[] = [
-    {
-      id: "rec_inc_default_salary",
-      categoryId: "salary",
-      categoryName: "Заплата",
-      categoryIcon: "Briefcase",
-      categoryColor: "bg-emerald-100 text-emerald-600",
-      amount: 1,
-      frequency: "monthly",
-      dayOfMonth: 1,
-      startDate: todayYyyyMmDd,
-      active: true,
-      createdAt: nowIso,
-    },
-  ];
-
-  userStorage.setJSON(STORAGE_BASE_SAVINGS_GOALS, defaultGoals, targetUid);
-  userStorage.setJSON(STORAGE_BASE_RECURRING_INCOMES, defaultRecurringIncomes, targetUid);
   userStorage.setItem(STORAGE_BASE_DEFAULTS_INITIALIZED, "true", targetUid);
-
   return true;
 }

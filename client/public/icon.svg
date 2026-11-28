@@ -17,7 +17,7 @@
       <stop offset="100%" stop-color="#00A3FF" />
     </linearGradient>
   </defs>
-  <circle cx="50" cy="50" r="47" fill="url(#bfBg)" />
+  <rect x="3" y="3" width="94" height="94" rx="24.5" ry="24.5" fill="url(#bfBg)" />
   <path
     fill-rule="evenodd"
     fill="#FFFFFF"
